@@ -30,3 +30,6 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# LINE PLAY artifacts (stored out-of-band, never committed)
+.opencode/line-play-artifacts/
