@@ -1,10 +1,13 @@
 package main
 
 import (
+	"compress/gzip"
 	"crypto/rand"
 	_ "embed"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -38,6 +41,16 @@ const notFoundBody = `{"errorCode":"404","errorMessage":"cherry: unknown route"}
 
 const unknownSessionBody = `{"errorCode":"404","errorMessage":"cherry: unknown session"}`
 
+const createCompleteBody = `{"result":{"status":true,"rewardCoin":300}}`
+
+const settingAllBody = `{"result":{"notiFlag":false,"changeCountry":false,"countryName":"","soundConfig":false,"notiConfig":{},"privacyConfig":{},"roomSize":{"max":0,"cur":0}}}`
+
+const friendSyncBody = `{"result":{"existProfile":false,"nextCursor":0,"timestamp":"0","friendsCount":0,"buddyList":[],"newbieRecommendList":[],"nearbyRecommendList":[],"bookmarks":{}}}`
+
+const friendLineBuddyBody = `{"result":{"nextCursor":0,"buddyList":[]}}`
+
+const friendBrandBuddyBody = `{"result":[]}`
+
 const artsStringsMD5 = "1492F278EC281078AC7F35479A85F197"
 
 //go:embed testdata/arts_strings.ast
@@ -48,14 +61,23 @@ func newMux() *http.ServeMux {
 	mux.HandleFunc("/v4/account/guest/generate", handleGuestGenerate)
 	mux.HandleFunc("/v4/createSession", handleCreateSession)
 	mux.HandleFunc("/v4/checkSession", handleCheckSession)
+	mux.HandleFunc("/v4/create/avatar", handleCreateAvatar)
+	mux.HandleFunc("/v4/create/complete", handleCreateComplete)
+	mux.HandleFunc("/arts_session/sckey.enc", handleSckeyEnc)
 	mux.HandleFunc("/v4/setInitConf", handleSetInitConf)
 	mux.HandleFunc("/v4/resource/splash/", handleSplash)
 	mux.HandleFunc("/notice/adr/checkresource2.json", handleCheckResource2)
 	mux.HandleFunc("/v4/popup/isExists", handleJSONBody(popupIsExistsBody))
 	mux.HandleFunc("/v4/eventFlag/flagList", handleJSONBody(eventFlagListBody))
-	mux.HandleFunc("/v4/social/terms/sns", handleJSONBody(snsTermsBody))
+	mux.HandleFunc("/v4/social/terms/sns", handleSnsTerms)
 	mux.HandleFunc("/v4/setting/term/all", handleJSONBody(termAllBody))
+	mux.HandleFunc("/v4/setting/all", handleJSONBody(settingAllBody))
+	mux.HandleFunc("/v4/sync/friends/", handleJSONBody(friendSyncBody))
+	mux.HandleFunc("/v4/buddy/list/type/0", handleJSONBody(friendSyncBody))
+	mux.HandleFunc("/v4/line/buddy/v4/list", handleJSONBody(friendLineBuddyBody))
+	mux.HandleFunc("/v4/brand/list", handleJSONBody(friendBrandBuddyBody))
 	mux.HandleFunc("/v4/profile/", handleJSONBody(profileBody))
+	mux.HandleFunc("/v4/avatar/", handleAvatarInfo)
 	mux.HandleFunc("/", handleRoot)
 	return mux
 }
@@ -68,6 +90,14 @@ func handleJSONBody(body string) http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusOK, body)
 	}
+}
+
+func handleSnsTerms(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPut {
+		serveNotFound(w)
+		return
+	}
+	writeJSON(w, http.StatusOK, snsTermsBody)
 }
 
 func handleArtsStrings(w http.ResponseWriter, r *http.Request) {
@@ -150,6 +180,83 @@ func handleCheckSession(w http.ResponseWriter, r *http.Request) {
 	accountsMu.Unlock()
 	w.Header().Add("Set-Cookie", avAuthSetCookie(token))
 	writeJSON(w, http.StatusOK, fmt.Sprintf(`{"Timestamp":"%d","result":%s}`, time.Now().Unix(), sessionResultBody(acc)))
+}
+
+func handleCreateAvatar(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		serveNotFound(w)
+		return
+	}
+	body := r.Body
+	if strings.EqualFold(strings.TrimSpace(r.Header.Get("Content-Encoding")), "gzip") {
+		if zr, err := gzip.NewReader(r.Body); err == nil {
+			defer zr.Close()
+			body = zr
+		}
+	}
+	var req struct {
+		AvatarType string `json:"avatarType"`
+	}
+	_ = json.NewDecoder(io.LimitReader(body, 1<<20)).Decode(&req)
+
+	accountsMu.Lock()
+	acc := accounts[cookieValue(r, "AV_AUTH")]
+	accountsMu.Unlock()
+	if acc == nil {
+		acc = newAccount()
+	}
+	token := randomToken(256)
+	accountsMu.Lock()
+	if acc.aid == "0" {
+		nextAvatarID++
+		acc.aid = strconv.FormatUint(nextAvatarID, 10)
+	}
+	aid, sessionKey := acc.aid, acc.sessionKey
+	accounts[token] = acc
+	accountsMu.Unlock()
+
+	w.Header().Add("Set-Cookie", avAuthSetCookie(token))
+	payload, _ := json.Marshal(struct {
+		Result avatarResult `json:"result"`
+	}{avatarResult{
+		AvatarID:    aid,
+		Gender:      req.AvatarType,
+		SessionKey:  sessionKey,
+		AvatarCode:  "ac",
+		Items:       []string{},
+		PetProfiles: []string{},
+	}})
+	writeJSON(w, http.StatusOK, string(payload))
+}
+
+func handleCreateComplete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		serveNotFound(w)
+		return
+	}
+	writeJSON(w, http.StatusOK, createCompleteBody)
+}
+
+func handleAvatarInfo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		serveNotFound(w)
+		return
+	}
+	id, ok := strings.CutPrefix(r.URL.Path, "/v4/avatar/")
+	if !ok || id == "" || strings.Contains(id, "/") {
+		serveNotFound(w)
+		return
+	}
+	payload, _ := json.Marshal(struct {
+		Result avatarInfoResult `json:"result"`
+	}{avatarInfoResult{
+		AvatarID:    id,
+		Gender:      "FEMALE",
+		SType:       "NORMAL",
+		Items:       []string{},
+		PetProfiles: []string{},
+	}})
+	writeJSON(w, http.StatusOK, string(payload))
 }
 
 func handleRoot(w http.ResponseWriter, r *http.Request) {
@@ -254,10 +361,30 @@ type account struct {
 	aid          string
 }
 
+type avatarResult struct {
+	AvatarID    string   `json:"avatarId"`
+	Name        string   `json:"name"`
+	Gender      string   `json:"gender"`
+	SessionKey  string   `json:"sessionKey"`
+	AvatarCode  string   `json:"avatarCode"`
+	Items       []string `json:"items"`
+	PetProfiles []string `json:"petProfiles"`
+}
+
+type avatarInfoResult struct {
+	AvatarID    string   `json:"avatarId"`
+	Name        string   `json:"name"`
+	Gender      string   `json:"gender"`
+	SType       string   `json:"sType"`
+	Items       []string `json:"items"`
+	PetProfiles []string `json:"petProfiles"`
+}
+
 var (
-	accountsMu sync.Mutex
-	accounts   = make(map[string]*account)
-	latestAcc  *account
+	accountsMu   sync.Mutex
+	accounts     = make(map[string]*account)
+	latestAcc    *account
+	nextAvatarID uint64
 )
 
 func newAccount() *account {

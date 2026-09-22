@@ -1,7 +1,12 @@
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/md5"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
@@ -305,6 +310,24 @@ func TestSnsTermsAndTermAll(t *testing.T) {
 		}
 		if got := rec.Body.String(); got != c.body {
 			t.Fatalf("%s: body = %q, want %q", c.path, got, c.body)
+		}
+	}
+	for _, method := range []string{http.MethodGet, http.MethodPut} {
+		rec := serve(t, method, "/v4/social/terms/sns")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200", method, rec.Code)
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "application/json; charset=utf-8" {
+			t.Fatalf("%s: Content-Type = %q", method, ct)
+		}
+		var raw struct {
+			Result *bool `json:"result"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+			t.Fatalf("%s: body is not valid JSON: %v", method, err)
+		}
+		if raw.Result == nil || !*raw.Result {
+			t.Fatalf("%s: body = %q, want result true", method, rec.Body.String())
 		}
 	}
 	for _, path := range []string{"/v4/social/terms/sns", "/v4/setting/term/all"} {
@@ -612,11 +635,349 @@ func TestAuthWrongMethods(t *testing.T) {
 		{http.MethodDelete, "/v4/createSession"},
 		{http.MethodPost, "/v4/checkSession"},
 		{http.MethodHead, "/v4/checkSession"},
+		{http.MethodGet, "/v4/create/avatar"},
+		{http.MethodPut, "/v4/create/avatar"},
+		{http.MethodDelete, "/v4/create/avatar"},
+		{http.MethodHead, "/v4/create/avatar"},
 	}
 	for _, c := range cases {
 		rec := serveRequest(t, httptest.NewRequest(c.method, c.path, nil))
 		if rec.Code != http.StatusNotFound || rec.Body.String() != notFoundBody {
 			t.Fatalf("%s %s: status = %d, body = %q", c.method, c.path, rec.Code, rec.Body.String())
 		}
+	}
+}
+
+type avatarResponse struct {
+	Result *avatarResult `json:"result"`
+}
+
+func createAvatar(t *testing.T, avAuth string, payload []byte, contentEncoding string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/v4/create/avatar", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	if contentEncoding != "" {
+		req.Header.Set("Content-Encoding", contentEncoding)
+	}
+	if avAuth != "" {
+		req.AddCookie(&http.Cookie{Name: "AV_AUTH", Value: avAuth})
+	}
+	return serveRequest(t, req)
+}
+
+func TestCreateAvatar(t *testing.T) {
+	accessTokenA := guestGenerate(t)
+	createA := createSession(t, accessTokenA)
+	if aid := decodeSession(t, createA).Aid; aid != "0" {
+		t.Fatalf("guest A aid = %q, want %q", aid, "0")
+	}
+	avAuthA := avAuthValue(t, createA)
+
+	guestGenerate(t)
+
+	payload := []byte(`{"name":"","avatarType":"F","nationCode":"JP","skinColor":"1","itemCodes":["1001"],"useMid":true}`)
+	rec := createAvatar(t, avAuthA, payload, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body = %q", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json; charset=utf-8" {
+		t.Fatalf("Content-Type = %q", ct)
+	}
+	var raw struct {
+		Result map[string]json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("body is not valid JSON: %v", err)
+	}
+	wantKeys := []string{"avatarId", "name", "gender", "sessionKey", "avatarCode", "items", "petProfiles"}
+	if len(raw.Result) != len(wantKeys) {
+		t.Fatalf("result has %d keys, want %d: %q", len(raw.Result), len(wantKeys), rec.Body.String())
+	}
+	for _, key := range wantKeys {
+		if _, ok := raw.Result[key]; !ok {
+			t.Errorf("result key %q missing: %q", key, rec.Body.String())
+		}
+	}
+	var body avatarResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body decode failed: %v", err)
+	}
+	if body.Result == nil {
+		t.Fatal("result missing")
+	}
+	res := body.Result
+	if !isAllDigits(res.AvatarID) || res.AvatarID == "0" {
+		t.Fatalf("avatarId = %q, want non-zero decimal", res.AvatarID)
+	}
+	if res.Name != "" {
+		t.Errorf("name = %q, want empty", res.Name)
+	}
+	if res.Gender != "F" {
+		t.Errorf("gender = %q, want %q", res.Gender, "F")
+	}
+	if want := decodeSession(t, createA).SessionKey; res.SessionKey != want {
+		t.Errorf("sessionKey = %q, want %q", res.SessionKey, want)
+	}
+	if res.AvatarCode != "ac" {
+		t.Errorf("avatarCode = %q, want %q", res.AvatarCode, "ac")
+	}
+	if got := string(raw.Result["items"]); got != "[]" {
+		t.Errorf("items = %s, want []", got)
+	}
+	if got := string(raw.Result["petProfiles"]); got != "[]" {
+		t.Errorf("petProfiles = %s, want []", got)
+	}
+	token := avAuthValue(t, rec)
+
+	check := checkSession(t, token)
+	if check.Code != http.StatusOK {
+		t.Fatalf("checkSession: status = %d, body = %q", check.Code, check.Body.String())
+	}
+	if got := decodeSession(t, check).Aid; got != res.AvatarID {
+		t.Fatalf("checkSession aid = %q, want %q", got, res.AvatarID)
+	}
+
+	again := createSession(t, accessTokenA)
+	if again.Code != http.StatusOK {
+		t.Fatalf("createSession A: status = %d, body = %q", again.Code, again.Body.String())
+	}
+	if got := decodeSession(t, again).Aid; got != res.AvatarID {
+		t.Fatalf("guest A aid = %q, want %q", got, res.AvatarID)
+	}
+
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write(payload); err != nil {
+		t.Fatalf("gzip write: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+	gz := createAvatar(t, token, buf.Bytes(), "gzip")
+	if gz.Code != http.StatusOK {
+		t.Fatalf("gzip status = %d, want 200, body = %q", gz.Code, gz.Body.String())
+	}
+	var gzBody avatarResponse
+	if err := json.Unmarshal(gz.Body.Bytes(), &gzBody); err != nil {
+		t.Fatalf("gzip body decode failed: %v", err)
+	}
+	if gzBody.Result == nil {
+		t.Fatal("gzip result missing")
+	}
+	if gzBody.Result.AvatarID != res.AvatarID {
+		t.Fatalf("gzip avatarId = %q, want %q", gzBody.Result.AvatarID, res.AvatarID)
+	}
+	if gzBody.Result.Gender != "F" || gzBody.Result.SessionKey != res.SessionKey {
+		t.Fatalf("gzip result mismatch: %+v", gzBody.Result)
+	}
+}
+
+func TestPreloadStubs(t *testing.T) {
+	paths := []string{
+		"/v4/setting/all",
+		"/v4/setting/all?deviceType=Android",
+		"/v4/sync/friends/1758000000",
+		"/v4/buddy/list/type/0",
+		"/v4/line/buddy/v4/list?page=0",
+		"/v4/brand/list",
+	}
+	for _, path := range paths {
+		rec := serveRequest(t, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200, body = %q", path, rec.Code, rec.Body.String())
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "application/json; charset=utf-8" {
+			t.Fatalf("%s: Content-Type = %q", path, ct)
+		}
+		if !strings.Contains(rec.Body.String(), `"result"`) {
+			t.Fatalf("%s: body = %q, want \"result\"", path, rec.Body.String())
+		}
+	}
+
+	post := serveRequest(t, httptest.NewRequest(http.MethodPost, "/v4/setting/all", nil))
+	if post.Code != http.StatusNotFound || post.Body.String() != notFoundBody {
+		t.Fatalf("POST /v4/setting/all: status = %d, body = %q", post.Code, post.Body.String())
+	}
+
+	if friendBrandBuddyBody != `{"result":[]}` {
+		t.Fatalf("friendBrandBuddyBody = %q, want %q", friendBrandBuddyBody, `{"result":[]}`)
+	}
+	brand := serveRequest(t, httptest.NewRequest(http.MethodGet, "/v4/brand/list", nil))
+	if brand.Code != http.StatusOK {
+		t.Fatalf("/v4/brand/list: status = %d, want 200, body = %q", brand.Code, brand.Body.String())
+	}
+	if got := brand.Body.String(); got != friendBrandBuddyBody {
+		t.Fatalf("/v4/brand/list: body = %q, want %q", got, friendBrandBuddyBody)
+	}
+	var brandBody struct {
+		Result []json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(brand.Body.Bytes(), &brandBody); err != nil {
+		t.Fatalf("/v4/brand/list: result must be a JSON array: %v, body = %q", err, brand.Body.String())
+	}
+	if len(brandBody.Result) != 0 {
+		t.Fatalf("/v4/brand/list: result = %q, want empty array", brand.Body.String())
+	}
+}
+
+func TestCreateComplete(t *testing.T) {
+	rec := serveRequest(t, httptest.NewRequest(http.MethodPost, "/v4/create/complete", strings.NewReader(`{"inviteCode":""}`)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body = %q", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json; charset=utf-8" {
+		t.Fatalf("Content-Type = %q", ct)
+	}
+	var raw struct {
+		Result map[string]json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("body is not valid JSON: %v", err)
+	}
+	if len(raw.Result) != 2 {
+		t.Fatalf("result has %d keys, want 2: %q", len(raw.Result), rec.Body.String())
+	}
+	if got := string(raw.Result["status"]); got != "true" {
+		t.Fatalf("result.status = %s, want JSON bool true", got)
+	}
+	if got := string(raw.Result["rewardCoin"]); got != "300" {
+		t.Fatalf("result.rewardCoin = %s, want JSON number 300", got)
+	}
+
+	notPost := serveRequest(t, httptest.NewRequest(http.MethodGet, "/v4/create/complete", nil))
+	if notPost.Code != http.StatusNotFound || notPost.Body.String() != notFoundBody {
+		t.Fatalf("GET: status = %d, body = %q", notPost.Code, notPost.Body.String())
+	}
+}
+
+func TestAvatarInfo(t *testing.T) {
+	rec := serve(t, http.MethodGet, "/v4/avatar/1?detail=true")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body = %q", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Result *avatarInfoResult `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body is not valid JSON: %v", err)
+	}
+	if body.Result == nil {
+		t.Fatal("result missing")
+	}
+	if body.Result.AvatarID != "1" {
+		t.Fatalf("avatarId = %q, want %q", body.Result.AvatarID, "1")
+	}
+	if body.Result.Gender != "FEMALE" {
+		t.Fatalf("gender = %q, want %q", body.Result.Gender, "FEMALE")
+	}
+	if body.Result.Items == nil || len(body.Result.Items) != 0 {
+		t.Fatalf("items = %v, want []", body.Result.Items)
+	}
+	post := serve(t, http.MethodPost, "/v4/avatar/1")
+	if post.Code != http.StatusNotFound || post.Body.String() != notFoundBody {
+		t.Fatalf("POST: status = %d, body = %q", post.Code, post.Body.String())
+	}
+}
+
+const (
+	sckeyKey64CipherHex = "da7aefcd343e63431b8804fe8b6320f4bdefbb2cd054f9ae2bec527c8702f1d9cb9773500b3708d69ca33fdda2395c03d466f205901873281f7fa656a8f95c93"
+	sckeyIV16CipherHex  = "ac0e99bd424a6c4c14877088fb155482"
+	wantSckeyKey64      = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"
+	wantSckeyIV16       = "FEDCBA9876543210"
+)
+
+func TestSckeyEncRoute(t *testing.T) {
+	rec := serve(t, http.MethodGet, "/arts_session/sckey.enc")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/octet-stream" {
+		t.Fatalf("Content-Type = %q", ct)
+	}
+	if cl := rec.Header().Get("Content-Length"); cl != "8812" {
+		t.Fatalf("Content-Length = %q, want 8812", cl)
+	}
+	if rec.Body.Len() != 8812 {
+		t.Fatalf("body len = %d, want 8812", rec.Body.Len())
+	}
+	if !bytes.Equal(rec.Body.Bytes(), sckeyBlob) {
+		t.Fatal("body does not match sckeyBlob")
+	}
+
+	post := serve(t, http.MethodPost, "/arts_session/sckey.enc")
+	if post.Code != http.StatusNotFound || post.Body.String() != notFoundBody {
+		t.Fatalf("POST status = %d, body = %q", post.Code, post.Body.String())
+	}
+}
+
+func TestSckeyBlobContents(t *testing.T) {
+	if len(sckeyBlob) != 8812 {
+		t.Fatalf("blob len = %d, want 8812", len(sckeyBlob))
+	}
+	if got := binary.BigEndian.Uint32(sckeyBlob[0:4]); got != 0 {
+		t.Fatalf("blob[0:4] = %d, want 0", got)
+	}
+	if got := binary.BigEndian.Uint64(sckeyBlob[4:12]); got != 0 {
+		t.Fatalf("blob[4:12] = %d, want 0", got)
+	}
+	for i := 0; i < sckeyEntryCount; i++ {
+		off := 12 + i*88
+		if got := binary.BigEndian.Uint32(sckeyBlob[off : off+4]); got != 64 {
+			t.Fatalf("entry %d key64 len = %d, want 64", i, got)
+		}
+		keyBlock, _ := aes.NewCipher(sckeyWrapperKey)
+		keyPlain := make([]byte, 64)
+		cipher.NewCFBDecrypter(keyBlock, sckeyWrapperIV).XORKeyStream(keyPlain, sckeyBlob[off+4:off+68])
+		if string(keyPlain) != wantSckeyKey64 {
+			t.Fatalf("entry %d key64 = %q", i, keyPlain)
+		}
+		off += 68
+		if got := binary.BigEndian.Uint32(sckeyBlob[off : off+4]); got != 16 {
+			t.Fatalf("entry %d iv16 len = %d, want 16", i, got)
+		}
+		ivBlock, _ := aes.NewCipher(sckeyWrapperKey)
+		ivPlain := make([]byte, 16)
+		cipher.NewCFBDecrypter(ivBlock, sckeyWrapperIV).XORKeyStream(ivPlain, sckeyBlob[off+4:off+20])
+		if string(ivPlain) != wantSckeyIV16 {
+			t.Fatalf("entry %d iv16 = %q", i, ivPlain)
+		}
+	}
+}
+
+func TestSckeyWrapperCrossCheck(t *testing.T) {
+	keyCipher, err := hex.DecodeString(sckeyKey64CipherHex)
+	if err != nil {
+		t.Fatalf("decode key cipher hex: %v", err)
+	}
+	ivCipher, err := hex.DecodeString(sckeyIV16CipherHex)
+	if err != nil {
+		t.Fatalf("decode iv cipher hex: %v", err)
+	}
+
+	keyBlock, _ := aes.NewCipher(sckeyWrapperKey)
+	keyPlain := make([]byte, 64)
+	cipher.NewCFBDecrypter(keyBlock, sckeyWrapperIV).XORKeyStream(keyPlain, keyCipher)
+	if string(keyPlain) != wantSckeyKey64 {
+		t.Errorf("decrypt key64 = %q, want %q", keyPlain, wantSckeyKey64)
+	}
+	ivBlock, _ := aes.NewCipher(sckeyWrapperKey)
+	ivPlain := make([]byte, 16)
+	cipher.NewCFBDecrypter(ivBlock, sckeyWrapperIV).XORKeyStream(ivPlain, ivCipher)
+	if string(ivPlain) != wantSckeyIV16 {
+		t.Errorf("decrypt iv16 = %q, want %q", ivPlain, wantSckeyIV16)
+	}
+
+	if got := hex.EncodeToString(wrapSckeyField([]byte(wantSckeyKey64))); got != sckeyKey64CipherHex {
+		t.Errorf("encrypt key64 = %s, want %s", got, sckeyKey64CipherHex)
+	}
+	if got := hex.EncodeToString(wrapSckeyField([]byte(wantSckeyIV16))); got != sckeyIV16CipherHex {
+		t.Errorf("encrypt iv16 = %s, want %s", got, sckeyIV16CipherHex)
+	}
+
+	if got := hex.EncodeToString(sckeyBlob[16:80]); got != sckeyKey64CipherHex {
+		t.Errorf("blob entry 0 key64 cipher = %s", got)
+	}
+	if got := hex.EncodeToString(sckeyBlob[84:100]); got != sckeyIV16CipherHex {
+		t.Errorf("blob entry 0 iv16 cipher = %s", got)
 	}
 }

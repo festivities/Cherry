@@ -74,10 +74,11 @@ func main() {
 	if err != nil {
 		logger.Fatalf("cherry: listen observer %s: %v", gatewayAddr, err)
 	}
-	sessionLn, err := listenObserver(sessionAddr, logger)
+	sessionLn, err := net.Listen("tcp", sessionAddr)
 	if err != nil {
-		logger.Fatalf("cherry: listen observer %s: %v", sessionAddr, err)
+		logger.Fatalf("cherry: listen session %s: %v", sessionAddr, err)
 	}
+	go serveSession(sessionLn, logger)
 
 	logger.Printf("cherry: https listening addr=%s", httpsAddr)
 
