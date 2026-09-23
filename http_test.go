@@ -675,7 +675,7 @@ func TestCreateAvatar(t *testing.T) {
 
 	guestGenerate(t)
 
-	payload := []byte(`{"name":"","avatarType":"F","nationCode":"JP","skinColor":"1","itemCodes":["1001"],"useMid":true}`)
+	payload := []byte(`{"name":"","avatarType":"F","nationCode":"JP","skinColor":"1","itemCodes":["CUON0059S","CUSH002BH"],"useMid":true}`)
 	rec := createAvatar(t, avAuthA, payload, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200, body = %q", rec.Code, rec.Body.String())
@@ -721,8 +721,17 @@ func TestCreateAvatar(t *testing.T) {
 	if res.AvatarCode != "ac" {
 		t.Errorf("avatarCode = %q, want %q", res.AvatarCode, "ac")
 	}
-	if got := string(raw.Result["items"]); got != "[]" {
-		t.Errorf("items = %s, want []", got)
+	var items []avatarItem
+	if err := json.Unmarshal(raw.Result["items"], &items); err != nil {
+		t.Fatalf("items decode failed: %v", err)
+	}
+	if len(items) != 2 || items[0].CD != "CUON0059S" || items[1].CD != "CUSH002BH" {
+		t.Errorf("items = %s, want the two submitted codes", raw.Result["items"])
+	}
+	for _, item := range items {
+		if item.InvenSeq != "0" || item.DyeType != 0 || item.ColorAndTransparencies == nil || len(item.ColorAndTransparencies) != 0 {
+			t.Errorf("item = %+v, want invenSeq 0, dyeType 0, empty colorAndTransparencies", item)
+		}
 	}
 	if got := string(raw.Result["petProfiles"]); got != "[]" {
 		t.Errorf("petProfiles = %s, want []", got)
@@ -851,7 +860,9 @@ func TestCreateComplete(t *testing.T) {
 }
 
 func TestAvatarInfo(t *testing.T) {
-	rec := serve(t, http.MethodGet, "/v4/avatar/1?detail=true")
+	// An unknown player id keeps the default stubbed appearance; a known
+	// player id is covered by TestCreateAvatarAccountRoundTrip.
+	rec := serve(t, http.MethodGet, "/v4/avatar/999999999?detail=true")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200, body = %q", rec.Code, rec.Body.String())
 	}
@@ -864,8 +875,8 @@ func TestAvatarInfo(t *testing.T) {
 	if body.Result == nil {
 		t.Fatal("result missing")
 	}
-	if body.Result.AvatarID != "1" {
-		t.Fatalf("avatarId = %q, want %q", body.Result.AvatarID, "1")
+	if body.Result.AvatarID != "999999999" {
+		t.Fatalf("avatarId = %q, want %q", body.Result.AvatarID, "999999999")
 	}
 	if body.Result.Gender != "FEMALE" {
 		t.Fatalf("gender = %q, want %q", body.Result.Gender, "FEMALE")
@@ -873,7 +884,7 @@ func TestAvatarInfo(t *testing.T) {
 	if body.Result.Items == nil || len(body.Result.Items) != 0 {
 		t.Fatalf("items = %v, want []", body.Result.Items)
 	}
-	post := serve(t, http.MethodPost, "/v4/avatar/1")
+	post := serve(t, http.MethodPost, "/v4/avatar/999999999")
 	if post.Code != http.StatusNotFound || post.Body.String() != notFoundBody {
 		t.Fatalf("POST: status = %d, body = %q", post.Code, post.Body.String())
 	}

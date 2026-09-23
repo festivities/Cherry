@@ -44,9 +44,10 @@ func main() {
 		IdleTimeout:       120 * time.Second,
 		TLSNextProto:      map[string]func(*http.Server, *tls.Conn, http.Handler){},
 		TLSConfig: &tls.Config{
-			Certificates: certs,
-			MinVersion:   tls.VersionTLS12,
-			NextProtos:   []string{"http/1.1"},
+			Certificates:       certs,
+			MinVersion:         tls.VersionTLS12,
+			NextProtos:         []string{"http/1.1"},
+			GetConfigForClient: denyBlockedSNI,
 			CipherSuites: []uint16{
 				tls.TLS_RSA_WITH_AES_128_GCM_SHA256,
 				tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
@@ -79,6 +80,11 @@ func main() {
 		logger.Fatalf("cherry: listen session %s: %v", sessionAddr, err)
 	}
 	go serveSession(sessionLn, logger)
+
+	dnsConn, err := listenDNS(logger)
+	if err != nil {
+		logger.Printf("cherry: dns unavailable, continuing without sink: %v", err)
+	}
 
 	logger.Printf("cherry: https listening addr=%s", httpsAddr)
 
@@ -115,7 +121,19 @@ func main() {
 	_ = gatewayLn.Close()
 	_ = sessionLn.Close()
 	_ = httpLn.Close()
+	if dnsConn != nil {
+		_ = dnsConn.Close()
+	}
 	logger.Printf("cherry: shutdown complete")
+}
+
+var errBlockedSNI = errors.New("cherry: blocked sni")
+
+func denyBlockedSNI(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+	if strings.EqualFold(strings.TrimSuffix(hello.ServerName, "."), "lan3rd.line.me") {
+		return nil, errBlockedSNI
+	}
+	return nil, nil
 }
 
 func listenObserver(addr string, logger *log.Logger) (net.Listener, error) {

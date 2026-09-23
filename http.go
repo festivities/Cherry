@@ -41,6 +41,8 @@ const notFoundBody = `{"errorCode":"404","errorMessage":"cherry: unknown route"}
 
 const unknownSessionBody = `{"errorCode":"404","errorMessage":"cherry: unknown session"}`
 
+const badRequestBody = `{"errorCode":"400","errorMessage":"cherry: bad request"}`
+
 const createCompleteBody = `{"result":{"status":true,"rewardCoin":300}}`
 
 const settingAllBody = `{"result":{"notiFlag":false,"changeCountry":false,"countryName":"","soundConfig":false,"notiConfig":{},"privacyConfig":{},"roomSize":{"max":0,"cur":0}}}`
@@ -62,6 +64,9 @@ func newMux() *http.ServeMux {
 	mux.HandleFunc("/v4/createSession", handleCreateSession)
 	mux.HandleFunc("/v4/checkSession", handleCheckSession)
 	mux.HandleFunc("/v4/create/avatar", handleCreateAvatar)
+	mux.HandleFunc("/v4/create/all/items", handleCreateAllItems)
+	mux.HandleFunc("/v4/create/face/setitems/roll", handleCreateFaceSetItemsRoll)
+	mux.HandleFunc("/v2/create/face/analyze", handleCreateFaceAnalyze)
 	mux.HandleFunc("/v4/create/complete", handleCreateComplete)
 	mux.HandleFunc("/arts_session/sckey.enc", handleSckeyEnc)
 	mux.HandleFunc("/v4/setInitConf", handleSetInitConf)
@@ -182,22 +187,83 @@ func handleCheckSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, fmt.Sprintf(`{"Timestamp":"%d","result":%s}`, time.Now().Unix(), sessionResultBody(acc)))
 }
 
+const maxCreateAvatarBody = 1 << 20
+
+type createAvatarRequest struct {
+	Name       string            `json:"name"`
+	AvatarType string            `json:"avatarType"`
+	NationCode string            `json:"nationCode"`
+	SkinColor  json.RawMessage   `json:"skinColor"`
+	ItemCodes  []json.RawMessage `json:"itemCodes"`
+}
+
+// itemCodesFromJSON accepts the client's item code strings and the legacy
+// numeric base/skin codes; anything else (objects/arrays/bools/null) is
+// rejected before the account is touched.
+func itemCodesFromJSON(raws []json.RawMessage) ([]string, bool) {
+	codes := make([]string, 0, len(raws))
+	for _, raw := range raws {
+		if string(raw) == "null" {
+			return nil, false
+		}
+		var s string
+		if err := json.Unmarshal(raw, &s); err == nil {
+			codes = append(codes, s)
+			continue
+		}
+		var n json.Number
+		if err := json.Unmarshal(raw, &n); err == nil {
+			codes = append(codes, n.String())
+			continue
+		}
+		return nil, false
+	}
+	return codes, true
+}
+
 func handleCreateAvatar(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		serveNotFound(w)
 		return
 	}
-	body := r.Body
+	body := io.Reader(r.Body)
 	if strings.EqualFold(strings.TrimSpace(r.Header.Get("Content-Encoding")), "gzip") {
-		if zr, err := gzip.NewReader(r.Body); err == nil {
-			defer zr.Close()
-			body = zr
+		zr, err := gzip.NewReader(r.Body)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, badRequestBody)
+			return
 		}
+		defer zr.Close()
+		body = zr
 	}
-	var req struct {
-		AvatarType string `json:"avatarType"`
+	raw, err := io.ReadAll(io.LimitReader(body, maxCreateAvatarBody+1))
+	if err != nil || len(raw) > maxCreateAvatarBody {
+		writeJSON(w, http.StatusBadRequest, badRequestBody)
+		return
 	}
-	_ = json.NewDecoder(io.LimitReader(body, 1<<20)).Decode(&req)
+	var req createAvatarRequest
+	if err := json.Unmarshal(raw, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, badRequestBody)
+		return
+	}
+	gender := normalizeAvatarType(req.AvatarType)
+	if gender == "" {
+		writeJSON(w, http.StatusBadRequest, badRequestBody)
+		return
+	}
+	itemCodes, ok := itemCodesFromJSON(req.ItemCodes)
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, badRequestBody)
+		return
+	}
+	skin, ok := skinColorString(req.SkinColor)
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, badRequestBody)
+		return
+	}
+	if skin == "" {
+		skin = "1"
+	}
 
 	accountsMu.Lock()
 	acc := accounts[cookieValue(r, "AV_AUTH")]
@@ -211,6 +277,11 @@ func handleCreateAvatar(w http.ResponseWriter, r *http.Request) {
 		nextAvatarID++
 		acc.aid = strconv.FormatUint(nextAvatarID, 10)
 	}
+	acc.name = req.Name
+	acc.gender = gender
+	acc.skin = skin
+	acc.country = req.NationCode
+	acc.itemCodes = append([]string(nil), itemCodes...)
 	aid, sessionKey := acc.aid, acc.sessionKey
 	accounts[token] = acc
 	accountsMu.Unlock()
@@ -220,13 +291,31 @@ func handleCreateAvatar(w http.ResponseWriter, r *http.Request) {
 		Result avatarResult `json:"result"`
 	}{avatarResult{
 		AvatarID:    aid,
+		Name:        req.Name,
 		Gender:      req.AvatarType,
 		SessionKey:  sessionKey,
 		AvatarCode:  "ac",
-		Items:       []string{},
+		Items:       avatarItemsFromCodes(itemCodes),
 		PetProfiles: []string{},
 	}})
 	writeJSON(w, http.StatusOK, string(payload))
+}
+
+// skinColorString accepts only a scalar string or number (or absent/null);
+// objects, arrays and bools are rejected before the account is touched.
+func skinColorString(raw json.RawMessage) (string, bool) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", true
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s, true
+	}
+	var n json.Number
+	if err := json.Unmarshal(raw, &n); err == nil {
+		return n.String(), true
+	}
+	return "", false
 }
 
 func handleCreateComplete(w http.ResponseWriter, r *http.Request) {
@@ -237,26 +326,85 @@ func handleCreateComplete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, createCompleteBody)
 }
 
+// tutorialAvatarTypes maps the four avatar IDs requested by
+// NaCreateLayer::InitCloneAvatars to a synthesized appearance. The sex
+// assignment is a deterministic stand-in; the authentic per-ID appearances are
+// not in the archives.
+var tutorialAvatarTypes = map[string]string{
+	"1151262555912366100": "MALE",
+	"1151262590612422506": "FEMALE",
+	"1151262602112441105": "ANIMAL",
+	"1151262571612391402": "MALE",
+}
+
 func handleAvatarInfo(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		serveNotFound(w)
 		return
 	}
 	id, ok := strings.CutPrefix(r.URL.Path, "/v4/avatar/")
-	if !ok || id == "" || strings.Contains(id, "/") {
+	if !ok || id == "" || strings.Contains(id, "/") || !isAllDigits(id) {
 		serveNotFound(w)
 		return
 	}
-	payload, _ := json.Marshal(struct {
-		Result avatarInfoResult `json:"result"`
-	}{avatarInfoResult{
+	info := avatarInfoResult{
 		AvatarID:    id,
 		Gender:      "FEMALE",
 		SType:       "NORMAL",
-		Items:       []string{},
+		Skin:        "1",
+		Country:     "JP",
+		Items:       []avatarItem{},
 		PetProfiles: []string{},
-	}})
+	}
+	if sex, ok := tutorialAvatarTypes[id]; ok {
+		info.Name = "cherry"
+		info.Gender = sex
+		info.Items = avatarItemsFromCodes(workableLook(sex))
+	} else if acc, ok := accountByAvatarID(id); ok {
+		info.Name = acc.name
+		if acc.gender != "" {
+			info.Gender = acc.gender
+		}
+		if acc.skin != "" {
+			info.Skin = acc.skin
+		}
+		info.Country = acc.country
+		if acc.itemCodes != nil {
+			info.Items = avatarItemsFromCodes(acc.itemCodes)
+		}
+	}
+	payload, _ := json.Marshal(struct {
+		Result avatarInfoResult `json:"result"`
+	}{Result: info})
 	writeJSON(w, http.StatusOK, string(payload))
+}
+
+// accountSnapshot is a copy of the fields /v4/avatar/<id> serves, taken under
+// accountsMu so the handler never reads fields that handleCreateAvatar may be
+// writing concurrently.
+type accountSnapshot struct {
+	name      string
+	gender    string
+	skin      string
+	country   string
+	itemCodes []string
+}
+
+func accountByAvatarID(id string) (accountSnapshot, bool) {
+	accountsMu.Lock()
+	defer accountsMu.Unlock()
+	for _, acc := range accounts {
+		if acc.aid == id {
+			return accountSnapshot{
+				name:      acc.name,
+				gender:    acc.gender,
+				skin:      acc.skin,
+				country:   acc.country,
+				itemCodes: append([]string(nil), acc.itemCodes...),
+			}, true
+		}
+	}
+	return accountSnapshot{}, false
 }
 
 func handleRoot(w http.ResponseWriter, r *http.Request) {
@@ -359,25 +507,48 @@ type account struct {
 	mid          string
 	avatarUserID string
 	aid          string
+	name         string
+	gender       string
+	skin         string
+	country      string
+	itemCodes    []string
+}
+
+// avatarItem is the object form parsed by sDataAvatar::SetData @0x1c0a39c.
+type avatarItem struct {
+	CD                     string `json:"cd"`
+	InvenSeq               string `json:"invenSeq"`
+	DyeType                int    `json:"dyeType"`
+	ColorAndTransparencies []any  `json:"colorAndTransparencies"`
+}
+
+func avatarItemsFromCodes(codes []string) []avatarItem {
+	items := make([]avatarItem, 0, len(codes))
+	for _, cd := range codes {
+		items = append(items, avatarItem{CD: cd, InvenSeq: "0", ColorAndTransparencies: []any{}})
+	}
+	return items
 }
 
 type avatarResult struct {
-	AvatarID    string   `json:"avatarId"`
-	Name        string   `json:"name"`
-	Gender      string   `json:"gender"`
-	SessionKey  string   `json:"sessionKey"`
-	AvatarCode  string   `json:"avatarCode"`
-	Items       []string `json:"items"`
-	PetProfiles []string `json:"petProfiles"`
+	AvatarID    string       `json:"avatarId"`
+	Name        string       `json:"name"`
+	Gender      string       `json:"gender"`
+	SessionKey  string       `json:"sessionKey"`
+	AvatarCode  string       `json:"avatarCode"`
+	Items       []avatarItem `json:"items"`
+	PetProfiles []string     `json:"petProfiles"`
 }
 
 type avatarInfoResult struct {
-	AvatarID    string   `json:"avatarId"`
-	Name        string   `json:"name"`
-	Gender      string   `json:"gender"`
-	SType       string   `json:"sType"`
-	Items       []string `json:"items"`
-	PetProfiles []string `json:"petProfiles"`
+	AvatarID    string       `json:"avatarId"`
+	Name        string       `json:"name"`
+	Gender      string       `json:"gender"`
+	SType       string       `json:"sType"`
+	Skin        string       `json:"skin"`
+	Country     string       `json:"country"`
+	Items       []avatarItem `json:"items"`
+	PetProfiles []string     `json:"petProfiles"`
 }
 
 var (
@@ -412,8 +583,11 @@ func currentAccount(r *http.Request) *account {
 }
 
 func sessionResultBody(acc *account) string {
+	accountsMu.Lock()
+	sessionKey, mid, avatarUserID, aid := acc.sessionKey, acc.mid, acc.avatarUserID, acc.aid
+	accountsMu.Unlock()
 	return fmt.Sprintf(`{"sessionKey":"%s","mid":"%s","avatarUserId":"%s","aid":"%s","lineId":"","lineName":"","termAge":false}`,
-		acc.sessionKey, acc.mid, acc.avatarUserID, acc.aid)
+		sessionKey, mid, avatarUserID, aid)
 }
 
 func avAuthSetCookie(token string) string {
