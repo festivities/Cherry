@@ -11,6 +11,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -113,6 +115,33 @@ func TestUnknownRoute(t *testing.T) {
 		if ct := rec.Header().Get("Content-Type"); ct != "application/json; charset=utf-8" {
 			t.Errorf("%s: Content-Type = %q, want %q", target, ct, "application/json; charset=utf-8")
 		}
+	}
+}
+
+func TestQuestStatus(t *testing.T) {
+	rec := serve(t, http.MethodGet, "/v4/quest/status")
+	if rec.Code != http.StatusOK || rec.Body.String() != questStatusBody {
+		t.Fatalf("quest status = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := serve(t, http.MethodPost, "/v4/quest/status"); rec.Code != http.StatusNotFound {
+		t.Fatalf("POST quest status = %d, want 404", rec.Code)
+	}
+}
+
+func TestInvenCounts(t *testing.T) {
+	rec := serve(t, http.MethodGet, "/v4/inven/counts")
+	if rec.Code != http.StatusOK || rec.Body.String() != invenCountsBody {
+		t.Fatalf("inven counts = %d %s", rec.Code, rec.Body.String())
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("inven counts body is not valid JSON: %v", err)
+	}
+	if string(raw["result"]) != "{}" {
+		t.Fatalf("result = %s, want empty object (array form is parser-invalid)", raw["result"])
+	}
+	if rec := serve(t, http.MethodPost, "/v4/inven/counts"); rec.Code != http.StatusNotFound {
+		t.Fatalf("POST inven counts = %d, want 404", rec.Code)
 	}
 }
 
@@ -538,6 +567,23 @@ func TestCreateSession(t *testing.T) {
 	}
 }
 
+func TestCreateSessionUsesGuestCookie(t *testing.T) {
+	first := guestGenerate(t)
+	firstSession := decodeSession(t, createSession(t, first))
+	guestGenerate(t) // The most recent account must not replace an explicit cc.
+	req := httptest.NewRequest(http.MethodGet, "/v4/createSession?nationCode=JP", nil)
+	req.AddCookie(&http.Cookie{Name: "cc", Value: first})
+	rec := serveRequest(t, req)
+	if rec.Code != http.StatusOK || decodeSession(t, rec).SessionKey != firstSession.SessionKey {
+		t.Fatalf("cc did not identify its guest: %d", rec.Code)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/v4/createSession?nationCode=JP", nil)
+	req.AddCookie(&http.Cookie{Name: "cc", Value: "unknown"})
+	if rec = serveRequest(t, req); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown cc fell back to another guest: %d", rec.Code)
+	}
+}
+
 func TestCheckSession(t *testing.T) {
 	accessToken := guestGenerate(t)
 	token := avAuthValue(t, createSession(t, accessToken))
@@ -609,6 +655,101 @@ func TestAuthRoundTrip(t *testing.T) {
 	}
 	if third := decodeSession(t, again); third.SessionKey != first.SessionKey {
 		t.Fatalf("sessionKey changed: %q -> %q", first.SessionKey, third.SessionKey)
+	}
+}
+
+func TestAccountsSurviveRestart(t *testing.T) {
+	accountsMu.Lock()
+	previousAccounts, previousLatest, previousID, previousPath := accounts, latestAcc, nextAvatarID, accountStorePath
+	accounts, latestAcc, nextAvatarID, accountStorePath = make(map[string]*account), nil, 0, ""
+	accountsMu.Unlock()
+	t.Cleanup(func() {
+		accountsMu.Lock()
+		accounts, latestAcc, nextAvatarID, accountStorePath = previousAccounts, previousLatest, previousID, previousPath
+		accountsMu.Unlock()
+	})
+	path := filepath.Join(t.TempDir(), "accounts.json")
+	if err := loadAccountsFrom(path); err != nil {
+		t.Fatal(err)
+	}
+	accessToken := guestGenerate(t)
+	first := createSession(t, accessToken)
+	oldToken := avAuthValue(t, first)
+	const payload = `{"name":"Persisted","avatarType":"FEMALE","nationCode":"JP","skinColor":"2","itemCodes":["CUON00164"]}`
+	created := createAvatar(t, oldToken, []byte(payload), "")
+	if created.Code != http.StatusOK {
+		t.Fatalf("create avatar = %d %s", created.Code, created.Body.String())
+	}
+	var avatar avatarResponse
+	if err := json.Unmarshal(created.Body.Bytes(), &avatar); err != nil || avatar.Result == nil {
+		t.Fatalf("avatar result: %v", err)
+	}
+	rotated := avAuthValue(t, checkSession(t, oldToken))
+
+	accountsMu.Lock()
+	accounts, latestAcc, nextAvatarID, accountStorePath = make(map[string]*account), nil, 0, ""
+	accountsMu.Unlock()
+	if err := loadAccountsFrom(path); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	for _, token := range []string{oldToken, rotated, avAuthValue(t, created)} {
+		if rec := checkSession(t, token); rec.Code != http.StatusOK || decodeSession(t, rec).Aid != avatar.Result.AvatarID {
+			t.Fatalf("lost alias for persisted avatar: status %d", rec.Code)
+		}
+	}
+	if got := decodeSession(t, createSession(t, accessToken)); got.SessionKey != decodeSession(t, first).SessionKey {
+		t.Fatal("guest session key changed after restart")
+	}
+	profile := serve(t, http.MethodGet, "/v4/avatar/"+avatar.Result.AvatarID)
+	if !strings.Contains(profile.Body.String(), `"name":"Persisted"`) || !strings.Contains(profile.Body.String(), `"cd":"CUON00164"`) {
+		t.Fatalf("lost avatar appearance after restart: %s", profile.Body.String())
+	}
+	if rec := checkSession(t, "unknown"); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown token accepted: %d", rec.Code)
+	}
+	if rec := createAvatar(t, "unknown", []byte(payload), ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown token created avatar: %d", rec.Code)
+	}
+	second := avAuthValue(t, createSession(t, guestGenerate(t)))
+	other := createAvatar(t, second, []byte(payload), "")
+	var next avatarResponse
+	if err := json.Unmarshal(other.Body.Bytes(), &next); err != nil || next.Result == nil || next.Result.AvatarID == avatar.Result.AvatarID {
+		t.Fatalf("avatar ID reused after restart: %s, %v", other.Body.String(), err)
+	}
+	if err := os.WriteFile(path, []byte("corrupt"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := loadAccountsFrom(path); err == nil {
+		t.Fatal("corrupt persisted accounts silently loaded")
+	}
+}
+
+func TestAccountStoreFailureDoesNotIssueCookie(t *testing.T) {
+	accountsMu.Lock()
+	previousPath := accountStorePath
+	accountStorePath = filepath.Join(t.TempDir(), "missing", "accounts.json")
+	accountsMu.Unlock()
+	t.Cleanup(func() {
+		accountsMu.Lock()
+		accountStorePath = previousPath
+		accountsMu.Unlock()
+	})
+	// A regular file as parent forces MkdirAll to fail without touching a real store.
+	parent := filepath.Dir(accountStorePath)
+	if err := os.WriteFile(parent, []byte("not a directory"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	rec := serve(t, http.MethodPost, "/v4/account/guest/generate")
+	if rec.Code != http.StatusInternalServerError || rec.Header().Get("Set-Cookie") != "" {
+		t.Fatalf("failed save returned credential: %d", rec.Code)
+	}
+}
+
+func TestFormatHeadersRedactsCredentials(t *testing.T) {
+	h := http.Header{"Cookie": {`AV_AUTH="secret"`}, "Authorization": {"Bearer token"}, "X-Lineplay-Acnt": {"digest"}, "Accept": {"application/json"}}
+	got := formatHeaders(h)
+	if strings.Contains(got, "secret") || strings.Contains(got, "Bearer token") || strings.Contains(got, "digest") || !strings.Contains(got, "application/json") {
+		t.Fatalf("unsafe header log: %s", got)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -624,6 +625,142 @@ func TestCreateAvatarMalformedInput(t *testing.T) {
 	}
 }
 
+// nativeAvatarBody mirrors the ADIString wire body sent by
+// NaDispatcherAvatar::ReqAvatarCreationWithAvatarInfo: compact JsonCpp
+// FastWriter JSON, the writer's final LF, and the single trailing NUL appended
+// by ADIString::WriteEnd.
+func nativeAvatarBody(jsonBody string) []byte {
+	return append([]byte(jsonBody+"\n"), 0)
+}
+
+func TestCreateAvatarNativeTerminator(t *testing.T) {
+	accessToken := guestGenerate(t)
+	token := avAuthValue(t, createSession(t, accessToken))
+
+	accept := []struct {
+		name       string
+		payload    []byte
+		wantName   string
+		wantGender string
+		wantSkin   string
+		codes      []string
+	}{
+		{
+			name:       "FEMALE",
+			payload:    nativeAvatarBody(`{"name":"Hana","avatarType":"FEMALE","nationCode":"JP","skinColor":2,"itemCodes":["CUHA0036Z","CUON0059S","CUAH004JH"],"useMid":true}`),
+			wantName:   "Hana",
+			wantGender: "FEMALE",
+			wantSkin:   "2",
+			codes:      []string{"CUHA0036Z", "CUON0059S", "CUAH004JH"},
+		},
+		{
+			name:       "ANIMAL",
+			payload:    nativeAvatarBody(`{"name":"Momo","avatarType":"ANIMAL","nationCode":"JP","itemCodes":["CAFA0000S","CAEY0000D","CAMO00002"],"useMid":true}`),
+			wantName:   "Momo",
+			wantGender: "ANIMAL",
+			wantSkin:   "1",
+			codes:      []string{"CAFA0000S", "CAEY0000D", "CAMO00002"},
+		},
+		{
+			name:       "FEMALE plain LF",
+			payload:    []byte(`{"name":"Yuki","avatarType":"FEMALE","nationCode":"JP","skinColor":1,"itemCodes":["CUON001CH"],"useMid":true}` + "\n"),
+			wantName:   "Yuki",
+			wantGender: "FEMALE",
+			wantSkin:   "1",
+			codes:      []string{"CUON001CH"},
+		},
+	}
+	var last avatarResult
+	for _, c := range accept {
+		rec := createAvatar(t, token, c.payload, "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, body = %q", c.name, rec.Code, rec.Body.String())
+		}
+		var body avatarResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatalf("%s: body decode failed: %v", c.name, err)
+		}
+		if body.Result == nil {
+			t.Fatalf("%s: result missing", c.name)
+		}
+		if body.Result.Name != c.wantName || body.Result.Gender != c.wantGender {
+			t.Fatalf("%s: name/gender = %q/%q, want %q/%q", c.name, body.Result.Name, body.Result.Gender, c.wantName, c.wantGender)
+		}
+		if len(body.Result.Items) != len(c.codes) {
+			t.Fatalf("%s: items = %+v, want %v", c.name, body.Result.Items, c.codes)
+		}
+		for i, item := range body.Result.Items {
+			if item.CD != c.codes[i] {
+				t.Errorf("%s: items[%d] = %+v, want %q", c.name, i, item, c.codes[i])
+			}
+		}
+		last = *body.Result
+
+		info := serve(t, http.MethodGet, "/v4/avatar/"+body.Result.AvatarID)
+		if info.Code != http.StatusOK {
+			t.Fatalf("%s: info status = %d, body = %q", c.name, info.Code, info.Body.String())
+		}
+		var infoBody struct {
+			Result *avatarInfoResult `json:"result"`
+		}
+		if err := json.Unmarshal(info.Body.Bytes(), &infoBody); err != nil {
+			t.Fatalf("%s: info decode failed: %v", c.name, err)
+		}
+		if infoBody.Result == nil {
+			t.Fatalf("%s: info result missing", c.name)
+		}
+		if infoBody.Result.Name != c.wantName || infoBody.Result.Gender != c.wantGender || infoBody.Result.Skin != c.wantSkin {
+			t.Fatalf("%s: info name/gender/skin = %q/%q/%q, want %q/%q/%q",
+				c.name, infoBody.Result.Name, infoBody.Result.Gender, infoBody.Result.Skin, c.wantName, c.wantGender, c.wantSkin)
+		}
+		if len(infoBody.Result.Items) != len(c.codes) {
+			t.Fatalf("%s: info items = %+v, want %v", c.name, infoBody.Result.Items, c.codes)
+		}
+		for i, item := range infoBody.Result.Items {
+			if item.CD != c.codes[i] {
+				t.Errorf("%s: info items[%d] = %+v, want %q", c.name, i, item, c.codes[i])
+			}
+		}
+	}
+
+	valid := `{"name":"x","avatarType":"FEMALE","nationCode":"JP","skinColor":1,"itemCodes":["CUON001CH"]}`
+	for _, c := range []struct {
+		name    string
+		payload []byte
+	}{
+		{"double NUL terminator", append(nativeAvatarBody(valid), 0)},
+		{"NUL inside string", append([]byte(`{"name":"Ha`+"\x00"+`na","avatarType":"FEMALE","skinColor":1,"itemCodes":["CUON001CH"]}`+"\n"), 0)},
+		{"garbage after NUL", append(nativeAvatarBody(valid), 'x')},
+		{"trailing garbage without NUL", []byte(valid + "\n" + "x")},
+		{"invalid field type", nativeAvatarBody(`{"name":123,"avatarType":"FEMALE","skinColor":1,"itemCodes":["CUON001CH"]}`)},
+		{"lone NUL", []byte{0}},
+		{"oversize with NUL", append([]byte(`{"name":"`+strings.Repeat("a", maxCreateAvatarBody)+`","avatarType":"MALE"}`), 0)},
+	} {
+		rec := createAvatar(t, token, c.payload, "")
+		if rec.Code != http.StatusBadRequest || rec.Body.String() != badRequestBody {
+			t.Fatalf("%s: status = %d, body = %q, want 400 %q", c.name, rec.Code, rec.Body.String(), badRequestBody)
+		}
+	}
+
+	// A rejected request must not disturb the account created last.
+	info := serve(t, http.MethodGet, "/v4/avatar/"+last.AvatarID)
+	if info.Code != http.StatusOK {
+		t.Fatalf("final info status = %d, body = %q", info.Code, info.Body.String())
+	}
+	var final struct {
+		Result *avatarInfoResult `json:"result"`
+	}
+	if err := json.Unmarshal(info.Body.Bytes(), &final); err != nil {
+		t.Fatalf("final info decode failed: %v", err)
+	}
+	if final.Result == nil || final.Result.Name != "Yuki" || final.Result.Gender != "FEMALE" || final.Result.Skin != "1" {
+		t.Fatalf("final info = %+v, want the last accepted Yuki/FEMALE/skin 1", final.Result)
+	}
+	if len(final.Result.Items) != 1 || final.Result.Items[0].CD != "CUON001CH" {
+		t.Fatalf("final info items = %+v, want [CUON001CH]", final.Result.Items)
+	}
+}
+
 func TestCreateAvatarAccountConcurrent(t *testing.T) {
 	accessToken := guestGenerate(t)
 	token := avAuthValue(t, createSession(t, accessToken))
@@ -797,6 +934,64 @@ func TestCreateAvatarRejectsOversizeBody(t *testing.T) {
 	check := checkSession(t, token)
 	if aid := decodeSession(t, check).Aid; aid != "0" {
 		t.Fatalf("aid = %q after oversize request, want unchanged %q", aid, "0")
+	}
+}
+
+// TestCreateAvatarRejectDiagnostics captures the stdlib logger output for one
+// rejected request at a time and asserts the diagnostic stage. The test never
+// runs in parallel: log.SetOutput mutates global logger state.
+func TestCreateAvatarRejectDiagnostics(t *testing.T) {
+	accessToken := guestGenerate(t)
+	token := avAuthValue(t, createSession(t, accessToken))
+
+	var gz bytes.Buffer
+	zw := gzip.NewWriter(&gz)
+	if _, err := zw.Write([]byte(`{"name":"x","avatarType":"MALE","itemCodes":["CUON00164"]}`)); err != nil {
+		t.Fatalf("gzip write: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+	truncated := append([]byte(nil), gz.Bytes()[:gz.Len()-8]...)
+
+	cases := []struct {
+		name       string
+		payload    []byte
+		encoding   string
+		wantStages []string
+	}{
+		{"gzip", []byte("not gzip"), "gzip", []string{"stage=gzip"}},
+		{"read", truncated, "gzip", []string{"stage=read"}},
+		{"size", []byte(`{"name":"` + strings.Repeat("a", maxCreateAvatarBody) + `","avatarType":"MALE"}`), "", []string{"stage=size"}},
+		{"jsonSyntax", []byte("{not json"), "", []string{"stage=json", "nativeTerminator=false"}},
+		{"jsonType", []byte(`{"name":123,"avatarType":"MALE"}`), "", []string{"stage=json", "nativeTerminator=false"}},
+		{"jsonNativeTerminator", append([]byte("{not json\n"), 0), "", []string{"stage=json", "nativeTerminator=true"}},
+		{"avatarType", []byte(`{"name":"x","avatarType":"ROBOT","itemCodes":["CUON00164"]}`), "", []string{"stage=avatarType", "typeLen=5"}},
+		{"itemCodes", []byte(`{"name":"x","avatarType":"MALE","itemCodes":["CUON00164",{"cd":"CUON00164"}]}`), "", []string{"stage=itemCodes", "count=2", "firstType=object"}},
+		{"skinColor", []byte(`{"name":"x","avatarType":"MALE","skinColor":{"a":1},"itemCodes":["CUON00164"]}`), "", []string{"stage=skinColor"}},
+	}
+	for _, c := range cases {
+		var buf bytes.Buffer
+		prev := log.Writer()
+		log.SetOutput(&buf)
+		rec := createAvatar(t, token, c.payload, c.encoding)
+		log.SetOutput(prev)
+
+		if rec.Code != http.StatusBadRequest || rec.Body.String() != badRequestBody {
+			t.Fatalf("%s: status = %d, body = %q, want 400", c.name, rec.Code, rec.Body.String())
+		}
+		out := buf.String()
+		if !strings.Contains(out, "CREATE avatar rejected") {
+			t.Fatalf("%s: diagnostic line missing: %q", c.name, out)
+		}
+		for _, want := range c.wantStages {
+			if !strings.Contains(out, want) {
+				t.Errorf("%s: diagnostic %q missing %q", c.name, out, want)
+			}
+		}
+		if strings.Contains(out, "CUON00164") || strings.Contains(out, `"name"`) || strings.Contains(out, "ROBOT") {
+			t.Errorf("%s: diagnostic leaked request values: %q", c.name, out)
+		}
 	}
 }
 

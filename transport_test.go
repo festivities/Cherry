@@ -158,6 +158,21 @@ func assertNoReply(t *testing.T, conn net.Conn) {
 	}
 }
 
+type deadlineRecordingConn struct {
+	net.Conn
+	cleared chan struct{}
+}
+
+func (c deadlineRecordingConn) SetDeadline(deadline time.Time) error {
+	if deadline.IsZero() {
+		select {
+		case c.cleared <- struct{}{}:
+		default:
+		}
+	}
+	return c.Conn.SetDeadline(deadline)
+}
+
 func TestSessionBannerHelloAndSendInit(t *testing.T) {
 	conn, cleanup := startSessionServer(t)
 	defer cleanup()
@@ -219,5 +234,247 @@ func TestSessionBadHelloKeepsReading(t *testing.T) {
 	reply := readSessionFrame(t, conn)
 	if !bytes.Equal(reply, buildLOFrame(loOpConfigure, 0, configurePayload)) {
 		t.Fatalf("reply = %s", hex.EncodeToString(reply))
+	}
+}
+
+func TestGatewayObserverBannerHello(t *testing.T) {
+	server, client := net.Pipe()
+	cleared := make(chan struct{}, 1)
+	var output bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		observeConn(deadlineRecordingConn{server, cleared}, gatewayAddr, log.New(&output, "", 0))
+		close(done)
+	}()
+
+	if banner := readFullDeadline(t, client, len(sessionBanner)); !bytes.Equal(banner, sessionBanner) {
+		t.Fatalf("gateway banner = %x, want %x", banner, sessionBanner)
+	}
+	open := []byte{0, 0, 0, 10, 'G', 0x19, 0, 1, 0, 1, 0, 0x65, 0, 0}
+	if _, err := client.Write(open); err != nil {
+		t.Fatalf("gateway open write: %v", err)
+	}
+	ack := readFullDeadline(t, client, len(open))
+	wantAck := append([]byte(nil), open...)
+	wantAck[5] = 0x1a
+	if !bytes.Equal(ack, wantAck) {
+		t.Fatalf("gateway ack = %x, want %x", ack, wantAck)
+	}
+	gardenOpen := append([]byte(nil), open...)
+	gardenOpen[5], gardenOpen[11] = 0x49, 0x71
+	if _, err := client.Write(gardenOpen); err != nil {
+		t.Fatalf("garden open write: %v", err)
+	}
+	gardenControl := readFullDeadline(t, client, 22)
+	wantControl := append([]byte{0, 0, 0, 18}, gardenOpen[4:]...)
+	wantControl = append(wantControl, make([]byte, 8)...)
+	if !bytes.Equal(gardenControl, wantControl) {
+		t.Fatalf("garden control = %x, want %x", gardenControl, wantControl)
+	}
+	if _, err := client.Write(gardenOpen); err != nil {
+		t.Fatalf("garden repeat write: %v", err)
+	}
+	assertNoReply(t, client)
+	if _, err := client.Write(sessionHello); err != nil {
+		t.Fatalf("gateway hello write: %v", err)
+	}
+	questReq := []byte{0, 0, 0, 92, 'D', 0, 0, 1, 0, 1, 0, 0x6f, 0, 0, 5, 0, 0, 0, 0x42, 0, 0, 1}
+	questReq = append(questReq, 0x0a, 2, 0x08, 1, 0x10, 0x2a, 0x1a, 66)
+	questReq = append(questReq, bytes.Repeat([]byte{0x77}, 66)...)
+	if err := client.SetWriteDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Write(questReq); err != nil {
+		t.Fatalf("quest request write: %v", err)
+	}
+	questReply := readFullDeadline(t, client, 24)
+	wantQuestReply := []byte{0, 0, 0, 20, 'D', 0, 0, 1, 0, 1, 0, 0x6f, 0, 0, 5, 0, 0, 0, 0x42, 0, 0, 1, 0x08, 0x2a}
+	if !bytes.Equal(questReply, wantQuestReply) {
+		t.Fatalf("quest reply = %x, want %x", questReply, wantQuestReply)
+	}
+	sessionOnly := append([]byte(nil), questReq[:22]...)
+	binary.BigEndian.PutUint32(sessionOnly[:4], 25)
+	binary.BigEndian.PutUint32(sessionOnly[15:19], 67)
+	sessionOnly = append(sessionOnly, 0x0a, 5, 0x0a, 1, 'K', 0x10, 1)
+	if _, err := client.Write(sessionOnly); err != nil {
+		t.Fatalf("session-only client event write: %v", err)
+	}
+	sessionOnlyReply := readFullDeadline(t, client, 24)
+	wantSessionOnlyReply := append([]byte(nil), wantQuestReply...)
+	binary.BigEndian.PutUint32(wantSessionOnlyReply[15:19], 67)
+	wantSessionOnlyReply[23] = 0
+	if !bytes.Equal(sessionOnlyReply, wantSessionOnlyReply) {
+		t.Fatalf("session-only client event reply = %x, want %x", sessionOnlyReply, wantSessionOnlyReply)
+	}
+	firstPacket := []byte{0, 0, 0, 15, 'G', 0x18, 0, 1, 0, 1, 0, 0x65, 0, 0, 0, 1, 'K', '3', 'Y'}
+	if err := client.SetWriteDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Write(firstPacket); err != nil {
+		t.Fatalf("gateway first packet write: %v", err)
+	}
+	gardenProto := []byte{0x0a, 1, 'K', 0x10, 1, 0x1a, 3, '1', '.', '0'}
+	gardenReq := binary.BigEndian.AppendUint32(nil, uint32(12+len(gardenProto)))
+	gardenReq = append(gardenReq, 'G', 0x48)
+	gardenReq = append(gardenReq, gardenOpen[6:14]...)
+	gardenReq = append(gardenReq, 0, 0)
+	gardenReq = append(gardenReq, gardenProto...)
+	if _, err := client.Write(gardenReq); err != nil {
+		t.Fatalf("garden login request write: %v", err)
+	}
+	gardenReply := readFullDeadline(t, client, 20)
+	wantGardenReply := binary.BigEndian.AppendUint32(nil, 16)
+	wantGardenReply = append(wantGardenReply, 'G', 0x48)
+	wantGardenReply = append(wantGardenReply, gardenOpen[6:14]...)
+	wantGardenReply = append(wantGardenReply, 0, 0, 0x08, 0x81, 0x84, 0x0c)
+	if !bytes.Equal(gardenReply, wantGardenReply) {
+		t.Fatalf("garden login reply = %x, want %x", gardenReply, wantGardenReply)
+	}
+	relayReq := binary.BigEndian.AppendUint32(nil, 12)
+	relayReq = append(relayReq, 'G', 0x48)
+	relayReq = append(relayReq, gardenOpen[6:14]...)
+	relayReq = append(relayReq, 0, 3)
+	if _, err := client.Write(relayReq); err != nil {
+		t.Fatalf("premature garden relay request write: %v", err)
+	}
+	assertNoReply(t, client)
+	questListReq := append([]byte(nil), relayReq...)
+	binary.BigEndian.PutUint16(questListReq[14:16], 15)
+	if _, err := client.Write(questListReq); err != nil {
+		t.Fatalf("premature garden quest-list request write: %v", err)
+	}
+	assertNoReply(t, client)
+	roomProto := []byte{0x08, 42, 0x10, 0, 0x20, 0, 0x28, 1}
+	roomReq := binary.BigEndian.AppendUint32(nil, uint32(12+len(roomProto)))
+	roomReq = append(roomReq, 'G', 0x48)
+	roomReq = append(roomReq, gardenOpen[6:14]...)
+	roomReq = append(roomReq, 0, 1)
+	roomReq = append(roomReq, roomProto...)
+	if _, err := client.Write(roomReq); err != nil {
+		t.Fatalf("garden room request write: %v", err)
+	}
+	roomReply := readFullDeadline(t, client, 34)
+	wantRoomReply := binary.BigEndian.AppendUint32(nil, 30)
+	wantRoomReply = append(wantRoomReply, 'G', 0x48)
+	wantRoomReply = append(wantRoomReply, gardenOpen[6:14]...)
+	wantRoomReply = append(wantRoomReply, 0, 1, 0x08, 0x81, 0x86, 0x0c, 0x22, 0x0a)
+	wantRoomReply = append(wantRoomReply, gardenMapStem...)
+	wantRoomReply = append(wantRoomReply, 0x28, 42)
+	if !bytes.Equal(roomReply, wantRoomReply) {
+		t.Fatalf("garden room reply = %x, want %x", roomReply, wantRoomReply)
+	}
+	otherTunnelRelay := append([]byte(nil), relayReq...)
+	otherTunnelRelay[6]++
+	if _, err := client.Write(otherTunnelRelay); err != nil {
+		t.Fatalf("other tunnel garden relay request write: %v", err)
+	}
+	assertNoReply(t, client)
+	invalidRelay := append(append([]byte(nil), relayReq...), 0x08, 1)
+	binary.BigEndian.PutUint32(invalidRelay, 14)
+	if _, err := client.Write(invalidRelay); err != nil {
+		t.Fatalf("garden relay unexpected payload write: %v", err)
+	}
+	assertNoReply(t, client)
+	if _, err := client.Write(relayReq); err != nil {
+		t.Fatalf("garden relay request write: %v", err)
+	}
+	relayReply := readFullDeadline(t, client, 18)
+	wantRelayReply := binary.BigEndian.AppendUint32(nil, 14)
+	wantRelayReply = append(wantRelayReply, 'G', 0x48)
+	wantRelayReply = append(wantRelayReply, gardenOpen[6:14]...)
+	wantRelayReply = append(wantRelayReply, 0, 3, 0x08, 0)
+	if !bytes.Equal(relayReply, wantRelayReply) {
+		t.Fatalf("garden relay reply = %x, want %x", relayReply, wantRelayReply)
+	}
+	otherTunnelQuest := append([]byte(nil), questListReq...)
+	otherTunnelQuest[6]++
+	if _, err := client.Write(otherTunnelQuest); err != nil {
+		t.Fatalf("wrong tunnel quest-list request write: %v", err)
+	}
+	assertNoReply(t, client)
+	if _, err := client.Write(questListReq); err != nil {
+		t.Fatalf("garden quest-list request write: %v", err)
+	}
+	questListReply := readFullDeadline(t, client, 18)
+	wantQuestListReply := binary.BigEndian.AppendUint32(nil, 14)
+	wantQuestListReply = append(wantQuestListReply, 'G', 0x48)
+	wantQuestListReply = append(wantQuestListReply, gardenOpen[6:14]...)
+	wantQuestListReply = append(wantQuestListReply, 0, 21, 0x08, 0)
+	if !bytes.Equal(questListReply, wantQuestListReply) {
+		t.Fatalf("garden quest-list reply = %x, want %x", questListReply, wantQuestListReply)
+	}
+	select {
+	case <-cleared:
+	case <-time.After(2 * time.Second):
+		t.Fatal("entered Garden retained five-minute gateway deadline")
+	}
+	invalidRoom := append([]byte(nil), roomReq...)
+	invalidRoom[len(invalidRoom)-len(roomProto)+1] = 0 // zero owner aid
+	if _, err := client.Write(invalidRoom); err != nil {
+		t.Fatalf("invalid garden room request write: %v", err)
+	}
+	assertNoReply(t, client)
+	_ = client.Close()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("gateway observer did not return")
+	}
+	if !bytes.Contains(output.Bytes(), []byte("OBS :10000 open-ack remote=pipe agent=4")) ||
+		!bytes.Contains(output.Bytes(), []byte("OBS :10000 open-control remote=pipe agent=10")) ||
+		!bytes.Contains(output.Bytes(), []byte("OBS :10000 open-retry remote=pipe agent=10")) ||
+		!bytes.Contains(output.Bytes(), []byte("OBS :10000 hello ")) ||
+		!bytes.Contains(output.Bytes(), []byte("packetId=66")) ||
+		!bytes.Contains(output.Bytes(), []byte("OBS :10000 garden-login remote=pipe result=197121")) ||
+		!bytes.Contains(output.Bytes(), []byte("OBS :10000 garden-room-enter remote=pipe result=197377 map="+gardenMapStem)) ||
+		!bytes.Contains(output.Bytes(), []byte("OBS :10000 garden-relay-start remote=pipe result=0")) ||
+		!bytes.Contains(output.Bytes(), []byte("OBS :10000 garden-quest-list remote=pipe errorCode=0")) ||
+		!bytes.Contains(output.Bytes(), []byte("garden-room-enter remote=pipe invalid owner aid")) ||
+		!bytes.Contains(output.Bytes(), []byte("agent=4 msgid=1 bytes=15")) ||
+		bytes.Contains(output.Bytes(), []byte("K3Y")) {
+		t.Fatalf("gateway observation missing framed exchanges or leaked payload: %s", output.String())
+	}
+}
+
+func TestGardenLoginValid(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		data []byte
+		want bool
+	}{
+		{"session and aid", []byte{0x0a, 1, 'K', 0x10, 1}, true},
+		{"unknown field skipped", []byte{0x18, 3, 0x0a, 1, 'K', 0x10, 1}, true},
+		{"empty session", []byte{0x0a, 0, 0x10, 1}, false},
+		{"missing aid", []byte{0x0a, 1, 'K'}, false},
+		{"zero aid", []byte{0x0a, 1, 'K', 0x10, 0}, false},
+		{"truncated varint", []byte{0x0a, 1, 'K', 0x10, 0x80}, false},
+		{"truncated field", []byte{0x0a, 2, 'K'}, false},
+	} {
+		if got := gardenLoginValid(c.data); got != c.want {
+			t.Errorf("%s: valid = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestClientEventPacketNo(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		data []byte
+		want uint64
+		ok   bool
+	}{
+		{"nested session skipped", []byte{0x0a, 2, 0x10, 99, 0x10, 42}, 42, true},
+		{"session only", []byte{0x0a, 5, 0x0a, 1, 'K', 0x10, 1}, 0, true},
+		{"empty session", []byte{0x0a, 0}, 0, false},
+		{"session with other fields", []byte{0x0a, 5, 0x0a, 1, 'K', 0x10, 1, 0x18, 1}, 0, false},
+		{"missing", []byte{0x0a, 1, 0}, 0, false},
+		{"truncated varint", []byte{0x10, 0x80}, 0, false},
+		{"truncated field", []byte{0x1a, 4, 1}, 0, false},
+		{"unsupported wire type", []byte{0x13, 0x10, 42}, 0, false},
+	} {
+		got, ok := clientEventPacketNo(c.data)
+		if got != c.want || ok != c.ok {
+			t.Errorf("%s: packetNo = %d, %v; want %d, %v", c.name, got, ok, c.want, c.ok)
+		}
 	}
 }

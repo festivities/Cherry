@@ -1,0 +1,134 @@
+package main
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+)
+
+type storedAccount struct {
+	AccessToken  string   `json:"accessToken"`
+	SessionKey   string   `json:"sessionKey"`
+	Mid          string   `json:"mid"`
+	AvatarUserID string   `json:"avatarUserId"`
+	Aid          string   `json:"aid"`
+	Name         string   `json:"name"`
+	Gender       string   `json:"gender"`
+	Skin         string   `json:"skin"`
+	Country      string   `json:"country"`
+	ItemCodes    []string `json:"itemCodes"`
+}
+
+type savedAccounts struct {
+	Version      int                      `json:"version"`
+	Accounts     map[string]storedAccount `json:"accounts"`
+	Aliases      map[string]string        `json:"aliases"`
+	Latest       string                   `json:"latest"`
+	NextAvatarID uint64                   `json:"nextAvatarId"`
+}
+
+func loadAccounts() error {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return err
+	}
+	return loadAccountsFrom(filepath.Join(dir, "Cherry", "accounts.json"))
+}
+
+func loadAccountsFrom(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	aliases := make(map[string]*account)
+	var latest *account
+	var nextID uint64
+	if err == nil {
+		var state savedAccounts
+		if err := json.Unmarshal(data, &state); err != nil {
+			return fmt.Errorf("invalid account store: %w", err)
+		}
+		if state.Version != 1 || state.Accounts == nil || state.Aliases == nil {
+			return fmt.Errorf("invalid account store version or tables")
+		}
+		byID := make(map[string]*account, len(state.Accounts))
+		for id, saved := range state.Accounts {
+			aid, parseErr := strconv.ParseUint(saved.Aid, 10, 64)
+			if id == "" || saved.AccessToken != id || saved.SessionKey == "" || parseErr != nil || aid > state.NextAvatarID {
+				return fmt.Errorf("invalid account record")
+			}
+			byID[id] = &account{saved.AccessToken, saved.SessionKey, saved.Mid, saved.AvatarUserID,
+				saved.Aid, saved.Name, saved.Gender, saved.Skin, saved.Country, saved.ItemCodes}
+		}
+		for token, id := range state.Aliases {
+			acc := byID[id]
+			if token == "" || acc == nil {
+				return fmt.Errorf("invalid account alias")
+			}
+			aliases[token] = acc
+		}
+		for id, acc := range byID {
+			if aliases[id] != acc {
+				return fmt.Errorf("missing guest account alias")
+			}
+		}
+		if state.Latest != "" {
+			latest = byID[state.Latest]
+			if latest == nil {
+				return fmt.Errorf("invalid latest account")
+			}
+		} else if len(byID) > 0 {
+			return fmt.Errorf("missing latest account")
+		}
+		nextID = state.NextAvatarID
+	}
+	accountsMu.Lock()
+	accounts, latestAcc, nextAvatarID, accountStorePath = aliases, latest, nextID, path
+	accountsMu.Unlock()
+	return nil
+}
+
+// Caller holds accountsMu; save the account and its token aliases together.
+func saveAccountsLocked() error {
+	if accountStorePath == "" {
+		return nil // In-memory httptest sessions do not write user-profile files.
+	}
+	state := savedAccounts{Version: 1, Accounts: make(map[string]storedAccount),
+		Aliases: make(map[string]string, len(accounts)), NextAvatarID: nextAvatarID}
+	if latestAcc != nil {
+		state.Latest = latestAcc.accessToken
+	}
+	for token, acc := range accounts {
+		state.Aliases[token] = acc.accessToken
+		state.Accounts[acc.accessToken] = storedAccount{acc.accessToken, acc.sessionKey, acc.mid,
+			acc.avatarUserID, acc.aid, acc.name, acc.gender, acc.skin, acc.country, acc.itemCodes}
+	}
+	data, err := json.Marshal(state)
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(accountStorePath)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".accounts-*.tmp")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err = tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err = tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err = tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), accountStorePath)
+}

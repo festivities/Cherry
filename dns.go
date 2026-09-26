@@ -13,6 +13,8 @@ const (
 	dnsListenAddr   = ":53"
 	dnsUpstreamAddr = "1.1.1.1:53"
 	dnsSinkAddr     = "10.0.2.2"
+	// ponytail: lab LAN IP; update alongside start-emulator.bat if DHCP changes.
+	dnsGatewayAddr  = "192.168.1.7"
 	dnsRelayTimeout = 4 * time.Second
 )
 
@@ -26,7 +28,8 @@ var (
 		"ads.play.naver.jp": true,
 		"lan3rd.line.me":    true,
 	}
-	dnsSinkA = net.ParseIP(dnsSinkAddr).To4()
+	dnsSinkA    = net.ParseIP(dnsSinkAddr).To4()
+	dnsGatewayA = net.ParseIP(dnsGatewayAddr).To4()
 )
 
 // listenDNS opens the UDP sink/relay socket. Failure is not fatal to Cherry:
@@ -63,11 +66,12 @@ func handleDNS(conn *net.UDPConn, query []byte, addr *net.UDPAddr, logger *log.L
 		return
 	}
 	if shouldSink(name) && (qtype == 1 || qtype == 28) {
-		if _, err := conn.WriteToUDP(sinkResponse(query, qend, qtype), addr); err != nil {
+		ip := sinkIP(name)
+		if _, err := conn.WriteToUDP(sinkResponse(query, qend, qtype, ip), addr); err != nil {
 			logger.Printf("DNS sink %s qtype=%d: %v", name, qtype, err)
 			return
 		}
-		logger.Printf("DNS sink %s qtype=%d -> %s remote=%s", name, qtype, dnsSinkAddr, addr)
+		logger.Printf("DNS sink %s qtype=%d -> %s remote=%s", name, qtype, ip, addr)
 		return
 	}
 	reply, err := relayDNS(query)
@@ -144,9 +148,16 @@ func shouldSink(name string) bool {
 	return false
 }
 
-// sinkResponse answers A with dnsSinkAddr and AAAA with NOERROR/empty so the
+func sinkIP(name string) net.IP {
+	if name == "gws.play.naver.jp" {
+		return dnsGatewayA
+	}
+	return dnsSinkA
+}
+
+// sinkResponse answers A with the chosen IP and AAAA with NOERROR/empty so the
 // client falls back to IPv4.
-func sinkResponse(query []byte, qend int, qtype uint16) []byte {
+func sinkResponse(query []byte, qend int, qtype uint16, ip net.IP) []byte {
 	resp := make([]byte, 12, qend+16)
 	copy(resp, query[:12])
 	binary.BigEndian.PutUint16(resp[2:], 0x8180)
@@ -160,7 +171,7 @@ func sinkResponse(query []byte, qend int, qtype uint16) []byte {
 	resp = append(resp, query[12:qend]...)
 	if qtype == 1 {
 		answer := []byte{0xC0, 0x0C, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 0, 0, 0, 0}
-		copy(answer[12:], dnsSinkA)
+		copy(answer[12:], ip)
 		resp = append(resp, answer...)
 	}
 	return resp

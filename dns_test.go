@@ -68,7 +68,7 @@ func TestDNSSinkAddresses(t *testing.T) {
 		if !shouldSink(parsed) {
 			t.Fatalf("%s: shouldSink = false, want true", name)
 		}
-		resp := sinkResponse(query, qend, qtype)
+		resp := sinkResponse(query, qend, qtype, sinkIP(parsed))
 		if got := binary.BigEndian.Uint16(resp[0:2]); got != 0x1234 {
 			t.Errorf("%s: txid = %#x, want 0x1234", name, got)
 		}
@@ -97,7 +97,7 @@ func TestDNSSinkAddresses(t *testing.T) {
 	if !ok {
 		t.Fatal("edns parseQuery failed")
 	}
-	resp := sinkResponse(query, qend, 1)
+	resp := sinkResponse(query, qend, 1, sinkIP("lan3rd.line.me"))
 	if binary.BigEndian.Uint16(resp[10:12]) != 0 {
 		t.Errorf("edns arcount = %d, want 0", binary.BigEndian.Uint16(resp[10:12]))
 	}
@@ -109,7 +109,7 @@ func TestDNSAAAAEmpty(t *testing.T) {
 	if !ok || name != "fapi.play.naver.jp" || qtype != 28 {
 		t.Fatalf("parseQuery = %q %d %v", name, qtype, ok)
 	}
-	resp := sinkResponse(query, qend, qtype)
+	resp := sinkResponse(query, qend, qtype, sinkIP(name))
 	if got := binary.BigEndian.Uint16(resp[2:4]); got != 0x8180 {
 		t.Errorf("flags = %#x, want 0x8180", got)
 	}
@@ -134,5 +134,38 @@ func TestDNSNoSink(t *testing.T) {
 		if !shouldSink(name) {
 			t.Errorf("shouldSink(%q) = false, want true", name)
 		}
+	}
+}
+
+func TestDNSGatewayRoute(t *testing.T) {
+	if dnsGatewayA == nil {
+		t.Fatal("invalid gateway LAN IP")
+	}
+	for name, want := range map[string][]byte{
+		"gws.play.naver.jp":         {192, 168, 1, 7},
+		"GWS.PLAY.NAVER.JP.":        {192, 168, 1, 7},
+		"fapi.play.naver.jp":        {10, 0, 2, 2},
+		"session.play.naver.jp":     {10, 0, 2, 2},
+		"play-static.line-scdn.net": {10, 0, 2, 2},
+		"lan3rd.line.me":            {10, 0, 2, 2},
+	} {
+		query := dnsQuery(name, 1)
+		parsed, qtype, qend, ok := parseQuery(query)
+		if !ok || !shouldSink(parsed) {
+			t.Fatalf("%s: not a valid sunk query", name)
+		}
+		resp := sinkResponse(query, qend, qtype, sinkIP(parsed))
+		if got := resp[len(resp)-4:]; !bytes.Equal(got, want) {
+			t.Errorf("%s: A = %v, want %v", name, got, want)
+		}
+	}
+	query := dnsQuery("gws.play.naver.jp", 28)
+	name, qtype, qend, ok := parseQuery(query)
+	if !ok {
+		t.Fatal("invalid gateway AAAA query")
+	}
+	resp := sinkResponse(query, qend, qtype, sinkIP(name))
+	if len(resp) != qend || binary.BigEndian.Uint16(resp[6:8]) != 0 {
+		t.Fatalf("gateway AAAA = %x, want empty answer", resp)
 	}
 }

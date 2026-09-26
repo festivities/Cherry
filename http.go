@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -53,6 +54,12 @@ const friendLineBuddyBody = `{"result":{"nextCursor":0,"buddyList":[]}}`
 
 const friendBrandBuddyBody = `{"result":[]}`
 
+// Empty questProgress maps to enum 0 (no active quest), avoiding the client's per-frame status retry.
+const questStatusBody = `{"result":{"heart":0,"heartBase":0,"heartRewardCoin":0,"questProgress":"","toExpire":"0"}}`
+
+// Parser-valid empty inventory counts; ResGetInventoryItemCountInfo @0x1b2afe0 defaults every field.
+const invenCountsBody = `{"result":{}}`
+
 const artsStringsMD5 = "1492F278EC281078AC7F35479A85F197"
 
 //go:embed testdata/arts_strings.ast
@@ -81,6 +88,8 @@ func newMux() *http.ServeMux {
 	mux.HandleFunc("/v4/buddy/list/type/0", handleJSONBody(friendSyncBody))
 	mux.HandleFunc("/v4/line/buddy/v4/list", handleJSONBody(friendLineBuddyBody))
 	mux.HandleFunc("/v4/brand/list", handleJSONBody(friendBrandBuddyBody))
+	mux.HandleFunc("/v4/quest/status", handleJSONBody(questStatusBody))
+	mux.HandleFunc("/v4/inven/counts", handleJSONBody(invenCountsBody))
 	mux.HandleFunc("/v4/profile/", handleJSONBody(profileBody))
 	mux.HandleFunc("/v4/avatar/", handleAvatarInfo)
 	mux.HandleFunc("/", handleRoot)
@@ -145,7 +154,11 @@ func handleGuestGenerate(w http.ResponseWriter, r *http.Request) {
 		serveNotFound(w)
 		return
 	}
-	acc := newAccount()
+	acc, err := newAccount()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
+		return
+	}
 	writeJSON(w, http.StatusOK, `{"result":{"provider":"lineplay","accessToken":"`+acc.accessToken+`"}}`)
 }
 
@@ -162,7 +175,15 @@ func handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	token := randomToken(256)
 	accountsMu.Lock()
 	accounts[token] = acc
+	err := saveAccountsLocked()
+	if err != nil {
+		delete(accounts, token)
+	}
 	accountsMu.Unlock()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
+		return
+	}
 	w.Header().Add("Set-Cookie", avAuthSetCookie(token))
 	writeJSON(w, http.StatusOK, `{"result":`+sessionResultBody(acc)+`}`)
 }
@@ -174,15 +195,22 @@ func handleCheckSession(w http.ResponseWriter, r *http.Request) {
 	}
 	accountsMu.Lock()
 	acc := accounts[cookieValue(r, "AV_AUTH")]
-	accountsMu.Unlock()
 	if acc == nil {
+		accountsMu.Unlock()
 		writeJSON(w, http.StatusNotFound, unknownSessionBody)
 		return
 	}
 	token := randomToken(256)
-	accountsMu.Lock()
 	accounts[token] = acc
+	err := saveAccountsLocked()
+	if err != nil {
+		delete(accounts, token)
+	}
 	accountsMu.Unlock()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
+		return
+	}
 	w.Header().Add("Set-Cookie", avAuthSetCookie(token))
 	writeJSON(w, http.StatusOK, fmt.Sprintf(`{"Timestamp":"%d","result":%s}`, time.Now().Unix(), sessionResultBody(acc)))
 }
@@ -199,12 +227,13 @@ type createAvatarRequest struct {
 
 // itemCodesFromJSON accepts the client's item code strings and the legacy
 // numeric base/skin codes; anything else (objects/arrays/bools/null) is
-// rejected before the account is touched.
-func itemCodesFromJSON(raws []json.RawMessage) ([]string, bool) {
+// rejected before the account is touched. On rejection it also reports the
+// JSON kind of the offending element for diagnostics, never its value.
+func itemCodesFromJSON(raws []json.RawMessage) ([]string, string, bool) {
 	codes := make([]string, 0, len(raws))
 	for _, raw := range raws {
 		if string(raw) == "null" {
-			return nil, false
+			return nil, "null", false
 		}
 		var s string
 		if err := json.Unmarshal(raw, &s); err == nil {
@@ -216,9 +245,42 @@ func itemCodesFromJSON(raws []json.RawMessage) ([]string, bool) {
 			codes = append(codes, n.String())
 			continue
 		}
-		return nil, false
+		return nil, jsonValueKind(raw), false
 	}
-	return codes, true
+	return codes, "", true
+}
+
+// jsonValueKind names the top-level JSON kind of raw without decoding it.
+func jsonValueKind(raw json.RawMessage) string {
+	s := strings.TrimSpace(string(raw))
+	if s == "" {
+		return "empty"
+	}
+	switch s[0] {
+	case '{':
+		return "object"
+	case '[':
+		return "array"
+	case '"':
+		return "string"
+	case 't', 'f':
+		return "bool"
+	case 'n':
+		return "null"
+	default:
+		return "number"
+	}
+}
+
+// logCreateAvatarReject emits the diagnostic line for a rejected
+// /v4/create/avatar request. It must never carry request headers, cookie,
+// name, item codes or raw JSON. bodyBytes is bounded by maxCreateAvatarBody+1.
+func logCreateAvatarReject(stage string, bodyBytes int, detail string) {
+	if detail == "" {
+		log.Printf("CREATE avatar rejected stage=%s bytes=%d", stage, bodyBytes)
+		return
+	}
+	log.Printf("CREATE avatar rejected stage=%s bytes=%d %s", stage, bodyBytes, detail)
 }
 
 func handleCreateAvatar(w http.ResponseWriter, r *http.Request) {
@@ -230,6 +292,7 @@ func handleCreateAvatar(w http.ResponseWriter, r *http.Request) {
 	if strings.EqualFold(strings.TrimSpace(r.Header.Get("Content-Encoding")), "gzip") {
 		zr, err := gzip.NewReader(r.Body)
 		if err != nil {
+			logCreateAvatarReject("gzip", 0, "")
 			writeJSON(w, http.StatusBadRequest, badRequestBody)
 			return
 		}
@@ -237,27 +300,46 @@ func handleCreateAvatar(w http.ResponseWriter, r *http.Request) {
 		body = zr
 	}
 	raw, err := io.ReadAll(io.LimitReader(body, maxCreateAvatarBody+1))
-	if err != nil || len(raw) > maxCreateAvatarBody {
+	if err != nil {
+		logCreateAvatarReject("read", len(raw), "")
 		writeJSON(w, http.StatusBadRequest, badRequestBody)
 		return
 	}
+	if len(raw) > maxCreateAvatarBody {
+		logCreateAvatarReject("size", len(raw), "")
+		writeJSON(w, http.StatusBadRequest, badRequestBody)
+		return
+	}
+	// The native client serializes the body with Json::Value::toFastString and
+	// ADIString::WriteEnd appends one NUL, so the wire buffer is "<json>\n\x00"
+	// (body setter @0x1a5a994). Accept exactly that one trailing NUL; any other
+	// NUL or trailing byte stays a strict JSON error below.
+	wire := raw
+	nativeTerminator := len(wire) > 0 && wire[len(wire)-1] == 0
+	if nativeTerminator {
+		wire = wire[:len(wire)-1]
+	}
 	var req createAvatarRequest
-	if err := json.Unmarshal(raw, &req); err != nil {
+	if err := json.Unmarshal(wire, &req); err != nil {
+		logCreateAvatarReject("json", len(raw), fmt.Sprintf("nativeTerminator=%t", nativeTerminator))
 		writeJSON(w, http.StatusBadRequest, badRequestBody)
 		return
 	}
 	gender := normalizeAvatarType(req.AvatarType)
 	if gender == "" {
+		logCreateAvatarReject("avatarType", len(raw), "typeLen="+strconv.Itoa(len(req.AvatarType)))
 		writeJSON(w, http.StatusBadRequest, badRequestBody)
 		return
 	}
-	itemCodes, ok := itemCodesFromJSON(req.ItemCodes)
+	itemCodes, badKind, ok := itemCodesFromJSON(req.ItemCodes)
 	if !ok {
+		logCreateAvatarReject("itemCodes", len(raw), fmt.Sprintf("count=%d firstType=%s", len(req.ItemCodes), badKind))
 		writeJSON(w, http.StatusBadRequest, badRequestBody)
 		return
 	}
 	skin, ok := skinColorString(req.SkinColor)
 	if !ok {
+		logCreateAvatarReject("skinColor", len(raw), "")
 		writeJSON(w, http.StatusBadRequest, badRequestBody)
 		return
 	}
@@ -269,10 +351,12 @@ func handleCreateAvatar(w http.ResponseWriter, r *http.Request) {
 	acc := accounts[cookieValue(r, "AV_AUTH")]
 	accountsMu.Unlock()
 	if acc == nil {
-		acc = newAccount()
+		writeJSON(w, http.StatusNotFound, unknownSessionBody)
+		return
 	}
 	token := randomToken(256)
 	accountsMu.Lock()
+	previous, previousID := *acc, nextAvatarID
 	if acc.aid == "0" {
 		nextAvatarID++
 		acc.aid = strconv.FormatUint(nextAvatarID, 10)
@@ -284,7 +368,16 @@ func handleCreateAvatar(w http.ResponseWriter, r *http.Request) {
 	acc.itemCodes = append([]string(nil), itemCodes...)
 	aid, sessionKey := acc.aid, acc.sessionKey
 	accounts[token] = acc
+	err = saveAccountsLocked()
+	if err != nil {
+		*acc, nextAvatarID = previous, previousID
+		delete(accounts, token)
+	}
 	accountsMu.Unlock()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
+		return
+	}
 
 	w.Header().Add("Set-Cookie", avAuthSetCookie(token))
 	payload, _ := json.Marshal(struct {
@@ -552,13 +645,14 @@ type avatarInfoResult struct {
 }
 
 var (
-	accountsMu   sync.Mutex
-	accounts     = make(map[string]*account)
-	latestAcc    *account
-	nextAvatarID uint64
+	accountsMu       sync.Mutex
+	accounts         = make(map[string]*account)
+	latestAcc        *account
+	nextAvatarID     uint64
+	accountStorePath string
 )
 
-func newAccount() *account {
+func newAccount() (*account, error) {
 	acc := &account{
 		accessToken:  randomToken(32),
 		sessionKey:   randomToken(32),
@@ -568,16 +662,26 @@ func newAccount() *account {
 	}
 	accountsMu.Lock()
 	accounts[acc.accessToken] = acc
+	previous := latestAcc
 	latestAcc = acc
+	err := saveAccountsLocked()
+	if err != nil {
+		delete(accounts, acc.accessToken)
+		latestAcc = previous
+	}
 	accountsMu.Unlock()
-	return acc
+	return acc, err
 }
 
 func currentAccount(r *http.Request) *account {
 	accountsMu.Lock()
 	defer accountsMu.Unlock()
-	if acc := accounts[cookieValue(r, "accessToken")]; acc != nil {
-		return acc
+	token := cookieValue(r, "accessToken")
+	if token == "" {
+		token = cookieValue(r, "cc") // Native createSession sends its guest access token as cc.
+	}
+	if token != "" {
+		return accounts[token]
 	}
 	return latestAcc
 }
