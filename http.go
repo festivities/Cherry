@@ -50,7 +50,7 @@ const settingAllBody = `{"result":{"notiFlag":false,"changeCountry":false,"count
 
 const friendSyncBody = `{"result":{"existProfile":false,"nextCursor":0,"timestamp":"0","friendsCount":0,"buddyList":[],"newbieRecommendList":[],"nearbyRecommendList":[],"bookmarks":{}}}`
 
-const friendLineBuddyBody = `{"result":{"nextCursor":0,"buddyList":[]}}`
+const friendLineBuddyBody = `{"result":{"nextCursor":"0","buddyList":[]}}`
 
 const friendBrandBuddyBody = `{"result":[]}`
 
@@ -59,6 +59,8 @@ const questStatusBody = `{"result":{"heart":0,"heartBase":0,"heartRewardCoin":0,
 
 // Parser-valid empty inventory counts; ResGetInventoryItemCountInfo @0x1b2afe0 defaults every field.
 const invenCountsBody = `{"result":{}}`
+
+const playDetailLPRmchatBody = `{"result":{"gameInfo":{"gameId":"lp_rmchat","executable":false}}}`
 
 const artsStringsMD5 = "1492F278EC281078AC7F35479A85F197"
 
@@ -90,6 +92,7 @@ func newMux() *http.ServeMux {
 	mux.HandleFunc("/v4/brand/list", handleJSONBody(friendBrandBuddyBody))
 	mux.HandleFunc("/v4/quest/status", handleJSONBody(questStatusBody))
 	mux.HandleFunc("/v4/inven/counts", handleJSONBody(invenCountsBody))
+	mux.HandleFunc("/v4/playhome/games/lp_rmchat", handlePlayDetailLPRmchat)
 	mux.HandleFunc("/v4/profile/", handleJSONBody(profileBody))
 	mux.HandleFunc("/v4/avatar/", handleAvatarInfo)
 	mux.HandleFunc("/", handleRoot)
@@ -104,6 +107,14 @@ func handleJSONBody(body string) http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusOK, body)
 	}
+}
+
+func handlePlayDetailLPRmchat(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		serveNotFound(w)
+		return
+	}
+	writeJSON(w, http.StatusOK, playDetailLPRmchatBody)
 }
 
 func handleSnsTerms(w http.ResponseWriter, r *http.Request) {

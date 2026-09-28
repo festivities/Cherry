@@ -145,6 +145,38 @@ func TestInvenCounts(t *testing.T) {
 	}
 }
 
+func TestPlayDetailLPRmchat(t *testing.T) {
+	const path = "/v4/playhome/games/lp_rmchat?deviceType=Android"
+	rec := serve(t, http.MethodGet, path)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET %s: status = %d, want 200", path, rec.Code)
+	}
+	var body struct {
+		Result struct {
+			GameInfo *struct {
+				GameID     string `json:"gameId"`
+				Executable *bool  `json:"executable"`
+			} `json:"gameInfo"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body is not valid typed JSON: %v", err)
+	}
+	if body.Result.GameInfo == nil || body.Result.GameInfo.GameID != "lp_rmchat" || body.Result.GameInfo.Executable == nil || *body.Result.GameInfo.Executable {
+		t.Fatalf("gameInfo = %+v, want {gameId: lp_rmchat, executable: false}", body.Result.GameInfo)
+	}
+
+	for _, c := range []struct{ method, path string }{
+		{http.MethodPost, path},
+		{http.MethodGet, "/v4/playhome/games/other?deviceType=Android"},
+		{http.MethodGet, "/v4/playhome/games/lp_rmchat/"},
+	} {
+		if rec := serve(t, c.method, c.path); rec.Code != http.StatusNotFound {
+			t.Errorf("%s %s: status = %d, want 404", c.method, c.path, rec.Code)
+		}
+	}
+}
+
 func TestWrongMethod(t *testing.T) {
 	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodHead} {
 		rec := serve(t, method, "/v4/setInitConf")
@@ -942,6 +974,15 @@ func TestPreloadStubs(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), `"result"`) {
 			t.Fatalf("%s: body = %q, want \"result\"", path, rec.Body.String())
 		}
+	}
+	var lineBuddy struct {
+		Result struct {
+			NextCursor string `json:"nextCursor"`
+		} `json:"result"`
+	}
+	lineBuddyReply := serve(t, http.MethodGet, "/v4/line/buddy/v4/list")
+	if err := json.Unmarshal(lineBuddyReply.Body.Bytes(), &lineBuddy); err != nil || lineBuddy.Result.NextCursor != "0" {
+		t.Fatalf("line buddy cursor must be a string: %s, %v", lineBuddyReply.Body.String(), err)
 	}
 
 	post := serveRequest(t, httptest.NewRequest(http.MethodPost, "/v4/setting/all", nil))
