@@ -91,6 +91,12 @@ func serveSessionConn(conn net.Conn, logger *log.Logger) {
 func handleSessionFrame(conn net.Conn, remote string, payload []byte, logger *log.Logger) bool {
 	if len(payload) == 2 && payload[0] == 'M' && (payload[1] == 'Q' || payload[1] == 'S') {
 		logger.Printf("SESSION ping remote=%s tag=%s", remote, string(payload))
+		frame := binary.BigEndian.AppendUint32(nil, 2)
+		frame = append(frame, payload...)
+		if _, err := conn.Write(frame); err != nil {
+			logger.Printf("SESSION ping remote=%s err=%v", remote, err)
+			return false
+		}
 		return true
 	}
 	if len(payload) >= 2 && payload[0] == 'L' && payload[1] == 'O' {

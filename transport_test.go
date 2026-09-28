@@ -207,9 +207,13 @@ func TestSessionOtherOpsIgnored(t *testing.T) {
 	}
 
 	writeSessionFrame(t, conn, []byte("MQ"))
-	assertNoReply(t, conn)
+	if reply := readSessionFrame(t, conn); !bytes.Equal(reply, []byte{0, 0, 0, 2, 'M', 'Q'}) {
+		t.Fatalf("MQ echo = %s", hex.EncodeToString(reply))
+	}
 	writeSessionFrame(t, conn, []byte("MS"))
-	assertNoReply(t, conn)
+	if reply := readSessionFrame(t, conn); !bytes.Equal(reply, []byte{0, 0, 0, 2, 'M', 'S'}) {
+		t.Fatalf("MS echo = %s", hex.EncodeToString(reply))
+	}
 	writeSessionFrame(t, conn, buildLOFrame(0x05, 9, []byte(`{"op":"other"}`))[4:])
 	assertNoReply(t, conn)
 
