@@ -54,6 +54,12 @@ const friendLineBuddyBody = `{"result":{"nextCursor":"0","buddyList":[],"bookmar
 
 const badgeInfosBody = `{"result":{"NEWS":0,"CHAT":0,"NFRD":0,"IFRD":0,"GIFT":0,"POSTBOX":0,"CSET":0,"FACE":0,"ROOM":0,"ALERT":0}}`
 
+const diaryIntroBody = `{"result":{"avatarId":"1"}}`
+
+const diaryUnfoldBody = `{"result":{"lastData":false,"items":[]}}`
+
+const diaryGuestBookCountBody = `{"result":{"hostAvtNo":"1","count":0}}`
+
 const friendBrandBuddyBody = `{"result":[]}`
 
 const homeListExtBody = `{"result":{"homeIconList":[{"id":1,"name":"Closet","image":"","flag":"","link":"","nMarkTimestamp":"0","nMark":false,"delimiter":false,"linkType":"goSomewhere(closet)","showMeOnly":false}],"eventIconList":[]}}`
@@ -104,6 +110,9 @@ func newMux() *http.ServeMux {
 	mux.HandleFunc("/v4/buddy/list/type/0", handleJSONBody(friendSyncBody))
 	mux.HandleFunc("/v4/line/buddy/v4/list", handleJSONBody(friendLineBuddyBody))
 	mux.HandleFunc("/v4/badge/infos/", handleJSONBody(badgeInfosBody))
+	mux.HandleFunc("/v4/diary2/intro/", handleJSONBody(diaryIntroBody))
+	mux.HandleFunc("/v4/diary2/ext/unfold/", handleJSONBody(diaryUnfoldBody))
+	mux.HandleFunc("/v4/guestbook3/count/", handleJSONBody(diaryGuestBookCountBody))
 	mux.HandleFunc("/v4/brand/list", handleJSONBody(friendBrandBuddyBody))
 	mux.HandleFunc("/v4/quest/status", handleJSONBody(questStatusBody))
 	mux.HandleFunc("/v4/inven/counts", handleJSONBody(invenCountsBody))

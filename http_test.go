@@ -1190,6 +1190,18 @@ func TestPreloadStubs(t *testing.T) {
 	if rec := serve(t, http.MethodPost, "/v4/badge/infos/"); rec.Code != http.StatusNotFound {
 		t.Fatalf("POST /v4/badge/infos/: status = %d, want 404", rec.Code)
 	}
+	unfold := serve(t, http.MethodGet, "/v4/diary2/ext/unfold/1/")
+	if unfold.Code != http.StatusOK || !strings.Contains(unfold.Body.String(), `"items":[]`) {
+		t.Fatalf("GET diary unfold: status = %d, body = %q", unfold.Code, unfold.Body.String())
+	}
+	intro := serve(t, http.MethodGet, "/v4/diary2/intro/1")
+	if intro.Code != http.StatusOK || !strings.Contains(intro.Body.String(), `"avatarId":"1"`) {
+		t.Fatalf("GET diary intro: status = %d, body = %q", intro.Code, intro.Body.String())
+	}
+	gb := serve(t, http.MethodGet, "/v4/guestbook3/count/1")
+	if gb.Code != http.StatusOK || !strings.Contains(gb.Body.String(), `"count":0`) {
+		t.Fatalf("GET guestbook count: status = %d, body = %q", gb.Code, gb.Body.String())
+	}
 
 	post := serveRequest(t, httptest.NewRequest(http.MethodPost, "/v4/setting/all", nil))
 	if post.Code != http.StatusNotFound || post.Body.String() != notFoundBody {
