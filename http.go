@@ -60,6 +60,8 @@ const questStatusBody = `{"result":{"heart":0,"heartBase":0,"heartRewardCoin":0,
 // Parser-valid empty inventory counts; ResGetInventoryItemCountInfo @0x1b2afe0 defaults every field.
 const invenCountsBody = `{"result":{}}`
 
+const itemsSomeBody = `{"result":[]}`
+
 const playDetailLPRmchatBody = `{"result":{"gameInfo":{"gameId":"lp_rmchat","executable":false}}}`
 
 const artsStringsMD5 = "1492F278EC281078AC7F35479A85F197"
@@ -92,6 +94,8 @@ func newMux() *http.ServeMux {
 	mux.HandleFunc("/v4/brand/list", handleJSONBody(friendBrandBuddyBody))
 	mux.HandleFunc("/v4/quest/status", handleJSONBody(questStatusBody))
 	mux.HandleFunc("/v4/inven/counts", handleJSONBody(invenCountsBody))
+	mux.HandleFunc("/v4/items/dress/some", handleItemsSome)
+	mux.HandleFunc("/v4/items/room/some", handleItemsSome)
 	mux.HandleFunc("/v4/playhome/games/lp_rmchat", handlePlayDetailLPRmchat)
 	mux.HandleFunc("/v4/profile/", handleJSONBody(profileBody))
 	mux.HandleFunc("/v4/avatar/", handleAvatarInfo)
@@ -115,6 +119,14 @@ func handlePlayDetailLPRmchat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, playDetailLPRmchatBody)
+}
+
+func handleItemsSome(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		serveNotFound(w)
+		return
+	}
+	writeJSON(w, http.StatusOK, itemsSomeBody)
 }
 
 func handleSnsTerms(w http.ResponseWriter, r *http.Request) {

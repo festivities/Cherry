@@ -145,6 +145,31 @@ func TestInvenCounts(t *testing.T) {
 	}
 }
 
+func TestItemsSome(t *testing.T) {
+	paths := []string{"/v4/items/dress/some", "/v4/items/room/some"}
+	for _, path := range paths {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`["CUON00164"]`))
+		rec := serveRequest(t, req)
+		if rec.Code != http.StatusOK || rec.Body.String() != itemsSomeBody {
+			t.Fatalf("POST %s: status = %d, body = %q", path, rec.Code, rec.Body.String())
+		}
+	}
+
+	for _, path := range paths {
+		for _, method := range []string{http.MethodGet, http.MethodPut} {
+			if rec := serve(t, method, path); rec.Code != http.StatusNotFound {
+				t.Errorf("%s %s: status = %d, want 404", method, path, rec.Code)
+			}
+		}
+	}
+
+	for _, path := range []string{"/v4/items/dress/some/", "/v4/items/other/some"} {
+		if rec := serve(t, http.MethodPost, path); rec.Code != http.StatusNotFound {
+			t.Errorf("POST %s: status = %d, want 404", path, rec.Code)
+		}
+	}
+}
+
 func TestPlayDetailLPRmchat(t *testing.T) {
 	const path = "/v4/playhome/games/lp_rmchat?deviceType=Android"
 	rec := serve(t, http.MethodGet, path)
