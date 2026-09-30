@@ -10,16 +10,17 @@ import (
 )
 
 type storedAccount struct {
-	AccessToken  string   `json:"accessToken"`
-	SessionKey   string   `json:"sessionKey"`
-	Mid          string   `json:"mid"`
-	AvatarUserID string   `json:"avatarUserId"`
-	Aid          string   `json:"aid"`
-	Name         string   `json:"name"`
-	Gender       string   `json:"gender"`
-	Skin         string   `json:"skin"`
-	Country      string   `json:"country"`
-	ItemCodes    []string `json:"itemCodes"`
+	AccessToken    string   `json:"accessToken"`
+	SessionKey     string   `json:"sessionKey"`
+	Mid            string   `json:"mid"`
+	AvatarUserID   string   `json:"avatarUserId"`
+	Aid            string   `json:"aid"`
+	Name           string   `json:"name"`
+	Gender         string   `json:"gender"`
+	Skin           string   `json:"skin"`
+	Country        string   `json:"country"`
+	ItemCodes      []string `json:"itemCodes"`
+	InventoryCodes []string `json:"inventoryCodes"`
 }
 
 type savedAccounts struct {
@@ -60,8 +61,17 @@ func loadAccountsFrom(path string) error {
 			if id == "" || saved.AccessToken != id || saved.SessionKey == "" || parseErr != nil || aid > state.NextAvatarID {
 				return fmt.Errorf("invalid account record")
 			}
-			byID[id] = &account{saved.AccessToken, saved.SessionKey, saved.Mid, saved.AvatarUserID,
-				saved.Aid, saved.Name, saved.Gender, saved.Skin, saved.Country, saved.ItemCodes}
+			inventoryCodes := saved.InventoryCodes
+			if inventoryCodes == nil {
+				inventoryCodes = saved.ItemCodes
+			}
+			inventoryCopy := appendUniqueItemCodes(nil, inventoryCodes)
+			byID[id] = &account{
+				accessToken: saved.AccessToken, sessionKey: saved.SessionKey, mid: saved.Mid,
+				avatarUserID: saved.AvatarUserID, aid: saved.Aid, name: saved.Name,
+				gender: saved.Gender, skin: saved.Skin, country: saved.Country,
+				itemCodes: saved.ItemCodes, inventoryCodes: inventoryCopy,
+			}
 		}
 		for token, id := range state.Aliases {
 			acc := byID[id]
@@ -103,8 +113,12 @@ func saveAccountsLocked() error {
 	}
 	for token, acc := range accounts {
 		state.Aliases[token] = acc.accessToken
-		state.Accounts[acc.accessToken] = storedAccount{acc.accessToken, acc.sessionKey, acc.mid,
-			acc.avatarUserID, acc.aid, acc.name, acc.gender, acc.skin, acc.country, acc.itemCodes}
+		state.Accounts[acc.accessToken] = storedAccount{
+			AccessToken: acc.accessToken, SessionKey: acc.sessionKey, Mid: acc.mid,
+			AvatarUserID: acc.avatarUserID, Aid: acc.aid, Name: acc.name, Gender: acc.gender,
+			Skin: acc.skin, Country: acc.country, ItemCodes: acc.itemCodes,
+			InventoryCodes: acc.inventoryCodes,
+		}
 	}
 	data, err := json.Marshal(state)
 	if err != nil {

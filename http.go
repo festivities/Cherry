@@ -54,6 +54,16 @@ const friendLineBuddyBody = `{"result":{"nextCursor":"0","buddyList":[]}}`
 
 const friendBrandBuddyBody = `{"result":[]}`
 
+const homeListExtBody = `{"result":{"homeIconList":[{"id":1,"name":"Closet","image":"","flag":"","link":"","nMarkTimestamp":"0","nMark":false,"delimiter":false,"linkType":"goSomewhere(closet)","showMeOnly":false}],"eventIconList":[]}}`
+
+var curatedGrantCodes = []string{"CUHA0036Z", "CUON004TV", "CUSH00267", "CUAH004JH"}
+
+const storageDisplayBody = `{"result":false}`
+
+const styleSlotListBody = `{"result":{"styleSlotResponses":[]}}`
+
+const recycleConfigBody = `{"result":{"config":[]}}`
+
 // Empty questProgress maps to enum 0 (no active quest), avoiding the client's per-frame status retry.
 const questStatusBody = `{"result":{"heart":0,"heartBase":0,"heartRewardCoin":0,"questProgress":"","toExpire":"0"}}`
 
@@ -94,6 +104,12 @@ func newMux() *http.ServeMux {
 	mux.HandleFunc("/v4/brand/list", handleJSONBody(friendBrandBuddyBody))
 	mux.HandleFunc("/v4/quest/status", handleJSONBody(questStatusBody))
 	mux.HandleFunc("/v4/inven/counts", handleJSONBody(invenCountsBody))
+	mux.HandleFunc("/v4/home/list/ext/", handleHomeListExt)
+	mux.HandleFunc("/v4/inven/closet/items/all", handleClosetItemsAll)
+	mux.HandleFunc("/v4/storage/display", handleJSONBody(storageDisplayBody))
+	mux.HandleFunc("/v4/style/slot/list", handleJSONBody(styleSlotListBody))
+	mux.HandleFunc("/v4/inven/recycle/cfg", handleJSONBody(recycleConfigBody))
+	mux.HandleFunc("/v4/avatar/save/v2", handleAvatarSaveV2)
 	mux.HandleFunc("/v4/items/dress/some", handleItemsSome)
 	mux.HandleFunc("/v4/items/room/some", handleItemsSome)
 	mux.HandleFunc("/v4/playhome/games/lp_rmchat", handlePlayDetailLPRmchat)
@@ -111,6 +127,65 @@ func handleJSONBody(body string) http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusOK, body)
 	}
+}
+
+func handleHomeListExt(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		serveNotFound(w)
+		return
+	}
+	writeJSON(w, http.StatusOK, homeListExtBody)
+}
+
+type closetInventoryItem struct {
+	ItemCode       string `json:"itemCode"`
+	InvenSeq       string `json:"invenSeq"`
+	Count          int    `json:"count"`
+	Price          int    `json:"price"`
+	NewArrival     bool   `json:"newArrival"`
+	SpecialEffects string `json:"specialEffects"`
+	Grade          string `json:"grade"`
+	DyeType        int    `json:"dyeType"`
+}
+
+type closetBasicFaceItem struct {
+	ItemCode string `json:"itemCode"`
+}
+
+type closetItemsResult struct {
+	BasicFaceList []closetBasicFaceItem `json:"basicFaceList"`
+	InventoryList []closetInventoryItem `json:"inventoryList"`
+}
+
+func handleClosetItemsAll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		serveNotFound(w)
+		return
+	}
+	accountsMu.Lock()
+	acc := accounts[cookieValue(r, "AV_AUTH")]
+	var codes []string
+	if acc != nil {
+		codes = accountOwnedCodes(acc)
+	}
+	accountsMu.Unlock()
+	basicFaceItems := make([]closetBasicFaceItem, 0, len(codes))
+	wearableCodes := make([]string, 0, len(codes))
+	for _, code := range codes {
+		if isBasicFaceItemCode(code) {
+			basicFaceItems = append(basicFaceItems, closetBasicFaceItem{ItemCode: code})
+		} else {
+			wearableCodes = append(wearableCodes, code)
+		}
+	}
+	items := make([]closetInventoryItem, 0, len(wearableCodes))
+	for i, code := range wearableCodes {
+		items = append(items, closetInventoryItem{ItemCode: code, InvenSeq: strconv.Itoa(i + 1), Count: 1})
+	}
+	payload, _ := json.Marshal(struct {
+		Result closetItemsResult `json:"result"`
+	}{Result: closetItemsResult{BasicFaceList: basicFaceItems, InventoryList: items}})
+	writeJSON(w, http.StatusOK, string(payload))
 }
 
 func handlePlayDetailLPRmchat(w http.ResponseWriter, r *http.Request) {
@@ -238,7 +313,9 @@ func handleCheckSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, fmt.Sprintf(`{"Timestamp":"%d","result":%s}`, time.Now().Unix(), sessionResultBody(acc)))
 }
 
-const maxCreateAvatarBody = 1 << 20
+const maxJSONBody = 1 << 20
+
+const maxCreateAvatarBody = maxJSONBody
 
 type createAvatarRequest struct {
 	Name       string            `json:"name"`
@@ -295,9 +372,19 @@ func jsonValueKind(raw json.RawMessage) string {
 	}
 }
 
+// The native client appends one NUL after its JSON body. Accept that exact
+// terminator while leaving every other trailing byte to json.Unmarshal.
+func unmarshalNativeJSON(raw []byte, dst any) (bool, error) {
+	nativeTerminator := len(raw) > 0 && raw[len(raw)-1] == 0
+	if nativeTerminator {
+		raw = raw[:len(raw)-1]
+	}
+	return nativeTerminator, json.Unmarshal(raw, dst)
+}
+
 // logCreateAvatarReject emits the diagnostic line for a rejected
 // /v4/create/avatar request. It must never carry request headers, cookie,
-// name, item codes or raw JSON. bodyBytes is bounded by maxCreateAvatarBody+1.
+// name, item codes or raw JSON. bodyBytes is bounded by maxJSONBody+1.
 func logCreateAvatarReject(stage string, bodyBytes int, detail string) {
 	if detail == "" {
 		log.Printf("CREATE avatar rejected stage=%s bytes=%d", stage, bodyBytes)
@@ -322,28 +409,20 @@ func handleCreateAvatar(w http.ResponseWriter, r *http.Request) {
 		defer zr.Close()
 		body = zr
 	}
-	raw, err := io.ReadAll(io.LimitReader(body, maxCreateAvatarBody+1))
+	raw, err := io.ReadAll(io.LimitReader(body, maxJSONBody+1))
 	if err != nil {
 		logCreateAvatarReject("read", len(raw), "")
 		writeJSON(w, http.StatusBadRequest, badRequestBody)
 		return
 	}
-	if len(raw) > maxCreateAvatarBody {
+	if len(raw) > maxJSONBody {
 		logCreateAvatarReject("size", len(raw), "")
 		writeJSON(w, http.StatusBadRequest, badRequestBody)
 		return
 	}
-	// The native client serializes the body with Json::Value::toFastString and
-	// ADIString::WriteEnd appends one NUL, so the wire buffer is "<json>\n\x00"
-	// (body setter @0x1a5a994). Accept exactly that one trailing NUL; any other
-	// NUL or trailing byte stays a strict JSON error below.
-	wire := raw
-	nativeTerminator := len(wire) > 0 && wire[len(wire)-1] == 0
-	if nativeTerminator {
-		wire = wire[:len(wire)-1]
-	}
 	var req createAvatarRequest
-	if err := json.Unmarshal(wire, &req); err != nil {
+	nativeTerminator, err := unmarshalNativeJSON(raw, &req)
+	if err != nil {
 		logCreateAvatarReject("json", len(raw), fmt.Sprintf("nativeTerminator=%t", nativeTerminator))
 		writeJSON(w, http.StatusBadRequest, badRequestBody)
 		return
@@ -388,6 +467,7 @@ func handleCreateAvatar(w http.ResponseWriter, r *http.Request) {
 	acc.gender = gender
 	acc.skin = skin
 	acc.country = req.NationCode
+	acc.inventoryCodes = appendUniqueItemCodes(accountInventoryCodes(acc), itemCodes)
 	acc.itemCodes = append([]string(nil), itemCodes...)
 	aid, sessionKey := acc.aid, acc.sessionKey
 	accounts[token] = acc
@@ -442,6 +522,86 @@ func handleCreateComplete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, createCompleteBody)
 }
 
+type avatarSaveItem struct {
+	ItemCode *string         `json:"itemCode"`
+	InvenSeq json.RawMessage `json:"invenSeq"`
+}
+
+func handleAvatarSaveV2(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		serveNotFound(w)
+		return
+	}
+	raw, err := io.ReadAll(io.LimitReader(r.Body, maxJSONBody+1))
+	if err != nil || len(raw) > maxJSONBody {
+		writeJSON(w, http.StatusBadRequest, badRequestBody)
+		return
+	}
+	var req []avatarSaveItem
+	if _, err := unmarshalNativeJSON(raw, &req); err != nil || req == nil {
+		writeJSON(w, http.StatusBadRequest, badRequestBody)
+		return
+	}
+	for _, item := range req {
+		if item.ItemCode == nil || *item.ItemCode == "" {
+			writeJSON(w, http.StatusBadRequest, badRequestBody)
+			return
+		}
+		if len(item.InvenSeq) > 0 {
+			var seq int
+			if strings.TrimSpace(string(item.InvenSeq)) == "null" || json.Unmarshal(item.InvenSeq, &seq) != nil {
+				writeJSON(w, http.StatusBadRequest, badRequestBody)
+				return
+			}
+		}
+	}
+
+	accountsMu.Lock()
+	acc := accounts[cookieValue(r, "AV_AUTH")]
+	if acc == nil {
+		accountsMu.Unlock()
+		writeJSON(w, http.StatusNotFound, unknownSessionBody)
+		return
+	}
+	serials := itemSerials(accountOwnedCodes(acc))
+	itemCodes := make([]string, 0, len(req))
+	for _, item := range req {
+		code := *item.ItemCode
+		if isSkinItemCode(code) {
+			continue
+		}
+		if _, owned := serials[code]; !owned {
+			accountsMu.Unlock()
+			writeJSON(w, http.StatusBadRequest, badRequestBody)
+			return
+		}
+		itemCodes = append(itemCodes, code)
+	}
+	previous := *acc
+	acc.itemCodes = itemCodes
+	err = saveAccountsLocked()
+	if err != nil {
+		*acc = previous
+		accountsMu.Unlock()
+		writeJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
+		return
+	}
+	info := avatarInfoForAccount(accountSnapshot{
+		aid: acc.aid, name: acc.name, gender: acc.gender, skin: acc.skin,
+		country: acc.country, itemCodes: append([]string(nil), acc.itemCodes...),
+		inventoryCodes: accountOwnedCodes(acc),
+	})
+	accountsMu.Unlock()
+	payload, _ := json.Marshal(struct {
+		Result avatarInfoResult `json:"result"`
+	}{Result: info})
+	writeJSON(w, http.StatusOK, string(payload))
+}
+
+func isSkinItemCode(code string) bool {
+	return len(code) == 6 && strings.HasPrefix(code, "SKN") && isAllDigits(code[3:])
+}
+
 // tutorialAvatarTypes maps the four avatar IDs requested by
 // NaCreateLayer::InitCloneAvatars to a synthesized appearance. The sex
 // assignment is a deterministic stand-in; the authentic per-ID appearances are
@@ -477,17 +637,7 @@ func handleAvatarInfo(w http.ResponseWriter, r *http.Request) {
 		info.Gender = sex
 		info.Items = avatarItemsFromCodes(workableLook(sex))
 	} else if acc, ok := accountByAvatarID(id); ok {
-		info.Name = acc.name
-		if acc.gender != "" {
-			info.Gender = acc.gender
-		}
-		if acc.skin != "" {
-			info.Skin = acc.skin
-		}
-		info.Country = acc.country
-		if acc.itemCodes != nil {
-			info.Items = avatarItemsFromCodes(acc.itemCodes)
-		}
+		info = avatarInfoForAccount(acc)
 	}
 	payload, _ := json.Marshal(struct {
 		Result avatarInfoResult `json:"result"`
@@ -496,14 +646,98 @@ func handleAvatarInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 // accountSnapshot is a copy of the fields /v4/avatar/<id> serves, taken under
-// accountsMu so the handler never reads fields that handleCreateAvatar may be
-// writing concurrently.
+// accountsMu so the handler never reads fields while an avatar mutation writes.
 type accountSnapshot struct {
-	name      string
-	gender    string
-	skin      string
-	country   string
-	itemCodes []string
+	aid            string
+	name           string
+	gender         string
+	skin           string
+	country        string
+	itemCodes      []string
+	inventoryCodes []string
+}
+
+func avatarInfoForAccount(acc accountSnapshot) avatarInfoResult {
+	gender, skin := acc.gender, acc.skin
+	if gender == "" {
+		gender = "FEMALE"
+	}
+	if skin == "" {
+		skin = "1"
+	}
+	return avatarInfoResult{
+		AvatarID: acc.aid, Name: acc.name, Gender: gender, SType: "NORMAL", Skin: skin,
+		Country: acc.country, Items: avatarItemsFromInventory(acc.itemCodes, acc.inventoryCodes),
+		PetProfiles: []string{},
+	}
+}
+
+func accountInventoryCodes(acc *account) []string {
+	if acc.inventoryCodes != nil {
+		return acc.inventoryCodes
+	}
+	return acc.itemCodes
+}
+
+func accountOwnedCodes(acc *account) []string {
+	if acc == nil {
+		return nil
+	}
+	return appendUniqueItemCodes(accountInventoryCodes(acc), curatedGrantCodes)
+}
+
+func isBasicFaceItemCode(code string) bool {
+	if len(code) < 4 {
+		return false
+	}
+	switch code[2:4] {
+	case "EY", "MO", "EB", "NO", "HE":
+		return true
+	default:
+		return false
+	}
+}
+
+func appendUniqueItemCodes(existing, additions []string) []string {
+	codes := make([]string, 0, len(existing)+len(additions))
+	seen := make(map[string]struct{}, len(existing)+len(additions))
+	for _, code := range append(append([]string(nil), existing...), additions...) {
+		if _, ok := seen[code]; ok {
+			continue
+		}
+		seen[code] = struct{}{}
+		codes = append(codes, code)
+	}
+	return codes
+}
+
+func itemSerials(codes []string) map[string]string {
+	serials := make(map[string]string, len(codes))
+	for i, code := range codes {
+		if _, exists := serials[code]; !exists {
+			serials[code] = strconv.Itoa(i + 1)
+		}
+	}
+	return serials
+}
+
+func avatarItemsFromInventory(codes, inventory []string) []avatarItem {
+	wearableCodes := make([]string, 0, len(inventory))
+	for _, code := range inventory {
+		if !isBasicFaceItemCode(code) {
+			wearableCodes = append(wearableCodes, code)
+		}
+	}
+	serials := itemSerials(wearableCodes)
+	items := make([]avatarItem, 0, len(codes))
+	for _, code := range codes {
+		serial := serials[code]
+		if serial == "" {
+			serial = "0"
+		}
+		items = append(items, avatarItem{CD: code, InvenSeq: serial, ColorAndTransparencies: []any{}})
+	}
+	return items
 }
 
 func accountByAvatarID(id string) (accountSnapshot, bool) {
@@ -512,11 +746,13 @@ func accountByAvatarID(id string) (accountSnapshot, bool) {
 	for _, acc := range accounts {
 		if acc.aid == id {
 			return accountSnapshot{
-				name:      acc.name,
-				gender:    acc.gender,
-				skin:      acc.skin,
-				country:   acc.country,
-				itemCodes: append([]string(nil), acc.itemCodes...),
+				aid:            acc.aid,
+				name:           acc.name,
+				gender:         acc.gender,
+				skin:           acc.skin,
+				country:        acc.country,
+				itemCodes:      append([]string(nil), acc.itemCodes...),
+				inventoryCodes: accountOwnedCodes(acc),
 			}, true
 		}
 	}
@@ -618,16 +854,17 @@ func isAllDigits(s string) bool {
 }
 
 type account struct {
-	accessToken  string
-	sessionKey   string
-	mid          string
-	avatarUserID string
-	aid          string
-	name         string
-	gender       string
-	skin         string
-	country      string
-	itemCodes    []string
+	accessToken    string
+	sessionKey     string
+	mid            string
+	avatarUserID   string
+	aid            string
+	name           string
+	gender         string
+	skin           string
+	country        string
+	itemCodes      []string
+	inventoryCodes []string
 }
 
 // avatarItem is the object form parsed by sDataAvatar::SetData @0x1c0a39c.
