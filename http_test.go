@@ -1174,6 +1174,22 @@ func TestPreloadStubs(t *testing.T) {
 	if err := json.Unmarshal(lineBuddyReply.Body.Bytes(), &lineBuddy); err != nil || lineBuddy.Result.NextCursor != "0" {
 		t.Fatalf("line buddy cursor must be a string: %s, %v", lineBuddyReply.Body.String(), err)
 	}
+	var syncBookmarks struct {
+		Result struct {
+			Bookmarks []any `json:"bookmarks"`
+		} `json:"result"`
+	}
+	syncReply := serve(t, http.MethodGet, "/v4/sync/friends/0")
+	if err := json.Unmarshal(syncReply.Body.Bytes(), &syncBookmarks); err != nil || syncBookmarks.Result.Bookmarks == nil {
+		t.Fatalf("friend sync bookmarks must be an array: %s, %v", syncReply.Body.String(), err)
+	}
+	badge := serve(t, http.MethodGet, "/v4/badge/infos/")
+	if badge.Code != http.StatusOK || !strings.Contains(badge.Body.String(), `"NEWS":0`) {
+		t.Fatalf("GET /v4/badge/infos/: status = %d, body = %q", badge.Code, badge.Body.String())
+	}
+	if rec := serve(t, http.MethodPost, "/v4/badge/infos/"); rec.Code != http.StatusNotFound {
+		t.Fatalf("POST /v4/badge/infos/: status = %d, want 404", rec.Code)
+	}
 
 	post := serveRequest(t, httptest.NewRequest(http.MethodPost, "/v4/setting/all", nil))
 	if post.Code != http.StatusNotFound || post.Body.String() != notFoundBody {

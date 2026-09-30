@@ -48,9 +48,11 @@ const createCompleteBody = `{"result":{"status":true,"rewardCoin":300}}`
 
 const settingAllBody = `{"result":{"notiFlag":false,"changeCountry":false,"countryName":"","soundConfig":false,"notiConfig":{},"privacyConfig":{},"roomSize":{"max":0,"cur":0}}}`
 
-const friendSyncBody = `{"result":{"existProfile":false,"nextCursor":0,"timestamp":"0","friendsCount":0,"buddyList":[],"newbieRecommendList":[],"nearbyRecommendList":[],"bookmarks":{}}}`
+const friendSyncBody = `{"result":{"existProfile":false,"nextCursor":0,"timestamp":"0","friendsCount":0,"buddyList":[],"newbieRecommendList":[],"nearbyRecommendList":[],"bookmarks":[]}}`
 
-const friendLineBuddyBody = `{"result":{"nextCursor":"0","buddyList":[]}}`
+const friendLineBuddyBody = `{"result":{"nextCursor":"0","buddyList":[],"bookmarks":[]}}`
+
+const badgeInfosBody = `{"result":{"NEWS":0,"CHAT":0,"NFRD":0,"IFRD":0,"GIFT":0,"POSTBOX":0,"CSET":0,"FACE":0,"ROOM":0,"ALERT":0}}`
 
 const friendBrandBuddyBody = `{"result":[]}`
 
@@ -101,6 +103,7 @@ func newMux() *http.ServeMux {
 	mux.HandleFunc("/v4/sync/friends/", handleJSONBody(friendSyncBody))
 	mux.HandleFunc("/v4/buddy/list/type/0", handleJSONBody(friendSyncBody))
 	mux.HandleFunc("/v4/line/buddy/v4/list", handleJSONBody(friendLineBuddyBody))
+	mux.HandleFunc("/v4/badge/infos/", handleJSONBody(badgeInfosBody))
 	mux.HandleFunc("/v4/brand/list", handleJSONBody(friendBrandBuddyBody))
 	mux.HandleFunc("/v4/quest/status", handleJSONBody(questStatusBody))
 	mux.HandleFunc("/v4/inven/counts", handleJSONBody(invenCountsBody))
