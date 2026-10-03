@@ -62,7 +62,168 @@ const diaryGuestBookCountBody = `{"result":{"hostAvtNo":"1","count":0}}`
 
 const friendBrandBuddyBody = `{"result":[]}`
 
-const homeListExtBody = `{"result":{"homeIconList":[{"id":1,"name":"Closet","image":"","flag":"","link":"","nMarkTimestamp":"0","nMark":false,"delimiter":false,"linkType":"goSomewhere(closet)","showMeOnly":false}],"eventIconList":[]}}`
+type homeIconRow struct {
+	Name     string
+	LinkType string
+}
+
+var homeIconRows = []homeIconRow{
+	{"Closet", "goSomewhere(closet)"},
+	{"Friends", "goSomewhere(myfriends)"},
+	{"Diary", "goSomewhere(diary)"},
+	{"Browser", "openWithBrowser"},
+	{"HTML", "html"},
+	{"Events", "event"},
+	{"Game Link", "gamelink"},
+	{"Game Link Custom", "gamelink(custom)"},
+	{"Game Link Embedded", "gamelink(embedded)"},
+	{"My Home", "goSomewhere(myHome)"},
+	{"My Room", "goSomewhere(myRoom)"},
+	{"Other Room", "goSomewhere(otherRoom)"},
+	{"Interior Shop", "goSomewhere(interiorShop)"},
+	{"Fashion Shop", "goSomewhere(fashionShop)"},
+	{"Brand Shop", "goSomewhere(brandShop)"},
+	{"Brand Shop Ex", "goSomewhere(brandShopEx)"},
+	{"Gacha Shop", "goSomewhere(gachaShop)"},
+	{"Gift Shop", "goSomewhere(giftShop)"},
+	{"Model House", "goSomewhere(modelhouse)"},
+	{"Face Shop", "goSomewhere(faceShop)"},
+	{"Badge Shop", "goSomewhere(badgeShop)"},
+	{"Gem Shop", "goSomewhere(gemShop)"},
+	{"Heart Shop", "goSomewhere(extraHeartShop)"},
+	{"Cash Shop", "goSomewhere(cashShop)"},
+	{"Profile Edit", "goSomewhere(profileedit)"},
+	{"Notice", "goSomewhere(notice)"},
+	{"Add Friends", "goSomewhere(addfriends)"},
+	{"Invitation", "goSomewhere(invitation)"},
+	{"Lounge Chat", "goSomewhere(loungeChat)"},
+	{"Today Members", "goSomewhere(todayMember)"},
+	{"Room Edit", "goSomewhere(roomEdit)"},
+	{"Settings", "goSomewhere(setting)"},
+	{"Square", "goSomewhere(square)"},
+	{"Postbox", "goSomewhere(postbox)"},
+	{"Random Room", "goSomewhere(randomRoom)"},
+	{"Lucky Spin", "goSomewhere(luckyspin)"},
+	{"More Shop", "goSomewhere(subMoreShop)"},
+	{"More Gacha", "goSomewhere(subMoreGacha)"},
+	{"More Events", "goSomewhere(subMoreEvent)"},
+	{"More Games", "goSomewhere(subMoreGame)"},
+	{"Gacha Category", "goSomewhere(gachaCatg)"},
+	{"Gacha Category No Tap", "goSomewhere(gachaCatgNotap)"},
+	{"Gacha Detail", "goSomewhere(gachaDetail)"},
+	{"Gacha Top", "goSomewhere(gachaTop)"},
+	{"Gacha New", "goSomewhere(gachaNew)"},
+	{"Mailbox", "goSomewhere(mailbox)"},
+	{"Jackpot Spin", "goSomewhere(jackpotspin)"},
+	{"Minipet Shop", "goSomewhere(minipetShop)"},
+	{"Minipet Book", "goSomewhere(minipetBook)"},
+	{"VIP Lounge", "goSomewhere(viplounge)"},
+	{"VIP Enter Popup", "goSomewhere(vipenterpopup)"},
+	{"VIP Detail", "goSomewhere(vipdetail)"},
+	{"Fashion Quest", "goSomewhere(fashionQuest)"},
+	{"Enter Square", "goSomewhere(enterSquare)"},
+	{"Golden Chance", "goSomewhere(goldenChance)"},
+	{"Go To Friend", "goSomewhere(gotoFriend)"},
+	{"Play Pass Popup", "goSomewhere(playpasspopup)"},
+	{"Remodeling Shop", "goSomewhere(remodelingShop)"},
+	{"Quest", "goSomewhere(quest)"},
+	{"Attendance", "goSomewhere(attendance)"},
+	{"Room Party Invite", "goSomewhere(roompartyInvite)"},
+	{"Avatar Chat", "goSomewhere(avatarChat)"},
+	{"Diary Detail", "goSomewhere(diaryDetail)"},
+	{"Cherry Tip", "goSomewhere(cherrytip)"},
+	{"Video Play", "goSomewhere(videoplay)"},
+	{"Event Ranking", "goSomewhere(eventRanking)"},
+	{"Package Day 1", "goSomewhere(billPackageDay1)"},
+	{"Package Day 30", "goSomewhere(billPackageDay30)"},
+	{"Bill Package", "goSomewhere(billPackage)"},
+	{"Package Item High", "goSomewhere(billPackageItemHigh)"},
+	{"Package Item Low", "goSomewhere(billPackageItemLow)"},
+	{"Recommended Posts", "goSomewhere(recommendPostList)"},
+	{"Fashionista", "goSomewhere(fashionista)"},
+	{"Fashionista List", "goSomewhere(fashionistaList)"},
+	{"Circle", "goSomewhere(circle)"},
+	{"Circle Fashion Quest", "goSomewhere(circleFashionQuest)"},
+	{"Gacha Main", "goSomewhere(gachaMain)"},
+	{"Gacha Search", "goSomewhere(gachaSearch)"},
+	{"Gacha Keyword", "goSomewhere(gachaKeyword)"},
+	{"Comic Guide", "goSomewhere(ComicGuide)"},
+	{"More Comic Guide", "goSomewhere(MoreComicGuide)"},
+	{"Time Magic", "goSomewhere(timemagic)"},
+	{"Item Trade", "goSomewhere(ItemTrade)"},
+	{"Story Gacha", "goSomewhere(storygacha)"},
+	{"Story Gacha List", "goSomewhere(storygachaList)"},
+	{"Story Gacha Detail", "goSomewhere(storygachaDetail)"},
+	{"Square Collab Event", "goSomewhere(SquareCollaboEvent)"},
+	{"Line Game Event", "goSomewhere(lineGameEvent)"},
+	{"Store List", "goSomewhere(storeList)"},
+	{"Store Detail", "goSomewhere(storeDetail)"},
+	{"Event Lotto", "goSomewhere(eventLottoDetail)"},
+	{"Treasure World", "goSomewhere(treasureWorld)"},
+	{"Gift Shop Detail", "goSomewhere(giftShopDetail)"},
+	{"Collection", "goSomewhere(collectionmain)"},
+	{"Collection Detail", "goSomewhere(collectiondetail)"},
+	{"Garden Edit", "goSomewhere(gardenedit)"},
+	{"Garden Edit Cloud", "goSomewhere(gardeneditcloud)"},
+	{"Bag", "goSomewhere(bag)"},
+	{"Factory", "goSomewhere(factory)"},
+	{"My Garden", "goSomewhere(myGarden)"},
+	{"Other Garden", "goSomewhere(otherGarden)"},
+	{"Random Garden", "goSomewhere(randomGarden)"},
+	{"Garden Buff Info", "goSomewhere(gardenbuffInfo)"},
+	{"Marble Board", "goSomewhere(marbleboardWebview)"},
+	{"Bill Package", "goSomewhere(billPkg)"},
+	{"Colorant Shop", "goSomewhere(colorantShop)"},
+	{"Colorant Base Shop", "goSomewhere(colorantBaseShop)"},
+	{"Colorant Inventory", "goSomewhere(colorantInven)"},
+	{"Butler Shop", "goSomewhere(butlerShop)"},
+	{"Butler Book", "goSomewhere(butlerBook)"},
+	{"Butler Skin Select", "goSomewhere(butlerSkinSelect)"},
+	{"Storage", "goSomewhere(storage)"},
+	{"Image Popup", "goSomewhere(imagePopupDetail)"},
+	{"Fishing Boss Ranking", "goSomewhere(fishingBossRanking)"},
+	{"Fishing Exchange", "goSomewhere(fishingExchange)"},
+	{"Minigame Ranking", "goSomewhere(minigameRanking)"},
+	{"Riding Pet Info", "goSomewhere(ridingpetplayinfo)"},
+	{"Riding Pet Gacha", "goSomewhere(ridingpetGacha)"},
+	{"Season Pass", "goSomewhere(seasonPass)"},
+	{"Free Gems", "goSomewhere(rcvFreeGem)"},
+	{"Home Ad", "goSomewhere(homeAd)"},
+	{"Find Magic", "goSomewhere(findMagic)"},
+	{"Survey", "goSomewhere(survey)"},
+	{"Square Web View", "goSomewhere(squarewebview)"},
+}
+
+type homeIconEntry struct {
+	ID             int    `json:"id"`
+	Name           string `json:"name"`
+	Image          string `json:"image"`
+	Flag           string `json:"flag"`
+	Link           string `json:"link"`
+	NMarkTimestamp string `json:"nMarkTimestamp"`
+	NMark          bool   `json:"nMark"`
+	Delimiter      bool   `json:"delimiter"`
+	LinkType       string `json:"linkType"`
+	ShowMeOnly     bool   `json:"showMeOnly"`
+}
+
+type homeListExtResult struct {
+	HomeIconList  []homeIconEntry `json:"homeIconList"`
+	EventIconList []homeIconEntry `json:"eventIconList"`
+}
+
+func buildHomeListExtBody() string {
+	icons := make([]homeIconEntry, len(homeIconRows))
+	for i, row := range homeIconRows {
+		icons[i] = homeIconEntry{ID: i + 1, Name: row.Name, LinkType: row.LinkType}
+	}
+	payload, _ := json.Marshal(struct {
+		Result homeListExtResult `json:"result"`
+	}{Result: homeListExtResult{HomeIconList: icons, EventIconList: []homeIconEntry{}}})
+	return string(payload)
+}
+
+var homeListExtBody = buildHomeListExtBody()
 
 var curatedGrantCodes = []string{"CUHA0036Z", "CUON004TV", "CUSH00267", "CUAH004JH"}
 
@@ -782,6 +943,12 @@ func accountByAvatarID(id string) (accountSnapshot, bool) {
 }
 
 func handleRoot(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		if kind, id, ok := parseDpPath(r.URL.Path); ok {
+			serveDpPNG(w, kind, id)
+			return
+		}
+	}
 	if r.Method == http.MethodGet && isUpdateIniPath(r.URL.Path) {
 		body := emptyUpdateIniBody
 		if isTx543UpdateIniPath(r.URL.Path) {

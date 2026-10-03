@@ -883,14 +883,76 @@ func TestIsBasicFaceItemCode(t *testing.T) {
 	}
 }
 
-func TestClosetStaticRoutes(t *testing.T) {
-	if rec := serve(t, http.MethodGet, "/v4/home/list/ext/10.1.0.0/Android"); rec.Code != http.StatusOK || rec.Body.String() != homeListExtBody {
-		t.Fatalf("home list: status = %d, body = %q", rec.Code, rec.Body.String())
+func TestHomeListExt(t *testing.T) {
+	wantFirst := []homeIconRow{
+		{"Closet", "goSomewhere(closet)"},
+		{"Friends", "goSomewhere(myfriends)"},
+		{"Diary", "goSomewhere(diary)"},
+	}
+	for i, want := range wantFirst {
+		if homeIconRows[i] != want {
+			t.Fatalf("table row %d = %+v, want %+v", i, homeIconRows[i], want)
+		}
+	}
+	rec := serve(t, http.MethodGet, "/v4/home/list/ext/10.1.0.0/Android")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 	if rec := serve(t, http.MethodPost, "/v4/home/list/ext/10.1.0.0/Android"); rec.Code != http.StatusNotFound {
 		t.Fatalf("POST home list: status = %d, want 404", rec.Code)
 	}
+	var body struct {
+		Result struct {
+			HomeIconList  []map[string]json.RawMessage `json:"homeIconList"`
+			EventIconList []map[string]json.RawMessage `json:"eventIconList"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body is not valid JSON: %v", err)
+	}
+	if body.Result.HomeIconList == nil || body.Result.EventIconList == nil {
+		t.Fatalf("homeIconList and eventIconList must be arrays: %s", rec.Body.String())
+	}
+	if len(body.Result.EventIconList) != 0 {
+		t.Fatalf("eventIconList has %d rows, want 0", len(body.Result.EventIconList))
+	}
+	if len(body.Result.HomeIconList) != len(homeIconRows) {
+		t.Fatalf("homeIconList has %d rows, want %d", len(body.Result.HomeIconList), len(homeIconRows))
+	}
+	seen := make(map[int]bool, len(homeIconRows))
+	for i, row := range body.Result.HomeIconList {
+		var id int
+		if raw, ok := row["id"]; !ok || json.Unmarshal(raw, &id) != nil {
+			t.Fatalf("row %d id = %s, want JSON number", i, row["id"])
+		}
+		if id <= 0 || seen[id] {
+			t.Fatalf("row %d id = %d, want unique positive", i, id)
+		}
+		seen[id] = true
+		for _, key := range []string{"name", "image", "flag", "link", "nMarkTimestamp", "linkType"} {
+			if raw, ok := row[key]; !ok || len(raw) == 0 || raw[0] != '"' {
+				t.Fatalf("row %d field %q = %s, want JSON string", i, key, raw)
+			}
+		}
+		for _, key := range []string{"nMark", "delimiter", "showMeOnly"} {
+			if raw, ok := row[key]; !ok || (string(raw) != "true" && string(raw) != "false") {
+				t.Fatalf("row %d field %q = %s, want JSON bool", i, key, raw)
+			}
+		}
+		var linkType string
+		if err := json.Unmarshal(row["linkType"], &linkType); err != nil {
+			t.Fatalf("row %d linkType = %s, want string", i, row["linkType"])
+		}
+		if linkType != homeIconRows[i].LinkType {
+			t.Fatalf("row %d linkType = %q, want %q", i, linkType, homeIconRows[i].LinkType)
+		}
+		if linkType == "start" || linkType == "goSomewhere(profile)" {
+			t.Fatalf("row %d has excluded linkType %q", i, linkType)
+		}
+	}
+}
 
+func TestClosetStaticRoutes(t *testing.T) {
 	for _, route := range []struct {
 		path, body, wrongMethod string
 	}{

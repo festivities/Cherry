@@ -23,7 +23,7 @@ Only M0–M4 have defined numbers; there is no agreed total or assigned M5 yet. 
 ### Current lab — reverified after rollback
 
 - Device: `emulator-5554`, AVD `Cherry`, Android17/translated ARM64. Physical display now **1290×2796**; old 1080×2424/1.212 tap conversions are historical and must be recalculated.
-- Stable Cherry: PID **11528**, `%TEMP%\opencode\cherry\m4-faces-20261003-01\cherry.exe`, SHA-256 `0c567fa03be22b9ac432cf13c7ffabc282785efef9ac425574f771792939355e`. This preserved build contains the Go changes later committed in `e4854b5`; its embedded build metadata still says `0bc5e83+dirty` because it was built before that commit. Do not confuse binary build metadata with current Git HEAD or the reverted probe.
+- Stable Cherry: PID **37772**, `%TEMP%\opencode\cherry\dp-cache-20261004-01\cherry.exe`, SHA-256 `70beefba52fc865b79b642c71daaf77e2704cc6bf0919d2c45d9d07633eb0da7`. Built from the uncommitted menu-icon plus thumbnail-composite worktree. Previous menu binary PID 5468 was stopped for this swap.
 - LINE PLAY: PIDs **4276/4319**, Garden visible with saved cosmetics after rollback. `checkSession`200 and Garden login197121/room197377/relay0 verified in the new log. These PIDs are a snapshot; recheck before acting.
 - YunDetectService.exe: PID **2776**, unrelated Baidu process; leave running. Older28612/30092 PIDs are stale. Gateway routes through LAN to Cherry, not its loopback listener.
 - Runtime log: `%TEMP%\opencode\cherry\tools\m3-evidence\fresh-entry-20260926\cherry-position-limit-restored-20261004-private.log` (private).
@@ -63,7 +63,11 @@ Only M0–M4 have defined numbers; there is no agreed total or assigned M5 yet. 
 
 ### Next work
 
-Position investigation is deferred by user decision. No new feature is started by this rollback/review. Future feature selection is pending; known candidates are Settings/Style Magazine, real Friends or Diary functionality, styling slots, quests and RoomParty. Authentic default Garden remains post-milestones work. Use delegated feature/reverse/runtime work as requested, but pause delegation when the user takes over the UI; this context audit was explicitly main-agent work.
+**Closet thumbnails (2026-10-04, runtime-confirmed):** missing `dp.png` GETs for `custom` and `dress` are served from `dpimage.go`. An on-disk `dp.png` in the read-only santi item dir is returned unchanged. Otherwise Cherry composites that item's part sprites (largest anchor group only; no skeleton) and caches the PNG at `%LOCALAPPDATA%\Cherry\dp-cache\{kind}_{id}.png`. Other item kinds and non-`dp.png` paths stay 404. Closet reopen showed recognizable cells; 6 `dp.png` requests returned 200 and created 6 cache files. Multi-anchor items can omit sleeve/limb overlays. This is a flat item picture, not a worn preview.
+
+**Menu population (2026-10-04, runtime-confirmed):** `GET /v4/home/list/ext/` now returns 124 `homeIconList` rows, one per accepted `kLPLinkType` except the `start` fallback and `goSomewhere(profile)`. Profile stays the client-synthesized first cell (`ArtsString(8000)`). Closet, Friends, and Diary lead; remaining rows follow dispatcher order. `eventIconList` stays `[]`. Empty `image` is intentional: the cell skips download when the URL is empty, so icons are blank placeholders, not missing files to invent. Opening the list itself returned 200 and showed no popup. Taps were not tested. Known tap hazards remain: `goSomewhere(square)` 404s `lp_sq` into 10130; Fashionista fixtures stay banned; More Shop/More Events 404 into an in-popup error; Notice opens an untrusted webview. Do not treat a visible label as a working feature.
+
+Position investigation stays deferred. Menu labels are populated; feature backends are not. Next feature is still the user's pick. Authentic default Garden remains post-milestones work.
 
 ## Dated feature and grant evidence (superseded snapshots)
 
