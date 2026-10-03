@@ -930,7 +930,7 @@ func TestAvatarSaveV2RoundTrip(t *testing.T) {
 	if rec := serveRequest(t, emptyItemsReq); rec.Code != http.StatusOK || rec.Body.String() != curatedGrantClosetBody {
 		t.Fatalf("initial closet inventory: status = %d, body = %q", rec.Code, rec.Body.String())
 	}
-	created := createAvatar(t, token, []byte(`{"name":"Closet","avatarType":"FEMALE","nationCode":"JP","skinColor":"2","itemCodes":["CUEY00002","CUMO00002","CUEB00001","CUNO00001","CUHE0000L","CUON00164","CUSH002BH","CUON004TV"]}`), "")
+	created := createAvatar(t, token, []byte(`{"name":"Closet","avatarType":"FEMALE","nationCode":"JP","skinColor":"2","itemCodes":["CUEY00002","CUEY00003","CUMO00002","CUEB00001","CUNO00001","CUHE0000L","CUON00164","CUSH002BH","CUON004TV"]}`), "")
 	if created.Code != http.StatusOK {
 		t.Fatalf("create avatar: status = %d, body = %q", created.Code, created.Body.String())
 	}
@@ -946,12 +946,14 @@ func TestAvatarSaveV2RoundTrip(t *testing.T) {
 	if itemsRec.Code != http.StatusOK {
 		t.Fatalf("closet items: status = %d, body = %q", itemsRec.Code, itemsRec.Body.String())
 	}
-	const closetInventoryBody = `{"result":{"basicFaceList":[{"itemCode":"CUEY00002"},{"itemCode":"CUMO00002"},{"itemCode":"CUEB00001"},{"itemCode":"CUNO00001"},{"itemCode":"CUHE0000L"}],"inventoryList":[{"itemCode":"CUON00164","invenSeq":"1","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUSH002BH","invenSeq":"2","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUON004TV","invenSeq":"3","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUHA0036Z","invenSeq":"4","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUSH00267","invenSeq":"5","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUAH004JH","invenSeq":"6","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0}]}}`
+	const closetInventoryBody = `{"result":{"basicFaceList":[{"itemCode":"CUEY00002"},{"itemCode":"CUMO00002"},{"itemCode":"CUEB00001"},{"itemCode":"CUNO00001"},{"itemCode":"CUHE0000L"}],"inventoryList":[{"itemCode":"CUON00164","invenSeq":"1","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUSH002BH","invenSeq":"2","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUON004TV","invenSeq":"3","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUHA0036Z","invenSeq":"4","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUSH00267","invenSeq":"5","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUAH004JH","invenSeq":"6","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUEY00002","invenSeq":"7","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUEY00003","invenSeq":"8","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUMO00002","invenSeq":"9","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUEB00001","invenSeq":"10","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUNO00001","invenSeq":"11","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUHE0000L","invenSeq":"12","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0}]}}`
 	if got := itemsRec.Body.String(); got != closetInventoryBody {
 		t.Fatalf("closet items = %q, want %q", got, closetInventoryBody)
 	}
-	if rec := serve(t, http.MethodGet, "/v4/inven/closet/items/all"); rec.Code != http.StatusNotFound {
-		t.Fatalf("GET closet items: status = %d, want 404", rec.Code)
+	for _, method := range []string{http.MethodGet, http.MethodPut} {
+		if rec := serve(t, method, "/v4/inven/closet/items/all"); rec.Code != http.StatusNotFound {
+			t.Errorf("%s closet items: status = %d, want 404", method, rec.Code)
+		}
 	}
 
 	put := func(payload []byte) *httptest.ResponseRecorder {

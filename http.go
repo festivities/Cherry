@@ -182,17 +182,27 @@ func handleClosetItemsAll(w http.ResponseWriter, r *http.Request) {
 	}
 	accountsMu.Unlock()
 	basicFaceItems := make([]closetBasicFaceItem, 0, len(codes))
+	faceCodes := make([]string, 0, len(codes))
+	seenFaceCategories := make(map[string]struct{}, 5)
 	wearableCodes := make([]string, 0, len(codes))
 	for _, code := range codes {
 		if isBasicFaceItemCode(code) {
-			basicFaceItems = append(basicFaceItems, closetBasicFaceItem{ItemCode: code})
+			category := code[2:4]
+			if _, seen := seenFaceCategories[category]; !seen {
+				basicFaceItems = append(basicFaceItems, closetBasicFaceItem{ItemCode: code})
+				seenFaceCategories[category] = struct{}{}
+			}
+			faceCodes = append(faceCodes, code)
 		} else {
 			wearableCodes = append(wearableCodes, code)
 		}
 	}
-	items := make([]closetInventoryItem, 0, len(wearableCodes))
+	items := make([]closetInventoryItem, 0, len(codes))
 	for i, code := range wearableCodes {
 		items = append(items, closetInventoryItem{ItemCode: code, InvenSeq: strconv.Itoa(i + 1), Count: 1})
+	}
+	for i, code := range faceCodes {
+		items = append(items, closetInventoryItem{ItemCode: code, InvenSeq: strconv.Itoa(len(wearableCodes) + i + 1), Count: 1})
 	}
 	payload, _ := json.Marshal(struct {
 		Result closetItemsResult `json:"result"`
