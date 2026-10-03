@@ -33,6 +33,3 @@ go.work.sum
 
 # LINE PLAY artifacts (stored out-of-band, never committed)
 .opencode/line-play-artifacts/
-
-# User-supplied read-only reference
-.agents/JICAMA.md
