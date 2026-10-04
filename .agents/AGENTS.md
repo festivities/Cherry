@@ -25,6 +25,8 @@ Reconstruct a Go server emulator ("Cherry") for LINE PLAY (jp.naver.lineplay.and
 
 M0 boot, M1 login and M2 creation/loading are runtime-confirmed. **M3 is closed with user sign-off (2026-09-30). M4's defined Closet round-trip is implemented and runtime-confirmed:** equip/save and appearance survive app relaunch (`ee11fb8`); owned face cosmetics added in `e4854b5`. Friends (`e109c58`) and Diary (`0bc5e83`) open as empty read-only surfaces; they are not complete social/Diary functionality. Only M0–M4 are numbered; no fixed total or assigned M5.
 
+**Friends and Diary (2026-10-04, uncommitted):** `social.go` serves friend aid `2` / `Friend` and persists text diary posts plus bookmark/remove state in `%LOCALAPPDATA%\Cherry\social.json`. Not a second login. Visit-garden, media posts, search, and guestbook writes are not implemented. Runtime confirmed the friend row and an empty Diary open. `diary2/skinInfo` 404 did not block Diary.
+
 **Closet thumbnails (2026-10-04):** `dpimage.go` serves missing `custom`/`dress` `dp.png` downloads. Authentic archive `dp.png` wins; otherwise a flat part-sprite composite is cached at `%LOCALAPPDATA%\Cherry\dp-cache\`. No skeleton render. Other kinds stay 404. Runtime: Closet cells showed item art; 6 requests 200.
 
 **Home menu (2026-10-04):** 124 server rows plus hardcoded Profile. List open is runtime-confirmed (`GET /v4/home/list/ext/10.1.0.0/Android` 200, no popup). Icons are blank because `image` is empty. A label is not a working destination. Square, Fashionista, More Shop/Events, and Notice are known tap hazards; do not add banned Fashionista rows to make a button safe.
@@ -36,7 +38,7 @@ Entry10077 is handled by inven/counts object success; entry10130 by non-executab
 ### Current lab — verified after rollback
 
 - Last Go feature commit `e4854b5`; probe changes to `main.go`/`transport_test.go` reverted. Subsequent context review/JICAMA tracking changes do not alter the implementation. Query Git for the current HEAD/worktree; no fixed-position helper, synthetic self row or delayed relay remains.
-- Cherry PID **37772**, `%TEMP%\opencode\cherry\dp-cache-20261004-01\cherry.exe`; SHA-256 `70beefba52fc865b79b642c71daaf77e2704cc6bf0919d2c45d9d07633eb0da7`. Uncommitted menu-icon plus thumbnail-composite build. Previous menu binary PID 5468 was stopped for the swap.
+- Cherry PID **35484**, `%TEMP%\opencode\cherry\social-20261004-01\cherry.exe`; SHA-256 `351e56a28c34f3a653a967430ac250024dc43d2fb90b42c4422e593b349434d9`. Uncommitted Friends/Diary build. Previous thumbnail binary PID 37772 was stopped for the swap.
 - It is the preserved pre-commit face build of the Go implementation later pushed as `e4854b5`; embedded `go version -m` metadata is `0bc5e83+dirty`. The implementation baseline is `e4854b5`, with no probe diff; do not claim this binary was freshly rebuilt at that revision.
 - LINE PLAY PIDs **4276/4319**; Garden and saved appearance visible. New private log verifies checkSession200/login197121/room197377/relay0. Log `%TEMP%\opencode\cherry\tools\m3-evidence\fresh-entry-20260926\cherry-position-limit-restored-20261004-private.log`.
 - YunDetectService.exe PID **2776**, unrelated Baidu loopback10000 listener; leave it running. PIDs are snapshots: verify process identity before every stop/swap.

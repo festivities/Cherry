@@ -23,7 +23,7 @@ Only M0–M4 have defined numbers; there is no agreed total or assigned M5 yet. 
 ### Current lab — reverified after rollback
 
 - Device: `emulator-5554`, AVD `Cherry`, Android17/translated ARM64. Physical display now **1290×2796**; old 1080×2424/1.212 tap conversions are historical and must be recalculated.
-- Stable Cherry: PID **37772**, `%TEMP%\opencode\cherry\dp-cache-20261004-01\cherry.exe`, SHA-256 `70beefba52fc865b79b642c71daaf77e2704cc6bf0919d2c45d9d07633eb0da7`. Built from the uncommitted menu-icon plus thumbnail-composite worktree. Previous menu binary PID 5468 was stopped for this swap.
+- Stable Cherry: PID **35484**, `%TEMP%\opencode\cherry\social-20261004-01\cherry.exe`, SHA-256 `351e56a28c34f3a653a967430ac250024dc43d2fb90b42c4422e593b349434d9`. Built from the uncommitted Friends/Diary worktree. Previous thumbnail binary PID 37772 was stopped for this swap.
 - LINE PLAY: PIDs **4276/4319**, Garden visible with saved cosmetics after rollback. `checkSession`200 and Garden login197121/room197377/relay0 verified in the new log. These PIDs are a snapshot; recheck before acting.
 - YunDetectService.exe: PID **2776**, unrelated Baidu process; leave running. Older28612/30092 PIDs are stale. Gateway routes through LAN to Cherry, not its loopback listener.
 - Runtime log: `%TEMP%\opencode\cherry\tools\m3-evidence\fresh-entry-20260926\cherry-position-limit-restored-20261004-private.log` (private).
@@ -62,6 +62,8 @@ Only M0–M4 have defined numbers; there is no agreed total or assigned M5 yet. 
 - Full catalog completeness and missing previews remain asset limitations. Preserve original files; no fabricated Fashionista rows (three crash-correlated trials), blanket chmod, Frida, or client patches.
 
 ### Next work
+
+**Friends and Diary slice (2026-10-04):** one synthetic friend, aid `2`, name `Friend`, is in sync and buddy-list responses. Bookmark and remove persist. Diary text posts persist newest-first and survive restart. State file is `%LOCALAPPDATA%\Cherry\social.json`, separate from `accounts.json`. Aid 2 is not a login account. No visit-garden, photo/video, search, or guestbook/comment writes. Runtime: Friends list showed `Friend` after `GET /v4/sync/friends/0` 200; Diary opened to "No entries." with unfold/intro 200. `GET /v4/diary2/skinInfo/...` 404 did not block that screen. Profile-open and in-UI post writing were not tapped; those paths are unit-tested.
 
 **Closet thumbnails (2026-10-04, runtime-confirmed):** missing `dp.png` GETs for `custom` and `dress` are served from `dpimage.go`. An on-disk `dp.png` in the read-only santi item dir is returned unchanged. Otherwise Cherry composites that item's part sprites (largest anchor group only; no skeleton) and caches the PNG at `%LOCALAPPDATA%\Cherry\dp-cache\{kind}_{id}.png`. Other item kinds and non-`dp.png` paths stay 404. Closet reopen showed recognizable cells; 6 `dp.png` requests returned 200 and created 6 cache files. Multi-anchor items can omit sleeve/limb overlays. This is a flat item picture, not a worn preview.
 

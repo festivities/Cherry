@@ -1209,6 +1209,7 @@ func TestCreateAvatar(t *testing.T) {
 }
 
 func TestPreloadStubs(t *testing.T) {
+	resetSocial()
 	paths := []string{
 		"/v4/setting/all",
 		"/v4/setting/all?deviceType=Android",

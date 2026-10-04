@@ -38,6 +38,9 @@ func main() {
 	if err := loadAccounts(); err != nil {
 		logger.Fatalf("cherry: load accounts: %v", err)
 	}
+	if err := loadSocial(); err != nil {
+		logger.Fatalf("cherry: load social: %v", err)
+	}
 
 	certs, err := generateCerts()
 	if err != nil {
