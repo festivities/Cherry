@@ -359,19 +359,23 @@ func (s *roomPartySession) handleData(frame []byte) error {
 		return s.inviteList(frame)
 	case 7:
 		return s.invite(frame, data)
+	case 18: // cr_friend_invite_cancel_req -> idx22
+		return s.inviteCancel(frame, data)
 	}
 	return s.relay(msgid, data)
 }
 
-func (s *roomPartySession) inviteList(frame []byte) error {
+// inviteListBody encodes Waiting#1 (invited, not in room) and Inroom#2 (others in
+// the room). rc_friend_invite_list_res (idx8) and rc_friend_invite_cancel_res
+// (idx22) share this shape: the client clears its invitee set and rebuilds it.
+func (s *roomPartySession) inviteListBody() (body []byte, w, in int) {
 	h := s.h()
 	host := s.host
 	if host == 0 {
 		host = s.aid
 	}
 	h.mu.Lock()
-	var body []byte
-	w, in := 0, 0
+	defer h.mu.Unlock()
 	if r := h.rooms[host]; r != nil {
 		for a := range r.invited {
 			if !r.has(a) {
@@ -386,9 +390,38 @@ func (s *roomPartySession) inviteList(frame []byte) error {
 			}
 		}
 	}
-	h.mu.Unlock()
+	return
+}
+
+func (s *roomPartySession) inviteList(frame []byte) error {
+	body, w, in := s.inviteListBody()
 	s.logger.Printf("ROOMPARTY invite-list aid=%d waiting=%d inroom=%d", s.aid, w, in)
 	return s.reply(frame, 8, body)
+}
+
+// inviteCancel handles cr_friend_invite_cancel_req idx18 (AidList#1): drop the
+// aids from the room's invited set, reply idx22 with the refreshed lists.
+func (s *roomPartySession) inviteCancel(frame, data []byte) error {
+	aids, ok := partyAidList(data)
+	if !ok {
+		s.logger.Printf("ROOMPARTY invite-cancel invalid aid=%d", s.aid)
+		return nil
+	}
+	host := s.host
+	if host == 0 {
+		host = s.aid
+	}
+	h := s.h()
+	h.mu.Lock()
+	if r := h.rooms[host]; r != nil {
+		for _, a := range aids {
+			delete(r.invited, a)
+		}
+	}
+	h.mu.Unlock()
+	body, w, in := s.inviteListBody()
+	s.logger.Printf("ROOMPARTY invite-cancel aid=%d host=%d cancelled=%d waiting=%d inroom=%d", s.aid, host, len(aids), w, in)
+	return s.reply(frame, 22, body)
 }
 
 func (s *roomPartySession) relayStart(frame, data []byte) error {
@@ -404,6 +437,7 @@ func (s *roomPartySession) relayStart(frame, data []byte) error {
 	}
 	h.mu.Lock()
 	r := h.room(s.host)
+	delete(r.invited, s.aid) // invite consumed; a later leave must not show "Waiting"
 	m := s.pm
 	m.move = append([]byte(nil), move...)
 	idx := -1
@@ -437,17 +471,17 @@ func (s *roomPartySession) relayStart(frame, data []byte) error {
 	// Avatars are spawned only by the floor messages (idx29 roster, idx30 adduser ->
 	// msg 12630/12633 -> AddInviteUser); room idx6/idx1 (12629/12631) only feed chat
 	// info and the joined toast. The floor roster goes to the joiner even on a silent
-	// rejoin (a fresh scene has no avatars); it lists the others, never the joiner.
+	// rejoin (a fresh scene has no avatars); it MUST include the joiner itself: AddInviteUser's self branch (aid == hero) is the only
+	// place that calls SetJoinRoomParty(true) on the hero, and AvActor::MoveNextActor posts the
+	// move message 12638 -> RoomPartyService::SendMove only for such a hero (else walking is local).
 	floorRes := pbVar(nil, 1, 0)
 	for _, p := range roster {
 		if p.aid != m.aid {
 			m.send(s.logger, 1, pbLen(nil, 1, partyPlayerInfo(p.aid, p.move)))
-			floorRes = pbLen(floorRes, 2, partyPlayerInfo(p.aid, p.move))
 		}
+		floorRes = pbLen(floorRes, 2, partyPlayerInfo(p.aid, p.move))
 	}
-	if len(roster) > 1 || (len(roster) == 1 && roster[0].aid != m.aid) {
-		m.send(s.logger, 29, floorRes)
-	}
+	m.send(s.logger, 29, floorRes)
 	if idx >= 0 {
 		return nil
 	}

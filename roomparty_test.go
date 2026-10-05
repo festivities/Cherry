@@ -228,6 +228,7 @@ func TestPartyRosterRelaysExit(t *testing.T) {
 	if !bytes.Equal(res, append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(11, ma))...)) {
 		t.Fatalf("host roster = %x", res)
 	}
+	a.expect(29, append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(11, ma))...)) // host alone: self roster sets JoinRoomParty on its hero
 	a.none()
 	res = b.start(mb)
 	want := append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(11, ma))...)
@@ -236,8 +237,8 @@ func TestPartyRosterRelaysExit(t *testing.T) {
 		t.Fatalf("guest roster = %x want %x", res, want)
 	}
 	b.expect(1, pbLen(nil, 1, partyPlayerInfo(11, ma))) // room adduser (chat info) of others to joiner
-	// avatars come from the floor messages: roster of the others (not self) to the joiner
-	b.expect(29, append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(11, ma))...))
+	// avatars come from the floor messages: full roster INCLUDING self to the joiner
+	b.expect(29, want)
 	a.expect(1, pbLen(nil, 1, partyPlayerInfo(12, mb))) // joiner to others
 	a.expect(30, pbLen(nil, 1, partyPlayerInfo(12, mb)))
 	b.none()
@@ -287,17 +288,19 @@ func TestPartySilentRejoinAndFriendEntered(t *testing.T) {
 	b.enter(11)
 	b.read()
 	b.start(pbVar(nil, 1, 9))
-	a.expect(10, []byte{0x08, 12}) // host not in room yet: friend-entered push
+	b.expect(29, append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(12, pbVar(nil, 1, 9)))...)) // self only
+	a.expect(10, []byte{0x08, 12})                                                                 // host not in room yet: friend-entered push
 	a.start(pbVar(nil, 1, 5))
 	b.read()                                                           // room adduser of the host
 	b.expect(30, pbLen(nil, 1, partyPlayerInfo(11, pbVar(nil, 1, 5)))) // guest sees the host avatar
 	a.expect(1, pbLen(nil, 1, partyPlayerInfo(12, pbVar(nil, 1, 9))))
-	a.expect(29, append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(12, pbVar(nil, 1, 9)))...)) // host sees the guest avatar
+	a.expect(29, append(append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(11, pbVar(nil, 1, 5)))...), pbLen(nil, 2, partyPlayerInfo(12, pbVar(nil, 1, 9)))...)) // host roster: self + guest
 	// guest reconnects: new session takes over silently
 	b.s.close() // old connection EOF would deluser; emulate takeover instead
 	a.expect(2, []byte{0x08, 12, 0x10, 0})
 	a.expect(31, []byte{0x08, 12})
 	host := append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(11, pbVar(nil, 1, 5)))...)
+	host = append(host, pbLen(nil, 2, partyPlayerInfo(12, pbVar(nil, 1, 9)))...) // roster incl. the joiner itself
 	b2 := partyLogin(t, h, 12, 4)
 	b2.enter(11)
 	b2.read()
@@ -339,6 +342,7 @@ func TestPartyInvite(t *testing.T) {
 	b.enter(11)
 	b.expect(5, []byte{0x08, 0, 0x10, 11, 0x28, 1})
 	b.start(nil)
+	b.read()                       // floor roster (self)
 	a.expect(10, []byte{0x08, 12}) // friend-entered push to absent host
 	a.send(6, nil)
 	a.expect(8, []byte{0x10, 12})
@@ -348,4 +352,40 @@ func TestPartyInvite(t *testing.T) {
 	if h.rooms[13] == nil {
 		t.Fatal("inviter room missing")
 	}
+}
+
+// Cancel drops the aid from Waiting (reply idx22 = refreshed list); joining
+// consumes the invite so a later leave is not "Waiting" and re-invite works.
+func TestPartyInviteCancelAndConsume(t *testing.T) {
+	h := partySetup(t)
+	a := partyLogin(t, h, 11, 1)
+	b := partyLogin(t, h, 12, 2)
+	a.enter(11)
+	a.read()
+	a.send(7, pbVar(nil, 1, 12))
+	a.expect(7, []byte{0x08, 12})
+	b.read()
+	a.send(18, pbVar(nil, 1, 12))
+	a.expect(22, nil)
+	a.send(6, nil)
+	a.expect(8, nil)
+	a.send(18, pbLen(nil, 1, []byte{12, 99})) // unknown/not-invited aids are harmless
+	a.expect(22, nil)
+	a.send(7, pbVar(nil, 1, 12)) // re-invite after cancel
+	a.expect(7, []byte{0x08, 12})
+	b.read()
+	b.enter(11)
+	b.read()
+	b.start(nil)
+	b.read()                       // floor roster
+	a.expect(10, []byte{0x08, 12}) // host not started: friend-entered push
+	a.send(6, nil)
+	a.expect(8, []byte{0x10, 12}) // in room, not waiting
+	b.send(3, nil)
+	b.expect(3, nil)
+	a.send(6, nil)
+	a.expect(8, nil) // consumed: no stale Waiting after leaving
+	a.send(7, pbVar(nil, 1, 12))
+	a.expect(7, []byte{0x08, 12})
+	b.read()
 }
