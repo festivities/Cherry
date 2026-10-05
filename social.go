@@ -25,6 +25,8 @@ const (
 	saveFailedBody = `{"errorCode":"500","errorMessage":"cherry: save failed"}`
 )
 
+var retiredAvatarIDs = []string{"1", "2"}
+
 type diaryImage struct {
 	ImageURL string `json:"imageUrl"`
 }
@@ -270,7 +272,16 @@ func handleFriendSync(w http.ResponseWriter, r *http.Request) {
 	socialMu.Unlock()
 	// Native caches sync rows by avatarNo and never prunes omitted ones; see PLAN
 	// "Stale friend-cache fix" before renumbering friendAID again.
+	// Accounts 1 and 2 were renumbered to 1001/1002 (Room Party cells hide
+	// single-character aids); clients cached them as friends, so keep hiding them.
+	// ponytail: permanent tombstones; aids < minAvatarID are never allocated again.
 	buddies := []buddyRow{}
+	for _, aid := range retiredAvatarIDs {
+		if _, live := accountByAvatarID(aid); live {
+			continue
+		}
+		buddies = append(buddies, buddyRow{AvatarNo: aid, BuddyAvatarNo: aid, Status: -1, FriendStatus: -1, LineBuddyYn: "N", Mid: aid})
+	}
 	bookmarks := []string{}
 	if !removed {
 		// Native sorts by status: 1 is an accepted friend (My Friends); 0 lands in Received Requests.

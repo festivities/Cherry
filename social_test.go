@@ -238,7 +238,7 @@ func TestSocialFriendAndDiary(t *testing.T) {
 	t.Cleanup(resetSocial)
 
 	sync := serve(t, http.MethodGet, "/v4/sync/friends/0")
-	if sync.Code != http.StatusOK || !bytes.Contains(sync.Body.Bytes(), []byte(`"avatarNo":"100000"`)) || !bytes.Contains(sync.Body.Bytes(), []byte(`"avatarName":"Friend"`)) || !bytes.Contains(sync.Body.Bytes(), []byte(`"buddyAvatarNo":"100000"`)) || !bytes.Contains(sync.Body.Bytes(), []byte(`"status":1`)) || !bytes.Contains(sync.Body.Bytes(), []byte(`"friendStatus":1`)) || bytes.Contains(sync.Body.Bytes(), []byte(`"avatarNo":"2"`)) || !bytes.Contains(sync.Body.Bytes(), []byte(`"friendsCount":1`)) || bytes.Contains(sync.Body.Bytes(), []byte(`"avatarNo":"1"`)) {
+	if sync.Code != http.StatusOK || !bytes.Contains(sync.Body.Bytes(), []byte(`"avatarNo":"100000"`)) || !bytes.Contains(sync.Body.Bytes(), []byte(`"avatarName":"Friend"`)) || !bytes.Contains(sync.Body.Bytes(), []byte(`"buddyAvatarNo":"100000"`)) || !bytes.Contains(sync.Body.Bytes(), []byte(`"status":1`)) || !bytes.Contains(sync.Body.Bytes(), []byte(`"friendStatus":1`)) || bytes.Contains(sync.Body.Bytes(), []byte(`"avatarNo":"2","avatarName":"Friend"`)) || !bytes.Contains(sync.Body.Bytes(), []byte(`"friendsCount":1`)) || bytes.Contains(sync.Body.Bytes(), []byte(`"avatarNo":"1"`)) {
 		t.Fatalf("sync = %d %s", sync.Code, sync.Body.String())
 	}
 	profile := serve(t, http.MethodGet, "/v4/profile/100000?deviceType=Android")
@@ -602,5 +602,22 @@ func TestRealFriendships(t *testing.T) {
 	rec := serve(t, http.MethodGet, "/v4/sync/friends/")
 	if strings.Contains(rec.Body.String(), `"avatarNo":"2"`) || !strings.Contains(rec.Body.String(), `"friendsCount":1`) {
 		t.Fatalf("anonymous sync = %s", rec.Body.String())
+	}
+}
+
+func TestRetiredAvatarIDsTombstoned(t *testing.T) {
+	installSocialTestAccounts(t, map[string]*account{
+		"social-test-token": {accessToken: "social-test-token", aid: "1001", name: "Cherry"},
+	})
+	resetSocial()
+	t.Cleanup(resetSocial)
+	sync := serve(t, http.MethodGet, "/v4/sync/friends/0")
+	for _, aid := range []string{"1", "2"} {
+		if !bytes.Contains(sync.Body.Bytes(), []byte(`"avatarNo":"`+aid+`","avatarName":"","buddyAvatarNo":"`+aid+`","status":-1`)) {
+			t.Fatalf("sync lacks tombstone %s: %s", aid, sync.Body.String())
+		}
+	}
+	if !bytes.Contains(sync.Body.Bytes(), []byte(`"friendsCount":1`)) {
+		t.Fatalf("tombstones counted: %s", sync.Body.String())
 	}
 }
