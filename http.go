@@ -52,8 +52,6 @@ const friendLineBuddyBody = `{"result":{"nextCursor":"0","buddyList":[],"bookmar
 
 const badgeInfosBody = `{"result":{"NEWS":0,"CHAT":0,"NFRD":0,"IFRD":0,"GIFT":0,"POSTBOX":0,"CSET":0,"FACE":0,"ROOM":0,"ALERT":0}}`
 
-const diaryGuestBookCountBody = `{"result":{"hostAvtNo":"1","count":0}}`
-
 const friendBrandBuddyBody = `{"result":[]}`
 
 type homeIconRow struct {
@@ -263,18 +261,31 @@ func newMux() *http.ServeMux {
 	mux.HandleFunc("/v4/setting/all", handleJSONBody(settingAllBody))
 	mux.HandleFunc("/v4/sync/friends/", handleFriendSync)
 	mux.HandleFunc("/v4/buddy/list/type/0", handleFriendSync)
+	mux.HandleFunc("/v4/square/friends/search", handleFriendSearch)
 	mux.HandleFunc("/v4/line/buddy/v4/list", handleJSONBody(friendLineBuddyBody))
 	mux.HandleFunc("/v4/badge/infos/", handleJSONBody(badgeInfosBody))
 	mux.HandleFunc("/v4/friend/bookmark/", handleFriendBookmark)
 	mux.HandleFunc("/v4/r/friend/remove/", handleFriendRemove)
+	mux.HandleFunc("/v4/friend/status/", handleFriendStatus)
+	mux.HandleFunc("/v4/friend/apply/", handleFriendApply)
+	mux.HandleFunc("/v4/friend/accept/", handleFriendAccept)
+	mux.HandleFunc("/v4/diary2/ext/checkExist/", handleDiaryCheckExist)
 	mux.HandleFunc("/v4/diary2/intro/", handleDiaryIntro)
 	mux.HandleFunc("/v4/diary2/ext/write", handleDiaryWrite)
+	mux.HandleFunc("/v4/diary2/ext/unfold/photo/", handleDiaryPhotoAlbum)
 	mux.HandleFunc("/v4/diary2/ext/unfold/", handleDiaryUnfold)
+	mux.HandleFunc("/v4/diary2/ext/look/", handleDiaryLook)
 	mux.HandleFunc("/v4/diary2/erase/", handleDiaryErase)
-	mux.HandleFunc("/v4/guestbook3/count/", handleJSONBody(diaryGuestBookCountBody))
+	mux.HandleFunc("/v4/guestbook/write", handleGuestbookWrite)
+	mux.HandleFunc("/v4/guestbook/erase/", handleGuestbookErase)
+	mux.HandleFunc("/v4/guestbook3/list/", handleGuestbookList)
+	mux.HandleFunc("/v4/guestbook3/count/", handleGuestbookCount)
 	mux.HandleFunc("/v4/brand/list", handleJSONBody(friendBrandBuddyBody))
 	mux.HandleFunc("/v4/quest/status", handleJSONBody(questStatusBody))
 	mux.HandleFunc("/v4/inven/counts", handleJSONBody(invenCountsBody))
+	mux.HandleFunc("/lineplay/d/upload.nhn", handleDiaryImageUpload)
+	mux.HandleFunc("/lineplay/d/download.nhn", handleDiaryImageDownload)
+	mux.HandleFunc("/lineplay/d/download.nhn/", handleDiaryImageDownload)
 	mux.HandleFunc("/v4/home/list/ext/", handleHomeListExt)
 	mux.HandleFunc("/v4/inven/closet/items/all", handleClosetItemsAll)
 	mux.HandleFunc("/v4/storage/display", handleJSONBody(storageDisplayBody))
@@ -642,6 +653,9 @@ func handleCreateAvatar(w http.ResponseWriter, r *http.Request) {
 	previous, previousID := *acc, nextAvatarID
 	if acc.aid == "0" {
 		nextAvatarID++
+		if strconv.FormatUint(nextAvatarID, 10) == friendAID {
+			nextAvatarID++
+		}
 		acc.aid = strconv.FormatUint(nextAvatarID, 10)
 	}
 	acc.name = req.Name
@@ -813,12 +827,15 @@ func handleAvatarInfo(w http.ResponseWriter, r *http.Request) {
 		Items:       []avatarItem{},
 		PetProfiles: []string{},
 	}
-	if sex, ok := tutorialAvatarTypes[id]; ok {
+	if acc, ok := accountByAvatarID(id); ok {
+		info = avatarInfoForAccount(acc)
+	} else if id == friendAID {
+		info.Name = friendName
+		info.Items = avatarItemsFromCodes(workableLook("FEMALE"))
+	} else if sex, ok := tutorialAvatarTypes[id]; ok {
 		info.Name = "cherry"
 		info.Gender = sex
 		info.Items = avatarItemsFromCodes(workableLook(sex))
-	} else if acc, ok := accountByAvatarID(id); ok {
-		info = avatarInfoForAccount(acc)
 	}
 	payload, _ := json.Marshal(struct {
 		Result avatarInfoResult `json:"result"`

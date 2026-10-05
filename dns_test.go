@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"net"
 	"strings"
 	"testing"
 )
@@ -142,8 +143,8 @@ func TestDNSGatewayRoute(t *testing.T) {
 		t.Fatal("invalid gateway LAN IP")
 	}
 	for name, want := range map[string][]byte{
-		"gws.play.naver.jp":         {192, 168, 1, 7},
-		"GWS.PLAY.NAVER.JP.":        {192, 168, 1, 7},
+		"gws.play.naver.jp":         {192, 168, 1, 12},
+		"GWS.PLAY.NAVER.JP.":        {192, 168, 1, 12},
 		"fapi.play.naver.jp":        {10, 0, 2, 2},
 		"session.play.naver.jp":     {10, 0, 2, 2},
 		"play-static.line-scdn.net": {10, 0, 2, 2},
@@ -167,5 +168,21 @@ func TestDNSGatewayRoute(t *testing.T) {
 	resp := sinkResponse(query, qend, qtype, sinkIP(name))
 	if len(resp) != qend || binary.BigEndian.Uint16(resp[6:8]) != 0 {
 		t.Fatalf("gateway AAAA = %x, want empty answer", resp)
+	}
+}
+
+func TestDNSPhysicalClientGetsGateway(t *testing.T) {
+	phone := net.ParseIP("192.0.2.50") // TEST-NET-1, never a local address.
+	for _, name := range []string{"fapi.play.naver.jp", "session.play.naver.jp", "play-static.line-scdn.net", "gws.play.naver.jp"} {
+		if got := sinkIPFor(phone, name); !got.Equal(dnsGatewayA) {
+			t.Errorf("sinkIPFor(phone, %s) = %v, want gateway", name, got)
+		}
+	}
+	// Emulator queries arrive from loopback or the host itself and keep 10.0.2.2.
+	if got := sinkIPFor(net.ParseIP("127.0.0.1"), "fapi.play.naver.jp"); !got.Equal(dnsSinkA) {
+		t.Errorf("sinkIPFor(loopback, fapi) = %v, want sink", got)
+	}
+	if got := sinkIPFor(net.ParseIP("::1"), "fapi.play.naver.jp"); !got.Equal(dnsSinkA) {
+		t.Errorf("sinkIPFor(::1, fapi) = %v, want sink", got)
 	}
 }

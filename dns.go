@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -14,7 +15,7 @@ const (
 	dnsUpstreamAddr = "1.1.1.1:53"
 	dnsSinkAddr     = "10.0.2.2"
 	// ponytail: lab LAN IP; update alongside start-emulator.bat if DHCP changes.
-	dnsGatewayAddr  = "192.168.1.7"
+	dnsGatewayAddr  = "192.168.1.12"
 	dnsRelayTimeout = 4 * time.Second
 )
 
@@ -31,6 +32,23 @@ var (
 	dnsSinkA    = net.ParseIP(dnsSinkAddr).To4()
 	dnsGatewayA = net.ParseIP(dnsGatewayAddr).To4()
 )
+
+// hostOwnIPs snapshots this machine's interface addresses once. Queries
+// arriving from any other address come from a physical LAN device, which
+// cannot reach the emulator-only 10.0.2.2 sink.
+var hostOwnIPs = sync.OnceValue(func() map[string]bool {
+	own := map[string]bool{}
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return own
+	}
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok {
+			own[ipnet.IP.String()] = true
+		}
+	}
+	return own
+})
 
 // listenDNS opens the UDP sink/relay socket. Failure is not fatal to Cherry:
 // the caller logs it and keeps serving.
@@ -66,7 +84,7 @@ func handleDNS(conn *net.UDPConn, query []byte, addr *net.UDPAddr, logger *log.L
 		return
 	}
 	if shouldSink(name) && (qtype == 1 || qtype == 28) {
-		ip := sinkIP(name)
+		ip := sinkIPFor(addr.IP, name)
 		if _, err := conn.WriteToUDP(sinkResponse(query, qend, qtype, ip), addr); err != nil {
 			logger.Printf("DNS sink %s qtype=%d: %v", name, qtype, err)
 			return
@@ -153,6 +171,19 @@ func sinkIP(name string) net.IP {
 		return dnsGatewayA
 	}
 	return dnsSinkA
+}
+
+// sinkIPFor answers physical LAN clients with the gateway address for every
+// sunk name. The emulator (loopback or this host's own address) keeps the
+// 10.0.2.2 sink, which only exists inside the emulator.
+func sinkIPFor(remote net.IP, name string) net.IP {
+	if name == "gws.play.naver.jp" {
+		return dnsGatewayA
+	}
+	if remote.IsLoopback() || hostOwnIPs()[remote.String()] {
+		return dnsSinkA
+	}
+	return dnsGatewayA
 }
 
 // sinkResponse answers A with the chosen IP and AAAA with NOERROR/empty so the
