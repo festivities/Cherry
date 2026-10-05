@@ -235,9 +235,13 @@ func TestPartyRosterRelaysExit(t *testing.T) {
 	if !bytes.Equal(res, want) {
 		t.Fatalf("guest roster = %x want %x", res, want)
 	}
-	b.expect(1, pbLen(nil, 1, partyPlayerInfo(11, ma))) // adduser of others to joiner
+	b.expect(1, pbLen(nil, 1, partyPlayerInfo(11, ma))) // room adduser (chat info) of others to joiner
+	// avatars come from the floor messages: roster of the others (not self) to the joiner
+	b.expect(29, append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(11, ma))...))
 	a.expect(1, pbLen(nil, 1, partyPlayerInfo(12, mb))) // joiner to others
+	a.expect(30, pbLen(nil, 1, partyPlayerInfo(12, mb)))
 	b.none()
+	a.none()
 	// avatar content
 	info := partyAvatarInfo(11)
 	if !bytes.Contains(info, []byte("MALE")) || !bytes.Contains(info, []byte("CUON004TV")) || !bytes.Contains(info, []byte("Ann")) {
@@ -264,6 +268,7 @@ func TestPartyRosterRelaysExit(t *testing.T) {
 	b.send(3, nil)
 	b.expect(3, nil)
 	a.expect(2, []byte{0x08, 12, 0x10, 0})
+	a.expect(31, []byte{0x08, 12}) // floor deluser removes the avatar
 	a.none()
 	b.none()
 	// EOF of the host leaves nothing to tell and drops its registration
@@ -284,19 +289,26 @@ func TestPartySilentRejoinAndFriendEntered(t *testing.T) {
 	b.start(pbVar(nil, 1, 9))
 	a.expect(10, []byte{0x08, 12}) // host not in room yet: friend-entered push
 	a.start(pbVar(nil, 1, 5))
-	b.read() // host adduser
+	b.read()                                                           // room adduser of the host
+	b.expect(30, pbLen(nil, 1, partyPlayerInfo(11, pbVar(nil, 1, 5)))) // guest sees the host avatar
 	a.expect(1, pbLen(nil, 1, partyPlayerInfo(12, pbVar(nil, 1, 9))))
+	a.expect(29, append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(12, pbVar(nil, 1, 9)))...)) // host sees the guest avatar
 	// guest reconnects: new session takes over silently
 	b.s.close() // old connection EOF would deluser; emulate takeover instead
 	a.expect(2, []byte{0x08, 12, 0x10, 0})
+	a.expect(31, []byte{0x08, 12})
+	host := append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(11, pbVar(nil, 1, 5)))...)
 	b2 := partyLogin(t, h, 12, 4)
 	b2.enter(11)
 	b2.read()
 	b2.start(pbVar(nil, 1, 9))
 	b2.read()
+	b2.expect(29, host)
 	a.expect(1, pbLen(nil, 1, partyPlayerInfo(12, pbVar(nil, 1, 9))))
-	b2.start(pbVar(nil, 1, 9)) // rejoin: roster only, no adduser to anyone
+	a.expect(30, pbLen(nil, 1, partyPlayerInfo(12, pbVar(nil, 1, 9))))
+	b2.start(pbVar(nil, 1, 9)) // rejoin: roster only (fresh scene needs avatars), no adduser to anyone
 	b2.read()
+	b2.expect(29, host)
 	a.none()
 	b2.none()
 }

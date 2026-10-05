@@ -30,6 +30,7 @@ type partyMember struct {
 	b1   byte
 	sid  [8]byte
 	move []byte // last _player_move, guarded by partyHub.mu
+	nmov int    // cr_player_move count, guarded by partyHub.mu
 }
 
 func (m *partyMember) send(logger *log.Logger, msgid uint16, body []byte) {
@@ -171,8 +172,11 @@ func (h *partyHub) leave(logger *log.Logger, r *partyRoom, m *partyMember) {
 	if i >= 0 {
 		logger.Printf("ROOMPARTY deluser aid=%d host=%d to=%d", m.aid, r.host, len(rest))
 		body := pbVar(pbVar(nil, 1, m.aid), 2, 0)
+		// idx2 only drops chat info; avatars are removed by idx31 rc_floor_deluser_all.
+		floorDel := pbVar(nil, 1, m.aid)
 		for _, o := range rest {
 			o.send(logger, 2, body)
+			o.send(logger, 31, floorDel)
 		}
 	}
 }
@@ -430,10 +434,19 @@ func (s *roomPartySession) relayStart(frame, data []byte) error {
 	if err := s.reply(frame, 6, res); err != nil {
 		return err
 	}
+	// Avatars are spawned only by the floor messages (idx29 roster, idx30 adduser ->
+	// msg 12630/12633 -> AddInviteUser); room idx6/idx1 (12629/12631) only feed chat
+	// info and the joined toast. The floor roster goes to the joiner even on a silent
+	// rejoin (a fresh scene has no avatars); it lists the others, never the joiner.
+	floorRes := pbVar(nil, 1, 0)
 	for _, p := range roster {
 		if p.aid != m.aid {
 			m.send(s.logger, 1, pbLen(nil, 1, partyPlayerInfo(p.aid, p.move)))
+			floorRes = pbLen(floorRes, 2, partyPlayerInfo(p.aid, p.move))
 		}
+	}
+	if len(roster) > 1 || (len(roster) == 1 && roster[0].aid != m.aid) {
+		m.send(s.logger, 29, floorRes)
 	}
 	if idx >= 0 {
 		return nil
@@ -441,6 +454,7 @@ func (s *roomPartySession) relayStart(frame, data []byte) error {
 	add := pbLen(nil, 1, partyPlayerInfo(m.aid, m.move))
 	for _, o := range others {
 		o.send(s.logger, 1, add)
+		o.send(s.logger, 30, add)
 	}
 	if r.host != m.aid && !hostIn && hostSession != nil {
 		s.logger.Printf("ROOMPARTY friend-entered aid=%d host=%d", s.aid, r.host)
@@ -515,8 +529,13 @@ func (s *roomPartySession) relay(msgid uint16, data []byte) error {
 		}
 		h.mu.Lock()
 		s.pm.move = append([]byte(nil), move...)
+		s.pm.nmov++
+		n := s.pm.nmov
 		others := r.others(s.pm)
 		h.mu.Unlock()
+		if n <= 20 || n%50 == 0 {
+			s.logger.Printf("ROOMPARTY move aid=%d count=%d to=%d", s.aid, n, len(others))
+		}
 		body := pbLen(pbVar(nil, 1, s.aid), 2, move)
 		for _, o := range others {
 			o.send(s.logger, 11, body)
