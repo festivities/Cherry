@@ -219,6 +219,55 @@ var homeListExtBody = buildHomeListExtBody()
 
 var curatedGrantCodes = []string{"CUHA0036Z", "CUON004TV", "CUSH00267", "CUAH004JH"}
 
+// InitAvatarBaseItem @0x29a7f84 (called from AvActorManager::Initialize).
+// Index 0=MALE, 1=FEMALE. Numeric ids → CU codes via squareNumericItem inverse.
+var avatarBaseItems = map[string][]string{
+	"MALE":   {"CUTO0011X", "CUPA000LO", "CUSH0009Q", "CUHA00001"},
+	"FEMALE": {"CUTO0011X", "CUPA000LO", "CUSH0009Q", "CUHA00004"},
+}
+
+func itemSlot(code string) string {
+	if len(code) < 4 {
+		return ""
+	}
+	return code[2:4]
+}
+
+func isAvatarBaseItem(code string) bool {
+	for _, list := range avatarBaseItems {
+		for _, b := range list {
+			if b == code {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func appearanceItemCodes(gender string, equipped []string) []string {
+	have := map[string]bool{}
+	for _, c := range equipped {
+		s := itemSlot(c)
+		have[s] = true
+		if s == "ON" {
+			have["TO"], have["PA"] = true, true
+		}
+	}
+	base := avatarBaseItems[gender]
+	if base == nil {
+		base = avatarBaseItems["FEMALE"]
+	}
+	out := append([]string(nil), equipped...)
+	for _, c := range base {
+		if have[itemSlot(c)] {
+			continue
+		}
+		out = append(out, c)
+		have[itemSlot(c)] = true
+	}
+	return out
+}
+
 const storageDisplayBody = `{"result":false}`
 
 const styleSlotListBody = `{"result":{"styleSlotResponses":[]}}`
@@ -768,7 +817,7 @@ func handleAvatarSaveV2(w http.ResponseWriter, r *http.Request) {
 	itemCodes := make([]string, 0, len(req))
 	for _, item := range req {
 		code := *item.ItemCode
-		if isSkinItemCode(code) {
+		if isSkinItemCode(code) || isAvatarBaseItem(code) {
 			continue
 		}
 		if _, owned := serials[code]; !owned {
@@ -871,7 +920,7 @@ func avatarInfoForAccount(acc accountSnapshot) avatarInfoResult {
 	}
 	return avatarInfoResult{
 		AvatarID: acc.aid, Name: acc.name, Gender: gender, SType: "NORMAL", Skin: skin,
-		Country: acc.country, Items: avatarItemsFromInventory(acc.itemCodes, acc.inventoryCodes),
+		Country: acc.country, Items: avatarItemsFromInventory(appearanceItemCodes(gender, acc.itemCodes), acc.inventoryCodes),
 		PetProfiles: []string{},
 	}
 }
@@ -955,7 +1004,7 @@ func accountByAvatarID(id string) (accountSnapshot, bool) {
 				gender:         acc.gender,
 				skin:           acc.skin,
 				country:        acc.country,
-				itemCodes:      append([]string(nil), acc.itemCodes...),
+				itemCodes:      appearanceItemCodes(acc.gender, acc.itemCodes),
 				inventoryCodes: accountOwnedCodes(acc),
 			}, true
 		}

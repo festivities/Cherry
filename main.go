@@ -222,7 +222,9 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 	gardenControlSent := false
 	gardenRoomEntered := false
 	gardenRelayStarted := false
+	var gardenLoginAid, gardenOwnerAid uint64
 	var gardenRoomTunnel [8]byte
+	defer func() { gardenLeave(gardenLoginAid, logger) }()
 	var prefix [4]byte
 	for {
 		if err := conn.SetDeadline(hard); err != nil {
@@ -372,6 +374,9 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 					logger.Printf("OBS %s garden-login remote=%s invalid request", addr, remote)
 					continue
 				}
+				if aid, ok := protobufUintField(frame[12:], 2); ok {
+					gardenLoginAid = aid
+				}
 				// ponytail: validate wire fields, accept local session until accounts persist across restarts.
 				reply := make([]byte, 20)
 				binary.BigEndian.PutUint32(reply, 16)
@@ -404,17 +409,20 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 					return
 				}
 				logger.Printf("OBS %s garden-room-enter remote=%s result=197377 map=%s", addr, remote, gardenMapStem)
+				gardenLeaveIfOtherOwner(gardenLoginAid, ownerAid, logger)
+				gardenOwnerAid = ownerAid
 				gardenRoomEntered = true
 				gardenRelayStarted = false
 				copy(gardenRoomTunnel[:], frame[2:10])
 			}
 			if agent == 10 && msgid == 3 && gardenRoomEntered && length == 12 && bytes.Equal(frame[2:10], gardenRoomTunnel[:]) {
-				reply := make([]byte, 18)
-				binary.BigEndian.PutUint32(reply, 14)
+				body := gardenRelayStart(gardenOwnerAid, gardenLoginAid, conn, frame[1], frame[2:10], logger)
+				reply := make([]byte, 16+len(body))
+				binary.BigEndian.PutUint32(reply, uint32(12+len(body)))
 				reply[4], reply[5] = 'G', frame[1]
 				copy(reply[6:14], frame[2:10])
 				binary.BigEndian.PutUint16(reply[14:16], 3)
-				reply[16], reply[17] = 0x08, 0 // hc_room_relaystart_res.result = 0
+				copy(reply[16:], body)
 				if n, err := conn.Write(reply); err != nil || n != len(reply) {
 					logger.Printf("OBS %s garden-relay-start remote=%s err=%v", addr, remote, err)
 					return

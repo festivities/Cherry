@@ -538,13 +538,8 @@ func TestCreateAvatarAccountRoundTrip(t *testing.T) {
 	if info.Result.Gender != "FEMALE" || info.Result.Skin != "2" || info.Result.Country != "JP" {
 		t.Errorf("info gender/skin/country = %q/%q/%q, want FEMALE/2/JP", info.Result.Gender, info.Result.Skin, info.Result.Country)
 	}
-	if len(info.Result.Items) != len(codes) {
-		t.Fatalf("info items = %+v, want %d", info.Result.Items, len(codes))
-	}
-	for i, item := range info.Result.Items {
-		if item.CD != codes[i] {
-			t.Errorf("info items[%d] = %+v", i, item)
-		}
+	if !avatarHasCD(info.Result.Items, "CUHA0036Z") || !avatarHasCD(info.Result.Items, "CUON0059S") || !avatarHasCD(info.Result.Items, "CUAH004JH") {
+		t.Fatalf("info items = %+v, want original codes", info.Result.Items)
 	}
 	if info.Result.PetProfiles == nil {
 		t.Error("info petProfiles missing")
@@ -584,7 +579,7 @@ func TestCreateAvatarLegacyShortTypeAndNumericCode(t *testing.T) {
 	if info.Result == nil || info.Result.Gender != "FEMALE" {
 		t.Fatalf("info = %+v, want normalized FEMALE", info.Result)
 	}
-	if len(info.Result.Items) != 1 || info.Result.Items[0].CD != "1001" {
+	if !avatarHasCD(info.Result.Items, "1001") {
 		t.Errorf("info items = %+v, want code 1001 preserved", info.Result.Items)
 	}
 }
@@ -713,12 +708,9 @@ func TestCreateAvatarNativeTerminator(t *testing.T) {
 			t.Fatalf("%s: info name/gender/skin = %q/%q/%q, want %q/%q/%q",
 				c.name, infoBody.Result.Name, infoBody.Result.Gender, infoBody.Result.Skin, c.wantName, c.wantGender, c.wantSkin)
 		}
-		if len(infoBody.Result.Items) != len(c.codes) {
-			t.Fatalf("%s: info items = %+v, want %v", c.name, infoBody.Result.Items, c.codes)
-		}
-		for i, item := range infoBody.Result.Items {
-			if item.CD != c.codes[i] {
-				t.Errorf("%s: info items[%d] = %+v, want %q", c.name, i, item, c.codes[i])
+		for _, cd := range c.codes {
+			if !avatarHasCD(infoBody.Result.Items, cd) {
+				t.Fatalf("%s: info items = %+v, want %v", c.name, infoBody.Result.Items, c.codes)
 			}
 		}
 	}
@@ -756,8 +748,8 @@ func TestCreateAvatarNativeTerminator(t *testing.T) {
 	if final.Result == nil || final.Result.Name != "Yuki" || final.Result.Gender != "FEMALE" || final.Result.Skin != "1" {
 		t.Fatalf("final info = %+v, want the last accepted Yuki/FEMALE/skin 1", final.Result)
 	}
-	if len(final.Result.Items) != 1 || final.Result.Items[0].CD != "CUON001CH" {
-		t.Fatalf("final info items = %+v, want [CUON001CH]", final.Result.Items)
+	if !avatarHasCD(final.Result.Items, "CUON001CH") {
+		t.Fatalf("final info items = %+v, want CUON001CH", final.Result.Items)
 	}
 }
 

@@ -37,6 +37,43 @@ func serve(t *testing.T, method, target string) *httptest.ResponseRecorder {
 	return rec
 }
 
+func avatarHasCD(items []avatarItem, cd string) bool {
+	return findAvatarItem(items, cd).CD == cd
+}
+
+func findAvatarItem(items []avatarItem, cd string) avatarItem {
+	for _, it := range items {
+		if it.CD == cd {
+			return it
+		}
+	}
+	return avatarItem{}
+}
+
+func TestAppearanceItemCodes(t *testing.T) {
+	if n, ok := squareNumericItem("CUTO0011X"); !ok || n != 225001365 {
+		t.Fatalf("CUTO0011X = %d %v", n, ok)
+	}
+	if n, ok := squareNumericItem("CUPA000LO"); !ok || n != 225200780 {
+		t.Fatalf("CUPA000LO = %d %v", n, ok)
+	}
+	if n, ok := squareNumericItem("CUSH0009Q"); !ok || n != 225300350 {
+		t.Fatalf("CUSH0009Q = %d %v", n, ok)
+	}
+	got := appearanceItemCodes("FEMALE", []string{"CUEY00002", "CUMO00002", "CUEB00001", "CUNO00001", "CUHE0000L"})
+	for _, cd := range []string{"CUTO0011X", "CUPA000LO", "CUSH0009Q", "CUHA00004"} {
+		if !avatarHasCD(avatarItemsFromCodes(got), cd) {
+			t.Fatalf("faces-only missing %s: %v", cd, got)
+		}
+	}
+	dressed := appearanceItemCodes("FEMALE", []string{"CUON004TV", "CUSH00267"})
+	for _, cd := range dressed {
+		if itemSlot(cd) == "TO" || itemSlot(cd) == "PA" {
+			t.Fatalf("one-piece still got %s: %v", cd, dressed)
+		}
+	}
+}
+
 func TestSetInitConf(t *testing.T) {
 	rec := serve(t, http.MethodGet, "/v4/setInitConf")
 	if rec.Code != http.StatusOK {
@@ -1049,8 +1086,13 @@ func TestAvatarSaveV2RoundTrip(t *testing.T) {
 	if err := json.Unmarshal(saved.Body.Bytes(), &avatar); err != nil || avatar.Result == nil {
 		t.Fatalf("save avatar response: %v", err)
 	}
-	if avatar.Result.AvatarID != createdAvatar.Result.AvatarID || avatar.Result.Name != "Closet" || avatar.Result.Gender != "FEMALE" || avatar.Result.SType != "NORMAL" || avatar.Result.Skin != "2" || avatar.Result.Country != "JP" || len(avatar.Result.Items) != 1 || avatar.Result.Items[0].CD != "CUHA0036Z" || avatar.Result.Items[0].InvenSeq != "4" || len(avatar.Result.PetProfiles) != 0 {
+	if avatar.Result.AvatarID != createdAvatar.Result.AvatarID || avatar.Result.Name != "Closet" || avatar.Result.Gender != "FEMALE" || avatar.Result.SType != "NORMAL" || avatar.Result.Skin != "2" || avatar.Result.Country != "JP" || !avatarHasCD(avatar.Result.Items, "CUHA0036Z") || findAvatarItem(avatar.Result.Items, "CUHA0036Z").InvenSeq != "4" || len(avatar.Result.PetProfiles) != 0 {
 		t.Fatalf("saved avatar = %+v", avatar.Result)
+	}
+	for _, cd := range []string{"CUTO0011X", "CUPA000LO", "CUSH0009Q"} {
+		if !avatarHasCD(avatar.Result.Items, cd) {
+			t.Fatalf("saved avatar missing base %s: %+v", cd, avatar.Result.Items)
+		}
 	}
 
 	for _, c := range []struct {
@@ -1081,7 +1123,7 @@ func TestAvatarSaveV2RoundTrip(t *testing.T) {
 	var persisted struct {
 		Result *avatarInfoResult `json:"result"`
 	}
-	if profile.Code != http.StatusOK || json.Unmarshal(profile.Body.Bytes(), &persisted) != nil || persisted.Result == nil || len(persisted.Result.Items) != 1 || persisted.Result.Items[0].CD != "CUHA0036Z" || persisted.Result.Items[0].InvenSeq != "4" {
+	if profile.Code != http.StatusOK || json.Unmarshal(profile.Body.Bytes(), &persisted) != nil || persisted.Result == nil || !avatarHasCD(persisted.Result.Items, "CUHA0036Z") || findAvatarItem(persisted.Result.Items, "CUHA0036Z").InvenSeq != "4" {
 		t.Fatalf("persisted avatar: status = %d, body = %q", profile.Code, profile.Body.String())
 	}
 	itemsReq = httptest.NewRequest(http.MethodPost, "/v4/inven/closet/items/all", nil)

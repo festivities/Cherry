@@ -273,6 +273,8 @@ func TestSquareSelfAvatarInfo(t *testing.T) {
 	want = pbLen(want, 6, []byte("JP"))
 	want = pbLen(want, 10, []byte("1"))
 	want = pbLen(want, 24, pbVar(nil, 1, 225106259))
+	want = pbLen(want, 24, pbVar(nil, 1, 225300350))
+	want = pbLen(want, 24, pbVar(nil, 1, 224400001))
 	if got := squareAvatarInfo(9001); !bytes.Equal(got, want) {
 		t.Fatalf("avatar = %x, want %x", got, want)
 	}
