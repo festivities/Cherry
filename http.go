@@ -235,6 +235,9 @@ const itemsSomeBody = `{"result":[]}`
 
 const playDetailLPRmchatBody = `{"result":{"gameInfo":{"gameId":"lp_rmchat","executable":false}}}`
 
+// ResPlayDetailWithGameID @0x1a84e5c needs a nonempty gameInfo object; dates are ms strings.
+const playDetailLPSquareBody = `{"result":{"gameInfo":{"gameId":"lp_sq","executable":true,"underMaintenance":false,"minLinePlayVersion":"","startDate":"1577836800000","endDate":"4102444800000"}}}`
+
 const artsStringsMD5 = "1492F278EC281078AC7F35479A85F197"
 
 //go:embed testdata/arts_strings.ast
@@ -295,6 +298,7 @@ func newMux() *http.ServeMux {
 	mux.HandleFunc("/v4/items/dress/some", handleItemsSome)
 	mux.HandleFunc("/v4/items/room/some", handleItemsSome)
 	mux.HandleFunc("/v4/playhome/games/lp_rmchat", handlePlayDetailLPRmchat)
+	mux.HandleFunc("/v4/playhome/games/lp_sq", handleJSONBody(playDetailLPSquareBody))
 	mux.HandleFunc("/v4/profile/", handleProfile)
 	mux.HandleFunc("/v4/avatar/", handleAvatarInfo)
 	mux.HandleFunc("/", handleRoot)

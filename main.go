@@ -182,7 +182,7 @@ func observeConn(conn net.Conn, addr string, logger *log.Logger) {
 			logger.Printf("OBS %s banner remote=%s err=%v", addr, remote, err)
 			return
 		}
-		observeGatewayFrames(conn, addr, remote, logger)
+		observeGatewayFrames(&lockedConn{Conn: conn}, addr, remote, logger)
 		return
 	}
 
@@ -213,7 +213,9 @@ func observeConn(conn net.Conn, addr string, logger *log.Logger) {
 	logger.Printf("OBS %s close remote=%s", addr, remote)
 }
 
-func observeGatewayFrames(conn net.Conn, addr, remote string, logger *log.Logger) {
+func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Logger) {
+	sq := &squareSession{room: defaultSquare, conn: conn, logger: logger}
+	defer sq.close()
 	hard := time.Now().Add(gatewayTTL)
 	gardenControlSent := false
 	gardenRoomEntered := false
@@ -294,6 +296,12 @@ func observeGatewayFrames(conn net.Conn, addr, remote string, logger *log.Logger
 		}
 		agent, subtype := int(frame[1]>>3)+1, frame[1]&7
 		if subtype == 1 && length == 10 {
+			if agent == squareAgent {
+				if err := sq.handleOpen(frame); err != nil {
+					return
+				}
+				continue
+			}
 			if agent == 10 {
 				if gardenControlSent {
 					logger.Printf("OBS %s open-retry remote=%s agent=10", addr, remote)
@@ -327,6 +335,15 @@ func observeGatewayFrames(conn net.Conn, addr, remote string, logger *log.Logger
 		if subtype == 0 && length >= 12 {
 			msgid := binary.BigEndian.Uint16(frame[10:12])
 			logger.Printf("OBS %s data remote=%s agent=%d msgid=%d bytes=%d", addr, remote, agent, msgid, length)
+			if agent == squareAgent {
+				if err := sq.handleData(frame); err != nil {
+					return
+				}
+				if sq.loggedIn {
+					hard = time.Time{} // Keep Square connected until the client disconnects.
+				}
+				continue
+			}
 			if agent == 10 && msgid == 0 {
 				if !gardenLoginValid(frame[12:]) {
 					logger.Printf("OBS %s garden-login remote=%s invalid request", addr, remote)
