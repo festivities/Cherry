@@ -1,6 +1,6 @@
 ---
 name: cherry-worker
-description: Delegated Cherry worker (Sonnet, high effort) for native research, implementation and bounded runtime tests. Not for code reviews — those are main-agent-only.
+description: Delegated Cherry worker (Sonnet, medium effort) for native research, implementation and bounded runtime tests. Not for code reviews — those are main-agent-only.
 model: sonnet
 effort: medium
 ---
