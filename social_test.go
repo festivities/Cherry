@@ -269,10 +269,10 @@ func TestSocialFriendAndDiary(t *testing.T) {
 		t.Fatalf("removed friend still listed: %s", after.Body.String())
 	}
 	removedSearch := serveRequest(t, httptest.NewRequest(http.MethodPost, "/v4/square/friends/search?page=0&size=20", strings.NewReader(`{"country":"JP","caricNickName":"100000","searchType":"CODE"}`)))
-	if removedSearch.Code != http.StatusOK || !bytes.Contains(removedSearch.Body.Bytes(), []byte(`"avatarId":"100000"`)) || !bytes.Contains(removedSearch.Body.Bytes(), []byte(`"friendStatus":"0"`)) {
+	if removedSearch.Code != http.StatusOK || !bytes.Contains(removedSearch.Body.Bytes(), []byte(`"avatarId":"100000"`)) || !bytes.Contains(removedSearch.Body.Bytes(), []byte(`"friendStatus":"2"`)) {
 		t.Fatalf("removed friend search = %d %s", removedSearch.Code, removedSearch.Body.String())
 	}
-	if status := serve(t, http.MethodGet, "/v4/friend/status/100000"); status.Code != http.StatusOK || status.Body.String() != `{"result":0}` {
+	if status := serve(t, http.MethodGet, "/v4/friend/status/100000"); status.Code != http.StatusOK || status.Body.String() != `{"result":2}` {
 		t.Fatalf("removed friend status = %d %s", status.Code, status.Body.String())
 	}
 	if applied := socialTestRequest(t, http.MethodPost, "/v4/friend/apply/100000", `{"applyAvatarId":"100000"}`); applied.Code != http.StatusOK || applied.Body.String() != `{"result":1}` {
@@ -441,7 +441,7 @@ func TestRealAccountNotShadowedBySyntheticFriend(t *testing.T) {
 	if profile := serve(t, http.MethodGet, "/v4/profile/2"); !bytes.Contains(profile.Body.Bytes(), []byte(`"name":"test"`)) {
 		t.Fatalf("profile/2 = %s", profile.Body.String())
 	}
-	if status := serve(t, http.MethodGet, "/v4/friend/status/2"); status.Body.String() != `{"result":0}` {
+	if status := serve(t, http.MethodGet, "/v4/friend/status/2"); status.Body.String() != `{"result":2}` {
 		t.Fatalf("friend/status/2 = %s", status.Body.String())
 	}
 	search := serveRequest(t, httptest.NewRequest(http.MethodPost, "/v4/square/friends/search", strings.NewReader(`{"country":"JP","caricNickName":"2","searchType":"CODE"}`)))
@@ -459,5 +459,148 @@ func TestRealAccountNotShadowedBySyntheticFriend(t *testing.T) {
 	var avatar avatarResponse
 	if err := json.Unmarshal(created.Body.Bytes(), &avatar); err != nil || avatar.Result == nil || avatar.Result.AvatarID == friendAID {
 		t.Fatalf("create avatar = %d %s", created.Code, created.Body.String())
+	}
+}
+
+type syncRow struct {
+	AvatarNo   string `json:"avatarNo"`
+	AvatarName string `json:"avatarName"`
+	Status     int    `json:"status"`
+}
+
+func syncRowsAs(t *testing.T, token string) (map[string]syncRow, int) {
+	t.Helper()
+	rec := socialTestRequestAs(t, token, http.MethodGet, "/v4/sync/friends/", "")
+	var body struct {
+		Result struct {
+			FriendsCount int       `json:"friendsCount"`
+			BuddyList    []syncRow `json:"buddyList"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("sync = %s", rec.Body.String())
+	}
+	rows := map[string]syncRow{}
+	for _, row := range body.Result.BuddyList {
+		rows[row.AvatarNo] = row
+	}
+	return rows, body.Result.FriendsCount
+}
+
+func TestRealFriendships(t *testing.T) {
+	installSocialTestAccounts(t, map[string]*account{
+		"t1": {accessToken: "t1", aid: "1", name: "One"},
+		"t2": {accessToken: "t2", aid: "2", name: "Two"},
+		"t3": {accessToken: "t3", aid: "3", name: "Three"},
+	})
+	resetSocial()
+	t.Cleanup(resetSocial)
+	path := filepath.Join(t.TempDir(), "social.json")
+	if err := loadSocialFrom(path); err != nil {
+		t.Fatal(err)
+	}
+	do := func(token, method, target, body string) int {
+		return socialTestRequestAs(t, token, method, target, body).Code
+	}
+	if c := do("t1", http.MethodPost, "/v4/friend/apply/1", `{"applyAvatarId":"1"}`); c != http.StatusBadRequest {
+		t.Fatalf("self apply = %d", c)
+	}
+	if c := do("t2", http.MethodPut, "/v4/friend/accept/1", "null"); c != http.StatusNotFound {
+		t.Fatalf("accept without request = %d", c)
+	}
+	relOf := func(token, aid string) string {
+		p := socialTestRequestAs(t, token, http.MethodGet, "/v4/profile/"+aid, "").Body.String()
+		s := socialTestRequestAs(t, token, http.MethodGet, "/v4/friend/status/"+aid, "").Body.String()
+		q := socialTestRequestAs(t, token, http.MethodPost, "/v4/square/friends/search", `{"country":"JP","caricNickName":"`+aid+`","searchType":"CODE"}`).Body.String()
+		var n string
+		for _, c := range []string{"0", "1", "2", "3"} {
+			if strings.Contains(p, `"friendStatus":`+c) && s == `{"result":`+c+`}` && strings.Contains(q, `"friendStatus":"`+c+`"`) {
+				n = c
+			}
+		}
+		return n
+	}
+	if got := relOf("t1", "2"); got != "2" {
+		t.Fatalf("none relation = %q", got)
+	}
+	// The native client posts to /v4/friend/apply/ with an EMPTY path aid; the target is only in the body.
+	if c := do("t1", http.MethodPost, "/v4/friend/apply/", `{"applyAvatarId":"2"}`); c != http.StatusOK {
+		t.Fatalf("apply = %d", c)
+	}
+	if c := do("t1", http.MethodPost, "/v4/friend/apply/", `{"applyAvatarId":"999"}`); c != http.StatusNotFound {
+		t.Fatalf("empty-path apply unknown = %d", c)
+	}
+	if c := do("t1", http.MethodPost, "/v4/friend/apply/", `{}`); c != http.StatusNotFound {
+		t.Fatalf("empty-path apply no target = %d", c)
+	}
+	if got := relOf("t1", "2"); got != "3" {
+		t.Fatalf("sent relation = %q", got)
+	}
+	if got := relOf("t2", "1"); got != "0" {
+		t.Fatalf("received relation = %q", got)
+	}
+	rows1, _ := syncRowsAs(t, "t1")
+	rows2, _ := syncRowsAs(t, "t2")
+	if rows1["2"].Status != relSent || rows1[friendAID].Status != 1 {
+		t.Fatalf("applicant sync = %+v", rows1)
+	}
+	if rows2["1"].Status != 0 || rows2["1"].AvatarName != "One" {
+		t.Fatalf("received request row = %+v", rows2)
+	}
+	if c := do("t2", http.MethodPut, "/v4/friend/accept/1", "null"); c != http.StatusOK {
+		t.Fatalf("accept = %d", c)
+	}
+	rows1, n1 := syncRowsAs(t, "t1")
+	rows2, n2 := syncRowsAs(t, "t2")
+	if rows1["2"].Status != 1 || rows2["1"].Status != 1 || rows1[friendAID].Status != 1 || n1 != 2 || n2 != 2 {
+		t.Fatalf("accepted sync = %+v %+v", rows1, rows2)
+	}
+	if s := socialTestRequestAs(t, "t1", http.MethodGet, "/v4/friend/status/2", "").Body.String(); s != `{"result":1}` {
+		t.Fatalf("status = %s", s)
+	}
+	if s := socialTestRequestAs(t, "t3", http.MethodGet, "/v4/friend/status/2", "").Body.String(); s != `{"result":2}` {
+		t.Fatalf("stranger status = %s", s)
+	}
+	if p := socialTestRequestAs(t, "t1", http.MethodGet, "/v4/profile/2", "").Body.String(); !strings.Contains(p, `"friendStatus":1`) {
+		t.Fatalf("profile = %s", p)
+	}
+	search := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/square/friends/search", `{"country":"JP","caricNickName":"2","searchType":"CODE"}`).Body.String()
+	if !strings.Contains(search, `"friendStatus":"1"`) {
+		t.Fatalf("search = %s", search)
+	}
+
+	// Persistence round trip.
+	resetSocial()
+	if err := loadSocialFrom(path); err != nil {
+		t.Fatal(err)
+	}
+	if rows, _ := syncRowsAs(t, "t2"); rows["1"].Status != 1 {
+		t.Fatalf("after reload = %+v", rows)
+	}
+
+	// Remove leaves -1 tombstones for both sides; synthetic friend untouched.
+	if rec := socialTestRequestAs(t, "t2", http.MethodPost, "/v4/r/friend/remove/", `["1"]`); !strings.Contains(rec.Body.String(), `"success":["1"]`) {
+		t.Fatalf("remove = %s", rec.Body.String())
+	}
+	rows1, n1 = syncRowsAs(t, "t1")
+	rows2, _ = syncRowsAs(t, "t2")
+	if rows1["2"].Status != -1 || rows2["1"].Status != -1 || rows1[friendAID].Status != 1 || n1 != 1 {
+		t.Fatalf("removed sync = %+v %+v", rows1, rows2)
+	}
+	if s := socialTestRequestAs(t, "t1", http.MethodGet, "/v4/friend/status/2", "").Body.String(); s != `{"result":2}` {
+		t.Fatalf("removed status = %s", s)
+	}
+
+	// Mutual apply auto-accepts (including re-apply after removal).
+	do("t1", http.MethodPost, "/v4/friend/apply/2", `{"applyAvatarId":"2"}`)
+	do("t2", http.MethodPost, "/v4/friend/apply/1", `{"applyAvatarId":"1"}`)
+	if rows, _ := syncRowsAs(t, "t1"); rows["2"].Status != 1 {
+		t.Fatalf("mutual apply = %+v", rows)
+	}
+
+	// Unauthenticated sync keeps the synthetic-only response.
+	rec := serve(t, http.MethodGet, "/v4/sync/friends/")
+	if strings.Contains(rec.Body.String(), `"avatarNo":"2"`) || !strings.Contains(rec.Body.String(), `"friendsCount":1`) {
+		t.Fatalf("anonymous sync = %s", rec.Body.String())
 	}
 }

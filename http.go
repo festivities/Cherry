@@ -233,7 +233,7 @@ const invenCountsBody = `{"result":{}}`
 
 const itemsSomeBody = `{"result":[]}`
 
-const playDetailLPRmchatBody = `{"result":{"gameInfo":{"gameId":"lp_rmchat","executable":false}}}`
+const playDetailLPRmchatBody = `{"result":{"gameInfo":{"gameId":"lp_rmchat","executable":true,"underMaintenance":false,"minLinePlayVersion":"","startDate":"1577836800000","endDate":"4102444800000"}}}`
 
 // ResPlayDetailWithGameID @0x1a84e5c needs a nonempty gameInfo object; dates are ms strings.
 const playDetailLPSquareBody = `{"result":{"gameInfo":{"gameId":"lp_sq","executable":true,"underMaintenance":false,"minLinePlayVersion":"","startDate":"1577836800000","endDate":"4102444800000"}}}`
@@ -299,6 +299,7 @@ func newMux() *http.ServeMux {
 	mux.HandleFunc("/v4/items/room/some", handleItemsSome)
 	mux.HandleFunc("/v4/playhome/games/lp_rmchat", handlePlayDetailLPRmchat)
 	mux.HandleFunc("/v4/playhome/games/lp_sq", handleJSONBody(playDetailLPSquareBody))
+	mux.HandleFunc("/v4/room/", handleRoom)
 	mux.HandleFunc("/v4/profile/", handleProfile)
 	mux.HandleFunc("/v4/avatar/", handleAvatarInfo)
 	mux.HandleFunc("/", handleRoot)
@@ -656,7 +657,8 @@ func handleCreateAvatar(w http.ResponseWriter, r *http.Request) {
 	accountsMu.Lock()
 	previous, previousID := *acc, nextAvatarID
 	if acc.aid == "0" {
-		nextAvatarID++
+		// libgame's Room Party cells blank any friend whose avatarNo is a single character (NaRoomPartySearchCell/NormalCell::InitUI), so aids start at 10.
+		nextAvatarID = max(nextAvatarID, minAvatarID-1) + 1
 		if strconv.FormatUint(nextAvatarID, 10) == friendAID {
 			nextAvatarID++
 		}
@@ -1111,6 +1113,8 @@ type avatarInfoResult struct {
 	Items       []avatarItem `json:"items"`
 	PetProfiles []string     `json:"petProfiles"`
 }
+
+const minAvatarID = 10
 
 var (
 	accountsMu       sync.Mutex

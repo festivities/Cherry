@@ -55,6 +55,16 @@ type savedSocial struct {
 	Posts            []diaryPost           `json:"posts"`
 	NextGuestHistNo  uint64                `json:"nextGuestHistNo"`
 	Guestbook        []savedGuestbookEntry `json:"guestbook"`
+	Friendships      []friendship          `json:"friendships,omitempty"`
+}
+
+// friendship is one record per unordered pair of real accounts. "pending":
+// A applied to B; "accepted": mutual; "removed": tombstone so both clients'
+// never-pruned native caches get status -1.
+type friendship struct {
+	A     string `json:"a"`
+	B     string `json:"b"`
+	State string `json:"state"`
 }
 
 var (
@@ -66,6 +76,7 @@ var (
 	diaryPosts       []diaryPost
 	nextGuestHistNo  uint64
 	guestbookEntries []savedGuestbookEntry
+	friendships      []friendship
 )
 
 func loadSocial() error {
@@ -117,8 +128,14 @@ func loadSocialFrom(path string) error {
 			entry.Reply = []any{}
 		}
 	}
+	for _, f := range state.Friendships {
+		if !validAvatarID(f.A) || !validAvatarID(f.B) || f.A == f.B || (f.State != "pending" && f.State != "accepted" && f.State != "removed") {
+			return errors.New("invalid friendship")
+		}
+	}
 	socialMu.Lock()
 	socialStorePath = path
+	friendships = state.Friendships
 	friendRemoved = state.FriendRemoved
 	friendBookmarked = state.FriendBookmarked
 	nextDiaryNo = state.NextDiaryNo
@@ -138,6 +155,7 @@ func resetSocial() {
 	diaryPosts = nil
 	nextGuestHistNo = 0
 	guestbookEntries = nil
+	friendships = nil
 	socialMu.Unlock()
 }
 
@@ -156,6 +174,7 @@ func saveSocialLocked() error {
 	data, err := json.Marshal(savedSocial{
 		Version: 1, FriendRemoved: friendRemoved, FriendBookmarked: friendBookmarked,
 		NextDiaryNo: nextDiaryNo, Posts: posts, NextGuestHistNo: nextGuestHistNo, Guestbook: guestbook,
+		Friendships: friendships,
 	})
 	if err != nil {
 		return err
@@ -218,8 +237,36 @@ func handleFriendSync(w http.ResponseWriter, r *http.Request) {
 		serveNotFound(w)
 		return
 	}
+	actor, actorOK := accountForRequest(r)
+	type relRow struct {
+		aid    string
+		status int
+	}
+	var rels []relRow
 	socialMu.Lock()
 	removed, marked := friendRemoved, friendBookmarked
+	if actorOK {
+		for _, f := range friendships {
+			other := f.B
+			if f.A != actor.aid && f.B != actor.aid {
+				continue
+			}
+			if f.B == actor.aid {
+				other = f.A
+			}
+			switch {
+			case f.State == "accepted":
+				rels = append(rels, relRow{other, 1})
+			case f.State == "removed":
+				rels = append(rels, relRow{other, -1})
+			case f.State == "pending" && f.B == actor.aid:
+				rels = append(rels, relRow{other, relReceived})
+			case f.State == "pending":
+				// Sent request: 3 lands in an unread per-state list (PushFriendData); harmless cache row.
+				rels = append(rels, relRow{other, relSent})
+			}
+		}
+	}
 	socialMu.Unlock()
 	// Native caches sync rows by avatarNo and never prunes omitted ones; see PLAN
 	// "Stale friend-cache fix" before renumbering friendAID again.
@@ -232,13 +279,29 @@ func handleFriendSync(w http.ResponseWriter, r *http.Request) {
 			Status: 1, FriendStatus: 1, LineBuddyYn: "N", Mid: friendAID,
 		})
 	}
+	for _, rel := range rels {
+		name := rel.aid
+		if acc, ok := accountByAvatarID(rel.aid); ok {
+			name = acc.name
+		}
+		buddies = append(buddies, buddyRow{
+			AvatarNo: rel.aid, AvatarName: name, BuddyAvatarNo: rel.aid,
+			Status: rel.status, FriendStatus: rel.status, LineBuddyYn: "N", Mid: rel.aid,
+		})
+	}
+	friends := 0
+	for _, b := range buddies {
+		if b.Status == 1 {
+			friends++
+		}
+	}
 	if marked && !removed {
 		bookmarks = []string{friendAID}
 	}
 	body, err := json.Marshal(map[string]any{
 		"result": map[string]any{
 			"existProfile": false, "nextCursor": 0, "timestamp": "0",
-			"friendsCount": len(buddies), "buddyList": buddies,
+			"friendsCount": friends, "buddyList": buddies,
 			"newbieRecommendList": []any{}, "nearbyRecommendList": []any{},
 			"bookmarks": bookmarks,
 		},
@@ -248,6 +311,40 @@ func handleFriendSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, string(body))
+}
+
+// Client friendStatus enum, actor-relative (libgame NaProfilePopup::SetBottomButton @0x2286da8,
+// NaSearchFriendCell::SetButtonState @0x1c7b270): 0 shows ACCEPT, 1 friends, 3 sent (Add disabled),
+// 4 blocked; anything else (-1/2) shows Add. Never send 0 for strangers.
+const (
+	relReceived = 0
+	relFriends  = 1
+	relNone     = 2
+	relSent     = 3
+)
+
+// friendRelation returns the enum from actor's point of view. Caller holds socialMu.
+func friendRelation(actor string, actorOK bool, aid string) int {
+	if aid == friendAID {
+		if friendRemoved {
+			return relNone
+		}
+		return relFriends
+	}
+	if !actorOK {
+		return relNone
+	}
+	if i := friendshipIndex(actor, aid, ""); i >= 0 {
+		switch f := friendships[i]; {
+		case f.State == "accepted":
+			return relFriends
+		case f.State == "pending" && f.A == actor:
+			return relSent
+		case f.State == "pending":
+			return relReceived
+		}
+	}
+	return relNone
 }
 
 func handleProfile(w http.ResponseWriter, r *http.Request) {
@@ -271,10 +368,7 @@ func handleProfile(w http.ResponseWriter, r *http.Request) {
 
 func profileBodyFor(aid, name string, hasGarden bool, viewer accountSnapshot, viewerOK bool) map[string]any {
 	socialMu.Lock()
-	friendStatus := 0
-	if aid == friendAID && !friendRemoved {
-		friendStatus = 1
-	}
+	friendStatus := friendRelation(viewer.aid, viewerOK, aid)
 	diaryCount, guestbookCount := 0, 0
 	for _, post := range diaryPosts {
 		if post.AvatarID == aid && canViewDiaryPost(post, viewer, viewerOK) {
@@ -366,7 +460,8 @@ func handleFriendRemove(w http.ResponseWriter, r *http.Request) {
 		serveNotFound(w)
 		return
 	}
-	if _, ok := accountForRequest(r); !ok {
+	actor, ok := accountForRequest(r)
+	if !ok {
 		writeJSON(w, http.StatusNotFound, unknownSessionBody)
 		return
 	}
@@ -389,7 +484,12 @@ func handleFriendRemove(w http.ResponseWriter, r *http.Request) {
 	removed := []string{}
 	socialMu.Lock()
 	prevRemoved, prevMarked := friendRemoved, friendBookmarked
+	prevFriendships := append([]friendship(nil), friendships...)
 	for _, aid := range aids {
+		if i := friendshipIndex(actor.aid, aid, ""); i >= 0 && friendships[i].State != "removed" {
+			friendships[i].State = "removed"
+			removed = append(removed, aid)
+		}
 		if aid == friendAID && !friendRemoved {
 			friendRemoved = true
 			friendBookmarked = false
@@ -399,6 +499,7 @@ func handleFriendRemove(w http.ResponseWriter, r *http.Request) {
 	err = saveSocialLocked()
 	if err != nil {
 		friendRemoved, friendBookmarked = prevRemoved, prevMarked
+		friendships = prevFriendships
 		removed = nil
 	}
 	socialMu.Unlock()
@@ -838,7 +939,7 @@ func handleFriendSearch(w http.ResponseWriter, r *http.Request) {
 	removed := friendRemoved
 	socialMu.Unlock()
 	if removed {
-		items[0].FriendStatus = "0"
+		items[0].FriendStatus = strconv.Itoa(relNone)
 	}
 	accountsMu.Lock()
 	byID := make(map[string]friendSearchItem, len(accounts))
@@ -846,13 +947,22 @@ func handleFriendSearch(w http.ResponseWriter, r *http.Request) {
 		if acc == nil || !validAvatarID(acc.aid) || acc.aid == "0" || acc.aid == friendAID {
 			continue
 		}
-		candidate := friendSearchItem{AvatarID: acc.aid, CaricNickName: acc.name, FriendStatus: "0"}
+		candidate := friendSearchItem{AvatarID: acc.aid, CaricNickName: acc.name, FriendStatus: strconv.Itoa(relNone)}
 		if current, exists := byID[acc.aid]; exists && current.CaricNickName <= candidate.CaricNickName {
 			continue
 		}
 		byID[acc.aid] = candidate
 	}
 	accountsMu.Unlock()
+	searcher, searcherOK := accountForRequest(r)
+	socialMu.Lock()
+	for aid, item := range byID {
+		if searcherOK {
+			item.FriendStatus = strconv.Itoa(friendRelation(searcher.aid, true, aid))
+			byID[aid] = item
+		}
+	}
+	socialMu.Unlock()
 	for _, item := range byID {
 		items = append(items, item)
 	}
@@ -927,14 +1037,10 @@ func handleFriendStatus(w http.ResponseWriter, r *http.Request) {
 		serveNotFound(w)
 		return
 	}
-	status := 0
-	if aid == friendAID {
-		socialMu.Lock()
-		if !friendRemoved {
-			status = 1
-		}
-		socialMu.Unlock()
-	}
+	actor, actorOK := accountForRequest(r)
+	socialMu.Lock()
+	status := friendRelation(actor.aid, actorOK, aid)
+	socialMu.Unlock()
 	body, _ := json.Marshal(map[string]int{"result": status})
 	writeJSON(w, http.StatusOK, string(body))
 }
@@ -944,7 +1050,8 @@ func handleFriendApply(w http.ResponseWriter, r *http.Request) {
 		serveNotFound(w)
 		return
 	}
-	if _, ok := accountForRequest(r); !ok {
+	actor, ok := accountForRequest(r)
+	if !ok {
 		writeJSON(w, http.StatusNotFound, unknownSessionBody)
 		return
 	}
@@ -953,19 +1060,36 @@ func handleFriendApply(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ApplyAvatarID string `json:"applyAvatarId"`
 	}
-	if !knownFriendTarget(aid) {
-		serveNotFound(w)
-		return
-	}
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, badRequestBody)
 		return
 	}
-	if _, err := unmarshalNativeJSON(raw, &req); err != nil || req.ApplyAvatarID != aid {
+	if _, err := unmarshalNativeJSON(raw, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, badRequestBody)
 		return
 	}
-	restoreFriend(w)
+	// Native ReqFriendApplyWithAvatarID @0x1bcc6fc always POSTs /v4/friend/apply/ with an EMPTY path aid;
+	// the target is only in the body.
+	if aid == "" {
+		aid = req.ApplyAvatarID
+	}
+	if !knownFriendTarget(aid) {
+		serveNotFound(w)
+		return
+	}
+	if req.ApplyAvatarID != aid {
+		writeJSON(w, http.StatusBadRequest, badRequestBody)
+		return
+	}
+	if aid == friendAID {
+		restoreFriend(w)
+		return
+	}
+	if aid == actor.aid {
+		writeJSON(w, http.StatusBadRequest, badRequestBody)
+		return
+	}
+	setFriendship(w, actor.aid, aid, false)
 }
 
 func handleFriendAccept(w http.ResponseWriter, r *http.Request) {
@@ -973,7 +1097,8 @@ func handleFriendAccept(w http.ResponseWriter, r *http.Request) {
 		serveNotFound(w)
 		return
 	}
-	if _, ok := accountForRequest(r); !ok {
+	actor, ok := accountForRequest(r)
+	if !ok {
 		writeJSON(w, http.StatusNotFound, unknownSessionBody)
 		return
 	}
@@ -992,10 +1117,58 @@ func handleFriendAccept(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, badRequestBody)
 		return
 	}
-	restoreFriend(w)
+	if aid == friendAID {
+		restoreFriend(w)
+		return
+	}
+	setFriendship(w, actor.aid, aid, true)
 }
 
-func knownFriendTarget(aid string) bool { return aid == friendAID }
+func knownFriendTarget(aid string) bool {
+	return aid == friendAID || (validAvatarID(aid) && knownSocialAvatar(aid))
+}
+
+// friendshipIndex finds the record for the unordered pair; state "" matches any. Caller holds socialMu.
+func friendshipIndex(x, y, state string) int {
+	for i, f := range friendships {
+		if ((f.A == x && f.B == y) || (f.A == y && f.B == x)) && (state == "" || f.State == state) {
+			return i
+		}
+	}
+	return -1
+}
+
+// setFriendship handles a real-account apply (accept=false) or accept (accept=true) by actor toward other.
+func setFriendship(w http.ResponseWriter, actor, other string, accept bool) {
+	socialMu.Lock()
+	prev := append([]friendship(nil), friendships...)
+	i := friendshipIndex(actor, other, "")
+	switch {
+	case accept && (i < 0 || friendships[i].State != "pending" || friendships[i].B != actor):
+		if i >= 0 && friendships[i].State == "accepted" {
+			break // already friends: idempotent
+		}
+		socialMu.Unlock()
+		serveNotFound(w)
+		return
+	case i < 0:
+		friendships = append(friendships, friendship{A: actor, B: other, State: "pending"})
+	case friendships[i].State == "removed":
+		friendships[i] = friendship{A: actor, B: other, State: "pending"}
+	case friendships[i].State == "pending" && friendships[i].A == other:
+		friendships[i].State = "accepted"
+	}
+	err := saveSocialLocked()
+	if err != nil {
+		friendships = prev
+	}
+	socialMu.Unlock()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, saveFailedBody)
+		return
+	}
+	writeJSON(w, http.StatusOK, `{"result":1}`)
+}
 
 func knownSocialAvatar(aid string) bool {
 	if aid == friendAID {

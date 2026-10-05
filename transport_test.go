@@ -258,11 +258,11 @@ func TestGatewayObserverBannerHello(t *testing.T) {
 	if _, err := client.Write(open); err != nil {
 		t.Fatalf("gateway open write: %v", err)
 	}
-	ack := readFullDeadline(t, client, len(open))
-	wantAck := append([]byte(nil), open...)
-	wantAck[5] = 0x1a
-	if !bytes.Equal(ack, wantAck) {
-		t.Fatalf("gateway ack = %x, want %x", ack, wantAck)
+	rpControl := readFullDeadline(t, client, 22)
+	wantRP := append([]byte{0, 0, 0, 18}, open[4:]...)
+	wantRP = append(wantRP, make([]byte, 8)...)
+	if !bytes.Equal(rpControl, wantRP) {
+		t.Fatalf("agent 4 control = %x, want %x", rpControl, wantRP)
 	}
 	gardenOpen := append([]byte(nil), open...)
 	gardenOpen[5], gardenOpen[11] = 0x49, 0x71
@@ -424,7 +424,7 @@ func TestGatewayObserverBannerHello(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("gateway observer did not return")
 	}
-	if !bytes.Contains(output.Bytes(), []byte("OBS :10000 open-ack remote=pipe agent=4")) ||
+	if !bytes.Contains(output.Bytes(), []byte("ROOMPARTY open-control")) ||
 		!bytes.Contains(output.Bytes(), []byte("OBS :10000 open-control remote=pipe agent=10")) ||
 		!bytes.Contains(output.Bytes(), []byte("OBS :10000 open-retry remote=pipe agent=10")) ||
 		!bytes.Contains(output.Bytes(), []byte("OBS :10000 hello ")) ||

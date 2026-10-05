@@ -187,8 +187,8 @@ func TestPlayDetailLPRmchat(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("body is not valid typed JSON: %v", err)
 	}
-	if body.Result.GameInfo == nil || body.Result.GameInfo.GameID != "lp_rmchat" || body.Result.GameInfo.Executable == nil || *body.Result.GameInfo.Executable {
-		t.Fatalf("gameInfo = %+v, want {gameId: lp_rmchat, executable: false}", body.Result.GameInfo)
+	if body.Result.GameInfo == nil || body.Result.GameInfo.GameID != "lp_rmchat" || body.Result.GameInfo.Executable == nil || !*body.Result.GameInfo.Executable {
+		t.Fatalf("gameInfo = %+v, want {gameId: lp_rmchat, executable: true}", body.Result.GameInfo)
 	}
 
 	for _, c := range []struct{ method, path string }{
@@ -1255,15 +1255,15 @@ func TestPreloadStubs(t *testing.T) {
 	if rec := serve(t, http.MethodPost, "/v4/badge/infos/"); rec.Code != http.StatusNotFound {
 		t.Fatalf("POST /v4/badge/infos/: status = %d, want 404", rec.Code)
 	}
-	unfold := serve(t, http.MethodGet, "/v4/diary2/ext/unfold/1/")
+	unfold := serve(t, http.MethodGet, "/v4/diary2/ext/unfold/10/")
 	if unfold.Code != http.StatusOK || !strings.Contains(unfold.Body.String(), `"items":[]`) {
 		t.Fatalf("GET diary unfold: status = %d, body = %q", unfold.Code, unfold.Body.String())
 	}
-	intro := serve(t, http.MethodGet, "/v4/diary2/intro/1")
-	if intro.Code != http.StatusOK || !strings.Contains(intro.Body.String(), `"avatarId":"1"`) {
+	intro := serve(t, http.MethodGet, "/v4/diary2/intro/10")
+	if intro.Code != http.StatusOK || !strings.Contains(intro.Body.String(), `"avatarId":"10"`) {
 		t.Fatalf("GET diary intro: status = %d, body = %q", intro.Code, intro.Body.String())
 	}
-	gb := serve(t, http.MethodGet, "/v4/guestbook3/count/1")
+	gb := serve(t, http.MethodGet, "/v4/guestbook3/count/10")
 	if gb.Code != http.StatusOK || !strings.Contains(gb.Body.String(), `"count":0`) {
 		t.Fatalf("GET guestbook count: status = %d, body = %q", gb.Code, gb.Body.String())
 	}
@@ -1455,5 +1455,26 @@ func TestSckeyWrapperCrossCheck(t *testing.T) {
 	}
 	if got := hex.EncodeToString(sckeyBlob[84:100]); got != sckeyIV16CipherHex {
 		t.Errorf("blob entry 0 iv16 cipher = %s", got)
+	}
+}
+
+func TestNewAvatarIDsAreMultiDigit(t *testing.T) {
+	accountsMu.Lock()
+	previousAccounts, previousLatest, previousID, previousPath := accounts, latestAcc, nextAvatarID, accountStorePath
+	accounts, latestAcc, nextAvatarID, accountStorePath = make(map[string]*account), nil, 0, ""
+	accountsMu.Unlock()
+	t.Cleanup(func() {
+		accountsMu.Lock()
+		accounts, latestAcc, nextAvatarID, accountStorePath = previousAccounts, previousLatest, previousID, previousPath
+		accountsMu.Unlock()
+	})
+	token := avAuthValue(t, createSession(t, guestGenerate(t)))
+	rec := createAvatar(t, token, []byte(`{"name":"Multi","avatarType":"FEMALE","nationCode":"JP","skinColor":"2","itemCodes":["CUON00164"]}`), "")
+	var avatar avatarResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &avatar); err != nil || avatar.Result == nil {
+		t.Fatalf("create avatar = %d %s", rec.Code, rec.Body.String())
+	}
+	if avatar.Result.AvatarID != "10" {
+		t.Fatalf("first avatar id = %q, want 10 (Room Party hides single-char avatarNo)", avatar.Result.AvatarID)
 	}
 }

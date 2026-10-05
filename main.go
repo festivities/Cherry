@@ -216,6 +216,8 @@ func observeConn(conn net.Conn, addr string, logger *log.Logger) {
 func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Logger) {
 	sq := &squareSession{room: defaultSquare, conn: conn, logger: logger}
 	defer sq.close()
+	rp := &roomPartySession{conn: conn, logger: logger}
+	defer rp.close()
 	hard := time.Now().Add(gatewayTTL)
 	gardenControlSent := false
 	gardenRoomEntered := false
@@ -288,6 +290,14 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 		}
 		if frame[0] == 'M' && length == 2 {
 			logger.Printf("OBS %s ping remote=%s sub=%d", addr, remote, frame[1])
+			// The client drops a link after ~5 s without inbound frames; echo pings
+			// (sub 85 'U' is disconnect, never echoed).
+			if frame[1] != 'U' {
+				if _, err := conn.Write([]byte{0, 0, 0, 2, 'M', frame[1]}); err != nil {
+					logger.Printf("OBS %s ping-echo remote=%s err=%v", addr, remote, err)
+					return
+				}
+			}
 			continue
 		}
 		if frame[0] != 'G' || length < 10 {
@@ -319,8 +329,12 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 				logger.Printf("OBS %s open-control remote=%s agent=10", addr, remote)
 				continue
 			}
-			// RoomParty agent4 stayed session-stable with this ack; a subtype-1
-			// control reply made the client reconnect and re-enter Garden in a loop.
+			if agent == roomPartyAgent {
+				if err := rp.handleOpen(frame); err != nil {
+					return
+				}
+				continue
+			}
 			ack := make([]byte, 14)
 			binary.BigEndian.PutUint32(ack, 10)
 			ack[4], ack[5] = 'G', frame[1]&0xf8|2
@@ -341,6 +355,15 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 				}
 				if sq.loggedIn {
 					hard = time.Time{} // Keep Square connected until the client disconnects.
+				}
+				continue
+			}
+			if agent == roomPartyAgent {
+				if err := rp.handleData(frame); err != nil {
+					return
+				}
+				if rp.loggedIn {
+					hard = time.Time{} // Keep Room Party connected until the client disconnects.
 				}
 				continue
 			}
