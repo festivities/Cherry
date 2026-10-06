@@ -692,11 +692,7 @@ func (s *roomPartySession) relayStart(frame, data []byte) error {
 			m.send(s.logger, 1, pbLen(nil, 1, partyPlayerInfo(p.aid, p.move)))
 		}
 	}
-	floorRes := pbVar(nil, 1, 0)
-	for _, p := range roster {
-		floorRes = pbLen(floorRes, 2, partyPlayerInfo(p.aid, p.move))
-	}
-	m.send(s.logger, 29, floorRes)
+	m.send(s.logger, 29, partyFloorRes(roster, s.host, floor))
 	if idx >= 0 && oldFloor == floor {
 		return nil
 	}
@@ -706,8 +702,9 @@ func (s *roomPartySession) relayStart(frame, data []byte) error {
 			o.send(s.logger, 1, add)
 		}
 	}
+	floorAdd := partyFloorAdd(partySnap{m.aid, m.move}, s.host, floor)
 	for _, o := range sameFloor {
-		o.send(s.logger, 30, add)
+		o.send(s.logger, 30, floorAdd)
 	}
 	for _, o := range oldMates {
 		o.send(s.logger, 31, pbVar(nil, 1, m.aid))
@@ -781,15 +778,11 @@ func (s *roomPartySession) floorRelayStart(data []byte) error {
 	others := r.others(m)
 	h.mu.Unlock()
 	s.logger.Printf("ROOMPARTY floor-relaystart aid=%d floor=%d->%d clientCur=(%d,%d) assignedTile=(%d,%d) roster=%d", s.aid, oldFloor, floor, cx, cy, tx, ty, len(roster))
-	res := pbVar(nil, 1, 0)
-	for _, p := range roster {
-		res = pbLen(res, 2, partyPlayerInfo(p.aid, p.move))
-	}
-	m.send(s.logger, 29, pbVar(res, 4, f))
+	m.send(s.logger, 29, pbVar(partyFloorRes(roster, s.host, floor), 4, f))
 	if oldFloor == floor {
 		return nil
 	}
-	add := pbLen(nil, 1, partyPlayerInfo(m.aid, m.move))
+	add := partyFloorAdd(partySnap{m.aid, m.move}, s.host, floor)
 	for _, o := range newMates {
 		o.send(s.logger, 30, add)
 	}
@@ -1001,4 +994,106 @@ func handleRoom(w http.ResponseWriter, r *http.Request) {
 		"name": name, "vipRewardedList": []any{},
 	}})
 	writeJSON(w, http.StatusOK, string(body))
+}
+
+// Pets in a Room Party. Scene 303 skips the HTTP pet loads (NaMyRoomBaseScene::
+// GetCurrentGroundDepthLayer @0x22c8458 case 303: ClearPet, SetReservePetData), so pets
+// arrive only inside the floor messages: rc_floor_relaystart_res idx29 field 3 and
+// rc_floor_adduser_all idx30 field 2, both repeated LPNP::PetBasicInfo. The frame is
+// parsed with ParsePartialFromArray then IsInitialized and dropped entirely on failure
+// (LPNP::roomclient_dispatch @0x252c2cc, "initialize check failed"); AllAreInitialized
+// covers the pet lists (@0x25430b4/@0x25430fc), so ONE incomplete pet removes every avatar.
+//
+// PetBasicInfo (IsInitialized @0x2635340; MergePartial @0x26335e0), req = required:
+//
+//	1 u64 owner aid (req; queue key of UpdateDelayInOutPet, == hero/host checks)
+//	2 u64 pet id (req; RefreashPetDataInRoomparty's FindActorByUniqueID key)
+//	3 PetFeatureInfo (req)
+//	4 _player_move (opt; all six fields req when present): pet position for the HOST's pets,
+//	  target f3/f4 px (RefreashPetDataInRoomparty @0x21b0d7c); other owners' pets spawn at the owner
+//	5 _player_interaction (opt, 1 req), 6 PlayerAction (opt, 2 req): unused here
+//	7 bool unused, 8 bool (client-side spawn position / sleeping), 9 bool rideable, 10 bool unused
+//	11 i32 level (blackboard "level", sDataPetArrangeInfo.level), 12 bool MUST be nonzero:
+//	_AddPetsToThisRoom @0x1fbfb5c returns without spawning when byte +80 is 0, 13 i32 ride (nonzero = ride)
+//
+// PetFeatureInfo (IsInitialized @0x277e0c4, mask 0x37; MergePartial @0x2785b2c):
+//
+//	1 u64 pet id (req; actor unique id; an existing actor with it is skipped by idx29)
+//	2 u64 owner aid (req; actor spawns at this avatar's position: it must be on the floor)
+//	3 string pet name (req) 4 string skin code (req; GetIntIdx -> actor resource)
+//	5 string category (req; HTTP catgCd, "PET") 6 string item code (opt; GetIntIdx -> arrange info)
+//
+// The earlier attempt omitted PetFeatureInfo field 5, a required field: the whole frame was
+// rejected. Pets are spawned by UpdateDelayInOutPet once the owner's avatar exists.
+// Nothing deletes a pet when its owner leaves (idx31 only removes the avatar) and the
+// client never sends pet moves (cr_pet_move_req is never built).
+
+// partyPetTiles are where the host's arranged pets are placed (near the centre of the 12x12
+// grid, none on a hero spawn tile); ponytail: no furniture/walkability check.
+var partyPetTiles = [][2]int{{5, 5}, {6, 5}, {5, 6}, {6, 6}, {4, 5}, {5, 4}, {4, 6}, {6, 4}}
+
+// partyPetMove is a full _player_move (f1..f4 px of the tile, f5 dir 0, f6 action 1).
+func partyPetMove(slot int) []byte {
+	t := partyPetTiles[slot%len(partyPetTiles)]
+	x, y := partyTilePx(t[0], t[1])
+	return pbVar(pbVar(pbVar(pbVar(pbVar(pbVar(nil, 1, x), 2, y), 3, x), 4, y), 5, 0), 6, 1)
+}
+
+// partyPetInfo encodes one fully initialized LPNP::PetBasicInfo; move (may be nil) is field 4.
+func partyPetInfo(owner uint64, p petItem, move []byte) []byte {
+	id := uint64(p.ID)
+	f := pbVar(pbVar(nil, 1, id), 2, owner)
+	f = pbLen(f, 3, []byte(p.Name))
+	f = pbLen(f, 4, []byte(p.Cd))
+	f = pbLen(f, 5, []byte("PET"))
+	f = pbLen(f, 6, []byte(p.Cd))
+	b := pbLen(pbVar(pbVar(nil, 1, owner), 2, id), 3, f)
+	if move != nil {
+		b = pbLen(b, 4, move)
+	}
+	return pbVar(pbVar(b, 11, 1), 12, 1)
+}
+
+// partyPets lists the PetBasicInfo of aid on floor: its representative pet, plus, for the
+// host, the pets arranged on that floor's My Room level. Caller must not hold h.mu
+// (petsOfAid takes accountsMu).
+func partyPets(aid, host uint64, floor int) [][]byte {
+	level := "LEVEL_" + strconv.Itoa(floor)
+	var out [][]byte
+	slot := 0
+	for _, p := range petsOfAid(strconv.FormatUint(aid, 10)) {
+		arranged := aid == host && p.Room == level
+		if !p.Rep && !arranged {
+			continue
+		}
+		var move []byte
+		if arranged {
+			move, slot = partyPetMove(slot), slot+1
+		}
+		out = append(out, partyPetInfo(aid, p, move))
+	}
+	return out
+}
+
+// partyFloorRes is rc_floor_relaystart_res idx29: Result 0, PlayerList#2, PetList#3.
+func partyFloorRes(roster []partySnap, host uint64, floor int) []byte {
+	res := pbVar(nil, 1, 0)
+	for _, p := range roster {
+		res = pbLen(res, 2, partyPlayerInfo(p.aid, p.move))
+	}
+	for _, p := range roster {
+		for _, pet := range partyPets(p.aid, host, floor) {
+			res = pbLen(res, 3, pet)
+		}
+	}
+	return res
+}
+
+// partyFloorAdd is rc_floor_adduser_all idx30: Player#1, PetList#2.
+func partyFloorAdd(p partySnap, host uint64, floor int) []byte {
+	b := pbLen(nil, 1, partyPlayerInfo(p.aid, p.move))
+	for _, pet := range partyPets(p.aid, host, floor) {
+		b = pbLen(b, 2, pet)
+	}
+	return b
 }

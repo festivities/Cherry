@@ -259,7 +259,7 @@ func TestPartyRosterRelaysExit(t *testing.T) {
 	if !bytes.Equal(res, append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(11, wa))...)) {
 		t.Fatalf("host roster = %x", res)
 	}
-	a.expect(29, append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(11, wa))...)) // host alone: self roster sets JoinRoomParty on its hero
+	a.expect(29, partyFloorRes([]partySnap{{11, wa}}, 11, 1)) // host alone: self roster sets JoinRoomParty on its hero
 	a.none()
 	res = b.start(mb)
 	want := append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(11, wa))...)
@@ -269,9 +269,9 @@ func TestPartyRosterRelaysExit(t *testing.T) {
 	}
 	b.expect(1, pbLen(nil, 1, partyPlayerInfo(11, wa))) // room adduser (chat info) of others to joiner
 	// avatars come from the floor messages: full roster INCLUDING self to the joiner
-	b.expect(29, want)
+	b.expect(29, partyFloorRes([]partySnap{{11, wa}, {12, wb}}, 11, 1))
 	a.expect(1, pbLen(nil, 1, partyPlayerInfo(12, wb))) // joiner to others
-	a.expect(30, pbLen(nil, 1, partyPlayerInfo(12, wb)))
+	a.expect(30, partyFloorAdd(partySnap{12, wb}, 11, 1))
 	b.none()
 	a.none()
 	// avatar content
@@ -319,19 +319,18 @@ func TestPartySilentRejoinAndFriendEntered(t *testing.T) {
 	b.enter(11)
 	b.read()
 	b.start(pbVar(nil, 1, 9))
-	b.expect(29, append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(12, wb))...)) // self only
-	a.expect(10, []byte{0x08, 12})                                                   // host not in room yet: friend-entered push
+	b.expect(29, partyFloorRes([]partySnap{{12, wb}}, 11, 1)) // self only
+	a.expect(10, []byte{0x08, 12})                            // host not in room yet: friend-entered push
 	a.start(pbVar(nil, 1, 5))
-	b.read()                                             // room adduser of the host
-	b.expect(30, pbLen(nil, 1, partyPlayerInfo(11, wa))) // guest sees the host avatar
+	b.read()                                              // room adduser of the host
+	b.expect(30, partyFloorAdd(partySnap{11, wa}, 11, 1)) // guest sees the host avatar and its pets
 	a.expect(1, pbLen(nil, 1, partyPlayerInfo(12, wb)))
-	a.expect(29, append(append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(11, wa))...), pbLen(nil, 2, partyPlayerInfo(12, wb))...)) // host roster: self + guest
+	a.expect(29, partyFloorRes([]partySnap{{11, wa}, {12, wb}}, 11, 1)) // host roster: self + guest
 	// guest reconnects: new session takes over silently
 	b.s.close() // old connection EOF would deluser; emulate takeover instead
 	a.expect(2, []byte{0x08, 12, 0x10, 0})
 	a.expect(31, []byte{0x08, 12})
-	host := append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(11, wa))...)
-	host = append(host, pbLen(nil, 2, partyPlayerInfo(12, wb))...) // roster incl. the joiner itself
+	host := partyFloorRes([]partySnap{{11, wa}, {12, wb}}, 11, 1) // roster incl. the joiner itself
 	b2 := partyLogin(t, h, 12, 4)
 	b2.enter(11)
 	b2.read()
@@ -339,7 +338,7 @@ func TestPartySilentRejoinAndFriendEntered(t *testing.T) {
 	b2.read()
 	b2.expect(29, host)
 	a.expect(1, pbLen(nil, 1, partyPlayerInfo(12, wb)))
-	a.expect(30, pbLen(nil, 1, partyPlayerInfo(12, wb)))
+	a.expect(30, partyFloorAdd(partySnap{12, wb}, 11, 1))
 	b2.start(pbVar(nil, 1, 9)) // rejoin: roster only (fresh scene needs avatars), no adduser to anyone
 	b2.read()
 	b2.expect(29, host)
@@ -490,7 +489,7 @@ func TestPartyFloors(t *testing.T) {
 	a.none() // nothing is announced before cr_floor_relaystart_req
 	b.send(25, pbLen(pbVar(nil, 1, 2), 2, pbVar(nil, 1, 1)))
 	w := spawnMove(8, 4) // alone on floor 2
-	b.expect(29, append(append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(12, w))...), 0x20, 2))
+	b.expect(29, pbVar(partyFloorRes([]partySnap{{12, w}}, 11, 2), 4, 2))
 	b.none()
 	for _, p := range []*pc{a, c} {
 		p.expect(31, []byte{0x08, 12})
