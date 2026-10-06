@@ -44,17 +44,20 @@ func TestDiaryImageUploadDownloadRoundTrip(t *testing.T) {
 			if err != nil || len(entries) != 1 || strings.Contains(entries[0].Name(), userID) {
 				t.Fatalf("stored files = %v, err = %v", entries, err)
 			}
-			wantType := "image/" + tc.format
-			if tc.format == "jpeg" {
-				wantType = "image/jpeg"
-			}
+			// PNG is served as JPEG: the client caches diary downloads as .jpg.
+			wantType := "image/jpeg"
 			for _, tid := range tidVariants {
 				// Calling the download handler again against the same directory models a fresh handler/process lookup.
 				get := httptest.NewRequest(http.MethodGet, diaryDownloadTarget(diaryDownloadPath, userID, ctime, oid, tid), nil)
 				got := httptest.NewRecorder()
 				handleDiaryImageDownloadAt(got, get, dir)
-				if got.Code != http.StatusOK || got.Header().Get("Content-Type") != wantType || !bytes.Equal(got.Body.Bytes(), original) {
-					t.Fatalf("download tid=%s: status=%d type=%q bytes_match=%t", tid, got.Code, got.Header().Get("Content-Type"), bytes.Equal(got.Body.Bytes(), original))
+				same := bytes.Equal(got.Body.Bytes(), original)
+				if tc.format == "png" {
+					cfg, err := jpeg.DecodeConfig(bytes.NewReader(got.Body.Bytes()))
+					same = err == nil && cfg.Width == 3 && cfg.Height == 2
+				}
+				if got.Code != http.StatusOK || got.Header().Get("Content-Type") != wantType || !same {
+					t.Fatalf("download tid=%s: status=%d type=%q ok=%t", tid, got.Code, got.Header().Get("Content-Type"), same)
 				}
 			}
 		})
@@ -77,8 +80,8 @@ func TestDiaryImageDuplicateTuple(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "diary-media")
 	const userID, ctime = "aid1", "1760000001"
 	oid := userID + "_" + ctime
-	first := diaryTestImage(t, "png", 2, 2, 20)
-	second := diaryTestImage(t, "png", 2, 2, 200)
+	first := diaryTestImage(t, "jpeg", 2, 2, 20)
+	second := diaryTestImage(t, "jpeg", 2, 2, 200)
 	for i, data := range [][]byte{first, first, second} {
 		req := diaryUploadRequest(t, diaryParamsJSON(t, userID, ctime, oid), data, "image/png")
 		rec := httptest.NewRecorder()

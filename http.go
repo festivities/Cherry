@@ -347,6 +347,11 @@ func newMux() *http.ServeMux {
 	mux.HandleFunc("/v4/style/slot/list", handleJSONBody(styleSlotListBody))
 	mux.HandleFunc("/v4/inven/recycle/cfg", handleJSONBody(recycleConfigBody))
 	mux.HandleFunc("/v4/avatar/save/v2", handleAvatarSaveV2)
+	mux.HandleFunc("/v4/photozone/shop/info/", handlePhotoZoneShopInfo)
+	mux.HandleFunc("/v4/r/badge/reset/", handleBadgeReset)
+	mux.HandleFunc("/v4/faceshop/v2/shop/", handleFaceShopData)
+	mux.HandleFunc("/v4/faceshop/saveAndPurchase/v2", handleFaceShopPurchase)
+	mux.HandleFunc("/v4/voucher/own/count/faceshop", handleJSONBody(faceShopVoucherCountBody))
 	mux.HandleFunc("/v4/items/dress/some", handleItemsSome)
 	mux.HandleFunc("/v4/items/room/some", handleItemsSome)
 	mux.HandleFunc("/v4/playhome/games/lp_rmchat", handlePlayDetailLPRmchat)
@@ -374,6 +379,17 @@ func handleJSONBody(body string) http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusOK, body)
 	}
+}
+
+// handleBadgeReset acknowledges POST /v4/r/badge/reset/<BADGE> (e.g. CSET, FACE after a
+// Face Shop purchase); badges are not tracked, so this only clears the client's 404.
+func handleBadgeReset(w http.ResponseWriter, r *http.Request) {
+	badge := strings.TrimPrefix(r.URL.Path, "/v4/r/badge/reset/")
+	if r.Method != http.MethodPost || badge == "" || strings.Contains(badge, "/") {
+		serveNotFound(w)
+		return
+	}
+	writeJSON(w, http.StatusOK, `{"result":{}}`)
 }
 
 func handleHomeListExt(w http.ResponseWriter, r *http.Request) {

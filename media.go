@@ -1,13 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"image"
-	_ "image/jpeg"
-	_ "image/png"
+	"image/draw"
+	"image/jpeg"
+	"image/png"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -365,6 +367,27 @@ func handleMediaDownload(w http.ResponseWriter, r *http.Request, dir string, roo
 	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
 		writeDiaryMediaJSON(w, http.StatusInternalServerError, diaryMediaSaveFailedBody)
+		return
+	}
+	if !room && contentType == "image/png" {
+		// The client caches diary downloads as <oid>.jpg and cocos2d-x picks the decoder from
+		// the extension, so PNG bytes (e.g. the comic photozone render) never display.
+		img, err := png.Decode(file)
+		if err != nil {
+			writeDiaryMediaJSON(w, http.StatusNotFound, diaryMediaNotFoundBody)
+			return
+		}
+		flat := image.NewRGBA(img.Bounds())
+		draw.Draw(flat, flat.Bounds(), image.White, image.Point{}, draw.Src)
+		draw.Draw(flat, flat.Bounds(), img, img.Bounds().Min, draw.Over)
+		var buf bytes.Buffer
+		if err := jpeg.Encode(&buf, flat, &jpeg.Options{Quality: 90}); err != nil {
+			writeDiaryMediaJSON(w, http.StatusInternalServerError, diaryMediaSaveFailedBody)
+			return
+		}
+		w.Header().Set("Content-Type", "image/jpeg")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		http.ServeContent(w, r, "", info.ModTime(), bytes.NewReader(buf.Bytes()))
 		return
 	}
 	w.Header().Set("Content-Type", contentType)
