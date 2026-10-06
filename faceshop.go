@@ -17,7 +17,7 @@ import (
 //        ResFaceShopSaveNPurchase @0x1c0b780
 // Shop data is one catalog per avatar type; the single price is shop.discountedPrice.
 
-//go:embed testdata/face_codes.txt
+//go:embed data/face_codes.txt
 var faceCodesTxt string
 
 // faceCatalog is the 1,173 device-renderable face codes (HE14/EB200/EY507/NO54/MO398).

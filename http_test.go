@@ -392,6 +392,10 @@ func TestSkinFileIni(t *testing.T) {
 }
 
 func TestArtsStringsAST(t *testing.T) {
+	artsStringsAST := loadArtsStrings()
+	if artsStringsAST == nil {
+		t.Skip("archive arts_strings.ast not available")
+	}
 	if len(artsStringsAST) != 454656 {
 		t.Fatalf("ast size = %d, want 454656", len(artsStringsAST))
 	}

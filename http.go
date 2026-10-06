@@ -2,14 +2,17 @@ package main
 
 import (
 	"compress/gzip"
+	"crypto/md5"
 	"crypto/rand"
-	_ "embed"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -287,8 +290,24 @@ const playDetailLPSquareBody = `{"result":{"gameInfo":{"gameId":"lp_sq","executa
 
 const artsStringsMD5 = "1492F278EC281078AC7F35479A85F197"
 
-//go:embed testdata/arts_strings.ast
-var artsStringsAST []byte
+// artsStringsPath is the stock string table, read in place from the read-only archive
+// (game assets are never committed). It must match artsStringsMD5, which update.ini
+// advertises to the patcher.
+var artsStringsPath = filepath.FromSlash(`D:/Dev/projects/Cherry/.opencode/line-play-artifacts/santi-backup-20260921/jp.naver.lineplay.android/files/stringtable/arts_strings.ast`)
+
+// loadArtsStrings reads and MD5-checks the string table once; nil if missing or changed.
+var loadArtsStrings = sync.OnceValue(func() []byte {
+	b, err := os.ReadFile(artsStringsPath)
+	if err != nil {
+		log.Printf("cherry: arts_strings.ast unavailable: %v", err)
+		return nil
+	}
+	if sum := md5.Sum(b); !strings.EqualFold(hex.EncodeToString(sum[:]), artsStringsMD5) {
+		log.Printf("cherry: arts_strings.ast md5 mismatch at %s", artsStringsPath)
+		return nil
+	}
+	return b
+})
 
 func newMux() *http.ServeMux {
 	mux := http.NewServeMux()
@@ -489,10 +508,15 @@ func handleArtsStrings(w http.ResponseWriter, r *http.Request) {
 		serveNotFound(w)
 		return
 	}
+	ast := loadArtsStrings()
+	if ast == nil {
+		serveNotFound(w)
+		return
+	}
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Length", strconv.Itoa(len(artsStringsAST)))
+	w.Header().Set("Content-Length", strconv.Itoa(len(ast)))
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(artsStringsAST)
+	_, _ = w.Write(ast)
 }
 
 func handleSetInitConf(w http.ResponseWriter, r *http.Request) {
