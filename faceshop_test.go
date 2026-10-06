@@ -17,7 +17,7 @@ func faceShopReq(t *testing.T, token, method, target, body string) (int, []byte)
 
 func faceShopSetup(t *testing.T, gender string, equipped, inventory []string) *account {
 	t.Helper()
-	acc := &account{accessToken: "ftok", sessionKey: "sk", aid: "9301", name: "Face", gender: gender, skin: "2", country: "JP", itemCodes: equipped, inventoryCodes: inventory}
+	acc := &account{accessToken: "ftok", sessionKey: "sk", aid: "9301", name: "Face", gender: gender, skin: "2", country: "JP", itemCodes: equipped, inventoryCodes: inventory, gems: 500, faceTickets: 10}
 	installSocialTestAccounts(t, map[string]*account{"ftok": acc})
 	accountsMu.Lock()
 	nextAvatarID = 9301
@@ -153,7 +153,7 @@ func TestFaceShopDataGenderRoutesAndAuth(t *testing.T) {
 			VoucherCount int `json:"voucherCount"`
 		} `json:"result"`
 	}
-	if code != 200 || json.Unmarshal(body, &v) != nil || string(body) != faceShopVoucherCountBody {
+	if code != 200 || json.Unmarshal(body, &v) != nil || string(body) != `{"result":{"voucherCount":10}}` {
 		t.Fatalf("voucher count %d %s", code, body)
 	}
 }
@@ -184,7 +184,7 @@ func TestFaceShopPurchaseEquipsAndGrants(t *testing.T) {
 	if err := json.Unmarshal(resp, &out); err != nil {
 		t.Fatal(err)
 	}
-	for f, want := range map[string]string{"coin": "0", "cash": "0"} {
+	for f, want := range map[string]string{"coin": "500", "cash": "0"} {
 		if string(out.Result[f]) != want {
 			t.Errorf("%s = %s, want int %s", f, out.Result[f], want)
 		}
@@ -327,8 +327,8 @@ func TestFaceShopPurchaseRollsBackOnSaveFailure(t *testing.T) {
 	accountsMu.Lock()
 	items, inv := strings.Join(acc.itemCodes, ","), strings.Join(acc.inventoryCodes, ",")
 	accountsMu.Unlock()
-	if items != "CUEY00002" || inv != "CUEY00002" {
-		t.Errorf("not rolled back: %s | %s", items, inv)
+	if items != "CUEY00002" || inv != "CUEY00002" || acc.faceTickets != 10 {
+		t.Errorf("not rolled back: %s | %s | tickets %d", items, inv, acc.faceTickets)
 	}
 }
 

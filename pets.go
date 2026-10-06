@@ -51,7 +51,7 @@ func petSkinID(cd string) int {
 // ensurePetsLocked grants the showcase pets once; pet 1 follows the owner, 2-3
 // are arranged on LEVEL_1. Caller holds accountsMu.
 func ensurePetsLocked(acc *account) error {
-	if len(acc.pets) > 0 {
+	if len(acc.pets) > 0 || !labAids[acc.aid] {
 		return nil
 	}
 	pets := make([]petItem, 0, len(petShowcaseNums))

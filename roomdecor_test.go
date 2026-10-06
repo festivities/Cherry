@@ -247,6 +247,7 @@ func TestRoomPersistenceRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	acc, _ := newAccount()
+	setLab(t, acc.aid, true)
 	accountsMu.Lock()
 	accounts[acc.accessToken] = acc
 	latestAcc = acc

@@ -55,6 +55,10 @@ var roomShowcaseCodes = strings.Fields(
 		"RUCL000EE RUCL000EF RUTB000GB RUTB000GG RUTB000NO RUPL0004M RUPL00055 RUPL0005J RUTD003K2 RUTD003QS RUTD003RC " +
 		"RUTD00401 RUTD00405 RUTD0040C RUWD0000S RUWD00080 RUWD00089 RUWI00033 RUWI000IE RUDO0002Z RUDO000B6 " + roomDiaryCode)
 
+// New accounts start with the default floor, wall, door and diary only (no pets);
+// the showcase above and the pets are granted to lab accounts alone.
+var roomStarterCodes = []string{roomFloorCode, roomWallCode, roomDoorCode, roomDiaryCode}
+
 // roomCategoryCode maps the cd category letters to the client's categoryCode.
 // Confidence: WA->UWLPP and TI->UFLOR medium (names; the qword_3BDDB20 table is
 // NOT positional against catIdx, only coincidentally at 14/15), WD/DO/TD/CH/TA/
@@ -136,7 +140,11 @@ func ensureRoomLocked(acc *account) error {
 	fresh := len(acc.roomItems) == 0
 	items := slices.Clone(acc.roomItems)
 	seq := max(acc.nextRoomSeq, firstRoomSeq)
-	for _, cd := range roomShowcaseCodes {
+	codes := roomStarterCodes
+	if labAids[acc.aid] {
+		codes = roomShowcaseCodes
+	}
+	for _, cd := range codes {
 		if _, ok := owned[cd]; !ok {
 			items = append(items, roomItem{Seq: seq, Cd: cd})
 			owned[cd] = seq

@@ -44,8 +44,6 @@ const unknownSessionBody = `{"errorCode":"404","errorMessage":"cherry: unknown s
 
 const badRequestBody = `{"errorCode":"400","errorMessage":"cherry: bad request"}`
 
-const createCompleteBody = `{"result":{"status":true,"rewardCoin":300}}`
-
 const settingAllBody = `{"result":{"notiFlag":false,"changeCountry":false,"countryName":"","soundConfig":false,"notiConfig":{},"privacyConfig":{},"roomSize":{"max":0,"cur":0}}}`
 
 const friendLineBuddyBody = `{"result":{"nextCursor":"0","buddyList":[],"bookmarks":[]}}`
@@ -351,7 +349,7 @@ func newMux() *http.ServeMux {
 	mux.HandleFunc("/v4/r/badge/reset/", handleBadgeReset)
 	mux.HandleFunc("/v4/faceshop/v2/shop/", handleFaceShopData)
 	mux.HandleFunc("/v4/faceshop/saveAndPurchase/v2", handleFaceShopPurchase)
-	mux.HandleFunc("/v4/voucher/own/count/faceshop", handleJSONBody(faceShopVoucherCountBody))
+	registerEconomyRoutes(mux)
 	mux.HandleFunc("/v4/items/dress/some", handleItemsSome)
 	mux.HandleFunc("/v4/items/room/some", handleItemsSome)
 	mux.HandleFunc("/v4/playhome/games/lp_rmchat", handlePlayDetailLPRmchat)
@@ -796,7 +794,7 @@ func handleCreateComplete(w http.ResponseWriter, r *http.Request) {
 		serveNotFound(w)
 		return
 	}
-	writeJSON(w, http.StatusOK, createCompleteBody)
+	handleWelcomeGift(w, r)
 }
 
 type avatarSaveItem struct {
@@ -1156,6 +1154,10 @@ type account struct {
 	rooms          map[string]roomLayout
 	presets        map[string]roomPreset
 	pets           []petItem
+	gems           int64 // economy ledger balances, never negative (economy.go)
+	cash           int64
+	faceTickets    int64
+	welcomed       bool // 300-Gem welcome gift already credited
 }
 
 // avatarItem is the object form parsed by sDataAvatar::SetData @0x1c0a39c.

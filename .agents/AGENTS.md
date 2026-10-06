@@ -17,6 +17,8 @@ Reconstruct a Go server emulator ("Cherry") for LINE PLAY (jp.naver.lineplay.and
 - Archive is READ-ONLY. Working copies go in `C:\Users\fes\AppData\Local\Temp\opencode\cherry\` (libs, dex, manifest, resources.arsc already extracted there; agent research artifacts in `...\cherry\tools\`).
 - **`.agents/JICAMA.md` is tracked by user decision (2026-10-04).** Staging/committing it is authorized; its ignore rule is removed. Keep the supplied content unchanged unless the user explicitly requests an edit/deletion. Its observed/parser-derived/synthetic/modified-client evidence labels still matter: version control does not turn it into stock-client or production proof. Verify claims against Cherry before using them. Older ignored/untracked/never-commit instructions are superseded.
 
+- **Economy policy (user decision 2026-10-06):** build a full in-game economy, modelled on Club Penguin Legacy: currency is earned only by playing (minigames, quests, daily rewards, occasional staff giveaways) and spent on items. **No real-money/fiat purchases of any kind** — no paid currency, memberships, VIP or ads; every billing path must be made unavailable. Do not hand everything out on day one (the current showcase grants are lab-only and must be revisited). Phase A (ledger, billing off, tickets) is done — see PLAN "Economy plan". Phase 1 = economy map (`%TEMP%\opencode\cherry\economy-20261006\economy-map.md`), then a design the user approves, then staged implementation.
+
 ## Evidence ledger confidence levels
 
 `reported` → `static-confirmed` (symbol/address verified) → `runtime-confirmed` (captured from client). Unverified findings from the initial recon are `reported` until confirmed.
@@ -46,7 +48,7 @@ Entry10077 is handled by inven/counts object success; entry10130 by a nonempty `
 ### Current lab — 2026-10-06
 
 - Committed baseline: the Room Party gaps commit on `30ed083` (Garden presence). Position probes remain reverted; no synthetic restore/delayed relay.
-- Cherry PID **1620**, repo-root `D:\Dev\projects\Cherry\cherry.exe` (gitignored), SHA-256 `edafd0a3954a618d4bdddd897bf5050351ccf9caf3656d9c570eb848c01b062c`, log `%TEMP%\opencode\cherry\tools\m3-evidence\fresh-entry-20260926\cherry-faceshop4-20261006-private.log` (private).
+- Cherry PID **4140**, repo-root `D:\Dev\projects\Cherry\cherry.exe` (gitignored), SHA-256 `1c15a156ad1dc23eb99b6958606ba8c388aa9ea0bd89dd4edce9f52d92cbcccc`, log `%TEMP%\opencode\cherry\tools\m3-evidence\fresh-entry-20260926\cherry-econA3-20261006-private.log` (private).
 - **Phone lab (Realme C2, Android 12, serial JVHQVCROVWPBJNBA, Magisk 28.1, Wi-Fi 192.168.1.50):** LINE PLAY 10.1.0.0 installed (app UID 10178), merged 98,097-file dataset pushed, hosts bind-mount active (see reversal notes; does not survive reboot), Magisk DenyList enforced for the app (cleared the AA-004 rooting popup), `READ_PHONE_STATE` granted. Phone account is **1002 "test"** (was aid 2; the 2026-10-05 collision with the synthetic Friend was fixed by moving Friend to 100000, and the 2026-10-06 renumbering moved the account to 1002).
 - **User manual verification (2026-10-05):** on the phone, gallery → diary photo upload works end-to-end; files land in `C:\Users\fes\AppData\Local\Cherry\diary-media`. The Android 17 emulator gallery ANR is emulator-specific.
 - Phone UI automation caveat: MCP `Click` coordinates guessed from emulator layouts missed real buttons on the 720×1560 phone screen (SAVE, CONTINUE); the user tapped those manually. Always confirm a tap with a fresh snapshot before concluding a control failed.

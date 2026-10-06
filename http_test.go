@@ -1337,7 +1337,10 @@ func TestPreloadStubs(t *testing.T) {
 }
 
 func TestCreateComplete(t *testing.T) {
-	rec := serveRequest(t, httptest.NewRequest(http.MethodPost, "/v4/create/complete", strings.NewReader(`{"inviteCode":""}`)))
+	ecoSetup(t, 0, 0, 0)
+	cc := httptest.NewRequest(http.MethodPost, "/v4/create/complete", strings.NewReader(`{"inviteCode":""}`))
+	cc.Header.Set("Cookie", `AV_AUTH="etok"`)
+	rec := serveRequest(t, cc)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200, body = %q", rec.Code, rec.Body.String())
 	}

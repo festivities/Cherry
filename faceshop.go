@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 )
 
@@ -29,14 +30,6 @@ var (
 		}
 		return m
 	}()
-)
-
-// ponytail: lab economy. The purchase is free (shop price 0) and the balance in
-// the response is a fixed constant; nothing is ever spent. Add a ledger only if
-// a real economy is built.
-const (
-	faceShopLabCoin = 0
-	faceShopLabCash = 0
 )
 
 // faceShopCategoryKey maps an item category (code[2:4]) to the shop-data key
@@ -163,16 +156,17 @@ func handleFaceShopData(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, string(faceShopBody(gender, shopID)))
 }
 
-// ResFaceShopOwnVoucherCount reads result.voucherCount via asInt.
-// ponytail: lab economy. The Face Shop sells faces for tickets ("Use tickets"); with 0 the
-// client can only open the ticket shop (voucher/product/list). A fixed count lets the
-// player buy directly; tickets are never consumed.
-const faceShopVoucherCountBody = `{"result":{"voucherCount":99}}`
+// Economy: catalog shop.price stays 0 and every purchase that changes a face part
+// consumes one Face Shop ticket (voucher), whatever useVoucher says; tickets are
+// bought with Gems (economy.go). With 0 tickets the client itself only offers the
+// voucher shop (NaFaceShop::CheckVoucherPurchase), so the server check is a backstop.
 
 type faceShopPurchaseReq struct {
 	SaveItemList  []avatarSaveItem  `json:"saveItemList"`
 	InvenItemList []json.RawMessage `json:"invenItemList"`
 }
+
+const errAlreadyPurchasedBody = `{"errorCode":"61009","errorMessage":"cherry: item already purchased"}`
 
 type faceShopPurchaseResult struct {
 	avatarInfoResult
@@ -240,6 +234,32 @@ func handleFaceShopPurchase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	previous := *acc
+	// The request carries the preview avatar's full face list; the client cannot tell new
+	// from owned (DoBuyFaceItem @0x1c08448). A face neither worn nor owned is a purchase
+	// (one ticket). A change made only of owned faces is refused like the stock server most
+	// likely did: errorCode 61009 -> "Item already purchased." (ErrCommonShopPurchase
+	// @0x1aa9cdc), nothing equipped or spent; owned faces are switched in Closet > Makeup.
+	owned := accountInventoryCodes(acc)
+	changed, rebuy := false, false
+	for _, code := range faces {
+		worn := slices.Contains(acc.itemCodes, code)
+		changed = changed || !worn && !slices.Contains(owned, code)
+		rebuy = rebuy || !worn && slices.Contains(owned, code)
+	}
+	if rebuy && !changed {
+		accountsMu.Unlock()
+		writeJSON(w, http.StatusBadRequest, errAlreadyPurchasedBody)
+		return
+	}
+	var lines []ledgerLine
+	if changed {
+		var err error
+		if lines, err = spendLocked(acc, ledgerDeltas{FaceTickets: -1}, "faceshop purchase"); err != nil {
+			accountsMu.Unlock()
+			writeJSON(w, http.StatusBadRequest, errNotEnoughBody)
+			return
+		}
+	}
 	granted := make([]string, 0, len(faces))
 	for _, slot := range faceShopSlots {
 		if code, ok := faces[slot]; ok {
@@ -273,6 +293,8 @@ func handleFaceShopPurchase(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
 		return
 	}
+	flushLedgerLocked(lines)
+	coin, cash := int(acc.gems), int(acc.cash)
 	info := avatarInfoForAccount(accountSnapshot{
 		aid: acc.aid, name: acc.name, gender: acc.gender, skin: acc.skin,
 		country: acc.country, itemCodes: append([]string(nil), acc.itemCodes...),
@@ -281,6 +303,6 @@ func handleFaceShopPurchase(w http.ResponseWriter, r *http.Request) {
 	accountsMu.Unlock()
 	payload, _ := json.Marshal(struct {
 		Result faceShopPurchaseResult `json:"result"`
-	}{faceShopPurchaseResult{info, faceShopLabCoin, faceShopLabCash}})
+	}{faceShopPurchaseResult{info, coin, cash}})
 	writeJSON(w, http.StatusOK, string(payload))
 }

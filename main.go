@@ -97,6 +97,7 @@ func main() {
 		logger.Printf("cherry: dns unavailable, continuing without sink: %v", err)
 	}
 
+	serveAdmin(logger)
 	logger.Printf("cherry: https listening addr=%s", httpsAddr)
 
 	errc := make(chan error, 2)

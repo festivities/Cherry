@@ -23,7 +23,7 @@ func installSocialTestAccounts(t *testing.T, entries map[string]*account) {
 	latestAcc = nil
 	for _, acc := range entries {
 		latestAcc = acc
-		break
+		setLab(t, acc.aid, true) // test accounts default to lab (showcase seeding)
 	}
 	accountStorePath = ""
 	accountsMu.Unlock()
