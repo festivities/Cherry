@@ -129,15 +129,7 @@ func saveAccountsLocked() error {
 	}
 	for token, acc := range accounts {
 		state.Aliases[token] = acc.accessToken
-		state.Accounts[acc.accessToken] = storedAccount{
-			AccessToken: acc.accessToken, SessionKey: acc.sessionKey, Mid: acc.mid,
-			AvatarUserID: acc.avatarUserID, Aid: acc.aid, Name: acc.name, Gender: acc.gender,
-			Skin: acc.skin, Country: acc.country, ItemCodes: acc.itemCodes,
-			InventoryCodes: acc.inventoryCodes,
-			RoomItems:      acc.roomItems, NextRoomSeq: acc.nextRoomSeq, Rooms: acc.rooms, Presets: acc.presets, Pets: acc.pets,
-			Gems: acc.gems, Cash: acc.cash, FaceTickets: acc.faceTickets, Welcomed: acc.welcomed,
-			AttendDay: acc.attendDay, AttendKey: acc.attendKey, Mail: acc.mail, NextMailSeq: acc.nextMailSeq,
-		}
+		state.Accounts[acc.accessToken] = storedFrom(acc)
 	}
 	data, err := json.Marshal(state)
 	if err != nil {
@@ -164,4 +156,17 @@ func saveAccountsLocked() error {
 		return err
 	}
 	return os.Rename(tmp.Name(), accountStorePath)
+}
+
+// storedFrom is the persisted form of an account (also the deleted-accounts backup form).
+func storedFrom(acc *account) storedAccount {
+	return storedAccount{
+		AccessToken: acc.accessToken, SessionKey: acc.sessionKey, Mid: acc.mid,
+		AvatarUserID: acc.avatarUserID, Aid: acc.aid, Name: acc.name, Gender: acc.gender,
+		Skin: acc.skin, Country: acc.country, ItemCodes: acc.itemCodes,
+		InventoryCodes: acc.inventoryCodes,
+		RoomItems:      acc.roomItems, NextRoomSeq: acc.nextRoomSeq, Rooms: acc.rooms, Presets: acc.presets, Pets: acc.pets,
+		Gems: acc.gems, Cash: acc.cash, FaceTickets: acc.faceTickets, Welcomed: acc.welcomed,
+		AttendDay: acc.attendDay, AttendKey: acc.attendKey, Mail: acc.mail, NextMailSeq: acc.nextMailSeq,
+	}
 }

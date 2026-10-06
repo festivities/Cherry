@@ -350,6 +350,7 @@ func newMux() *http.ServeMux {
 	mux.HandleFunc("/v4/faceshop/v2/shop/", handleFaceShopData)
 	mux.HandleFunc("/v4/faceshop/saveAndPurchase/v2", handleFaceShopPurchase)
 	registerEconomyRoutes(mux)
+	registerDeleteAccountRoutes(mux)
 	mux.HandleFunc("/v4/items/dress/some", handleItemsSome)
 	mux.HandleFunc("/v4/items/room/some", handleItemsSome)
 	mux.HandleFunc("/v4/playhome/games/lp_rmchat", handlePlayDetailLPRmchat)
