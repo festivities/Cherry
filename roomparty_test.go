@@ -560,3 +560,29 @@ func TestPartyLoginStatus(t *testing.T) {
 	a2.expect(0, []byte{0x08, 0x00, 0x10, 1, 0x18, 0xd8, 0x04})
 	partyLogin(t, h, 13, 3) // no open room: plain result (checked by partyLogin)
 }
+
+func TestPartyStatusRefresh(t *testing.T) {
+	h := partySetup(t)
+	h.every = 20 * time.Millisecond
+	a := partyLogin(t, h, 11, 1)
+	b := partyLogin(t, h, 12, 2)
+	a.enterHost(11) // room exists but empty: no refresh yet
+	time.Sleep(60 * time.Millisecond)
+	a.none()
+	a.start(nil)
+	a.read()
+	b.enter(11)
+	b.read()
+	b.start(nil)
+	for b.drain() {
+	}
+	for { // the host gets other pushes (friend-entered, ...) too; ticks keep coming
+		if id, body := a.read(); id == 23 {
+			if !bytes.Equal(body, statusBody) {
+				t.Fatalf("status body = %x", body)
+			}
+			break
+		}
+	}
+	b.none()
+}

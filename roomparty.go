@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 )
 
@@ -156,6 +157,50 @@ type partyHub struct {
 	mu       sync.Mutex
 	sessions map[uint64]*partyMember
 	rooms    map[uint64]*partyRoom
+	ticking  bool          // status loop running, guarded by mu
+	every    time.Duration // status refresh period; 0 = partyStatusEvery
+}
+
+// partyStatusEvery is how often an open room's host gets rc_room_status_push again
+// (the client keeps MyRoomAlive for 2*Timeout s, so this must stay below 1200 s).
+const partyStatusEvery = 5 * time.Minute
+
+// startStatusLoop refreshes idx23 for every open room (members present or invites
+// outstanding) whose host is connected. It exits once no room is left and is restarted
+// by the next host enter.
+func (h *partyHub) startStatusLoop(logger *log.Logger) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.ticking {
+		return
+	}
+	h.ticking = true
+	d := h.every
+	if d <= 0 {
+		d = partyStatusEvery
+	}
+	go func() {
+		t := time.NewTicker(d)
+		defer t.Stop()
+		for range t.C {
+			h.mu.Lock()
+			if len(h.rooms) == 0 {
+				h.ticking = false
+				h.mu.Unlock()
+				return
+			}
+			var hosts []*partyMember
+			for aid, r := range h.rooms {
+				if m := h.sessions[aid]; m != nil && (len(r.members) > 0 || len(r.invited) > 0) {
+					hosts = append(hosts, m)
+				}
+			}
+			h.mu.Unlock()
+			for _, m := range hosts {
+				m.send(logger, 23, partyStatusBody())
+			}
+		}
+	}()
 }
 
 var defaultParty = &partyHub{}
@@ -419,6 +464,7 @@ func (s *roomPartySession) enter(frame []byte, host uint64) error {
 	}
 	if result == 0 && host == s.aid { // lets the host's My Room menu rejoin this party
 		s.pm.send(s.logger, 23, partyStatusBody())
+		h.startStatusLoop(s.logger)
 	}
 	return nil
 }

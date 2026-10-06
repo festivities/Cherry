@@ -452,6 +452,12 @@ func roomDecorInfo(r *http.Request, aid, level string) map[string]any {
 	if !ok {
 		return nil
 	}
+	return roomLayoutInfo(lay)
+}
+
+// roomLayoutInfo renders a layout as the roomInfo members the client parses
+// (also the body of a loaded preset slot).
+func roomLayoutInfo(lay roomLayout) map[string]any {
 	tile := func(it roomItem, def, typ string) map[string]any {
 		if it.Seq == 0 {
 			return map[string]any{"seq": "0", "cd": def, "type": typ}
@@ -565,8 +571,11 @@ type roomPreset struct {
 	TileSize int        `json:"tileSize"`
 }
 
-// ponytail: one free slot; slot purchase (room/preset/slot/buy) is not served.
-const roomPresetSlots = 1
+// ponytail: nine free slots instead of purchasable ones. The panel builds one
+// cell per availableSlotCount (3 per scrolling row) and never shows a buy cell
+// (ResMyRoomPresetSlotList always leaves its canBuy flag 0), so slot/price and
+// slot/buy are unreachable from the stock UI and not served.
+const roomPresetSlots = 9
 
 type roomPresetReq struct {
 	roomSaveReq
@@ -674,11 +683,36 @@ func handleRoomPresetList(w http.ResponseWriter, r *http.Request) {
 	slots := []slot{}
 	for n := 1; n <= roomPresetSlots; n++ {
 		if p, ok := acc.presets[strconv.Itoa(n)]; ok {
-			// ponytail: openable=false until room/preset/find (load) is implemented.
-			slots = append(slots, slot{n, p.Image, p.TileSize, false})
+			slots = append(slots, slot{n, p.Image, p.TileSize, true})
 		}
 	}
 	accountsMu.Unlock()
 	body, _ := json.Marshal(map[string]any{"result": map[string]any{"availableSlotCount": roomPresetSlots, "slots": slots}})
+	writeJSON(w, http.StatusOK, string(body))
+}
+
+// handleRoomPresetFind serves GET /v4/room/preset/find/<n> (panel LOAD mode,
+// tapping a filled slot). The client applies result as a roomInfo-shaped layout
+// in the editor (LoadPresetMapFromJson); a tileSize larger than the current room
+// is refused client-side. The user then saves through the normal editor SAVE.
+func handleRoomPresetFind(w http.ResponseWriter, r *http.Request) {
+	n, ok := presetSlotNum(r.URL.Path, "/v4/room/preset/find/")
+	if r.Method != http.MethodGet || !ok {
+		serveNotFound(w)
+		return
+	}
+	acc := roomAccount(w, r)
+	if acc == nil {
+		return
+	}
+	p, have := acc.presets[strconv.Itoa(n)]
+	accountsMu.Unlock()
+	if !have {
+		writeJSON(w, http.StatusOK, `{"errorCode":"404"}`)
+		return
+	}
+	info := roomLayoutInfo(p.Layout)
+	info["tileSize"] = p.TileSize
+	body, _ := json.Marshal(map[string]any{"result": info})
 	writeJSON(w, http.StatusOK, string(body))
 }

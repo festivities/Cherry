@@ -434,7 +434,7 @@ func TestRoomDiaryTopUp(t *testing.T) {
 func TestRoomPresetList(t *testing.T) {
 	decorSetup(t)
 	rec := decorReq(t, "dtok", http.MethodGet, "/v4/room/preset/list", "")
-	if rec.Code != http.StatusOK || rec.Body.String() != `{"result":{"availableSlotCount":1,"slots":[]}}` {
+	if rec.Code != http.StatusOK || rec.Body.String() != `{"result":{"availableSlotCount":9,"slots":[]}}` {
 		t.Fatalf("preset list = %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := decorReq(t, "nobody", http.MethodGet, "/v4/room/preset/list", ""); rec.Code != http.StatusNotFound {
@@ -464,9 +464,29 @@ func TestRoomPresetSaveListRemove(t *testing.T) {
 		t.Fatalf("preset save changed the live room: items %d -> %d", liveItems, got)
 	}
 	rec := decorReq(t, "dtok", http.MethodGet, "/v4/room/preset/list", "")
-	want := fmt.Sprintf(`{"result":{"availableSlotCount":1,"slots":[{"presetSeq":1,"representImagePath":%q,"tileSize":12,"openable":false}]}}`, img)
+	want := fmt.Sprintf(`{"result":{"availableSlotCount":9,"slots":[{"presetSeq":1,"representImagePath":%q,"tileSize":12,"openable":true}]}}`, img)
 	if strings.ReplaceAll(rec.Body.String(), "\\u0026", "&") != want {
 		t.Fatalf("list = %s", rec.Body.String())
+	}
+	// Load: roomInfo-shaped body plus tileSize; missing slot and bad index.
+	rec = decorReq(t, "dtok", http.MethodGet, "/v4/room/preset/find/1", "")
+	var found struct {
+		Result struct {
+			TileSize  int              `json:"tileSize"`
+			Wall      map[string]any   `json:"wall"`
+			Item      []map[string]any `json:"item"`
+			FloorItem []any            `json:"floorItem"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &found); err != nil || found.Result.TileSize != 12 ||
+		found.Result.Wall["cd"] != "RUWA000IC" || len(found.Result.Item) != 1 || found.Result.Item[0]["cd"] != "RUCH0011X" || found.Result.FloorItem == nil {
+		t.Fatalf("find = %s", rec.Body.String())
+	}
+	if rec := decorReq(t, "dtok", http.MethodGet, "/v4/room/preset/find/2", ""); rec.Body.String() != `{"errorCode":"404"}` {
+		t.Fatalf("find empty slot = %s", rec.Body.String())
+	}
+	if rec := decorReq(t, "dtok", http.MethodGet, "/v4/room/preset/find/10", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("find slot 10 = %d", rec.Code)
 	}
 	// Overwrite after remove, and rejects: slot out of range, unowned seq, unknown session.
 	if rec := decorReq(t, "dtok", http.MethodPost, "/v4/room/preset/remove/1", ""); rec.Body.String() != `{"result":true}` {
@@ -475,8 +495,8 @@ func TestRoomPresetSaveListRemove(t *testing.T) {
 	if rec := decorReq(t, "dtok", http.MethodGet, "/v4/room/preset/list", ""); !strings.Contains(rec.Body.String(), `"slots":[]`) {
 		t.Fatalf("list after remove = %s", rec.Body.String())
 	}
-	if rec := decorReq(t, "dtok", http.MethodPost, "/v4/room/preset/save/2", body); rec.Code != http.StatusNotFound {
-		t.Fatalf("slot 2 = %d", rec.Code)
+	if rec := decorReq(t, "dtok", http.MethodPost, "/v4/room/preset/save/10", body); rec.Code != http.StatusNotFound {
+		t.Fatalf("slot 10 = %d", rec.Code)
 	}
 	if rec := decorReq(t, "dtok", http.MethodPost, "/v4/room/preset/save/setitem/1", body); rec.Code != http.StatusNotFound {
 		t.Fatalf("setitem = %d", rec.Code)

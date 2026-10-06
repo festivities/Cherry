@@ -357,6 +357,8 @@ func newMux() *http.ServeMux {
 	mux.HandleFunc("/v4/room/preset/list", handleRoomPresetList)
 	mux.HandleFunc("/v4/room/preset/save/", handleRoomPresetSave)
 	mux.HandleFunc("/v4/room/preset/remove/", handleRoomPresetRemove)
+	mux.HandleFunc("/v4/room/preset/find/", handleRoomPresetFind)
+	mux.HandleFunc("/v4/pet/", handlePet)
 	mux.HandleFunc("/v4/room/", handleRoom)
 	mux.HandleFunc("/v4/profile/", handleProfile)
 	mux.HandleFunc("/v4/avatar/", handleAvatarInfo)
@@ -1137,6 +1139,7 @@ type account struct {
 	nextRoomSeq    int64
 	rooms          map[string]roomLayout
 	presets        map[string]roomPreset
+	pets           []petItem
 }
 
 // avatarItem is the object form parsed by sDataAvatar::SetData @0x1c0a39c.

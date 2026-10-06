@@ -25,6 +25,7 @@ type storedAccount struct {
 	NextRoomSeq    int64                 `json:"nextRoomSeq,omitempty"`
 	Rooms          map[string]roomLayout `json:"rooms,omitempty"`
 	Presets        map[string]roomPreset `json:"roomPresets,omitempty"`
+	Pets           []petItem             `json:"pets,omitempty"`
 }
 
 type savedAccounts struct {
@@ -75,7 +76,7 @@ func loadAccountsFrom(path string) error {
 				avatarUserID: saved.AvatarUserID, aid: saved.Aid, name: saved.Name,
 				gender: saved.Gender, skin: saved.Skin, country: saved.Country,
 				itemCodes: saved.ItemCodes, inventoryCodes: inventoryCopy,
-				roomItems: saved.RoomItems, nextRoomSeq: roomNextSeq(saved.RoomItems, saved.NextRoomSeq), rooms: saved.Rooms, presets: saved.Presets,
+				roomItems: saved.RoomItems, nextRoomSeq: roomNextSeq(saved.RoomItems, saved.NextRoomSeq), rooms: saved.Rooms, presets: saved.Presets, pets: saved.Pets,
 			}
 		}
 		for token, id := range state.Aliases {
@@ -123,7 +124,7 @@ func saveAccountsLocked() error {
 			AvatarUserID: acc.avatarUserID, Aid: acc.aid, Name: acc.name, Gender: acc.gender,
 			Skin: acc.skin, Country: acc.country, ItemCodes: acc.itemCodes,
 			InventoryCodes: acc.inventoryCodes,
-			RoomItems:      acc.roomItems, NextRoomSeq: acc.nextRoomSeq, Rooms: acc.rooms, Presets: acc.presets,
+			RoomItems:      acc.roomItems, NextRoomSeq: acc.nextRoomSeq, Rooms: acc.rooms, Presets: acc.presets, Pets: acc.pets,
 		}
 	}
 	data, err := json.Marshal(state)
