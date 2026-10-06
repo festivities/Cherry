@@ -961,6 +961,9 @@ func accountOwnedCodes(acc *account) []string {
 	if acc == nil {
 		return nil
 	}
+	if !labAids[acc.aid] { // economy: new players own only what they create, earn or buy
+		return accountInventoryCodes(acc)
+	}
 	return appendUniqueItemCodes(accountInventoryCodes(acc), curatedGrantCodes)
 }
 

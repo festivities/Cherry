@@ -441,3 +441,14 @@ func TestSpecialChanceEmpty(t *testing.T) {
 		t.Fatalf("subpath %d", rec.Code)
 	}
 }
+
+func TestCuratedGrantLabOnly(t *testing.T) {
+	setLab(t, "9701", false)
+	setLab(t, "9702", true)
+	if got := accountOwnedCodes(&account{aid: "9701", inventoryCodes: []string{}}); len(got) != 0 {
+		t.Fatalf("new account owns %v", got)
+	}
+	if got := accountOwnedCodes(&account{aid: "9702", inventoryCodes: []string{}}); len(got) != len(curatedGrantCodes) {
+		t.Fatalf("lab account owns %v", got)
+	}
+}

@@ -1021,6 +1021,8 @@ func TestAvatarSaveV2RoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The curated Cherry-closet grant is lab-only (economy); exercise it as a lab account.
+	setLab(t, "0", true)
 	accessToken := guestGenerate(t)
 	token := avAuthValue(t, createSession(t, accessToken))
 	emptyItemsReq := httptest.NewRequest(http.MethodPost, "/v4/inven/closet/items/all", nil)
@@ -1038,6 +1040,7 @@ func TestAvatarSaveV2RoundTrip(t *testing.T) {
 	if err := json.Unmarshal(created.Body.Bytes(), &createdAvatar); err != nil || createdAvatar.Result == nil {
 		t.Fatalf("create avatar response: %v", err)
 	}
+	setLab(t, createdAvatar.Result.AvatarID, true)
 
 	itemsReq := httptest.NewRequest(http.MethodPost, "/v4/inven/closet/items/all", nil)
 	itemsReq.AddCookie(&http.Cookie{Name: "AV_AUTH", Value: token})

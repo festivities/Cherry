@@ -124,7 +124,7 @@ const (
 // ponytail: guessed default spots (diary near the back corner, door on the left
 // wall); the user can move them in the editor.
 var roomDefaultPlaced = []roomPlaced{
-	{Cd: roomDoorCode, X: 6, Y: 0, Dir: "FL"},
+	{Cd: roomDoorCode, X: 5, Y: 0, Z: 7, Dir: "FL"}, // z = height on the wall; z 7 stands on the floor (as the client saves it)
 	{Cd: roomDiaryCode, X: 2, Y: 2, Dir: "FR"},
 }
 
