@@ -338,6 +338,9 @@ func newMux() *http.ServeMux {
 	mux.HandleFunc("/lineplay/d/upload.nhn", handleDiaryImageUpload)
 	mux.HandleFunc("/lineplay/d/download.nhn", handleDiaryImageDownload)
 	mux.HandleFunc("/lineplay/d/download.nhn/", handleDiaryImageDownload)
+	mux.HandleFunc("/lineplay/r/upload.nhn", handleRoomImageUpload)
+	mux.HandleFunc("/lineplay/r/download.nhn", handleRoomImageDownload)
+	mux.HandleFunc("/lineplay/r/delete.nhn", handleRoomImageDelete)
 	mux.HandleFunc("/v4/home/list/ext/", handleHomeListExt)
 	mux.HandleFunc("/v4/inven/closet/items/all", handleClosetItemsAll)
 	mux.HandleFunc("/v4/storage/display", handleJSONBody(storageDisplayBody))
@@ -348,6 +351,12 @@ func newMux() *http.ServeMux {
 	mux.HandleFunc("/v4/items/room/some", handleItemsSome)
 	mux.HandleFunc("/v4/playhome/games/lp_rmchat", handlePlayDetailLPRmchat)
 	mux.HandleFunc("/v4/playhome/games/lp_sq", handleJSONBody(playDetailLPSquareBody))
+	mux.HandleFunc("/v4/inven/interior/items/all", handleInvenInterior)
+	mux.HandleFunc("/v4/inven/use/list/interior/dividefloor", handleInvenDivideFloor)
+	mux.HandleFunc("/v4/room/save/new", handleRoomSaveNew)
+	mux.HandleFunc("/v4/room/preset/list", handleRoomPresetList)
+	mux.HandleFunc("/v4/room/preset/save/", handleRoomPresetSave)
+	mux.HandleFunc("/v4/room/preset/remove/", handleRoomPresetRemove)
 	mux.HandleFunc("/v4/room/", handleRoom)
 	mux.HandleFunc("/v4/profile/", handleProfile)
 	mux.HandleFunc("/v4/avatar/", handleAvatarInfo)
@@ -1124,6 +1133,10 @@ type account struct {
 	country        string
 	itemCodes      []string
 	inventoryCodes []string
+	roomItems      []roomItem
+	nextRoomSeq    int64
+	rooms          map[string]roomLayout
+	presets        map[string]roomPreset
 }
 
 // avatarItem is the object form parsed by sDataAvatar::SetData @0x1c0a39c.

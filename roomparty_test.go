@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"io"
 	"log"
@@ -121,7 +122,7 @@ func TestRoomRoutes(t *testing.T) {
 			t.Fatal(err)
 		}
 		r := b.Result
-		if r.RoomInfo.GroundLevel != path[len(path)-7:] || r.RoomInfo.TileSize != 12 || r.RoomInfo.Floor == nil || r.RoomInfo.Items == nil || r.Max != "LEVEL_1" || (name != "" && r.Name != name) {
+		if r.RoomInfo.GroundLevel != path[len(path)-7:] || r.RoomInfo.TileSize != 12 || r.RoomInfo.Floor == nil || r.RoomInfo.Items == nil || r.Max != "LEVEL_2" || (name != "" && r.Name != name) {
 			t.Fatalf("GET %s body = %s", path, rec.Body.String())
 		}
 	}
@@ -183,6 +184,34 @@ func (p *pc) enter(host uint64) {
 	p.send(1, pbVar(nil, 1, host))
 }
 
+// spawnMove is the _player_move Cherry assigns for tile (tx,ty): f1..f4 px, f5=0, f6=1.
+func spawnMove(tx, ty int) []byte {
+	x, y := partyTilePx(tx, ty)
+	return pbVar(pbVar(pbVar(pbVar(pbVar(pbVar(nil, 1, x), 2, y), 3, x), 4, y), 5, 0), 6, 1)
+}
+
+var statusBody = []byte{0x08, 1, 0x10, 0xd8, 0x04} // Exist 1, Timeout 600
+
+// enterHost enters the host's own room and consumes the reply and the status push.
+// drain consumes one pending frame, reporting whether there was one.
+func (p *pc) drain() bool {
+	_ = p.peer.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+	var pre [4]byte
+	if _, err := io.ReadFull(p.peer, pre[:]); err != nil {
+		return false
+	}
+	f := make([]byte, binary.BigEndian.Uint32(pre[:]))
+	_, _ = io.ReadFull(p.peer, f)
+	return true
+}
+
+func (p *pc) enterHost(aid uint64) {
+	p.t.Helper()
+	p.enter(aid)
+	p.expect(5, []byte{0x08, 0x00, 0x10, byte(aid), 0x28, 2})
+	p.expect(23, statusBody)
+}
+
 func (p *pc) start(move []byte) []byte {
 	p.t.Helper()
 	p.send(5, pbLen(pbVar(nil, 2, 1), 1, move))
@@ -203,13 +232,15 @@ func TestPartyEnterRules(t *testing.T) {
 	a.enter(12) // other's room absent -> failure with Aid = host
 	a.expect(5, []byte{0x08, 1, 0x10, 12})
 	a.enter(11)
-	a.expect(5, []byte{0x08, 0x00, 0x10, 11, 0x28, 1})
-	b.enter(11) // accepted friend
-	b.expect(5, []byte{0x08, 0x00, 0x10, 11, 0x28, 1})
+	a.expect(5, []byte{0x08, 0x00, 0x10, 11, 0x28, 2})
+	a.expect(23, statusBody) // host enter: status push so My Room rejoins the party
+	b.enter(11)              // accepted friend
+	b.expect(5, []byte{0x08, 0x00, 0x10, 11, 0x28, 2})
 	c.enter(11) // pending only -> not a friend
 	c.expect(5, []byte{0x08, 1, 0x10, 11})
 	a.send(2, nil) // resume = re-enter current room
-	a.expect(5, []byte{0x08, 0x00, 0x10, 11, 0x28, 1})
+	a.expect(5, []byte{0x08, 0x00, 0x10, 11, 0x28, 2})
+	a.expect(23, statusBody)
 	c.send(2, nil) // resume with no room
 	c.expect(5, []byte{0x08, 1, 0x10, 13})
 }
@@ -218,29 +249,29 @@ func TestPartyRosterRelaysExit(t *testing.T) {
 	h := partySetup(t)
 	a := partyLogin(t, h, 11, 1)
 	b := partyLogin(t, h, 12, 2)
-	a.enter(11)
-	a.read()
+	a.enterHost(11)
 	b.enter(11)
 	b.read()
-	ma := pbVar(nil, 1, 5)
+	ma := pbVar(nil, 1, 5) // client's own move; the server assigns spawn tiles
 	mb := pbVar(nil, 1, 9)
+	wa, wb := spawnMove(8, 4), spawnMove(8, 5) // host keeps (8,4), joiner next free tile
 	res := a.start(ma)
-	if !bytes.Equal(res, append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(11, ma))...)) {
+	if !bytes.Equal(res, append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(11, wa))...)) {
 		t.Fatalf("host roster = %x", res)
 	}
-	a.expect(29, append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(11, ma))...)) // host alone: self roster sets JoinRoomParty on its hero
+	a.expect(29, append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(11, wa))...)) // host alone: self roster sets JoinRoomParty on its hero
 	a.none()
 	res = b.start(mb)
-	want := append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(11, ma))...)
-	want = append(want, pbLen(nil, 2, partyPlayerInfo(12, mb))...)
+	want := append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(11, wa))...)
+	want = append(want, pbLen(nil, 2, partyPlayerInfo(12, wb))...)
 	if !bytes.Equal(res, want) {
 		t.Fatalf("guest roster = %x want %x", res, want)
 	}
-	b.expect(1, pbLen(nil, 1, partyPlayerInfo(11, ma))) // room adduser (chat info) of others to joiner
+	b.expect(1, pbLen(nil, 1, partyPlayerInfo(11, wa))) // room adduser (chat info) of others to joiner
 	// avatars come from the floor messages: full roster INCLUDING self to the joiner
 	b.expect(29, want)
-	a.expect(1, pbLen(nil, 1, partyPlayerInfo(12, mb))) // joiner to others
-	a.expect(30, pbLen(nil, 1, partyPlayerInfo(12, mb)))
+	a.expect(1, pbLen(nil, 1, partyPlayerInfo(12, wb))) // joiner to others
+	a.expect(30, pbLen(nil, 1, partyPlayerInfo(12, wb)))
 	b.none()
 	a.none()
 	// avatar content
@@ -283,32 +314,32 @@ func TestPartySilentRejoinAndFriendEntered(t *testing.T) {
 	h := partySetup(t)
 	b := partyLogin(t, h, 12, 2)
 	a := partyLogin(t, h, 11, 1)
-	a.enter(11)
-	a.read()
+	wa, wb := spawnMove(8, 5), spawnMove(8, 4) // guest got there first; host takes the next free tile
+	a.enterHost(11)
 	b.enter(11)
 	b.read()
 	b.start(pbVar(nil, 1, 9))
-	b.expect(29, append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(12, pbVar(nil, 1, 9)))...)) // self only
-	a.expect(10, []byte{0x08, 12})                                                                 // host not in room yet: friend-entered push
+	b.expect(29, append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(12, wb))...)) // self only
+	a.expect(10, []byte{0x08, 12})                                                   // host not in room yet: friend-entered push
 	a.start(pbVar(nil, 1, 5))
-	b.read()                                                           // room adduser of the host
-	b.expect(30, pbLen(nil, 1, partyPlayerInfo(11, pbVar(nil, 1, 5)))) // guest sees the host avatar
-	a.expect(1, pbLen(nil, 1, partyPlayerInfo(12, pbVar(nil, 1, 9))))
-	a.expect(29, append(append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(11, pbVar(nil, 1, 5)))...), pbLen(nil, 2, partyPlayerInfo(12, pbVar(nil, 1, 9)))...)) // host roster: self + guest
+	b.read()                                             // room adduser of the host
+	b.expect(30, pbLen(nil, 1, partyPlayerInfo(11, wa))) // guest sees the host avatar
+	a.expect(1, pbLen(nil, 1, partyPlayerInfo(12, wb)))
+	a.expect(29, append(append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(11, wa))...), pbLen(nil, 2, partyPlayerInfo(12, wb))...)) // host roster: self + guest
 	// guest reconnects: new session takes over silently
 	b.s.close() // old connection EOF would deluser; emulate takeover instead
 	a.expect(2, []byte{0x08, 12, 0x10, 0})
 	a.expect(31, []byte{0x08, 12})
-	host := append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(11, pbVar(nil, 1, 5)))...)
-	host = append(host, pbLen(nil, 2, partyPlayerInfo(12, pbVar(nil, 1, 9)))...) // roster incl. the joiner itself
+	host := append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(11, wa))...)
+	host = append(host, pbLen(nil, 2, partyPlayerInfo(12, wb))...) // roster incl. the joiner itself
 	b2 := partyLogin(t, h, 12, 4)
 	b2.enter(11)
 	b2.read()
 	b2.start(pbVar(nil, 1, 9))
 	b2.read()
 	b2.expect(29, host)
-	a.expect(1, pbLen(nil, 1, partyPlayerInfo(12, pbVar(nil, 1, 9))))
-	a.expect(30, pbLen(nil, 1, partyPlayerInfo(12, pbVar(nil, 1, 9))))
+	a.expect(1, pbLen(nil, 1, partyPlayerInfo(12, wb)))
+	a.expect(30, pbLen(nil, 1, partyPlayerInfo(12, wb)))
 	b2.start(pbVar(nil, 1, 9)) // rejoin: roster only (fresh scene needs avatars), no adduser to anyone
 	b2.read()
 	b2.expect(29, host)
@@ -321,16 +352,17 @@ func TestPartyInvite(t *testing.T) {
 	a := partyLogin(t, h, 11, 1)
 	b := partyLogin(t, h, 12, 2)
 	c := partyLogin(t, h, 13, 3)
-	a.enter(11)
-	a.read()
+	a.enterHost(11)
 	// packed encoding: 12 (friend), 13 (pending), 99 (unknown)
 	a.send(7, pbLen(nil, 1, []byte{12, 13, 99}))
 	a.expect(7, []byte{0x08, 12, 0x10, 13, 0x10, 99})
+	a.expect(23, statusBody)                        // nonempty Invited -> host status push
 	b.expect(9, []byte{0x08, 11, 0x10, 0xd8, 0x04}) // lefttime 600
 	c.none()
 	// unpacked encoding works too
 	a.send(7, append(pbVar(nil, 1, 12), pbVar(nil, 2, 1)...))
 	a.expect(7, []byte{0x08, 12})
+	a.expect(23, statusBody)
 	b.read()
 	// invite list: waiting 12, inroom empty
 	a.send(6, nil)
@@ -340,7 +372,7 @@ func TestPartyInvite(t *testing.T) {
 	friendships = nil
 	socialMu.Unlock()
 	b.enter(11)
-	b.expect(5, []byte{0x08, 0, 0x10, 11, 0x28, 1})
+	b.expect(5, []byte{0x08, 0, 0x10, 11, 0x28, 2})
 	b.start(nil)
 	b.read()                       // floor roster (self)
 	a.expect(10, []byte{0x08, 12}) // friend-entered push to absent host
@@ -349,6 +381,7 @@ func TestPartyInvite(t *testing.T) {
 	// invite creates the inviter's room when none exists
 	c.send(7, pbVar(nil, 1, 11))
 	c.expect(7, []byte{0x10, 11})
+	c.none() // nothing invited: no status push
 	if h.rooms[13] == nil {
 		t.Fatal("inviter room missing")
 	}
@@ -360,10 +393,10 @@ func TestPartyInviteCancelAndConsume(t *testing.T) {
 	h := partySetup(t)
 	a := partyLogin(t, h, 11, 1)
 	b := partyLogin(t, h, 12, 2)
-	a.enter(11)
-	a.read()
+	a.enterHost(11)
 	a.send(7, pbVar(nil, 1, 12))
 	a.expect(7, []byte{0x08, 12})
+	a.expect(23, statusBody)
 	b.read()
 	a.send(18, pbVar(nil, 1, 12))
 	a.expect(22, nil)
@@ -373,6 +406,7 @@ func TestPartyInviteCancelAndConsume(t *testing.T) {
 	a.expect(22, nil)
 	a.send(7, pbVar(nil, 1, 12)) // re-invite after cancel
 	a.expect(7, []byte{0x08, 12})
+	a.expect(23, statusBody)
 	b.read()
 	b.enter(11)
 	b.read()
@@ -387,5 +421,142 @@ func TestPartyInviteCancelAndConsume(t *testing.T) {
 	a.expect(8, nil) // consumed: no stale Waiting after leaving
 	a.send(7, pbVar(nil, 1, 12))
 	a.expect(7, []byte{0x08, 12})
+	a.expect(23, statusBody)
 	b.read()
+}
+
+func TestPartyTileHelpers(t *testing.T) {
+	if x, y := partyTilePx(8, 4); x != 640 || y != 220 {
+		t.Fatalf("(8,4) -> %d,%d", x, y)
+	}
+	for _, tl := range partySpawnTiles {
+		x, y := partyTilePx(tl[0], tl[1])
+		if a, b := partyPxTile(x, y); a != tl[0] || b != tl[1] {
+			t.Fatalf("tile %v -> (%d,%d) -> (%d,%d)", tl, x, y, a, b)
+		}
+	}
+	// (8,5): 08 d8 04 10 c8 01 18 d8 04 20 c8 01 28 dir 30 01, f5/f6 copied from the client
+	r := &partyRoom{host: 11}
+	m := &partyMember{aid: 12}
+	got, tx, ty := r.spawnLocked(m, 1, nil)
+	if tx != 8 || ty != 4 || !bytes.Equal(got, []byte{8, 0x80, 5, 0x10, 0xdc, 1, 0x18, 0x80, 5, 0x20, 0xdc, 1, 0x28, 0, 0x30, 1}) {
+		t.Fatalf("empty room spawn (%d,%d) %x", tx, ty, got)
+	}
+	r.members = []*partyMember{{aid: 11, floor: 1, move: got}, {aid: 13, floor: 2, move: got}}
+	client := pbVar(pbVar(pbVar(nil, 1, 1), 5, 3), 6, 7)
+	got, tx, ty = r.spawnLocked(m, 1, client)
+	want := []byte{8, 0xd8, 4, 0x10, 0xc8, 1, 0x18, 0xd8, 4, 0x20, 0xc8, 1, 0x28, 3, 0x30, 7}
+	if tx != 8 || ty != 5 || !bytes.Equal(got, want) {
+		t.Fatalf("occupied spawn (%d,%d) %x want %x", tx, ty, got, want)
+	}
+	if _, tx, ty = r.spawnLocked(m, 2, nil); tx != 8 || ty != 5 { // aid 13 holds (8,4) on floor 2
+		t.Fatalf("floor 2 spawn (%d,%d)", tx, ty)
+	}
+}
+
+// Floor change: idx24 -> idx28; idx25 -> idx29 (+Floor#4) to mover, idx30 new floor,
+// idx31 old floor, idx32/33 to every other member; relays are floor-filtered.
+func TestPartyFloors(t *testing.T) {
+	h := partySetup(t)
+	socialMu.Lock()
+	friendships = []friendship{{A: "11", B: "12", State: "accepted"}, {A: "11", B: "13", State: "accepted"}}
+	socialMu.Unlock()
+	a := partyLogin(t, h, 11, 1)
+	b := partyLogin(t, h, 12, 2)
+	c := partyLogin(t, h, 13, 3)
+	a.enterHost(11)
+	a.start(nil)
+	a.read() // idx29 self
+	for _, p := range []*pc{b, c} {
+		p.enter(11)
+		p.read()
+		p.start(nil)
+	}
+	for _, p := range []*pc{a, b, c} {
+		for p.drain() {
+		}
+	}
+	// invalid / not in room
+	b.send(24, pbVar(nil, 1, 3))
+	b.expect(28, []byte{0x08, 1, 0x10, 3})
+	b.send(24, pbVar(nil, 1, 0))
+	b.expect(28, []byte{0x08, 1, 0x10, 0})
+	d := partyLogin(t, h, 14, 4)
+	d.send(24, pbVar(nil, 1, 2))
+	d.expect(28, []byte{0x08, 1, 0x10, 2})
+	// b -> floor 2
+	b.send(24, pbVar(nil, 1, 2))
+	b.expect(28, []byte{0x08, 0, 0x10, 2})
+	a.none() // nothing is announced before cr_floor_relaystart_req
+	b.send(25, pbLen(pbVar(nil, 1, 2), 2, pbVar(nil, 1, 1)))
+	w := spawnMove(8, 4) // alone on floor 2
+	b.expect(29, append(append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(12, w))...), 0x20, 2))
+	b.none()
+	for _, p := range []*pc{a, c} {
+		p.expect(31, []byte{0x08, 12})
+		p.expect(33, append([]byte{0x08, 12, 0x10, 1, 0x1a, 2}, "Bo"...))
+		p.expect(32, append([]byte{0x08, 12, 0x10, 2, 0x1a, 2}, "Bo"...))
+		p.none()
+	}
+	// relays: b on floor 2 is isolated from a/c for move/action, chat stays room-wide
+	b.send(8, pbLen(nil, 1, pbVar(nil, 1, 1)))
+	a.send(8, pbLen(nil, 1, pbVar(nil, 1, 2)))
+	c.expect(11, pbLen(pbVar(nil, 1, 11), 2, pbVar(nil, 1, 2)))
+	b.none()
+	a.none()
+	c.none()
+	b.send(10, pbLen(nil, 1, []byte{8, 1}))
+	a.none()
+	b.send(9, pbLen(nil, 1, []byte("yo")))
+	for _, p := range []*pc{a, b, c} {
+		p.read()
+	}
+	// a joins floor 2: gets roster with b, b gets idx30, c (floor 1) gets idx31
+	a.send(24, pbVar(nil, 1, 2))
+	a.expect(28, []byte{0x08, 0, 0x10, 2})
+	a.send(25, pbLen(pbVar(nil, 1, 2), 2, nil))
+	id, body := a.read()
+	if id != 29 || !bytes.Contains(body, []byte("Bo")) || !bytes.Contains(body, []byte("Ann")) || !bytes.HasSuffix(body, []byte{0x20, 2}) {
+		t.Fatalf("floor roster = %d/%x", id, body)
+	}
+	id, body = b.read()
+	if id != 30 {
+		t.Fatalf("b got %d, want 30 (%x)", id, body)
+	}
+	b.expect(33, append([]byte{0x08, 11, 0x10, 1, 0x1a, 3}, "Ann"...))
+	b.expect(32, append([]byte{0x08, 11, 0x10, 2, 0x1a, 3}, "Ann"...))
+	c.expect(31, []byte{0x08, 11})
+	c.expect(33, append([]byte{0x08, 11, 0x10, 1, 0x1a, 3}, "Ann"...))
+	c.expect(32, append([]byte{0x08, 11, 0x10, 2, 0x1a, 3}, "Ann"...))
+	// leaving: idx31 only to same-floor members, idx2 to all
+	b.send(3, nil)
+	b.expect(3, nil)
+	if id, _ := a.read(); id != 2 {
+		t.Fatalf("a first = %d", id)
+	}
+	a.expect(31, []byte{0x08, 12})
+	if id, _ := c.read(); id != 2 {
+		t.Fatalf("c first = %d", id)
+	}
+	c.none() // c is on floor 1: no floor deluser
+}
+
+func TestPartyLoginStatus(t *testing.T) {
+	h := partySetup(t)
+	a := partyLogin(t, h, 11, 1)
+	b := partyLogin(t, h, 12, 2)
+	a.enterHost(11)
+	a.start(nil)
+	a.read()
+	b.enter(11)
+	b.read()
+	// host relogs while a guest keeps the room open: login reply carries MyroomExist/Timeout
+	a2 := newSqClient(t, &squareRoom{}, 5)
+	s2 := &roomPartySession{conn: a2.sess.conn, logger: log.New(io.Discard, "", 0), hub: h}
+	t.Cleanup(s2.close)
+	if err := s2.handleData(a2.req(0, loginBody(11))); err != nil {
+		t.Fatal(err)
+	}
+	a2.expect(0, []byte{0x08, 0x00, 0x10, 1, 0x18, 0xd8, 0x04})
+	partyLogin(t, h, 13, 3) // no open room: plain result (checked by partyLogin)
 }

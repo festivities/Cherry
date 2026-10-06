@@ -59,7 +59,7 @@ func parseDpPath(path string) (kind, id string, ok bool) {
 		return "", "", false
 	}
 	switch kind {
-	case "custom", "dress":
+	case "custom", "dress", "interior", "tile":
 		return kind, id, true
 	default:
 		return "", "", false
@@ -270,6 +270,9 @@ func parseCustomItemParts(text string) (front, back []dpPart, ok bool) {
 // body nodes (anchor key), so offsets are only comparable within one anchor
 // group; the group holding the largest sprite carries the item's main art.
 func composeItemDP(dir, kind string) (*image.RGBA, bool) {
+	if kind == "interior" || kind == "tile" {
+		return composeRoomDP(dir, kind)
+	}
 	raw, err := os.ReadFile(filepath.Join(dir, "1409_iteminfo.artsitem"))
 	if err != nil {
 		return nil, false

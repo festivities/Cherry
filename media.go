@@ -26,6 +26,7 @@ const (
 	diaryImageMaxPixels          = 24_000_000
 	maxDiaryMediaStorage   int64 = 1 << 30
 	diaryDownloadPath            = "/lineplay/d/download.nhn"
+	roomDownloadPath             = "/lineplay/r/download.nhn"
 )
 
 const (
@@ -74,6 +75,33 @@ func handleDiaryImageDownload(w http.ResponseWriter, r *http.Request) {
 	handleDiaryImageDownloadAt(w, r, dir)
 }
 
+func handleRoomImageUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeDiaryMediaJSON(w, http.StatusNotFound, diaryMediaNotFoundBody)
+		return
+	}
+	dir, err := defaultRoomMediaDir()
+	if err != nil {
+		writeDiaryMediaJSON(w, http.StatusInternalServerError, diaryMediaSaveFailedBody)
+		return
+	}
+	handleMediaUpload(w, r, dir, maxDiaryMediaStorage, true)
+}
+
+func handleRoomImageDownload(w http.ResponseWriter, r *http.Request) {
+	dir, err := defaultRoomMediaDir()
+	if err != nil {
+		writeDiaryMediaJSON(w, http.StatusInternalServerError, diaryMediaSaveFailedBody)
+		return
+	}
+	handleMediaDownload(w, r, dir, true)
+}
+
+func defaultRoomMediaDir() (string, error) {
+	d, err := defaultDiaryMediaDir()
+	return filepath.Join(filepath.Dir(d), "room-media"), err
+}
+
 func defaultDiaryMediaDir() (string, error) {
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
@@ -91,6 +119,14 @@ func handleDiaryImageUploadAt(w http.ResponseWriter, r *http.Request, dir string
 }
 
 func handleDiaryImageUploadAtWithLimit(w http.ResponseWriter, r *http.Request, dir string, storageLimit int64) {
+	handleMediaUpload(w, r, dir, storageLimit, false)
+}
+
+// handleMediaUpload serves the OBS upload for diary photos (room=false) and My
+// Room preset thumbnails (room=true). ponytail: the room client's oid format is
+// unverified, so room mode accepts any printable oid equal to the form name
+// instead of requiring userid_ctime.
+func handleMediaUpload(w http.ResponseWriter, r *http.Request, dir string, storageLimit int64, room bool) {
 	if r.Method != http.MethodPost {
 		writeDiaryMediaJSON(w, http.StatusNotFound, diaryMediaNotFoundBody)
 		return
@@ -128,7 +164,7 @@ func handleDiaryImageUploadAtWithLimit(w http.ResponseWriter, r *http.Request, d
 		return
 	}
 	var params diaryImageUploadParams
-	if json.Unmarshal([]byte(paramsRaw), &params) != nil || params.Version != "1.0" || params.Type != "image" || params.Name != params.UserID+"_"+params.CTime || !validDiaryMediaTuple(params.UserID, params.CTime, params.OID) {
+	if json.Unmarshal([]byte(paramsRaw), &params) != nil || params.Version != "1.0" || params.Type != "image" || !mediaUploadNameOK(params, room) {
 		writeDiaryMediaJSON(w, http.StatusBadRequest, diaryMediaBadRequestBody)
 		return
 	}
@@ -168,7 +204,7 @@ func handleDiaryImageUploadAtWithLimit(w http.ResponseWriter, r *http.Request, d
 		return
 	}
 
-	path, _ := diaryMediaPath(dir, params.UserID, params.CTime, params.OID)
+	path := diaryMediaHashPath(dir, params.UserID, params.CTime, params.OID)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		writeDiaryMediaJSON(w, http.StatusInternalServerError, diaryMediaSaveFailedBody)
 		return
@@ -223,7 +259,34 @@ func handleDiaryImageUploadAtWithLimit(w http.ResponseWriter, r *http.Request, d
 		}
 		return
 	}
+	if room {
+		// ResSaveMyRoomImgToOBS @0x1b08220 scans the reply for "x-obs-oid" and uses the
+		// next token as the oid of the thumbnail URL it sends with room/preset/save.
+		w.Header()["x-obs-oid"] = []string{params.OID} // literal lowercase key: Set would canonicalize to X-Obs-Oid
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = io.WriteString(w, "x-obs-oid: "+params.OID+"\r\n")
+		return
+	}
 	writeDiaryMediaJSON(w, http.StatusOK, `{"result":true}`)
+}
+
+// handleRoomImageDelete serves POST /lineplay/r/delete.nhn?oid=..., sent before a
+// filled quick-pick slot is overwritten. ponytail: the file is kept (the request
+// carries only the oid, not the userid/ctime that key the stored file); the media
+// quota bounds growth.
+func handleRoomImageDelete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeDiaryMediaJSON(w, http.StatusNotFound, diaryMediaNotFoundBody)
+		return
+	}
+	writeDiaryMediaJSON(w, http.StatusOK, `{"result":true}`)
+}
+
+func mediaUploadNameOK(p diaryImageUploadParams, room bool) bool {
+	if room {
+		return p.Name == p.OID && validDiaryMediaUserID(p.OID) && validDiaryMediaUserID(p.UserID) && validDiaryMediaCTime(p.CTime)
+	}
+	return p.Name == p.UserID+"_"+p.CTime && validDiaryMediaTuple(p.UserID, p.CTime, p.OID)
 }
 
 func diaryMediaFileHeader(form *multipart.Form) (*multipart.FileHeader, bool) {
@@ -241,6 +304,10 @@ func diaryMediaFileHeader(form *multipart.Form) (*multipart.FileHeader, bool) {
 }
 
 func handleDiaryImageDownloadAt(w http.ResponseWriter, r *http.Request, dir string) {
+	handleMediaDownload(w, r, dir, false)
+}
+
+func handleMediaDownload(w http.ResponseWriter, r *http.Request, dir string, room bool) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		writeDiaryMediaJSON(w, http.StatusNotFound, diaryMediaNotFoundBody)
 		return
@@ -258,15 +325,20 @@ func handleDiaryImageDownloadAt(w http.ResponseWriter, r *http.Request, dir stri
 	ctime, ctimeOK := oneDiaryMediaQueryValue(query, "ctime")
 	oid, oidOK := oneDiaryMediaQueryValue(query, "oid")
 	tid, tidOK := optionalDiaryMediaQueryValue(query, "tid")
-	if !userOK || !ctimeOK || !oidOK || !tidOK || !validDiaryMediaTuple(userID, ctime, oid) {
+	if !userOK || !ctimeOK || !oidOK || !tidOK || !mediaUploadNameOK(diaryImageUploadParams{Name: oid, UserID: userID, OID: oid, CTime: ctime}, room) {
 		writeDiaryMediaJSON(w, http.StatusBadRequest, diaryMediaBadRequestBody)
 		return
 	}
-	if !validDiaryMediaVariant(r.URL.Path, tid) {
+	if room {
+		if r.URL.Path != roomDownloadPath || tid != "" && !validDiaryMediaTID(tid) {
+			writeDiaryMediaJSON(w, http.StatusNotFound, diaryMediaNotFoundBody)
+			return
+		}
+	} else if !validDiaryMediaVariant(r.URL.Path, tid) {
 		writeDiaryMediaJSON(w, http.StatusNotFound, diaryMediaNotFoundBody)
 		return
 	}
-	path, _ := diaryMediaPath(dir, userID, ctime, oid)
+	path := diaryMediaHashPath(dir, userID, ctime, oid)
 	file, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -304,8 +376,12 @@ func diaryMediaPath(dir, userID, ctime, oid string) (string, bool) {
 	if !validDiaryMediaTuple(userID, ctime, oid) {
 		return "", false
 	}
+	return diaryMediaHashPath(dir, userID, ctime, oid), true
+}
+
+func diaryMediaHashPath(dir, userID, ctime, oid string) string {
 	sum := sha256.Sum256([]byte(userID + "\x00" + ctime + "\x00" + oid))
-	return filepath.Join(dir, hex.EncodeToString(sum[:])+".img"), true
+	return filepath.Join(dir, hex.EncodeToString(sum[:])+".img")
 }
 
 func validDiaryMediaTuple(userID, ctime, oid string) bool {

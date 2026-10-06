@@ -10,17 +10,21 @@ import (
 )
 
 type storedAccount struct {
-	AccessToken    string   `json:"accessToken"`
-	SessionKey     string   `json:"sessionKey"`
-	Mid            string   `json:"mid"`
-	AvatarUserID   string   `json:"avatarUserId"`
-	Aid            string   `json:"aid"`
-	Name           string   `json:"name"`
-	Gender         string   `json:"gender"`
-	Skin           string   `json:"skin"`
-	Country        string   `json:"country"`
-	ItemCodes      []string `json:"itemCodes"`
-	InventoryCodes []string `json:"inventoryCodes"`
+	AccessToken    string                `json:"accessToken"`
+	SessionKey     string                `json:"sessionKey"`
+	Mid            string                `json:"mid"`
+	AvatarUserID   string                `json:"avatarUserId"`
+	Aid            string                `json:"aid"`
+	Name           string                `json:"name"`
+	Gender         string                `json:"gender"`
+	Skin           string                `json:"skin"`
+	Country        string                `json:"country"`
+	ItemCodes      []string              `json:"itemCodes"`
+	InventoryCodes []string              `json:"inventoryCodes"`
+	RoomItems      []roomItem            `json:"roomItems,omitempty"`
+	NextRoomSeq    int64                 `json:"nextRoomSeq,omitempty"`
+	Rooms          map[string]roomLayout `json:"rooms,omitempty"`
+	Presets        map[string]roomPreset `json:"roomPresets,omitempty"`
 }
 
 type savedAccounts struct {
@@ -71,6 +75,7 @@ func loadAccountsFrom(path string) error {
 				avatarUserID: saved.AvatarUserID, aid: saved.Aid, name: saved.Name,
 				gender: saved.Gender, skin: saved.Skin, country: saved.Country,
 				itemCodes: saved.ItemCodes, inventoryCodes: inventoryCopy,
+				roomItems: saved.RoomItems, nextRoomSeq: roomNextSeq(saved.RoomItems, saved.NextRoomSeq), rooms: saved.Rooms, presets: saved.Presets,
 			}
 		}
 		for token, id := range state.Aliases {
@@ -118,6 +123,7 @@ func saveAccountsLocked() error {
 			AvatarUserID: acc.avatarUserID, Aid: acc.aid, Name: acc.name, Gender: acc.gender,
 			Skin: acc.skin, Country: acc.country, ItemCodes: acc.itemCodes,
 			InventoryCodes: acc.inventoryCodes,
+			RoomItems:      acc.roomItems, NextRoomSeq: acc.nextRoomSeq, Rooms: acc.rooms, Presets: acc.presets,
 		}
 	}
 	data, err := json.Marshal(state)

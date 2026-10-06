@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"log"
+	"maps"
 	"net/http"
 	"strconv"
 	"strings"
@@ -25,12 +26,113 @@ const (
 // partyMember is one logged-in agent-4 connection. b1/sid come from the login
 // frame (constant per tunnel) so other connections can push to it.
 type partyMember struct {
-	aid  uint64
-	conn *lockedConn
-	b1   byte
-	sid  [8]byte
-	move []byte // last _player_move, guarded by partyHub.mu
-	nmov int    // cr_player_move count, guarded by partyHub.mu
+	aid   uint64
+	conn  *lockedConn
+	b1    byte
+	sid   [8]byte
+	move  []byte // last _player_move, guarded by partyHub.mu
+	nmov  int    // cr_player_move count, guarded by partyHub.mu
+	floor int    // current floor 1..roomPartyFloors, guarded by partyHub.mu
+}
+
+// roomPartyFloors is sent as rc_room_enter_res ExtendFloors (floor count; the
+// client hides the floor selector when it is 1).
+// ponytail: every room has 2 floors until a remodeling shop / ownership exists.
+const roomPartyFloors = 2
+
+const partyStatusTimeout = 600 // rc_room_status_push Timeout; client keeps MyRoomAlive 2*Timeout s
+
+// partyStatusBody is rc_room_status_push (idx23) {Exist#1, Timeout#2}. Exist=0 is never
+// sent: it would mark the room exploded on the client.
+func partyStatusBody() []byte {
+	return pbVar(pbVar(nil, 1, 1), 2, partyStatusTimeout)
+}
+
+// Room grid: tileSize 12 -> one 12x12 sector of 80x40 px tiles (static research,
+// MpCoord::ConvertWorldTileCCToGame). DefaultHeroPosition picks tile (8,4).
+// ponytail: Y offset uses 20*(23-tx-ty) (tile centre, ~220 for (8,4)); Square's formula
+// would give 20*(24-tx-ty) -> 240. Switch the constant below if runtime shows the avatar offset.
+const partyYBase = 23
+
+func partyTilePx(tx, ty int) (x, y uint64) {
+	return uint64(40 * (tx - ty + 12)), uint64(20 * (partyYBase - tx - ty))
+}
+
+// partyPxTile is the inverse (truncating for off-centre positions).
+func partyPxTile(x, y uint64) (tx, ty int) {
+	a := int(x/40) - 12
+	b := partyYBase - int(y/20)
+	return (a + b) / 2, (b - a) / 2
+}
+
+// partySpawnTiles is the preference order (first free tile wins).
+var partySpawnTiles = [][2]int{{8, 4}, {8, 5}, {7, 4}, {9, 4}, {8, 3}, {7, 5}, {9, 3}, {7, 3}, {9, 5}}
+
+// partyMoveFields returns cur x,y plus f5/f6 of a _player_move.
+func partyMoveFields(move []byte) (x, y, f5, f6 uint64, ok bool) {
+	var got uint8
+	pbScan(move, func(f, v uint64, d []byte) {
+		if d != nil {
+			return
+		}
+		switch f {
+		case 1:
+			x, got = v, got|1
+		case 2:
+			y, got = v, got|2
+		case 5:
+			f5 = v
+		case 6:
+			f6 = v
+		}
+	})
+	return x, y, f5, f6, got == 3
+}
+
+// spawnLocked assigns a spawn _player_move for m on floor: f1..f4 = tile px, f5/f6
+// copied from the client's own move (f6 default 1). Caller holds hub.mu.
+func (r *partyRoom) spawnLocked(m *partyMember, floor int, client []byte) (move []byte, tx, ty int) {
+	taken := map[[2]int]bool{}
+	for _, o := range r.members {
+		if o.aid == m.aid || o.floor != floor || len(o.move) == 0 {
+			continue
+		}
+		if x, y, _, _, ok := partyMoveFields(o.move); ok {
+			a, b := partyPxTile(x, y)
+			taken[[2]int{a, b}] = true
+		}
+	}
+	tiles := partySpawnTiles
+	for a := 0; a < 12; a++ { // fallback: any tile of the grid
+		for b := 0; b < 12; b++ {
+			tiles = append(tiles[:len(tiles):len(tiles)], [2]int{a, b})
+		}
+	}
+	tx, ty = tiles[0][0], tiles[0][1]
+	for _, t := range tiles { // first free tile; the host (normally first) therefore keeps (8,4)
+		if !taken[t] {
+			tx, ty = t[0], t[1]
+			break
+		}
+	}
+	_, _, f5, f6, _ := partyMoveFields(client)
+	if f6 == 0 {
+		f6 = 1
+	}
+	x, y := partyTilePx(tx, ty)
+	b := pbVar(pbVar(pbVar(pbVar(nil, 1, x), 2, y), 3, x), 4, y)
+	return pbVar(pbVar(b, 5, f5), 6, f6), tx, ty
+}
+
+// onFloor lists members on floor, excluding skip (nil = everyone).
+func (r *partyRoom) onFloor(skip *partyMember, floor int) []*partyMember {
+	var out []*partyMember
+	for _, o := range r.members {
+		if o != skip && o.floor == floor {
+			out = append(out, o)
+		}
+	}
+	return out
 }
 
 func (m *partyMember) send(logger *log.Logger, msgid uint16, body []byte) {
@@ -141,16 +243,16 @@ type partySnap struct {
 	move []byte
 }
 
-// rosterLocked lists members host first; caller holds h.mu.
-func (r *partyRoom) rosterLocked() []partySnap {
+// rosterLocked lists members on floor, host first; caller holds h.mu.
+func (r *partyRoom) rosterLocked(floor int) []partySnap {
 	var out []partySnap
 	for _, o := range r.members {
-		if o.aid == r.host {
+		if o.aid == r.host && o.floor == floor {
 			out = append(out, partySnap{o.aid, o.move})
 		}
 	}
 	for _, o := range r.members {
-		if o.aid != r.host {
+		if o.aid != r.host && o.floor == floor {
 			out = append(out, partySnap{o.aid, o.move})
 		}
 	}
@@ -161,10 +263,15 @@ func (r *partyRoom) rosterLocked() []partySnap {
 func (h *partyHub) leave(logger *log.Logger, r *partyRoom, m *partyMember) {
 	h.mu.Lock()
 	i := r.index(m)
+	floor := m.floor
 	if i >= 0 {
 		r.members = append(r.members[:i], r.members[i+1:]...)
 	}
 	rest := r.others(nil)
+	sameFloor := map[*partyMember]bool{}
+	for _, o := range r.onFloor(nil, floor) {
+		sameFloor[o] = true
+	}
 	if len(rest) == 0 && h.sessions[r.host] == nil && h.rooms[r.host] == r {
 		delete(h.rooms, r.host)
 	}
@@ -176,7 +283,9 @@ func (h *partyHub) leave(logger *log.Logger, r *partyRoom, m *partyMember) {
 		floorDel := pbVar(nil, 1, m.aid)
 		for _, o := range rest {
 			o.send(logger, 2, body)
-			o.send(logger, 31, floorDel)
+			if sameFloor[o] {
+				o.send(logger, 31, floorDel)
+			}
 		}
 	}
 }
@@ -275,7 +384,7 @@ func partyAidList(data []byte) ([]uint64, bool) {
 func partyEnterBody(result, host uint64) []byte {
 	b := pbVar(pbVar(nil, 1, result), 2, host)
 	if result == 0 {
-		b = pbVar(b, 5, 1) // ExtendFloors
+		b = pbVar(b, 5, roomPartyFloors) // ExtendFloors
 	}
 	return b
 }
@@ -305,7 +414,13 @@ func (s *roomPartySession) enter(frame []byte, host uint64) error {
 		s.host = host
 	}
 	s.logger.Printf("ROOMPARTY enter aid=%d host=%d result=%d", s.aid, host, result)
-	return s.reply(frame, 5, partyEnterBody(result, host))
+	if err := s.reply(frame, 5, partyEnterBody(result, host)); err != nil {
+		return err
+	}
+	if result == 0 && host == s.aid { // lets the host's My Room menu rejoin this party
+		s.pm.send(s.logger, 23, partyStatusBody())
+	}
+	return nil
 }
 
 // handleData processes one agent-4 data frame (frame[10:12] msgid, frame[12:]
@@ -330,8 +445,14 @@ func (s *roomPartySession) handleData(frame []byte) error {
 		}
 		h.sessions[aid] = s.pm
 		h.mu.Unlock()
-		s.logger.Printf("ROOMPARTY login aid=%d result=0", aid)
-		return s.reply(frame, 0, []byte{0x08, 0x00})
+		body := []byte{0x08, 0x00}
+		h.mu.Lock()
+		if r := h.rooms[aid]; r != nil && (len(r.members) > 0 || len(r.invited) > 0) {
+			body = pbVar(pbVar(body, 2, 1), 3, partyStatusTimeout) // MyroomExist, MyroomTimeout
+		}
+		h.mu.Unlock()
+		s.logger.Printf("ROOMPARTY login aid=%d result=0 myroom=%v", aid, len(body) > 2)
+		return s.reply(frame, 0, body)
 	}
 	if !s.loggedIn {
 		s.logger.Printf("ROOMPARTY msgid=%d before login ignored", msgid)
@@ -359,6 +480,10 @@ func (s *roomPartySession) handleData(frame []byte) error {
 		return s.inviteList(frame)
 	case 7:
 		return s.invite(frame, data)
+	case 24: // cr_floor_enter_req -> rc_floor_enter_res idx28
+		return s.floorEnter(frame, data)
+	case 25: // cr_floor_relaystart_req (Floor#1, MoveInfo#2) -> idx29 + floor messages
+		return s.floorRelayStart(data)
 	case 18: // cr_friend_invite_cancel_req -> idx22
 		return s.inviteCancel(frame, data)
 	}
@@ -424,6 +549,26 @@ func (s *roomPartySession) inviteCancel(frame, data []byte) error {
 	return s.reply(frame, 22, body)
 }
 
+// partyFloorOK reports whether f is a servable floor.
+func partyFloorOK(f uint64) bool { return f >= 1 && f <= roomPartyFloors }
+
+// partyName is the display name for floor notifications.
+func partyName(aid uint64) []byte {
+	if acc, ok := accountByAvatarID(strconv.FormatUint(aid, 10)); ok && acc.name != "" {
+		return []byte(acc.name)
+	}
+	return []byte("cherry")
+}
+
+// allRosterLocked lists every member (all floors), floor by floor; caller holds h.mu.
+func (r *partyRoom) allRosterLocked() []partySnap {
+	var out []partySnap
+	for f := 1; f <= roomPartyFloors; f++ {
+		out = append(out, r.rosterLocked(f)...)
+	}
+	return out
+}
+
 func (s *roomPartySession) relayStart(frame, data []byte) error {
 	h := s.h()
 	if s.host == 0 {
@@ -435,34 +580,55 @@ func (s *roomPartySession) relayStart(frame, data []byte) error {
 		s.logger.Printf("ROOMPARTY relaystart invalid aid=%d", s.aid)
 		return nil
 	}
+	floor := 1
+	if f, found := protobufUintField(data, 2); found && partyFloorOK(f) {
+		floor = int(f)
+	}
+	cx, cy, _, _, _ := partyMoveFields(move)
 	h.mu.Lock()
 	r := h.room(s.host)
 	delete(r.invited, s.aid) // invite consumed; a later leave must not show "Waiting"
 	m := s.pm
-	m.move = append([]byte(nil), move...)
 	idx := -1
 	for i, o := range r.members {
 		if o.aid == m.aid {
 			idx = i
 		}
 	}
-	if idx >= 0 { // silent rejoin: take over the entry (and its position if none sent)
-		if len(m.move) == 0 {
-			m.move = r.members[idx].move
+	oldFloor := 0
+	var assigned []byte
+	if idx >= 0 { // silent rejoin keeps the stored position when the floor is unchanged
+		oldFloor = r.members[idx].floor
+		if oldFloor == floor && len(r.members[idx].move) > 0 {
+			assigned = r.members[idx].move
 		}
+	}
+	tx, ty := -1, -1
+	if assigned == nil {
+		assigned, tx, ty = r.spawnLocked(m, floor, move)
+	}
+	m.move, m.floor = assigned, floor
+	if idx >= 0 {
 		r.members[idx] = m
 	} else {
 		r.members = append(r.members, m)
 	}
-	roster := r.rosterLocked()
+	roster := r.rosterLocked(floor)
+	all := r.allRosterLocked()
 	hostSession := h.sessions[r.host]
 	hostIn := r.has(r.host) && r.host != m.aid
 	others := r.others(m)
+	sameFloor := r.onFloor(m, floor)
+	var oldMates []*partyMember
+	if idx >= 0 && oldFloor != floor {
+		oldMates = r.onFloor(m, oldFloor)
+	}
 	h.mu.Unlock()
 	s.joined = r
-	s.logger.Printf("ROOMPARTY relaystart aid=%d host=%d roster=%d rejoined=%v", s.aid, r.host, len(roster), idx >= 0)
+	s.logger.Printf("ROOMPARTY relaystart aid=%d host=%d floor=%d roster=%d rejoined=%v clientCur=(%d,%d) assignedTile=(%d,%d)", s.aid, r.host, floor, len(roster), idx >= 0, cx, cy, tx, ty)
+	// idx6/idx1 are room-wide (chat info only); avatars come from the per-floor messages.
 	res := pbVar(nil, 1, 0)
-	for _, p := range roster {
+	for _, p := range all {
 		res = pbLen(res, 2, partyPlayerInfo(p.aid, p.move))
 	}
 	if err := s.reply(frame, 6, res); err != nil {
@@ -474,25 +640,123 @@ func (s *roomPartySession) relayStart(frame, data []byte) error {
 	// rejoin (a fresh scene has no avatars); it MUST include the joiner itself: AddInviteUser's self branch (aid == hero) is the only
 	// place that calls SetJoinRoomParty(true) on the hero, and AvActor::MoveNextActor posts the
 	// move message 12638 -> RoomPartyService::SendMove only for such a hero (else walking is local).
-	floorRes := pbVar(nil, 1, 0)
-	for _, p := range roster {
+	// The self row also repositions the hero (setPosition cur f1,f2): that is the spawn separation.
+	for _, p := range all {
 		if p.aid != m.aid {
 			m.send(s.logger, 1, pbLen(nil, 1, partyPlayerInfo(p.aid, p.move)))
 		}
+	}
+	floorRes := pbVar(nil, 1, 0)
+	for _, p := range roster {
 		floorRes = pbLen(floorRes, 2, partyPlayerInfo(p.aid, p.move))
 	}
 	m.send(s.logger, 29, floorRes)
-	if idx >= 0 {
+	if idx >= 0 && oldFloor == floor {
 		return nil
 	}
 	add := pbLen(nil, 1, partyPlayerInfo(m.aid, m.move))
-	for _, o := range others {
-		o.send(s.logger, 1, add)
+	if idx < 0 {
+		for _, o := range others {
+			o.send(s.logger, 1, add)
+		}
+	}
+	for _, o := range sameFloor {
 		o.send(s.logger, 30, add)
 	}
-	if r.host != m.aid && !hostIn && hostSession != nil {
+	for _, o := range oldMates {
+		o.send(s.logger, 31, pbVar(nil, 1, m.aid))
+	}
+	if idx < 0 && r.host != m.aid && !hostIn && hostSession != nil {
 		s.logger.Printf("ROOMPARTY friend-entered aid=%d host=%d", s.aid, r.host)
 		hostSession.send(s.logger, 10, pbVar(nil, 1, m.aid))
+	}
+	return nil
+}
+
+// member returns the session's room while it is still a member (not replaced).
+func (s *roomPartySession) member() *partyRoom {
+	r := s.joined
+	if r == nil {
+		return nil
+	}
+	h := s.h()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if r.index(s.pm) < 0 {
+		return nil
+	}
+	return r
+}
+
+// floorEnter answers cr_floor_enter_req (Floor#1) with rc_floor_enter_res idx28
+// {Result#1, Floor#2}. Result 0 makes the client reload that floor over HTTP and send
+// cr_floor_relaystart_req; the move itself is applied there. Nonzero: client does nothing.
+func (s *roomPartySession) floorEnter(frame, data []byte) error {
+	f, _ := protobufUintField(data, 1)
+	result := uint64(0)
+	if s.member() == nil || !partyFloorOK(f) {
+		result = 1
+	}
+	s.logger.Printf("ROOMPARTY floor-enter aid=%d floor=%d result=%d", s.aid, f, result)
+	return s.reply(frame, 28, pbVar(pbVar(nil, 1, result), 2, f))
+}
+
+// floorRelayStart handles cr_floor_relaystart_req {Floor#1, MoveInfo#2}: set floor and
+// spawn, idx29 roster (incl. self, Floor#4) to the mover, idx30 to the new floor,
+// idx31 to the old floor, idx32/idx33 notifications to every other member.
+func (s *roomPartySession) floorRelayStart(data []byte) error {
+	r := s.member()
+	f, _ := protobufUintField(data, 1)
+	move, _, ok := pbBytesField(data, 2)
+	if r == nil || !partyFloorOK(f) || !ok {
+		s.logger.Printf("ROOMPARTY floor-relaystart ignored aid=%d floor=%d", s.aid, f)
+		return nil
+	}
+	floor := int(f)
+	h := s.h()
+	m := s.pm
+	cx, cy, _, _, _ := partyMoveFields(move)
+	h.mu.Lock()
+	oldFloor := m.floor
+	var assigned []byte
+	tx, ty := -1, -1
+	if oldFloor == floor && len(m.move) > 0 {
+		assigned = m.move
+	} else {
+		assigned, tx, ty = r.spawnLocked(m, floor, move)
+	}
+	m.move, m.floor = assigned, floor
+	roster := r.rosterLocked(floor)
+	newMates := r.onFloor(m, floor)
+	var oldMates []*partyMember
+	if oldFloor != floor {
+		oldMates = r.onFloor(m, oldFloor)
+	}
+	others := r.others(m)
+	h.mu.Unlock()
+	s.logger.Printf("ROOMPARTY floor-relaystart aid=%d floor=%d->%d clientCur=(%d,%d) assignedTile=(%d,%d) roster=%d", s.aid, oldFloor, floor, cx, cy, tx, ty, len(roster))
+	res := pbVar(nil, 1, 0)
+	for _, p := range roster {
+		res = pbLen(res, 2, partyPlayerInfo(p.aid, p.move))
+	}
+	m.send(s.logger, 29, pbVar(res, 4, f))
+	if oldFloor == floor {
+		return nil
+	}
+	add := pbLen(nil, 1, partyPlayerInfo(m.aid, m.move))
+	for _, o := range newMates {
+		o.send(s.logger, 30, add)
+	}
+	del := pbVar(nil, 1, m.aid)
+	for _, o := range oldMates {
+		o.send(s.logger, 31, del)
+	}
+	name := partyName(m.aid)
+	leave := pbLen(pbVar(pbVar(nil, 1, m.aid), 2, uint64(oldFloor)), 3, name)
+	enter := pbLen(pbVar(pbVar(nil, 1, m.aid), 2, f), 3, name)
+	for _, o := range others {
+		o.send(s.logger, 33, leave)
+		o.send(s.logger, 32, enter)
 	}
 	return nil
 }
@@ -537,6 +801,14 @@ func (s *roomPartySession) invite(frame, data []byte) error {
 	for _, t := range pushes {
 		t.send(s.logger, 9, push)
 	}
+	if len(good) > 0 {
+		h.mu.Lock()
+		hs := h.sessions[host]
+		h.mu.Unlock()
+		if hs != nil {
+			hs.send(s.logger, 23, partyStatusBody())
+		}
+	}
 	return nil
 }
 
@@ -565,10 +837,15 @@ func (s *roomPartySession) relay(msgid uint16, data []byte) error {
 		s.pm.move = append([]byte(nil), move...)
 		s.pm.nmov++
 		n := s.pm.nmov
-		others := r.others(s.pm)
+		others := r.onFloor(s.pm, s.pm.floor)
 		h.mu.Unlock()
 		if n <= 20 || n%50 == 0 {
 			s.logger.Printf("ROOMPARTY move aid=%d count=%d to=%d", s.aid, n, len(others))
+		}
+		if n <= 3 {
+			x, y, _, _, _ := partyMoveFields(move)
+			tx, ty := partyPxTile(x, y)
+			s.logger.Printf("ROOMPARTY move-cur aid=%d n=%d cur=(%d,%d) tile=(%d,%d)", s.aid, n, x, y, tx, ty)
 		}
 		body := pbLen(pbVar(nil, 1, s.aid), 2, move)
 		for _, o := range others {
@@ -598,7 +875,7 @@ func (s *roomPartySession) relay(msgid uint16, data []byte) error {
 			return nil
 		}
 		h.mu.Lock()
-		others := r.others(s.pm)
+		others := r.onFloor(s.pm, s.pm.floor)
 		h.mu.Unlock()
 		s.logger.Printf("ROOMPARTY action aid=%d fields=%s", s.aid, pbSummary(action))
 		body := pbLen(pbVar(nil, 1, s.aid), 2, action)
@@ -633,7 +910,7 @@ func handleRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/v4/room/"), "/")
-	var name, level string
+	var name, level, decorAID string
 	switch {
 	case len(parts) == 2 && parts[0] == "myroom":
 		level = parts[1]
@@ -646,7 +923,7 @@ func handleRoom(w http.ResponseWriter, r *http.Request) {
 		if parts[1] == friendAID {
 			name = friendName
 		} else if acc, ok := accountByAvatarID(parts[1]); ok {
-			name = acc.name
+			name, decorAID = acc.name, parts[1]
 		} else {
 			serveNotFound(w)
 			return
@@ -659,17 +936,22 @@ func handleRoom(w http.ResponseWriter, r *http.Request) {
 		serveNotFound(w)
 		return
 	}
+	roomInfo := map[string]any{
+		"groundLevel": level,
+		"tileSize":    12, // ponytail: unverified; hero spawn tile (8,4) must fit inside
+		// The client's default floor (RUTI0005D = 121500193) has no tile_1.png in the
+		// full-client dataset and the room renders blank; RUTI000EW (121500536) has one.
+		"floor":     map[string]any{"seq": "1", "cd": roomFloorCode, "type": "floorTile"},
+		"wall":      map[string]any{"seq": "0", "cd": roomWallCode, "type": "wallTile"}, // default RUWA0006D (121400229) lacks wall_l/r_1.png
+		"floorItem": []any{}, "wallItem": []any{}, "item": []any{}, "memberAvatarIdList": []any{},
+	}
+	if parts[0] == "myroom" || decorAID != "" { // saved layout (roomdecor.go); friend 100000 and unsaved levels keep the default
+		maps.Copy(roomInfo, roomDecorInfo(r, decorAID, level))
+	}
+	maxLevel := "LEVEL_" + strconv.Itoa(roomPartyFloors)
 	body, _ := json.Marshal(map[string]any{"result": map[string]any{
-		"roomInfo": map[string]any{
-			"groundLevel": level,
-			"tileSize":    12, // ponytail: unverified; hero spawn tile (8,4) must fit inside
-			// The client's default floor (RUTI0005D = 121500193) has no tile_1.png in the
-			// full-client dataset and the room renders blank; RUTI000EW (121500536) has one.
-			"floor":     map[string]any{"seq": "1", "cd": roomFloorCode, "type": "floorTile"},
-			"wall":      map[string]any{"seq": "0", "cd": roomWallCode, "type": "wallTile"}, // default RUWA0006D (121400229) lacks wall_l/r_1.png
-			"floorItem": []any{}, "wallItem": []any{}, "item": []any{}, "memberAvatarIdList": []any{},
-		},
-		"ownMaxGroundLevel": "LEVEL_1", "availMaxGroundLevel": "LEVEL_1",
+		"roomInfo":          roomInfo,
+		"ownMaxGroundLevel": maxLevel, "availMaxGroundLevel": maxLevel,
 		"name": name, "vipRewardedList": []any{},
 	}})
 	writeJSON(w, http.StatusOK, string(body))
