@@ -358,7 +358,7 @@ func TestRoomThumbnailRouting(t *testing.T) {
 			t.Errorf("%s size = %v", c.path, cfg)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(cache, "interior_122000001.png")); err != nil {
+	if _, err := os.Stat(filepath.Join(cache, "v2_interior_122000001.png")); err != nil {
 		t.Errorf("generated thumbnail not cached: %v", err)
 	}
 	if rec := serve(t, http.MethodGet, "/arts_item_interior_999/dp.png"); rec.Code != http.StatusNotFound {

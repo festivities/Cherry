@@ -1,10 +1,12 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"image"
 	"image/draw"
 	"image/png"
+	"io"
 	"math"
 	"net/http"
 	"os"
@@ -25,7 +27,9 @@ import (
 // SbItemTable::_LoadDressLiveBinaryFile_ver1409 / _LoadCustomLiveBinaryFile_ver1409
 // and SbItemTableLoader_{Dress,Custom}_V0..V3 in libgame.so 10.1.0.0:
 // each part record is [parent-node key, z-order, c, d, x, y, filename, ...]
-// with x,y = part top-left in pixels, y growing downward).
+// with x,y = part CENTER in the parent body-node sprite's space, origin
+// bottom-left, y up; see dpskel.go for the skeleton placement and dpframe.go
+// for the final 130x100 framing).
 
 // dpItemRoot is the read-only archive tree holding item/{custom,dress}/{id}/.
 var dpItemRoot = filepath.FromSlash(`D:/Dev/projects/Cherry/.opencode/line-play-artifacts/santi-backup-20260921/jp.naver.lineplay.android/files/item`)
@@ -242,6 +246,9 @@ func parseCustomItemParts(text string) (front, back []dpPart, ok bool) {
 	hasAnim := p.num()
 	ver := p.num()
 	wide := 0
+	if ver == 1 {
+		wide = 2 // Custom_V1 @0x2acf380 stores two extra ints after the filename
+	}
 	if ver == 2 {
 		wide = 3
 		p.num() // flag
@@ -266,36 +273,32 @@ func parseCustomItemParts(text string) (front, back []dpPart, ok bool) {
 	return front, back, true
 }
 
-// composeItemDP composites the item's own part sprites. Parts attach to avatar
-// body nodes (anchor key), so offsets are only comparable within one anchor
-// group; the group holding the largest sprite carries the item's main art.
-func composeItemDP(dir, kind string) (*image.RGBA, bool) {
-	if kind == "interior" || kind == "tile" {
-		return composeRoomDP(dir, kind)
-	}
+// dpLoaded is one part with its decoded sprite.
+type dpLoaded struct {
+	dpPart
+	img image.Image
+}
+
+// dpLoadParts decodes the front-view parts (back view when the front is
+// empty); parts whose sprite is missing are skipped, as the client does.
+func dpLoadParts(dir, kind string) (loaded []dpLoaded, text string, ok bool) {
 	raw, err := os.ReadFile(filepath.Join(dir, "1409_iteminfo.artsitem"))
 	if err != nil {
-		return nil, false
+		return nil, "", false
 	}
 	var front, back []dpPart
-	var ok bool
 	if kind == "dress" {
 		front, back, ok = parseDressItemParts(string(raw))
 	} else {
 		front, back, ok = parseCustomItemParts(string(raw))
 	}
 	if !ok {
-		return nil, false
+		return nil, "", false
 	}
 	list := front
 	if len(list) == 0 {
 		list = back
 	}
-	type loadedPart struct {
-		dpPart
-		img image.Image
-	}
-	loaded := make([]loadedPart, 0, len(list))
 	for _, pt := range list {
 		f, err := os.Open(filepath.Join(dir, pt.name))
 		if err != nil {
@@ -306,11 +309,14 @@ func composeItemDP(dir, kind string) (*image.RGBA, bool) {
 		if err != nil {
 			continue
 		}
-		loaded = append(loaded, loadedPart{dpPart: pt, img: img})
+		loaded = append(loaded, dpLoaded{dpPart: pt, img: img})
 	}
-	if len(loaded) == 0 {
-		return nil, false
-	}
+	return loaded, string(raw), len(loaded) > 0
+}
+
+// dpLegacyCrop is the original compositor: only the anchor group holding the
+// largest sprite, tight-cropped (offsets are only comparable within a group).
+func dpLegacyCrop(loaded []dpLoaded) *image.RGBA {
 	big := 0
 	for i, lp := range loaded {
 		b := lp.img.Bounds()
@@ -320,7 +326,7 @@ func composeItemDP(dir, kind string) (*image.RGBA, bool) {
 		}
 	}
 	anchor := loaded[big].anchor
-	group := make([]loadedPart, 0, len(loaded))
+	group := make([]dpLoaded, 0, len(loaded))
 	for _, lp := range loaded {
 		if lp.anchor == anchor {
 			group = append(group, lp)
@@ -345,7 +351,134 @@ func composeItemDP(dir, kind string) (*image.RGBA, bool) {
 		oy := int(math.Round(lp.y)) - minY + dpPartPad
 		draw.Draw(canvas, image.Rect(ox, oy, ox+b.Dx(), oy+b.Dy()), lp.img, b.Min, draw.Over)
 	}
-	return canvas, true
+	return canvas
+}
+
+// dpDefaultExpressionOnly lists categories whose part rows are stacked
+// expression variants of one feature (neutral/raised/worried/angry brows); the
+// client shows one at a time, so only the first row (default) is drawn.
+var dpDefaultExpressionOnly = map[string]bool{"EB": true}
+
+// dpComposeNatural renders the item at natural size and reports its category.
+// Multi-anchor, face/hair and animated items are placed on the idle skeleton;
+// single-anchor-group items (and anchor 17, which has no node) use the legacy
+// tight crop.
+func dpComposeNatural(dir, kind string) (*dpNat, dpCat, bool) {
+	loaded, text, ok := dpLoadParts(dir, kind)
+	if !ok {
+		return nil, dpCat{}, false
+	}
+	cat := dpCategoryOf(filepath.Base(dir))
+	if dpDefaultExpressionOnly[cat.code] {
+		loaded = loaded[:1]
+	}
+	anchors := map[int]bool{}
+	placeholder := false
+	for _, lp := range loaded {
+		anchors[lp.anchor] = true
+		b := lp.img.Bounds()
+		placeholder = placeholder || (b.Dx() <= 2 && b.Dy() <= 2)
+	}
+	if !anchors[dpTagSpecial] && (len(anchors) > 1 || cat.head() || placeholder) {
+		if n := dpSkeletonCompose(dir, text, loaded, cat); n != nil {
+			return n, cat, true
+		}
+	}
+	return &dpNat{img: dpLegacyCrop(loaded)}, cat, true
+}
+
+// dpSkeletonCompose places every front part on its idle-pose node.
+func dpSkeletonCompose(dir, text string, loaded []dpLoaded, cat dpCat) *dpNat {
+	rig := dpLoadRig(cat.rig())
+	if rig == nil {
+		return nil
+	}
+	var layers []dpLayer
+	if cat.head() {
+		layers = rig.headLayers()
+	}
+	placeholders := false
+	for i, lp := range loaded {
+		b := lp.img.Bounds()
+		if b.Dx() <= 2 && b.Dy() <= 2 {
+			placeholders = true
+			continue
+		}
+		x, y, ok := rig.place(lp.anchor, lp.x, lp.y, lp.img)
+		if !ok {
+			continue
+		}
+		layers = append(layers, dpLayer{z: lp.z, seq: i, img: lp.img, x: x, y: y})
+	}
+	if placeholders {
+		layers = append(layers, dpAnimLayers(rig, dir, text, len(loaded))...)
+	}
+	if len(layers) == 0 {
+		return nil
+	}
+	img, ox, oy := dpRasterize(layers, dpPartPad)
+	if img == nil {
+		return nil
+	}
+	n := &dpNat{img: img, skel: true}
+	if hl, ok := rig.ll[dpTagHead]; ok {
+		// head sprite centre in image px
+		n.headX = ox + hl[0] + float64(rig.size[dpTagHead][0])/2
+		n.headY = oy - (hl[1] + float64(rig.size[dpTagHead][1])/2)
+	}
+	return n
+}
+
+// dpNat is an unframed render. headX/headY locate the default head centre in
+// img px when the skeleton path was used.
+type dpNat struct {
+	img          *image.RGBA
+	skel         bool
+	headX, headY float64
+}
+
+// dpAnimLayers draws the animation symbols attached to placeholder parts: the
+// symbol origin sits at the part center plus (DX, DY), y up.
+func dpAnimLayers(rig *dpRig, dir, text string, seq int) []dpLayer {
+	aps, err := dpItemAniParts(text)
+	if err != nil {
+		return nil
+	}
+	var out []dpLayer
+	for _, ap := range aps {
+		if ap.Back {
+			continue
+		}
+		ll, ok := rig.ll[ap.Anchor]
+		if !ok {
+			continue
+		}
+		img, origin, ok := dpAnimFrame(dir, ap.Symbol)
+		if !ok {
+			continue
+		}
+		// The animation is a child of the part sprite (AttachPartsAnimation
+		// @0x29b6b10): origin at the part centre + (DX, DY), y up. Measured
+		// against body-node-relative and flipped-DY alternatives on authentic
+		// previews: this one scored best (0.43 vs 0.41/0.42 mean IoU).
+		cx, cy := ll[0]+ap.X+float64(ap.DX), ll[1]+ap.Y+float64(ap.DY)
+		seq++
+		out = append(out, dpLayer{z: ap.Z, seq: seq, img: img,
+			x: cx - float64(origin.X), y: cy - float64(img.Bounds().Dy()-origin.Y)})
+	}
+	return out
+}
+
+// composeItemDP builds the final 130x100 preview for a custom/dress item.
+func composeItemDP(dir, kind string) (*image.RGBA, bool) {
+	if kind == "interior" || kind == "tile" {
+		return composeRoomDP(dir, kind)
+	}
+	img, cat, ok := dpComposeNatural(dir, kind)
+	if !ok {
+		return nil, false
+	}
+	return dpFrame(img, cat), true
 }
 
 // dpFlights serializes composite generation per item so concurrent requests
@@ -366,8 +499,59 @@ func dpFlight(key string) *sync.Mutex {
 	return mu
 }
 
+// dpCacheVersion prefixes cache files so thumbnails from older compositors are
+// never served after an upgrade.
+const dpCacheVersion = "v2_"
+
 func dpCachePath(kind, id string) string {
-	return filepath.Join(dpCacheDir, kind+"_"+id+".png")
+	return filepath.Join(dpCacheDir, dpCacheVersion+kind+"_"+id+".png")
+}
+
+// dpZipPath is the read-only 2014 iOS item archive; its matching-id dp.png
+// previews are authentic and win over generated composites.
+var dpZipPath = filepath.FromSlash(`D:/Dev/projects/Cherry/.opencode/line-play-artifacts/lineplay-original-assets/ios-mini-4.3-2014/item.zip`)
+
+var dpZipIdx = struct {
+	sync.Mutex
+	path string
+	rc   *zip.ReadCloser
+	m    map[string]*zip.File
+}{}
+
+// dpZipPreview returns the archive's item/<kind>/<id>/dp.png bytes.
+func dpZipPreview(kind, id string) ([]byte, bool) {
+	z := &dpZipIdx
+	z.Lock()
+	defer z.Unlock()
+	if z.path != dpZipPath {
+		if z.rc != nil {
+			z.rc.Close()
+		}
+		z.path, z.rc, z.m = dpZipPath, nil, nil
+		if rc, err := zip.OpenReader(dpZipPath); err == nil {
+			z.rc, z.m = rc, make(map[string]*zip.File, len(rc.File))
+			for _, f := range rc.File {
+				z.m[f.Name] = f
+			}
+		}
+	}
+	f := z.m["item/"+kind+"/"+id+"/dp.png"]
+	if f == nil || f.UncompressedSize64 > 1<<22 {
+		return nil, false
+	}
+	r, err := f.Open()
+	if err != nil {
+		return nil, false
+	}
+	defer r.Close()
+	b, err := io.ReadAll(io.LimitReader(r, 1<<22))
+	if err != nil {
+		return nil, false
+	}
+	if _, err := png.DecodeConfig(bytes.NewReader(b)); err != nil {
+		return nil, false
+	}
+	return b, true
 }
 
 func dpWritePNG(w http.ResponseWriter, b []byte) {
@@ -394,17 +578,20 @@ func serveDpPNG(w http.ResponseWriter, kind, id string) {
 		dpWritePNG(w, b)
 		return
 	}
-	img, ok := composeItemDP(dir, kind)
+	b, ok := dpZipPreview(kind, id)
 	if !ok {
-		serveNotFound(w)
-		return
+		img, ok := composeItemDP(dir, kind)
+		if !ok {
+			serveNotFound(w)
+			return
+		}
+		var buf bytes.Buffer
+		if err := png.Encode(&buf, img); err != nil {
+			serveNotFound(w)
+			return
+		}
+		b = buf.Bytes()
 	}
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, img); err != nil {
-		serveNotFound(w)
-		return
-	}
-	b := buf.Bytes()
 	if dpCacheDir != "" {
 		if err := os.MkdirAll(dpCacheDir, 0o755); err == nil {
 			dpAtomicWrite(cachePath, b)
