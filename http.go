@@ -1044,6 +1044,9 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if r.Method == http.MethodGet && serveAttendanceSkin(w, r.URL.Path) {
+		return
+	}
 	if r.Method == http.MethodGet && isUpdateIniPath(r.URL.Path) {
 		body := emptyUpdateIniBody
 		if isTx543UpdateIniPath(r.URL.Path) {
@@ -1157,7 +1160,11 @@ type account struct {
 	gems           int64 // economy ledger balances, never negative (economy.go)
 	cash           int64
 	faceTickets    int64
-	welcomed       bool // 300-Gem welcome gift already credited
+	welcomed       bool      // 300-Gem welcome gift already credited
+	attendDay      int       // last attended day in the 7-day login cycle (0 = none yet), loginbonus.go
+	attendKey      int64     // day key (06:00 JST boundary) of the last attend
+	mail           []mailRow // unclaimed mailbox rows, mailbox.go; replaced, never edited in place
+	nextMailSeq    int64
 }
 
 // avatarItem is the object form parsed by sDataAvatar::SetData @0x1c0a39c.

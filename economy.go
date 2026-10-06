@@ -157,6 +157,8 @@ func registerEconomyRoutes(mux *http.ServeMux) {
 	for _, unit := range []string{"gem", "cash", "heart"} {
 		mux.HandleFunc("/v4/bill/prod/spot/"+unit, handleJSONBody(emptySpecialChanceBody))
 	}
+	registerLoginBonusRoutes(mux)
+	registerMailRoutes(mux)
 }
 
 const emptySpecialChanceBody = `{"result":{"items":[],"location":""}}`
@@ -358,6 +360,8 @@ const adminAddr = "127.0.0.1:8099"
 func newAdminMux() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/admin/grant", handleAdminGrant)
+	mux.HandleFunc("/admin/mail", handleAdminMail)
+	mux.HandleFunc("/admin/attend", handleAdminAttend)
 	return mux
 }
 

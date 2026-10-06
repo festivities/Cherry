@@ -30,6 +30,10 @@ type storedAccount struct {
 	Cash           int64                 `json:"cash,omitempty"`
 	FaceTickets    int64                 `json:"faceTickets,omitempty"`
 	Welcomed       bool                  `json:"welcomed,omitempty"`
+	AttendDay      int                   `json:"attendDay,omitempty"`
+	AttendKey      int64                 `json:"attendKey,omitempty"`
+	Mail           []mailRow             `json:"mail,omitempty"`
+	NextMailSeq    int64                 `json:"nextMailSeq,omitempty"`
 }
 
 type savedAccounts struct {
@@ -82,6 +86,7 @@ func loadAccountsFrom(path string) error {
 				itemCodes: saved.ItemCodes, inventoryCodes: inventoryCopy,
 				roomItems: saved.RoomItems, nextRoomSeq: roomNextSeq(saved.RoomItems, saved.NextRoomSeq), rooms: saved.Rooms, presets: saved.Presets, pets: saved.Pets,
 				gems: max(saved.Gems, 0), cash: max(saved.Cash, 0), faceTickets: max(saved.FaceTickets, 0), welcomed: saved.Welcomed,
+				attendDay: saved.AttendDay, attendKey: saved.AttendKey, mail: saved.Mail, nextMailSeq: saved.NextMailSeq,
 			}
 		}
 		for token, id := range state.Aliases {
@@ -131,6 +136,7 @@ func saveAccountsLocked() error {
 			InventoryCodes: acc.inventoryCodes,
 			RoomItems:      acc.roomItems, NextRoomSeq: acc.nextRoomSeq, Rooms: acc.rooms, Presets: acc.presets, Pets: acc.pets,
 			Gems: acc.gems, Cash: acc.cash, FaceTickets: acc.faceTickets, Welcomed: acc.welcomed,
+			AttendDay: acc.attendDay, AttendKey: acc.attendKey, Mail: acc.mail, NextMailSeq: acc.nextMailSeq,
 		}
 	}
 	data, err := json.Marshal(state)
