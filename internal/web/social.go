@@ -205,6 +205,30 @@ func profileJSON(w http.ResponseWriter, body any) {
 	httpx.WriteJSON(w, http.StatusOK, string(data))
 }
 
+// Client ResRecommandMyCodeURL (libgame 0x1a5b768) reads result.recommendCode.
+// Friend search's CODE type matches the avatar id, so the code is the aid.
+func handleRecommendCode(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		httpx.ServeNotFound(w)
+		return
+	}
+	acc, ok := store.AccountForRequest(r)
+	if !ok {
+		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
+		return
+	}
+	httpx.WriteObj(w, map[string]any{"result": map[string]string{"recommendCode": acc.Aid}})
+}
+
+// Badge-set response handler is a no-op in the client; just acknowledge.
+func handleBadgeSetAck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		httpx.ServeNotFound(w)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, badgeSetAckBody)
+}
+
 func handleFriendBookmark(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		httpx.ServeNotFound(w)

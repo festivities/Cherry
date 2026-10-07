@@ -610,3 +610,25 @@ func TestRetiredAvatarIDsTombstoned(t *testing.T) {
 		t.Fatalf("tombstones counted: %s", sync.Body.String())
 	}
 }
+
+func TestInviteScreenRoutes(t *testing.T) {
+	installSocialTestAccounts(t, map[string]*store.Account{
+		"invite-token": {AccessToken: "invite-token", Aid: "7", Name: "Cherry"},
+	})
+	for _, c := range []struct{ method, target, want string }{
+		{http.MethodGet, "/v4/friends/invitation/mission/info", inviteMissionBody},
+		{http.MethodGet, "/v4/friends/invitation/list?lastSeq=-1&size=100", inviteListBody},
+		{http.MethodPost, "/v4/badge/IFRD/0", badgeSetAckBody},
+	} {
+		if rec := serveRequest(t, httptest.NewRequest(c.method, c.target, nil)); rec.Code != http.StatusOK || rec.Body.String() != c.want {
+			t.Fatalf("%s %s: status = %d, body = %q", c.method, c.target, rec.Code, rec.Body.String())
+		}
+	}
+	if rec := serve(t, http.MethodGet, "/v4/recommend/code"); rec.Code != http.StatusNotFound {
+		t.Fatalf("recommend/code without session: status = %d, want 404", rec.Code)
+	}
+	rec := socialTestRequestAs(t, "invite-token", http.MethodGet, "/v4/recommend/code", "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"recommendCode":"7"`) {
+		t.Fatalf("recommend/code: status = %d, body = %q", rec.Code, rec.Body.String())
+	}
+}

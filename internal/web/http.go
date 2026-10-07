@@ -52,6 +52,12 @@ const settingAllBody = `{"result":{"notiFlag":false,"changeCountry":false,"count
 
 const friendLineBuddyBody = `{"result":{"nextCursor":"0","buddyList":[],"bookmarks":[]}}`
 
+const (
+	inviteMissionBody = `{"result":{"inviteCount":0,"achievementList":[]}}`
+	inviteListBody    = `{"result":{"items":[]}}`
+	badgeSetAckBody   = `{"result":{}}`
+)
+
 const badgeInfosBody = `{"result":{"NEWS":0,"CHAT":0,"NFRD":0,"IFRD":0,"GIFT":0,"POSTBOX":0,"CSET":0,"FACE":0,"ROOM":0,"ALERT":0}}`
 
 const friendBrandBuddyBody = `{"result":[]}`
@@ -283,6 +289,10 @@ func NewMux() *http.ServeMux {
 	mux.HandleFunc("/v4/square/friends/search", handleFriendSearch)
 	mux.HandleFunc("/v4/line/buddy/v4/list", httpx.HandleJSONBody(friendLineBuddyBody))
 	mux.HandleFunc("/v4/badge/infos/", httpx.HandleJSONBody(badgeInfosBody))
+	mux.HandleFunc("/v4/friends/invitation/mission/info", httpx.HandleJSONBody(inviteMissionBody))
+	mux.HandleFunc("/v4/friends/invitation/list", httpx.HandleJSONBody(inviteListBody))
+	mux.HandleFunc("/v4/recommend/code", handleRecommendCode)
+	mux.HandleFunc("/v4/badge/IFRD/", handleBadgeSetAck)
 	mux.HandleFunc("/v4/friend/bookmark/", handleFriendBookmark)
 	mux.HandleFunc("/v4/r/friend/remove/", handleFriendRemove)
 	mux.HandleFunc("/v4/friend/status/", handleFriendStatus)
