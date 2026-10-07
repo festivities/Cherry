@@ -40,7 +40,7 @@ Older commit-by-commit evidence (M3 entry errors, keepalives, preload fixtures) 
 
 ## Roadmap
 
-1. **Code restructure (approved 2026-10-07, next):** split the flat `package main` into packages without behavior changes, e.g. `cmd/cherry` (startup/listeners), `internal/store` (accounts, ledger, persistence), `internal/web` (HTTP mux and routes), `internal/economy` (ledger rules, shops, calendar, mailbox, Face Shop), `internal/room` (My Room, decor, presets, pets), `internal/lpn` (gateway transport, Garden, Square, Room Party), `internal/thumbs` (thumbnail generator), `internal/netsvc` (DNS, TLS), `data/`. Delegated; all tests must pass; main-agent review; deploy; the user re-checks a few flows; then update the AGENTS code map.
+1. **Code restructure — done 2026-10-07:** the flat `package main` became `cmd/cherry` + `internal/{store,httpx,web,economy,room,lpn,thumbs,netsvc,testutil}` + `data/` with no behavior change (209 tests pass before and after; all 39 persisted/serialized types keep identical JSON tags). `internal/httpx` and `internal/testutil` were added to avoid import cycles. Build with `go build -o cherry.exe ./cmd/cherry`. Layout: AGENTS "Code map".
 2. **Economy Phase C — shops:** plan the price table first (original prices are lost; set by category/grade and pacing target), then clothing/furniture/pet shops, gacha with published odds (earned Gems only), **sell-back at 100% of price** (lab accounts may sell their showcase items), Closet shows owned items and shops the rest. Decide whether preset slots / extra floors become purchasable.
 3. **Economy Phase D — minigames and quests (Garden protocol):** Garden QUEST-panel quests, fishing/gathering, Square games (boss fishing, racing, exchange shop), the hearts quest (TLUP event 102). Largest income source, with soft daily caps. Needs field-level protobuf research first.
 4. **Economy Phase E:** events, seasonal rewards, limited shops; mailbox giveaways with items.
@@ -48,7 +48,7 @@ Older commit-by-commit evidence (M3 entry errors, keepalives, preload fixtures) 
 
 ## Feature reference (current)
 
-Tags: [S] static-confirmed, [I] inferred, [?] unverified. Aids 1/2 in any copied evidence mean today's 1001/1002.
+Tags: [S] static-confirmed, [I] inferred, [?] unverified. Aids 1/2 in any copied evidence mean today's 1001/1002. File names (e.g. `garden.go`) are unique; their package folders are in AGENTS "Code map".
 
 ### Garden (entry, visit presence)
 

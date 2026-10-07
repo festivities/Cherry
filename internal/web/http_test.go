@@ -1,0 +1,1570 @@
+package web
+
+import (
+	"bytes"
+	"compress/gzip"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/md5"
+	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"cherry/internal/httpx"
+	"cherry/internal/lpn"
+	"cherry/internal/store"
+)
+
+type setInitConfResult struct {
+	SessionServerInfo string   `json:"sessionServerInfo"`
+	StaticDomain      string   `json:"staticDomain"`
+	NationCode        string   `json:"nationCode"`
+	IsGdprNation      bool     `json:"isGdprNation"`
+	SnsLoginUIList    []string `json:"snsLoginUIList"`
+	SnsSignUpUIList   []string `json:"snsSignUpUIList"`
+}
+
+type setInitConfResponse struct {
+	Result *setInitConfResult `json:"result"`
+}
+
+func serve(t *testing.T, method, target string) *httptest.ResponseRecorder {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	NewMux().ServeHTTP(rec, httptest.NewRequest(method, target, nil))
+	return rec
+}
+
+func avatarHasCD(items []store.AvatarItem, cd string) bool {
+	return findAvatarItem(items, cd).CD == cd
+}
+
+func findAvatarItem(items []store.AvatarItem, cd string) store.AvatarItem {
+	for _, it := range items {
+		if it.CD == cd {
+			return it
+		}
+	}
+	return store.AvatarItem{}
+}
+
+func TestAppearanceItemCodes(t *testing.T) {
+	if n, ok := lpn.SquareNumericItem("CUTO0011X"); !ok || n != 225001365 {
+		t.Fatalf("CUTO0011X = %d %v", n, ok)
+	}
+	if n, ok := lpn.SquareNumericItem("CUPA000LO"); !ok || n != 225200780 {
+		t.Fatalf("CUPA000LO = %d %v", n, ok)
+	}
+	if n, ok := lpn.SquareNumericItem("CUSH0009Q"); !ok || n != 225300350 {
+		t.Fatalf("CUSH0009Q = %d %v", n, ok)
+	}
+	got := store.AppearanceItemCodes("FEMALE", []string{"CUEY00002", "CUMO00002", "CUEB00001", "CUNO00001", "CUHE0000L"})
+	for _, cd := range []string{"CUTO0011X", "CUPA000LO", "CUSH0009Q", "CUHA00004"} {
+		if !avatarHasCD(store.AvatarItemsFromCodes(got), cd) {
+			t.Fatalf("faces-only missing %s: %v", cd, got)
+		}
+	}
+	dressed := store.AppearanceItemCodes("FEMALE", []string{"CUON004TV", "CUSH00267"})
+	for _, cd := range dressed {
+		if store.ItemSlot(cd) == "TO" || store.ItemSlot(cd) == "PA" {
+			t.Fatalf("one-piece still got %s: %v", cd, dressed)
+		}
+	}
+}
+
+func TestSetInitConf(t *testing.T) {
+	rec := serve(t, http.MethodGet, "/v4/setInitConf")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json; charset=utf-8" {
+		t.Fatalf("Content-Type = %q, want %q", ct, "application/json; charset=utf-8")
+	}
+
+	var raw struct {
+		Result map[string]json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("body is not valid JSON: %v", err)
+	}
+	for _, field := range []string{"sessionServerInfo", "staticDomain", "nationCode", "isGdprNation", "snsLoginUIList", "snsSignUpUIList"} {
+		if _, ok := raw.Result[field]; !ok {
+			t.Errorf("result field %q missing", field)
+		}
+	}
+	if len(raw.Result) != 6 {
+		t.Errorf("result has %d fields, want 6", len(raw.Result))
+	}
+
+	var body setInitConfResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body decode failed: %v", err)
+	}
+	if body.Result == nil {
+		t.Fatal("result missing")
+	}
+	want := setInitConfResult{
+		SessionServerInfo: "XPN:/p=XTCP;ip=session.play.naver.jp;port=10123",
+		StaticDomain:      "https://play-static.line-scdn.net/",
+		NationCode:        "JP",
+		IsGdprNation:      false,
+		SnsLoginUIList:    []string{"LD_GUEST"},
+		SnsSignUpUIList:   []string{"LD_GUEST"},
+	}
+	if body.Result.SessionServerInfo != want.SessionServerInfo {
+		t.Errorf("sessionServerInfo = %q, want %q", body.Result.SessionServerInfo, want.SessionServerInfo)
+	}
+	if body.Result.StaticDomain != want.StaticDomain {
+		t.Errorf("staticDomain = %q, want %q", body.Result.StaticDomain, want.StaticDomain)
+	}
+	if body.Result.NationCode != want.NationCode {
+		t.Errorf("nationCode = %q, want %q", body.Result.NationCode, want.NationCode)
+	}
+	if body.Result.IsGdprNation != want.IsGdprNation {
+		t.Errorf("isGdprNation = %v, want %v", body.Result.IsGdprNation, want.IsGdprNation)
+	}
+	if len(body.Result.SnsLoginUIList) != 1 || body.Result.SnsLoginUIList[0] != "LD_GUEST" {
+		t.Errorf("snsLoginUIList = %v, want [LD_GUEST]", body.Result.SnsLoginUIList)
+	}
+	if len(body.Result.SnsSignUpUIList) != 1 || body.Result.SnsSignUpUIList[0] != "LD_GUEST" {
+		t.Errorf("snsSignUpUIList = %v, want [LD_GUEST]", body.Result.SnsSignUpUIList)
+	}
+}
+
+func TestSetInitConfFixtureByteIdentical(t *testing.T) {
+	rec := serve(t, http.MethodGet, "/v4/setInitConf")
+	if got := rec.Body.String(); got != setInitConfBody {
+		t.Fatalf("body = %q, want %q", got, setInitConfBody)
+	}
+}
+
+func TestUnknownRoute(t *testing.T) {
+	for _, target := range []string{"/", "/v4/checkSession/x", "/v4/setInitConf/nested"} {
+		rec := serve(t, http.MethodGet, target)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s: status = %d, want %d", target, rec.Code, http.StatusNotFound)
+		}
+		if got := rec.Body.String(); got != httpx.NotFoundBody {
+			t.Errorf("%s: body = %q, want %q", target, got, httpx.NotFoundBody)
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "application/json; charset=utf-8" {
+			t.Errorf("%s: Content-Type = %q, want %q", target, ct, "application/json; charset=utf-8")
+		}
+	}
+}
+
+func TestQuestStatus(t *testing.T) {
+	rec := serve(t, http.MethodGet, "/v4/quest/status")
+	if rec.Code != http.StatusOK || rec.Body.String() != questStatusBody {
+		t.Fatalf("quest status = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := serve(t, http.MethodPost, "/v4/quest/status"); rec.Code != http.StatusNotFound {
+		t.Fatalf("POST quest status = %d, want 404", rec.Code)
+	}
+}
+
+func TestInvenCounts(t *testing.T) {
+	rec := serve(t, http.MethodGet, "/v4/inven/counts")
+	if rec.Code != http.StatusOK || rec.Body.String() != invenCountsBody {
+		t.Fatalf("inven counts = %d %s", rec.Code, rec.Body.String())
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("inven counts body is not valid JSON: %v", err)
+	}
+	if string(raw["result"]) != "{}" {
+		t.Fatalf("result = %s, want empty object (array form is parser-invalid)", raw["result"])
+	}
+	if rec := serve(t, http.MethodPost, "/v4/inven/counts"); rec.Code != http.StatusNotFound {
+		t.Fatalf("POST inven counts = %d, want 404", rec.Code)
+	}
+}
+
+func TestItemsSome(t *testing.T) {
+	paths := []string{"/v4/items/dress/some", "/v4/items/room/some"}
+	for _, path := range paths {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`["CUON00164"]`))
+		rec := serveRequest(t, req)
+		if rec.Code != http.StatusOK || rec.Body.String() != itemsSomeBody {
+			t.Fatalf("POST %s: status = %d, body = %q", path, rec.Code, rec.Body.String())
+		}
+	}
+
+	for _, path := range paths {
+		for _, method := range []string{http.MethodGet, http.MethodPut} {
+			if rec := serve(t, method, path); rec.Code != http.StatusNotFound {
+				t.Errorf("%s %s: status = %d, want 404", method, path, rec.Code)
+			}
+		}
+	}
+
+	for _, path := range []string{"/v4/items/dress/some/", "/v4/items/other/some"} {
+		if rec := serve(t, http.MethodPost, path); rec.Code != http.StatusNotFound {
+			t.Errorf("POST %s: status = %d, want 404", path, rec.Code)
+		}
+	}
+}
+
+func TestPlayDetailLPRmchat(t *testing.T) {
+	const path = "/v4/playhome/games/lp_rmchat?deviceType=Android"
+	rec := serve(t, http.MethodGet, path)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET %s: status = %d, want 200", path, rec.Code)
+	}
+	var body struct {
+		Result struct {
+			GameInfo *struct {
+				GameID     string `json:"gameId"`
+				Executable *bool  `json:"executable"`
+			} `json:"gameInfo"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body is not valid typed JSON: %v", err)
+	}
+	if body.Result.GameInfo == nil || body.Result.GameInfo.GameID != "lp_rmchat" || body.Result.GameInfo.Executable == nil || !*body.Result.GameInfo.Executable {
+		t.Fatalf("gameInfo = %+v, want {gameId: lp_rmchat, executable: true}", body.Result.GameInfo)
+	}
+
+	for _, c := range []struct{ method, path string }{
+		{http.MethodPost, path},
+		{http.MethodGet, "/v4/playhome/games/other?deviceType=Android"},
+		{http.MethodGet, "/v4/playhome/games/lp_rmchat/"},
+	} {
+		if rec := serve(t, c.method, c.path); rec.Code != http.StatusNotFound {
+			t.Errorf("%s %s: status = %d, want 404", c.method, c.path, rec.Code)
+		}
+	}
+}
+
+func TestWrongMethod(t *testing.T) {
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodHead} {
+		rec := serve(t, method, "/v4/setInitConf")
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s: status = %d, want %d", method, rec.Code, http.StatusNotFound)
+		}
+		if got := rec.Body.String(); got != httpx.NotFoundBody {
+			t.Errorf("%s: body = %q, want %q", method, got, httpx.NotFoundBody)
+		}
+	}
+}
+
+func TestCheckResource2(t *testing.T) {
+	rec := serve(t, http.MethodGet, "/notice/adr/checkresource2.json")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if rec.Body.String() != checkResource2Body {
+		t.Fatalf("body = %q", rec.Body.String())
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := raw["result"]; ok {
+		t.Fatal("unexpected result wrapper")
+	}
+	var adr map[string]string
+	if err := json.Unmarshal(raw["adr"], &adr); err != nil {
+		t.Fatal(err)
+	}
+	if adr["10.1.0.0"] != "1" {
+		t.Fatalf("adr[10.1.0.0] = %q", adr["10.1.0.0"])
+	}
+	var packs map[string]map[string]string
+	if err := json.Unmarshal(raw["resource"], &packs); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"animation", "he", "ch", "sound", "subui", "tx", "squareui", "ui"} {
+		if _, ok := packs["1"][k]; !ok {
+			t.Errorf("missing key %q", k)
+		}
+	}
+	if got := packs["1"]["tx"]; got != "543" {
+		t.Errorf("resource[1].tx = %q, want %q", got, "543")
+	}
+}
+
+func TestSplashSkip(t *testing.T) {
+	for _, path := range []string{"/v4/resource/splash/1789929708/0/JP", "/v4/resource/splash/1/0/US"} {
+		rec := serve(t, http.MethodGet, path)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d", path, rec.Code)
+		}
+		if rec.Body.String() != splashSkipBody {
+			t.Fatalf("%s: body = %q", path, rec.Body.String())
+		}
+	}
+	for _, path := range []string{"/v4/resource/splash/", "/v4/resource/splash/1/0", "/v4/resource/splash/x/0/JP", "/v4/resource/splash/1/0/JP/extra"} {
+		rec := serve(t, http.MethodGet, path)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s: status = %d, want 404", path, rec.Code)
+		}
+	}
+}
+
+func TestUpdateIni(t *testing.T) {
+	paths := []string{
+		"/arts_animation_ini_00531/update_jp.ini",
+		"/arts_sound_ini_00530/update_en.ini",
+		"/arts_tx_ini_00540/update_ja.ini",
+		"/arts_tx_ini_00541/update_jp.ini",
+		"/arts_tx_ini_00542/update_jp.ini",
+		"/arts_tx_ini_00543/update_ja.ini",
+		"/arts_ui_ini_00540/update_jp.ini",
+		"/arts_subui_ini_00000/update_jp.ini",
+	}
+	for _, path := range paths {
+		rec := serve(t, http.MethodGet, path)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d", path, rec.Code)
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "text/plain; charset=utf-8" {
+			t.Fatalf("%s: Content-Type = %q", path, ct)
+		}
+		if rec.Body.String() != emptyUpdateIniBody || rec.Body.Len() != 2 {
+			t.Fatalf("%s: body = %q len=%d", path, rec.Body.String(), rec.Body.Len())
+		}
+	}
+	rec := serve(t, http.MethodGet, "/arts_ui_ini_00540/other.ini")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown ini: %d", rec.Code)
+	}
+}
+
+func TestTx543UpdateIni(t *testing.T) {
+	const want = "[start=1,end=1,size=454656,/arts_strings.ast:version=1492F278EC281078AC7F35479A85F197]"
+	for _, name := range []string{"update_en.ini", "update_jp.ini"} {
+		path := "/arts_tx_ini_00543/" + name
+		rec := serve(t, http.MethodGet, path)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200", path, rec.Code)
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "text/plain; charset=utf-8" {
+			t.Fatalf("%s: Content-Type = %q", path, ct)
+		}
+		if rec.Body.String() != want {
+			t.Fatalf("%s: body = %q, want %q", path, rec.Body.String(), want)
+		}
+		if rec.Body.Len() != len(want) {
+			t.Fatalf("%s: len = %d, want %d", path, rec.Body.Len(), len(want))
+		}
+	}
+	if tx543UpdateIniBody != want {
+		t.Fatalf("tx543UpdateIniBody = %q, want %q", tx543UpdateIniBody, want)
+	}
+}
+
+func TestSkinFileIni(t *testing.T) {
+	paths := []string{
+		"/arts_diaryskin_jp_00007/common/UIImage_hd/skin_file.ini",
+		"/arts_diaryskin_jp/common/UIImage_hd/skin_file.ini",
+		"/arts_diaryskin_en_00007/00001/UIImage_hd/skin_file.ini",
+	}
+	for _, path := range paths {
+		rec := serve(t, http.MethodGet, path)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200", path, rec.Code)
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "text/plain; charset=utf-8" {
+			t.Fatalf("%s: Content-Type = %q", path, ct)
+		}
+		if rec.Body.String() != skinFileIniBody || rec.Body.Len() == 0 {
+			t.Fatalf("%s: body = %q len=%d", path, rec.Body.String(), rec.Body.Len())
+		}
+	}
+
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodHead} {
+		rec := serve(t, method, "/arts_diaryskin_jp_00007/common/UIImage_hd/skin_file.ini")
+		if rec.Code != http.StatusNotFound || rec.Body.String() != httpx.NotFoundBody {
+			t.Fatalf("%s: status = %d body = %q", method, rec.Code, rec.Body.String())
+		}
+	}
+
+	for _, path := range []string{"/arts_diaryskin_jp_00007/common/UIImage_hd/other.ini", "/other_diaryskin_jp/skin_file.ini", "/arts_diaryskin_.ini"} {
+		rec := serve(t, http.MethodGet, path)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("%s: status = %d, want 404", path, rec.Code)
+		}
+	}
+}
+
+func TestArtsStringsAST(t *testing.T) {
+	artsStringsAST := loadArtsStrings()
+	if artsStringsAST == nil {
+		t.Skip("archive arts_strings.ast not available")
+	}
+	if len(artsStringsAST) != 454656 {
+		t.Fatalf("ast size = %d, want 454656", len(artsStringsAST))
+	}
+	sum := md5.Sum(artsStringsAST)
+	if got := strings.ToUpper(hex.EncodeToString(sum[:])); got != artsStringsMD5 {
+		t.Fatalf("embedded ast md5 = %s, want %s", got, artsStringsMD5)
+	}
+	for _, path := range []string{"/arts_strings.ast", "/img/read/arts_strings.ast", "/arts_tx_jp_00540/arts_strings.ast", "/arts_tx_jp_00540/arts_strings.ast]"} {
+		rec := serve(t, http.MethodGet, path)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d", path, rec.Code)
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "application/octet-stream" {
+			t.Fatalf("%s: Content-Type = %q", path, ct)
+		}
+		if rec.Body.Len() != 454656 {
+			t.Fatalf("%s: empty body len=%d", path, rec.Body.Len())
+		}
+		if rec.Header().Get("Content-Length") != "454656" {
+			t.Fatalf("%s: Content-Length = %q", path, rec.Header().Get("Content-Length"))
+		}
+	}
+}
+
+func TestSnsTermsAndTermAll(t *testing.T) {
+	cases := []struct{ path, body string }{
+		{"/v4/social/terms/sns", snsTermsBody},
+		{"/v4/social/terms/sns?deviceType=Android", snsTermsBody},
+		{"/v4/setting/term/all", termAllBody},
+		{"/v4/setting/term/all?deviceType=Android", termAllBody},
+	}
+	for _, c := range cases {
+		rec := serve(t, http.MethodGet, c.path)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200", c.path, rec.Code)
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "application/json; charset=utf-8" {
+			t.Fatalf("%s: Content-Type = %q", c.path, ct)
+		}
+		if got := rec.Body.String(); got != c.body {
+			t.Fatalf("%s: body = %q, want %q", c.path, got, c.body)
+		}
+	}
+	for _, method := range []string{http.MethodGet, http.MethodPut} {
+		rec := serve(t, method, "/v4/social/terms/sns")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200", method, rec.Code)
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "application/json; charset=utf-8" {
+			t.Fatalf("%s: Content-Type = %q", method, ct)
+		}
+		var raw struct {
+			Result *bool `json:"result"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+			t.Fatalf("%s: body is not valid JSON: %v", method, err)
+		}
+		if raw.Result == nil || !*raw.Result {
+			t.Fatalf("%s: body = %q, want result true", method, rec.Body.String())
+		}
+	}
+	for _, path := range []string{"/v4/social/terms/sns", "/v4/setting/term/all"} {
+		rec := serve(t, http.MethodPost, path)
+		if rec.Code != http.StatusNotFound || rec.Body.String() != httpx.NotFoundBody {
+			t.Fatalf("POST %s: status = %d body = %q", path, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+func TestProfile(t *testing.T) {
+	for _, path := range []string{"/v4/profile/0?deviceType=Android", "/v4/profile/12345"} {
+		rec := serve(t, http.MethodGet, path)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200", path, rec.Code)
+		}
+		var raw struct {
+			Result map[string]json.RawMessage `json:"result"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+			t.Fatalf("%s: body is not valid JSON: %v", path, err)
+		}
+		if _, ok := raw.Result["name"]; !ok {
+			t.Fatalf("%s: result.name missing: %q", path, rec.Body.String())
+		}
+	}
+}
+
+func TestFapiStubs(t *testing.T) {
+	cases := []struct{ path, body string }{
+		{"/v4/popup/isExists", popupIsExistsBody},
+		{"/v4/popup/isExists?officialAvatarId=12345", popupIsExistsBody},
+		{"/v4/eventFlag/flagList?deviceType=Android", eventFlagListBody},
+	}
+	for _, c := range cases {
+		rec := serve(t, http.MethodGet, c.path)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d", c.path, rec.Code)
+		}
+		if got := rec.Body.String(); got != c.body {
+			t.Fatalf("%s: body = %q, want %q", c.path, got, c.body)
+		}
+	}
+	for _, path := range []string{"/v4/popup/isExists", "/v4/eventFlag/flagList"} {
+		rec := serve(t, http.MethodPost, path)
+		if rec.Code != http.StatusNotFound || rec.Body.String() != httpx.NotFoundBody {
+			t.Fatalf("POST %s: status = %d body = %q", path, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+type guestResult struct {
+	Provider    string `json:"provider"`
+	AccessToken string `json:"accessToken"`
+}
+
+type guestResponse struct {
+	Result *guestResult `json:"result"`
+}
+
+type sessionResult struct {
+	SessionKey   string `json:"sessionKey"`
+	Mid          string `json:"mid"`
+	AvatarUserID string `json:"avatarUserId"`
+	Aid          string `json:"aid"`
+	LineID       string `json:"lineId"`
+	LineName     string `json:"lineName"`
+	TermAge      bool   `json:"termAge"`
+}
+
+type sessionResponse struct {
+	Timestamp string         `json:"Timestamp"`
+	Result    *sessionResult `json:"result"`
+}
+
+func serveRequest(t *testing.T, req *http.Request) *httptest.ResponseRecorder {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	NewMux().ServeHTTP(rec, req)
+	return rec
+}
+
+func guestGenerate(t *testing.T) string {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/v4/account/guest/generate", strings.NewReader(`{"uniqueCode":"00000000-0000-0000-0000-000000000000"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-LINEPLAY-ACNT", "test")
+	rec := serveRequest(t, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("generate: status = %d, want 200, body = %q", rec.Code, rec.Body.String())
+	}
+	var body guestResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("generate: body is not valid JSON: %v", err)
+	}
+	if body.Result == nil {
+		t.Fatal("generate: result missing")
+	}
+	if body.Result.Provider != "lineplay" {
+		t.Fatalf("generate: provider = %q, want %q", body.Result.Provider, "lineplay")
+	}
+	if body.Result.AccessToken == "" {
+		t.Fatal("generate: accessToken is empty")
+	}
+	return body.Result.AccessToken
+}
+
+func createSession(t *testing.T, accessToken string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/v4/createSession?nationCode=JP", nil)
+	if accessToken != "" {
+		req.AddCookie(&http.Cookie{Name: "accessToken", Value: accessToken})
+	}
+	return serveRequest(t, req)
+}
+
+func checkSession(t *testing.T, avAuth string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/v4/checkSession", nil)
+	if avAuth != "" {
+		req.AddCookie(&http.Cookie{Name: "AV_AUTH", Value: avAuth})
+	}
+	return serveRequest(t, req)
+}
+
+func decodeSession(t *testing.T, rec *httptest.ResponseRecorder) *sessionResult {
+	t.Helper()
+	var body sessionResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body is not valid JSON: %v, body = %q", err, rec.Body.String())
+	}
+	if body.Result == nil {
+		t.Fatalf("result missing: body = %q", rec.Body.String())
+	}
+	return body.Result
+}
+
+func avAuthValue(t *testing.T, rec *httptest.ResponseRecorder) string {
+	t.Helper()
+	setCookie := rec.Header().Get("Set-Cookie")
+	const prefix = `AV_AUTH="`
+	const suffix = `"; Path=/`
+	if !strings.HasPrefix(setCookie, prefix) || !strings.HasSuffix(setCookie, suffix) {
+		t.Fatalf("Set-Cookie = %q, want %s<token>%s", setCookie, prefix, suffix)
+	}
+	value := strings.TrimSuffix(strings.TrimPrefix(setCookie, prefix), suffix)
+	if len(value) <= 100 {
+		t.Fatalf("AV_AUTH value length = %d, want > 100", len(value))
+	}
+	return value
+}
+
+func assertSessionKeys(t *testing.T, rec *httptest.ResponseRecorder) {
+	t.Helper()
+	var raw struct {
+		Result map[string]json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("body is not valid JSON: %v", err)
+	}
+	want := []string{"sessionKey", "mid", "avatarUserId", "aid", "lineId", "lineName", "termAge"}
+	if len(raw.Result) != len(want) {
+		t.Fatalf("result has %d fields, want %d: %q", len(raw.Result), len(want), rec.Body.String())
+	}
+	for _, key := range want {
+		if _, ok := raw.Result[key]; !ok {
+			t.Errorf("result field %q missing: %q", key, rec.Body.String())
+		}
+	}
+}
+
+func TestGenerateGuest(t *testing.T) {
+	guestGenerate(t)
+}
+
+func TestCreateSession(t *testing.T) {
+	accessToken := guestGenerate(t)
+	rec := createSession(t, accessToken)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body = %q", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json; charset=utf-8" {
+		t.Fatalf("Content-Type = %q", ct)
+	}
+	avAuthValue(t, rec)
+	assertSessionKeys(t, rec)
+	res := decodeSession(t, rec)
+	if res.Aid != "0" {
+		t.Fatalf("aid = %q, want %q", res.Aid, "0")
+	}
+	if res.SessionKey == "" || res.Mid == "" || res.AvatarUserID == "" {
+		t.Fatalf("session fields empty: %+v", res)
+	}
+	if res.Aid == res.AvatarUserID {
+		t.Fatalf("aid and avatarUserId both %q", res.Aid)
+	}
+	if res.TermAge {
+		t.Fatal("termAge = true, want false")
+	}
+
+	fallback := createSession(t, "")
+	if fallback.Code != http.StatusOK {
+		t.Fatalf("no-cookie fallback: status = %d, want 200", fallback.Code)
+	}
+	avAuthValue(t, fallback)
+	if got := decodeSession(t, fallback); got.Aid != res.Aid || got.SessionKey != res.SessionKey {
+		t.Fatalf("fallback account mismatch: got %+v, want %+v", got, res)
+	}
+}
+
+func TestCreateSessionUsesGuestCookie(t *testing.T) {
+	first := guestGenerate(t)
+	firstSession := decodeSession(t, createSession(t, first))
+	guestGenerate(t) // The most recent account must not replace an explicit cc.
+	req := httptest.NewRequest(http.MethodGet, "/v4/createSession?nationCode=JP", nil)
+	req.AddCookie(&http.Cookie{Name: "cc", Value: first})
+	rec := serveRequest(t, req)
+	if rec.Code != http.StatusOK || decodeSession(t, rec).SessionKey != firstSession.SessionKey {
+		t.Fatalf("cc did not identify its guest: %d", rec.Code)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/v4/createSession?nationCode=JP", nil)
+	req.AddCookie(&http.Cookie{Name: "cc", Value: "unknown"})
+	if rec = serveRequest(t, req); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown cc fell back to another guest: %d", rec.Code)
+	}
+}
+
+func TestCheckSession(t *testing.T) {
+	accessToken := guestGenerate(t)
+	token := avAuthValue(t, createSession(t, accessToken))
+
+	rec := checkSession(t, token)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body = %q", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json; charset=utf-8" {
+		t.Fatalf("Content-Type = %q", ct)
+	}
+	assertSessionKeys(t, rec)
+	var body sessionResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body is not valid JSON: %v", err)
+	}
+	if body.Timestamp == "" || !httpx.IsAllDigits(body.Timestamp) {
+		t.Fatalf("Timestamp = %q, want unix seconds string", body.Timestamp)
+	}
+	if body.Result == nil {
+		t.Fatal("result missing")
+	}
+	rotated := avAuthValue(t, rec)
+	if rotated == token {
+		t.Fatal("Set-Cookie token was not rotated")
+	}
+}
+
+func TestCheckSessionUnknown(t *testing.T) {
+	rec := checkSession(t, "not-a-real-token")
+	if rec.Code != http.StatusNotFound || rec.Body.String() != httpx.UnknownSessionBody {
+		t.Fatalf("unknown token: status = %d, body = %q", rec.Code, rec.Body.String())
+	}
+	rec = checkSession(t, "")
+	if rec.Code != http.StatusNotFound || rec.Body.String() != httpx.UnknownSessionBody {
+		t.Fatalf("missing cookie: status = %d, body = %q", rec.Code, rec.Body.String())
+	}
+	req := httptest.NewRequest(http.MethodGet, "/v4/checkSession", nil)
+	req.Header.Set("Cookie", `AV_AUTH="not-a-real-token"`)
+	rec = serveRequest(t, req)
+	if rec.Code != http.StatusNotFound || rec.Body.String() != httpx.UnknownSessionBody {
+		t.Fatalf("quoted unknown token: status = %d, body = %q", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAuthRoundTrip(t *testing.T) {
+	accessToken := guestGenerate(t)
+
+	create := createSession(t, accessToken)
+	if create.Code != http.StatusOK {
+		t.Fatalf("createSession: status = %d, body = %q", create.Code, create.Body.String())
+	}
+	first := decodeSession(t, create)
+	token := avAuthValue(t, create)
+
+	check := checkSession(t, token)
+	if check.Code != http.StatusOK {
+		t.Fatalf("checkSession: status = %d, body = %q", check.Code, check.Body.String())
+	}
+	second := decodeSession(t, check)
+	if *second != *first {
+		t.Fatalf("session changed: first = %+v, second = %+v", first, second)
+	}
+
+	rotated := avAuthValue(t, check)
+	again := checkSession(t, rotated)
+	if again.Code != http.StatusOK {
+		t.Fatalf("rotated checkSession: status = %d, body = %q", again.Code, again.Body.String())
+	}
+	if third := decodeSession(t, again); third.SessionKey != first.SessionKey {
+		t.Fatalf("sessionKey changed: %q -> %q", first.SessionKey, third.SessionKey)
+	}
+}
+
+func TestAccountsSurviveRestart(t *testing.T) {
+	store.AccountsMu.Lock()
+	previousAccounts, previousLatest, previousID, previousPath := store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath
+	store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath = make(map[string]*store.Account), nil, 0, ""
+	store.AccountsMu.Unlock()
+	t.Cleanup(func() {
+		store.AccountsMu.Lock()
+		store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath = previousAccounts, previousLatest, previousID, previousPath
+		store.AccountsMu.Unlock()
+	})
+	path := filepath.Join(t.TempDir(), "accounts.json")
+	if err := store.LoadAccountsFrom(path); err != nil {
+		t.Fatal(err)
+	}
+	accessToken := guestGenerate(t)
+	first := createSession(t, accessToken)
+	oldToken := avAuthValue(t, first)
+	const payload = `{"name":"Persisted","avatarType":"FEMALE","nationCode":"JP","skinColor":"2","itemCodes":["CUON00164"]}`
+	created := createAvatar(t, oldToken, []byte(payload), "")
+	if created.Code != http.StatusOK {
+		t.Fatalf("create avatar = %d %s", created.Code, created.Body.String())
+	}
+	var avatar avatarResponse
+	if err := json.Unmarshal(created.Body.Bytes(), &avatar); err != nil || avatar.Result == nil {
+		t.Fatalf("avatar result: %v", err)
+	}
+	rotated := avAuthValue(t, checkSession(t, oldToken))
+
+	store.AccountsMu.Lock()
+	store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath = make(map[string]*store.Account), nil, 0, ""
+	store.AccountsMu.Unlock()
+	if err := store.LoadAccountsFrom(path); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	for _, token := range []string{oldToken, rotated, avAuthValue(t, created)} {
+		if rec := checkSession(t, token); rec.Code != http.StatusOK || decodeSession(t, rec).Aid != avatar.Result.AvatarID {
+			t.Fatalf("lost alias for persisted avatar: status %d", rec.Code)
+		}
+	}
+	if got := decodeSession(t, createSession(t, accessToken)); got.SessionKey != decodeSession(t, first).SessionKey {
+		t.Fatal("guest session key changed after restart")
+	}
+	profile := serve(t, http.MethodGet, "/v4/avatar/"+avatar.Result.AvatarID)
+	if !strings.Contains(profile.Body.String(), `"name":"Persisted"`) || !strings.Contains(profile.Body.String(), `"cd":"CUON00164"`) {
+		t.Fatalf("lost avatar appearance after restart: %s", profile.Body.String())
+	}
+	if rec := checkSession(t, "unknown"); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown token accepted: %d", rec.Code)
+	}
+	if rec := createAvatar(t, "unknown", []byte(payload), ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown token created avatar: %d", rec.Code)
+	}
+	second := avAuthValue(t, createSession(t, guestGenerate(t)))
+	other := createAvatar(t, second, []byte(payload), "")
+	var next avatarResponse
+	if err := json.Unmarshal(other.Body.Bytes(), &next); err != nil || next.Result == nil || next.Result.AvatarID == avatar.Result.AvatarID {
+		t.Fatalf("avatar ID reused after restart: %s, %v", other.Body.String(), err)
+	}
+	if err := os.WriteFile(path, []byte("corrupt"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.LoadAccountsFrom(path); err == nil {
+		t.Fatal("corrupt persisted accounts silently loaded")
+	}
+}
+
+func TestAccountStoreFailureDoesNotIssueCookie(t *testing.T) {
+	store.AccountsMu.Lock()
+	previousPath := store.AccountStorePath
+	store.AccountStorePath = filepath.Join(t.TempDir(), "missing", "accounts.json")
+	store.AccountsMu.Unlock()
+	t.Cleanup(func() {
+		store.AccountsMu.Lock()
+		store.AccountStorePath = previousPath
+		store.AccountsMu.Unlock()
+	})
+	// A regular file as parent forces MkdirAll to fail without touching a real store.
+	parent := filepath.Dir(store.AccountStorePath)
+	if err := os.WriteFile(parent, []byte("not a directory"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	rec := serve(t, http.MethodPost, "/v4/account/guest/generate")
+	if rec.Code != http.StatusInternalServerError || rec.Header().Get("Set-Cookie") != "" {
+		t.Fatalf("failed save returned credential: %d", rec.Code)
+	}
+}
+
+func TestFormatHeadersRedactsCredentials(t *testing.T) {
+	h := http.Header{"Cookie": {`AV_AUTH="secret"`}, "Authorization": {"Bearer token"}, "X-Lineplay-Acnt": {"digest"}, "Accept": {"application/json"}}
+	got := httpx.FormatHeaders(h)
+	if strings.Contains(got, "secret") || strings.Contains(got, "Bearer token") || strings.Contains(got, "digest") || !strings.Contains(got, "application/json") {
+		t.Fatalf("unsafe header log: %s", got)
+	}
+}
+
+func TestQuotedAvAuthCookie(t *testing.T) {
+	accessToken := guestGenerate(t)
+	token := avAuthValue(t, createSession(t, accessToken))
+
+	req := httptest.NewRequest(http.MethodGet, "/v4/checkSession", nil)
+	req.Header.Set("Cookie", `AV_AUTH="`+token+`"; other=x`)
+	rec := serveRequest(t, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("quoted cookie: status = %d, want 200, body = %q", rec.Code, rec.Body.String())
+	}
+	if decodeSession(t, rec).SessionKey == "" {
+		t.Fatal("sessionKey empty")
+	}
+}
+
+func TestAuthWrongMethods(t *testing.T) {
+	cases := []struct{ method, path string }{
+		{http.MethodGet, "/v4/account/guest/generate"},
+		{http.MethodPut, "/v4/account/guest/generate"},
+		{http.MethodPost, "/v4/createSession"},
+		{http.MethodDelete, "/v4/createSession"},
+		{http.MethodPost, "/v4/checkSession"},
+		{http.MethodHead, "/v4/checkSession"},
+		{http.MethodGet, "/v4/create/avatar"},
+		{http.MethodPut, "/v4/create/avatar"},
+		{http.MethodDelete, "/v4/create/avatar"},
+		{http.MethodHead, "/v4/create/avatar"},
+	}
+	for _, c := range cases {
+		rec := serveRequest(t, httptest.NewRequest(c.method, c.path, nil))
+		if rec.Code != http.StatusNotFound || rec.Body.String() != httpx.NotFoundBody {
+			t.Fatalf("%s %s: status = %d, body = %q", c.method, c.path, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+type avatarResponse struct {
+	Result *store.AvatarResult `json:"result"`
+}
+
+func createAvatar(t *testing.T, avAuth string, payload []byte, contentEncoding string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/v4/create/avatar", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	if contentEncoding != "" {
+		req.Header.Set("Content-Encoding", contentEncoding)
+	}
+	if avAuth != "" {
+		req.AddCookie(&http.Cookie{Name: "AV_AUTH", Value: avAuth})
+	}
+	return serveRequest(t, req)
+}
+
+func TestIsBasicFaceItemCode(t *testing.T) {
+	for _, c := range []struct {
+		code string
+		want bool
+	}{
+		{"CUEY00002", true},
+		{"CUMO00002", true},
+		{"CUEB00001", true},
+		{"CUNO00001", true},
+		{"CUHE0000L", true},
+		{"CUON004TV", false},
+		{"", false},
+		{"CUE", false},
+	} {
+		if got := store.IsBasicFaceItemCode(c.code); got != c.want {
+			t.Errorf("isBasicFaceItemCode(%q) = %t, want %t", c.code, got, c.want)
+		}
+	}
+}
+
+func TestHomeListExt(t *testing.T) {
+	wantFirst := []homeIconRow{
+		{"Closet", "goSomewhere(closet)"},
+		{"Friends", "goSomewhere(myfriends)"},
+		{"Diary", "goSomewhere(diary)"},
+	}
+	for i, want := range wantFirst {
+		if homeIconRows[i] != want {
+			t.Fatalf("table row %d = %+v, want %+v", i, homeIconRows[i], want)
+		}
+	}
+	rec := serve(t, http.MethodGet, "/v4/home/list/ext/10.1.0.0/Android")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if rec := serve(t, http.MethodPost, "/v4/home/list/ext/10.1.0.0/Android"); rec.Code != http.StatusNotFound {
+		t.Fatalf("POST home list: status = %d, want 404", rec.Code)
+	}
+	var body struct {
+		Result struct {
+			HomeIconList  []map[string]json.RawMessage `json:"homeIconList"`
+			EventIconList []map[string]json.RawMessage `json:"eventIconList"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body is not valid JSON: %v", err)
+	}
+	if body.Result.HomeIconList == nil || body.Result.EventIconList == nil {
+		t.Fatalf("homeIconList and eventIconList must be arrays: %s", rec.Body.String())
+	}
+	if len(body.Result.EventIconList) != 0 {
+		t.Fatalf("eventIconList has %d rows, want 0", len(body.Result.EventIconList))
+	}
+	if len(body.Result.HomeIconList) != len(homeIconRows) {
+		t.Fatalf("homeIconList has %d rows, want %d", len(body.Result.HomeIconList), len(homeIconRows))
+	}
+	seen := make(map[int]bool, len(homeIconRows))
+	for i, row := range body.Result.HomeIconList {
+		var id int
+		if raw, ok := row["id"]; !ok || json.Unmarshal(raw, &id) != nil {
+			t.Fatalf("row %d id = %s, want JSON number", i, row["id"])
+		}
+		if id <= 0 || seen[id] {
+			t.Fatalf("row %d id = %d, want unique positive", i, id)
+		}
+		seen[id] = true
+		for _, key := range []string{"name", "image", "flag", "link", "nMarkTimestamp", "linkType"} {
+			if raw, ok := row[key]; !ok || len(raw) == 0 || raw[0] != '"' {
+				t.Fatalf("row %d field %q = %s, want JSON string", i, key, raw)
+			}
+		}
+		for _, key := range []string{"nMark", "delimiter", "showMeOnly"} {
+			if raw, ok := row[key]; !ok || (string(raw) != "true" && string(raw) != "false") {
+				t.Fatalf("row %d field %q = %s, want JSON bool", i, key, raw)
+			}
+		}
+		var linkType string
+		if err := json.Unmarshal(row["linkType"], &linkType); err != nil {
+			t.Fatalf("row %d linkType = %s, want string", i, row["linkType"])
+		}
+		if linkType != homeIconRows[i].LinkType {
+			t.Fatalf("row %d linkType = %q, want %q", i, linkType, homeIconRows[i].LinkType)
+		}
+		if linkType == "start" || linkType == "goSomewhere(profile)" {
+			t.Fatalf("row %d has excluded linkType %q", i, linkType)
+		}
+	}
+}
+
+func TestClosetStaticRoutes(t *testing.T) {
+	for _, route := range []struct {
+		path, body, wrongMethod string
+	}{
+		{"/v4/storage/display", storageDisplayBody, http.MethodPost},
+		{"/v4/style/slot/list", styleSlotListBody, http.MethodPut},
+		{"/v4/inven/recycle/cfg", recycleConfigBody, http.MethodPost},
+	} {
+		if rec := serve(t, http.MethodGet, route.path); rec.Code != http.StatusOK || rec.Body.String() != route.body {
+			t.Errorf("GET %s: status = %d, body = %q", route.path, rec.Code, rec.Body.String())
+		}
+		if rec := serve(t, route.wrongMethod, route.path); rec.Code != http.StatusNotFound {
+			t.Errorf("%s %s: status = %d, want 404", route.wrongMethod, route.path, rec.Code)
+		}
+	}
+}
+
+func TestAvatarSaveV2RoundTrip(t *testing.T) {
+	store.AccountsMu.Lock()
+	previousAccounts, previousLatest, previousID, previousPath := store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath
+	store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath = make(map[string]*store.Account), nil, 0, ""
+	store.AccountsMu.Unlock()
+	t.Cleanup(func() {
+		store.AccountsMu.Lock()
+		store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath = previousAccounts, previousLatest, previousID, previousPath
+		store.AccountsMu.Unlock()
+	})
+	path := filepath.Join(t.TempDir(), "accounts.json")
+	if err := store.LoadAccountsFrom(path); err != nil {
+		t.Fatal(err)
+	}
+
+	// The curated Cherry-closet grant is lab-only (economy); exercise it as a lab account.
+	setLab(t, "0", true)
+	accessToken := guestGenerate(t)
+	token := avAuthValue(t, createSession(t, accessToken))
+	emptyItemsReq := httptest.NewRequest(http.MethodPost, "/v4/inven/closet/items/all", nil)
+	emptyItemsReq.AddCookie(&http.Cookie{Name: "AV_AUTH", Value: token})
+	const curatedGrantClosetBody = `{"result":{"basicFaceList":[],"inventoryList":[{"itemCode":"CUHA0036Z","invenSeq":"1","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUON004TV","invenSeq":"2","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUSH00267","invenSeq":"3","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUAH004JH","invenSeq":"4","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0}]}}`
+	if rec := serveRequest(t, emptyItemsReq); rec.Code != http.StatusOK || rec.Body.String() != curatedGrantClosetBody {
+		t.Fatalf("initial closet inventory: status = %d, body = %q", rec.Code, rec.Body.String())
+	}
+	created := createAvatar(t, token, []byte(`{"name":"Closet","avatarType":"FEMALE","nationCode":"JP","skinColor":"2","itemCodes":["CUEY00002","CUEY00003","CUMO00002","CUEB00001","CUNO00001","CUHE0000L","CUON00164","CUSH002BH","CUON004TV"]}`), "")
+	if created.Code != http.StatusOK {
+		t.Fatalf("create avatar: status = %d, body = %q", created.Code, created.Body.String())
+	}
+	token = avAuthValue(t, created)
+	var createdAvatar avatarResponse
+	if err := json.Unmarshal(created.Body.Bytes(), &createdAvatar); err != nil || createdAvatar.Result == nil {
+		t.Fatalf("create avatar response: %v", err)
+	}
+	setLab(t, createdAvatar.Result.AvatarID, true)
+
+	itemsReq := httptest.NewRequest(http.MethodPost, "/v4/inven/closet/items/all", nil)
+	itemsReq.AddCookie(&http.Cookie{Name: "AV_AUTH", Value: token})
+	itemsRec := serveRequest(t, itemsReq)
+	if itemsRec.Code != http.StatusOK {
+		t.Fatalf("closet items: status = %d, body = %q", itemsRec.Code, itemsRec.Body.String())
+	}
+	const closetInventoryBody = `{"result":{"basicFaceList":[{"itemCode":"CUEY00002"},{"itemCode":"CUMO00002"},{"itemCode":"CUEB00001"},{"itemCode":"CUNO00001"},{"itemCode":"CUHE0000L"}],"inventoryList":[{"itemCode":"CUON00164","invenSeq":"1","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUSH002BH","invenSeq":"2","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUON004TV","invenSeq":"3","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUHA0036Z","invenSeq":"4","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUSH00267","invenSeq":"5","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUAH004JH","invenSeq":"6","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUEY00002","invenSeq":"7","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUEY00003","invenSeq":"8","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUMO00002","invenSeq":"9","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUEB00001","invenSeq":"10","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUNO00001","invenSeq":"11","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUHE0000L","invenSeq":"12","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0}]}}`
+	if got := itemsRec.Body.String(); got != closetInventoryBody {
+		t.Fatalf("closet items = %q, want %q", got, closetInventoryBody)
+	}
+	for _, method := range []string{http.MethodGet, http.MethodPut} {
+		if rec := serve(t, method, "/v4/inven/closet/items/all"); rec.Code != http.StatusNotFound {
+			t.Errorf("%s closet items: status = %d, want 404", method, rec.Code)
+		}
+	}
+
+	put := func(payload []byte) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPut, "/v4/avatar/save/v2", bytes.NewReader(payload))
+		req.AddCookie(&http.Cookie{Name: "AV_AUTH", Value: token})
+		return serveRequest(t, req)
+	}
+	valid := append([]byte(`[{"itemCode":"CUHA0036Z","invenSeq":4},{"itemCode":"SKN007"}]`), 0)
+	saved := put(valid)
+	if saved.Code != http.StatusOK {
+		t.Fatalf("save avatar: status = %d, body = %q", saved.Code, saved.Body.String())
+	}
+	var raw struct {
+		Result map[string]json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(saved.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("save response JSON: %v", err)
+	}
+	wantFields := []string{"avatarId", "name", "gender", "sType", "skin", "country", "items", "petProfiles"}
+	if len(raw.Result) != len(wantFields) {
+		t.Fatalf("save result fields = %v", raw.Result)
+	}
+	for _, field := range wantFields {
+		if _, ok := raw.Result[field]; !ok {
+			t.Errorf("save result missing %q", field)
+		}
+	}
+	var avatar struct {
+		Result *store.AvatarInfoResult `json:"result"`
+	}
+	if err := json.Unmarshal(saved.Body.Bytes(), &avatar); err != nil || avatar.Result == nil {
+		t.Fatalf("save avatar response: %v", err)
+	}
+	if avatar.Result.AvatarID != createdAvatar.Result.AvatarID || avatar.Result.Name != "Closet" || avatar.Result.Gender != "FEMALE" || avatar.Result.SType != "NORMAL" || avatar.Result.Skin != "2" || avatar.Result.Country != "JP" || !avatarHasCD(avatar.Result.Items, "CUHA0036Z") || findAvatarItem(avatar.Result.Items, "CUHA0036Z").InvenSeq != "4" || len(avatar.Result.PetProfiles) != 0 {
+		t.Fatalf("saved avatar = %+v", avatar.Result)
+	}
+	for _, cd := range []string{"CUTO0011X", "CUPA000LO", "CUSH0009Q"} {
+		if !avatarHasCD(avatar.Result.Items, cd) {
+			t.Fatalf("saved avatar missing base %s: %+v", cd, avatar.Result.Items)
+		}
+	}
+
+	for _, c := range []struct {
+		body []byte
+		want int
+	}{
+		{[]byte(`[{"itemCode":"UNKNOWN","invenSeq":1}]`), http.StatusBadRequest},
+		{[]byte(`[{}]`), http.StatusBadRequest},
+		{[]byte(`[{`), http.StatusBadRequest},
+	} {
+		if rec := put(c.body); rec.Code != c.want {
+			t.Errorf("invalid save: status = %d, want %d, body = %q", rec.Code, c.want, rec.Body.String())
+		}
+	}
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		if rec := serve(t, method, "/v4/avatar/save/v2"); rec.Code != http.StatusNotFound {
+			t.Errorf("%s save avatar: status = %d, want 404", method, rec.Code)
+		}
+	}
+
+	store.AccountsMu.Lock()
+	store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath = make(map[string]*store.Account), nil, 0, ""
+	store.AccountsMu.Unlock()
+	if err := store.LoadAccountsFrom(path); err != nil {
+		t.Fatalf("reload account store: %v", err)
+	}
+	profile := serve(t, http.MethodGet, "/v4/avatar/"+createdAvatar.Result.AvatarID)
+	var persisted struct {
+		Result *store.AvatarInfoResult `json:"result"`
+	}
+	if profile.Code != http.StatusOK || json.Unmarshal(profile.Body.Bytes(), &persisted) != nil || persisted.Result == nil || !avatarHasCD(persisted.Result.Items, "CUHA0036Z") || findAvatarItem(persisted.Result.Items, "CUHA0036Z").InvenSeq != "4" {
+		t.Fatalf("persisted avatar: status = %d, body = %q", profile.Code, profile.Body.String())
+	}
+	itemsReq = httptest.NewRequest(http.MethodPost, "/v4/inven/closet/items/all", nil)
+	itemsReq.AddCookie(&http.Cookie{Name: "AV_AUTH", Value: token})
+	itemsRec = serveRequest(t, itemsReq)
+	if itemsRec.Code != http.StatusOK || itemsRec.Body.String() != closetInventoryBody {
+		t.Fatalf("persisted closet inventory: status = %d, body = %q", itemsRec.Code, itemsRec.Body.String())
+	}
+}
+
+func TestCreateAvatar(t *testing.T) {
+	accessTokenA := guestGenerate(t)
+	createA := createSession(t, accessTokenA)
+	if aid := decodeSession(t, createA).Aid; aid != "0" {
+		t.Fatalf("guest A aid = %q, want %q", aid, "0")
+	}
+	avAuthA := avAuthValue(t, createA)
+
+	guestGenerate(t)
+
+	payload := []byte(`{"name":"","avatarType":"F","nationCode":"JP","skinColor":"1","itemCodes":["CUON0059S","CUSH002BH"],"useMid":true}`)
+	rec := createAvatar(t, avAuthA, payload, "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body = %q", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json; charset=utf-8" {
+		t.Fatalf("Content-Type = %q", ct)
+	}
+	var raw struct {
+		Result map[string]json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("body is not valid JSON: %v", err)
+	}
+	wantKeys := []string{"avatarId", "name", "gender", "sessionKey", "avatarCode", "items", "petProfiles"}
+	if len(raw.Result) != len(wantKeys) {
+		t.Fatalf("result has %d keys, want %d: %q", len(raw.Result), len(wantKeys), rec.Body.String())
+	}
+	for _, key := range wantKeys {
+		if _, ok := raw.Result[key]; !ok {
+			t.Errorf("result key %q missing: %q", key, rec.Body.String())
+		}
+	}
+	var body avatarResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body decode failed: %v", err)
+	}
+	if body.Result == nil {
+		t.Fatal("result missing")
+	}
+	res := body.Result
+	if !httpx.IsAllDigits(res.AvatarID) || res.AvatarID == "0" {
+		t.Fatalf("avatarId = %q, want non-zero decimal", res.AvatarID)
+	}
+	if res.Name != "" {
+		t.Errorf("name = %q, want empty", res.Name)
+	}
+	if res.Gender != "F" {
+		t.Errorf("gender = %q, want %q", res.Gender, "F")
+	}
+	if want := decodeSession(t, createA).SessionKey; res.SessionKey != want {
+		t.Errorf("sessionKey = %q, want %q", res.SessionKey, want)
+	}
+	if res.AvatarCode != "ac" {
+		t.Errorf("avatarCode = %q, want %q", res.AvatarCode, "ac")
+	}
+	var items []store.AvatarItem
+	if err := json.Unmarshal(raw.Result["items"], &items); err != nil {
+		t.Fatalf("items decode failed: %v", err)
+	}
+	if len(items) != 2 || items[0].CD != "CUON0059S" || items[1].CD != "CUSH002BH" {
+		t.Errorf("items = %s, want the two submitted codes", raw.Result["items"])
+	}
+	for _, item := range items {
+		if item.InvenSeq != "0" || item.DyeType != 0 || item.ColorAndTransparencies == nil || len(item.ColorAndTransparencies) != 0 {
+			t.Errorf("item = %+v, want invenSeq 0, dyeType 0, empty colorAndTransparencies", item)
+		}
+	}
+	if got := string(raw.Result["petProfiles"]); got != "[]" {
+		t.Errorf("petProfiles = %s, want []", got)
+	}
+	token := avAuthValue(t, rec)
+
+	check := checkSession(t, token)
+	if check.Code != http.StatusOK {
+		t.Fatalf("checkSession: status = %d, body = %q", check.Code, check.Body.String())
+	}
+	if got := decodeSession(t, check).Aid; got != res.AvatarID {
+		t.Fatalf("checkSession aid = %q, want %q", got, res.AvatarID)
+	}
+
+	again := createSession(t, accessTokenA)
+	if again.Code != http.StatusOK {
+		t.Fatalf("createSession A: status = %d, body = %q", again.Code, again.Body.String())
+	}
+	if got := decodeSession(t, again).Aid; got != res.AvatarID {
+		t.Fatalf("guest A aid = %q, want %q", got, res.AvatarID)
+	}
+
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write(payload); err != nil {
+		t.Fatalf("gzip write: %v", err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+	gz := createAvatar(t, token, buf.Bytes(), "gzip")
+	if gz.Code != http.StatusOK {
+		t.Fatalf("gzip status = %d, want 200, body = %q", gz.Code, gz.Body.String())
+	}
+	var gzBody avatarResponse
+	if err := json.Unmarshal(gz.Body.Bytes(), &gzBody); err != nil {
+		t.Fatalf("gzip body decode failed: %v", err)
+	}
+	if gzBody.Result == nil {
+		t.Fatal("gzip result missing")
+	}
+	if gzBody.Result.AvatarID != res.AvatarID {
+		t.Fatalf("gzip avatarId = %q, want %q", gzBody.Result.AvatarID, res.AvatarID)
+	}
+	if gzBody.Result.Gender != "F" || gzBody.Result.SessionKey != res.SessionKey {
+		t.Fatalf("gzip result mismatch: %+v", gzBody.Result)
+	}
+}
+
+func TestPreloadStubs(t *testing.T) {
+	store.ResetSocial()
+	paths := []string{
+		"/v4/setting/all",
+		"/v4/setting/all?deviceType=Android",
+		"/v4/sync/friends/1758000000",
+		"/v4/buddy/list/type/0",
+		"/v4/line/buddy/v4/list?page=0",
+		"/v4/brand/list",
+	}
+	for _, path := range paths {
+		rec := serveRequest(t, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200, body = %q", path, rec.Code, rec.Body.String())
+		}
+		if ct := rec.Header().Get("Content-Type"); ct != "application/json; charset=utf-8" {
+			t.Fatalf("%s: Content-Type = %q", path, ct)
+		}
+		if !strings.Contains(rec.Body.String(), `"result"`) {
+			t.Fatalf("%s: body = %q, want \"result\"", path, rec.Body.String())
+		}
+	}
+	var lineBuddy struct {
+		Result struct {
+			NextCursor string `json:"nextCursor"`
+		} `json:"result"`
+	}
+	lineBuddyReply := serve(t, http.MethodGet, "/v4/line/buddy/v4/list")
+	if err := json.Unmarshal(lineBuddyReply.Body.Bytes(), &lineBuddy); err != nil || lineBuddy.Result.NextCursor != "0" {
+		t.Fatalf("line buddy cursor must be a string: %s, %v", lineBuddyReply.Body.String(), err)
+	}
+	var syncBookmarks struct {
+		Result struct {
+			Bookmarks []any `json:"bookmarks"`
+		} `json:"result"`
+	}
+	syncReply := serve(t, http.MethodGet, "/v4/sync/friends/0")
+	if err := json.Unmarshal(syncReply.Body.Bytes(), &syncBookmarks); err != nil || syncBookmarks.Result.Bookmarks == nil {
+		t.Fatalf("friend sync bookmarks must be an array: %s, %v", syncReply.Body.String(), err)
+	}
+	badge := serve(t, http.MethodGet, "/v4/badge/infos/")
+	if badge.Code != http.StatusOK || !strings.Contains(badge.Body.String(), `"NEWS":0`) {
+		t.Fatalf("GET /v4/badge/infos/: status = %d, body = %q", badge.Code, badge.Body.String())
+	}
+	if rec := serve(t, http.MethodPost, "/v4/badge/infos/"); rec.Code != http.StatusNotFound {
+		t.Fatalf("POST /v4/badge/infos/: status = %d, want 404", rec.Code)
+	}
+	unfold := serve(t, http.MethodGet, "/v4/diary2/ext/unfold/10/")
+	if unfold.Code != http.StatusOK || !strings.Contains(unfold.Body.String(), `"items":[]`) {
+		t.Fatalf("GET diary unfold: status = %d, body = %q", unfold.Code, unfold.Body.String())
+	}
+	intro := serve(t, http.MethodGet, "/v4/diary2/intro/10")
+	if intro.Code != http.StatusOK || !strings.Contains(intro.Body.String(), `"avatarId":"10"`) {
+		t.Fatalf("GET diary intro: status = %d, body = %q", intro.Code, intro.Body.String())
+	}
+	gb := serve(t, http.MethodGet, "/v4/guestbook3/count/10")
+	if gb.Code != http.StatusOK || !strings.Contains(gb.Body.String(), `"count":0`) {
+		t.Fatalf("GET guestbook count: status = %d, body = %q", gb.Code, gb.Body.String())
+	}
+
+	post := serveRequest(t, httptest.NewRequest(http.MethodPost, "/v4/setting/all", nil))
+	if post.Code != http.StatusNotFound || post.Body.String() != httpx.NotFoundBody {
+		t.Fatalf("POST /v4/setting/all: status = %d, body = %q", post.Code, post.Body.String())
+	}
+
+	if friendBrandBuddyBody != `{"result":[]}` {
+		t.Fatalf("friendBrandBuddyBody = %q, want %q", friendBrandBuddyBody, `{"result":[]}`)
+	}
+	brand := serveRequest(t, httptest.NewRequest(http.MethodGet, "/v4/brand/list", nil))
+	if brand.Code != http.StatusOK {
+		t.Fatalf("/v4/brand/list: status = %d, want 200, body = %q", brand.Code, brand.Body.String())
+	}
+	if got := brand.Body.String(); got != friendBrandBuddyBody {
+		t.Fatalf("/v4/brand/list: body = %q, want %q", got, friendBrandBuddyBody)
+	}
+	var brandBody struct {
+		Result []json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(brand.Body.Bytes(), &brandBody); err != nil {
+		t.Fatalf("/v4/brand/list: result must be a JSON array: %v, body = %q", err, brand.Body.String())
+	}
+	if len(brandBody.Result) != 0 {
+		t.Fatalf("/v4/brand/list: result = %q, want empty array", brand.Body.String())
+	}
+}
+
+func TestCreateComplete(t *testing.T) {
+	ecoSetup(t, 0, 0, 0)
+	cc := httptest.NewRequest(http.MethodPost, "/v4/create/complete", strings.NewReader(`{"inviteCode":""}`))
+	cc.Header.Set("Cookie", `AV_AUTH="etok"`)
+	rec := serveRequest(t, cc)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body = %q", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json; charset=utf-8" {
+		t.Fatalf("Content-Type = %q", ct)
+	}
+	var raw struct {
+		Result map[string]json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("body is not valid JSON: %v", err)
+	}
+	if len(raw.Result) != 2 {
+		t.Fatalf("result has %d keys, want 2: %q", len(raw.Result), rec.Body.String())
+	}
+	if got := string(raw.Result["status"]); got != "true" {
+		t.Fatalf("result.status = %s, want JSON bool true", got)
+	}
+	if got := string(raw.Result["rewardCoin"]); got != "300" {
+		t.Fatalf("result.rewardCoin = %s, want JSON number 300", got)
+	}
+
+	notPost := serveRequest(t, httptest.NewRequest(http.MethodGet, "/v4/create/complete", nil))
+	if notPost.Code != http.StatusNotFound || notPost.Body.String() != httpx.NotFoundBody {
+		t.Fatalf("GET: status = %d, body = %q", notPost.Code, notPost.Body.String())
+	}
+}
+
+func TestAvatarInfo(t *testing.T) {
+	// An unknown player id keeps the default stubbed appearance; a known
+	// player id is covered by TestCreateAvatarAccountRoundTrip.
+	rec := serve(t, http.MethodGet, "/v4/avatar/999999999?detail=true")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200, body = %q", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Result *store.AvatarInfoResult `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body is not valid JSON: %v", err)
+	}
+	if body.Result == nil {
+		t.Fatal("result missing")
+	}
+	if body.Result.AvatarID != "999999999" {
+		t.Fatalf("avatarId = %q, want %q", body.Result.AvatarID, "999999999")
+	}
+	if body.Result.Gender != "FEMALE" {
+		t.Fatalf("gender = %q, want %q", body.Result.Gender, "FEMALE")
+	}
+	if body.Result.Items == nil || len(body.Result.Items) != 0 {
+		t.Fatalf("items = %v, want []", body.Result.Items)
+	}
+	post := serve(t, http.MethodPost, "/v4/avatar/999999999")
+	if post.Code != http.StatusNotFound || post.Body.String() != httpx.NotFoundBody {
+		t.Fatalf("POST: status = %d, body = %q", post.Code, post.Body.String())
+	}
+}
+
+const (
+	sckeyKey64CipherHex = "da7aefcd343e63431b8804fe8b6320f4bdefbb2cd054f9ae2bec527c8702f1d9cb9773500b3708d69ca33fdda2395c03d466f205901873281f7fa656a8f95c93"
+	sckeyIV16CipherHex  = "ac0e99bd424a6c4c14877088fb155482"
+	wantSckeyKey64      = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF"
+	wantSckeyIV16       = "FEDCBA9876543210"
+)
+
+func TestSckeyEncRoute(t *testing.T) {
+	rec := serve(t, http.MethodGet, "/arts_session/sckey.enc")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "application/octet-stream" {
+		t.Fatalf("Content-Type = %q", ct)
+	}
+	if cl := rec.Header().Get("Content-Length"); cl != "8812" {
+		t.Fatalf("Content-Length = %q, want 8812", cl)
+	}
+	if rec.Body.Len() != 8812 {
+		t.Fatalf("body len = %d, want 8812", rec.Body.Len())
+	}
+	if !bytes.Equal(rec.Body.Bytes(), lpn.SckeyBlob) {
+		t.Fatal("body does not match sckeyBlob")
+	}
+
+	post := serve(t, http.MethodPost, "/arts_session/sckey.enc")
+	if post.Code != http.StatusNotFound || post.Body.String() != httpx.NotFoundBody {
+		t.Fatalf("POST status = %d, body = %q", post.Code, post.Body.String())
+	}
+}
+
+func TestSckeyBlobContents(t *testing.T) {
+	if len(lpn.SckeyBlob) != 8812 {
+		t.Fatalf("blob len = %d, want 8812", len(lpn.SckeyBlob))
+	}
+	if got := binary.BigEndian.Uint32(lpn.SckeyBlob[0:4]); got != 0 {
+		t.Fatalf("blob[0:4] = %d, want 0", got)
+	}
+	if got := binary.BigEndian.Uint64(lpn.SckeyBlob[4:12]); got != 0 {
+		t.Fatalf("blob[4:12] = %d, want 0", got)
+	}
+	for i := 0; i < lpn.SckeyEntryCount; i++ {
+		off := 12 + i*88
+		if got := binary.BigEndian.Uint32(lpn.SckeyBlob[off : off+4]); got != 64 {
+			t.Fatalf("entry %d key64 len = %d, want 64", i, got)
+		}
+		keyBlock, _ := aes.NewCipher(lpn.SckeyWrapperKey)
+		keyPlain := make([]byte, 64)
+		cipher.NewCFBDecrypter(keyBlock, lpn.SckeyWrapperIV).XORKeyStream(keyPlain, lpn.SckeyBlob[off+4:off+68])
+		if string(keyPlain) != wantSckeyKey64 {
+			t.Fatalf("entry %d key64 = %q", i, keyPlain)
+		}
+		off += 68
+		if got := binary.BigEndian.Uint32(lpn.SckeyBlob[off : off+4]); got != 16 {
+			t.Fatalf("entry %d iv16 len = %d, want 16", i, got)
+		}
+		ivBlock, _ := aes.NewCipher(lpn.SckeyWrapperKey)
+		ivPlain := make([]byte, 16)
+		cipher.NewCFBDecrypter(ivBlock, lpn.SckeyWrapperIV).XORKeyStream(ivPlain, lpn.SckeyBlob[off+4:off+20])
+		if string(ivPlain) != wantSckeyIV16 {
+			t.Fatalf("entry %d iv16 = %q", i, ivPlain)
+		}
+	}
+}
+
+func TestSckeyWrapperCrossCheck(t *testing.T) {
+	keyCipher, err := hex.DecodeString(sckeyKey64CipherHex)
+	if err != nil {
+		t.Fatalf("decode key cipher hex: %v", err)
+	}
+	ivCipher, err := hex.DecodeString(sckeyIV16CipherHex)
+	if err != nil {
+		t.Fatalf("decode iv cipher hex: %v", err)
+	}
+
+	keyBlock, _ := aes.NewCipher(lpn.SckeyWrapperKey)
+	keyPlain := make([]byte, 64)
+	cipher.NewCFBDecrypter(keyBlock, lpn.SckeyWrapperIV).XORKeyStream(keyPlain, keyCipher)
+	if string(keyPlain) != wantSckeyKey64 {
+		t.Errorf("decrypt key64 = %q, want %q", keyPlain, wantSckeyKey64)
+	}
+	ivBlock, _ := aes.NewCipher(lpn.SckeyWrapperKey)
+	ivPlain := make([]byte, 16)
+	cipher.NewCFBDecrypter(ivBlock, lpn.SckeyWrapperIV).XORKeyStream(ivPlain, ivCipher)
+	if string(ivPlain) != wantSckeyIV16 {
+		t.Errorf("decrypt iv16 = %q, want %q", ivPlain, wantSckeyIV16)
+	}
+
+	if got := hex.EncodeToString(lpn.WrapSckeyField([]byte(wantSckeyKey64))); got != sckeyKey64CipherHex {
+		t.Errorf("encrypt key64 = %s, want %s", got, sckeyKey64CipherHex)
+	}
+	if got := hex.EncodeToString(lpn.WrapSckeyField([]byte(wantSckeyIV16))); got != sckeyIV16CipherHex {
+		t.Errorf("encrypt iv16 = %s, want %s", got, sckeyIV16CipherHex)
+	}
+
+	if got := hex.EncodeToString(lpn.SckeyBlob[16:80]); got != sckeyKey64CipherHex {
+		t.Errorf("blob entry 0 key64 cipher = %s", got)
+	}
+	if got := hex.EncodeToString(lpn.SckeyBlob[84:100]); got != sckeyIV16CipherHex {
+		t.Errorf("blob entry 0 iv16 cipher = %s", got)
+	}
+}
+
+func TestNewAvatarIDsAreMultiDigit(t *testing.T) {
+	store.AccountsMu.Lock()
+	previousAccounts, previousLatest, previousID, previousPath := store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath
+	store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath = make(map[string]*store.Account), nil, 0, ""
+	store.AccountsMu.Unlock()
+	t.Cleanup(func() {
+		store.AccountsMu.Lock()
+		store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath = previousAccounts, previousLatest, previousID, previousPath
+		store.AccountsMu.Unlock()
+	})
+	token := avAuthValue(t, createSession(t, guestGenerate(t)))
+	rec := createAvatar(t, token, []byte(`{"name":"Multi","avatarType":"FEMALE","nationCode":"JP","skinColor":"2","itemCodes":["CUON00164"]}`), "")
+	var avatar avatarResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &avatar); err != nil || avatar.Result == nil {
+		t.Fatalf("create avatar = %d %s", rec.Code, rec.Body.String())
+	}
+	if avatar.Result.AvatarID != "10" {
+		t.Fatalf("first avatar id = %q, want 10 (Room Party hides single-char avatarNo)", avatar.Result.AvatarID)
+	}
+}
+
+func TestPlayDetailLPSquare(t *testing.T) {
+	rec := serve(t, http.MethodGet, "/v4/playhome/games/lp_sq?deviceType=Android")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	for _, s := range []string{`"gameId":"lp_sq"`, `"executable":true`, `"underMaintenance":false`, `"minLinePlayVersion":""`, `"startDate":"`, `"endDate":"`} {
+		if !strings.Contains(rec.Body.String(), s) {
+			t.Errorf("body lacks %s: %s", s, rec.Body.String())
+		}
+	}
+	if rec := serve(t, http.MethodPost, "/v4/playhome/games/lp_sq"); rec.Code != http.StatusNotFound {
+		t.Errorf("POST status = %d, want 404", rec.Code)
+	}
+}
+
+func TestPlayDetailLPRmchatBody(t *testing.T) {
+	var b struct {
+		Result struct {
+			GameInfo struct {
+				GameID           string `json:"gameId"`
+				Executable       bool   `json:"executable"`
+				UnderMaintenance bool   `json:"underMaintenance"`
+				MinVersion       string `json:"minLinePlayVersion"`
+			} `json:"gameInfo"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(playDetailLPRmchatBody), &b); err != nil {
+		t.Fatal(err)
+	}
+	if g := b.Result.GameInfo; g.GameID != "lp_rmchat" || !g.Executable || g.UnderMaintenance || g.MinVersion != "" {
+		t.Fatalf("gameInfo = %+v", g)
+	}
+}
