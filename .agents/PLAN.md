@@ -8,6 +8,8 @@ When the user says they are **moving to another conversation whose agent has no 
 
 **No handoff is pending.** The last one (OpenCode → Claude Code, 2026-10-06) was accepted the same day; it and all earlier pairs are in HISTORY.md. A receiving agent with zero context should read all of AGENTS.md, then this file, and recheck the lab (git status, Cherry PID/path/hash, `adb devices`) before acting.
 
+**Next work: Economy Phase C (shops)** — Roadmap item 2 and "Economy" below. Nothing for it is implemented yet. Start by designing the price table (by category/grade; pacing ~1 typical clothing item per day) and get user sign-off before writing shop routes. Leads: the client already calls `POST /v4/shop/status`, `GET /v4/items/modified/list/<ts>` and `GET /v4/seasonpass/info/icon` at every login (all 404 today; season pass must stay off); the economy research map is `%TEMP%\opencode\cherry\economy-20261006\economy-map.md`.
+
 ## Status (2026-10-07)
 
 | Milestone | Scope | Status |
@@ -35,6 +37,7 @@ Only M0–M4 are numbered. Later work is tracked as features:
 | Economy Phase B: daily calendar (+ generated skin), mailbox | User-verified, both devices | `e99a94c` |
 | New-player starter rules (closet, door) | User-verified (new account 1004) | `572b625` |
 | Delete Avatar | User-verified (phone) | `afcca8b` |
+| Add Friends screen (invite/recommend-code routes) | User-verified (emulator; search/add/accept + Room Party 1001↔1004) | `ae86c18` |
 
 Older commit-by-commit evidence (M3 entry errors, keepalives, preload fixtures) is summarized in AGENTS "Architecture" and detailed in HISTORY.md.
 
@@ -137,6 +140,7 @@ Tags: [S] static-confirmed, [I] inferred, [?] unverified. Aids 1/2 in any copied
 - "Record the changes to your diary?" YES → comic photozone: `GET /v4/photozone/shop/info/comic_shop/<lang>` (50 pre-cached frames under `files/cache/photozone/frame/`, 30 action ids, price 0). The client renders the comic PNG, uploads via OBS `/lineplay/d/upload.nhn`, posts with `diary2/ext/write`.
 - **Diary image format:** the client caches diary downloads as `<oid>.jpg` and cocos2d-x picks the decoder from the extension, so PNG bytes render blank. Cherry transcodes stored PNGs to JPEG on diary download (room preset thumbnails stay PNG).
 - `POST /v4/r/badge/reset/<BADGE>` → `{"result":{}}` (no badge tracking).
+- **Add Friends screen (2026-10-07, user-verified, `ae86c18`):** MENU → Friends → top-right button opens the invite/search screen, which fetches `GET /v4/friends/invitation/mission/info` (`ResFriendInviteMission` @0x1c27154; `{"result":{"inviteCount":0,"achievementList":[]}}`), `GET /v4/recommend/code` (`ResRecommandMyCodeURL` @0x1a5b768; `{"result":{"recommendCode":<aid>}}`, matching CODE search), `GET /v4/friends/invitation/list` (`ResInvitedFriendsList` @0x1b614b4; `{"result":{"items":[]}}`) and `POST /v4/badge/IFRD/0` (no-op handler; `{"result":{}}`). Any of the first three 404ing showed "Network Error." Invite missions/rewards are stubs (no LINE invites exist). `POST /v4/session/status` still 404s with no visible effect.
 
 ### Economy (plan, Phase A, Phase B, Delete Avatar)
 
