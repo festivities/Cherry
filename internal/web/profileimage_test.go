@@ -39,18 +39,18 @@ func TestProfilePictureFlow(t *testing.T) {
 		NewMux().ServeHTTP(rec, req)
 		return rec, data
 	}
-	if rec, _ := upload("", 5); rec.Code != 200 {
-		t.Fatalf("first upload = %d %s", rec.Code, rec.Body.String())
-	}
-	// Nobody else may overwrite the picture: no session or another account gets the 409.
+	// Only the owner may upload: no session or another account is refused.
 	for _, tok := range []string{"", "ftok"} {
-		if rec, _ := upload(tok, 7); rec.Code != http.StatusConflict {
-			t.Fatalf("overwrite by %q = %d", tok, rec.Code)
+		if rec, _ := upload(tok, 7); rec.Code != http.StatusBadRequest {
+			t.Fatalf("upload by %q = %d", tok, rec.Code)
 		}
 	}
-	// Head and whole-body can share a second (same oid): the owner's latest upload wins.
-	rec, data := upload("ptok", 9)
+	rec, data := upload("ptok", 5)
 	if rec.Code != 200 {
+		t.Fatalf("head upload = %d %s", rec.Code, rec.Body.String())
+	}
+	// The whole-body image usually shares the head's second (same oid): acknowledged, head kept.
+	if rec, _ := upload("ptok", 9); rec.Code != 200 {
 		t.Fatalf("same-second upload = %d %s", rec.Code, rec.Body.String())
 	}
 	for _, p := range []string{"/lineplay/pr/" + oid, "/r/lineplay/pr/" + oid} {

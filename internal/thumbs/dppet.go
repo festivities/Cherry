@@ -19,11 +19,13 @@ import (
 // GLOBAL (armature space, y down) in this export and children do not inherit them: a slot is
 // placed with its bone's idle frame-0 transform and its display transform. The origin and
 // the 1:1 scale were fitted against authentic dp.png files of four pets (bounding boxes
-// within about 2 px).
+// within about 2 px). A pet too large for the canvas at that scale (ride pets) is scaled down
+// and centred instead (petFit).
 
 const (
 	dpPetW, dpPetH   = 260, 200
 	dpPetOX, dpPetOY = 138.0, 151.0 // armature origin on the canvas
+	dpPetMargin      = 6.0          // clearance kept between a scaled pet and the canvas edges
 )
 
 type pkTransform struct {
@@ -195,18 +197,43 @@ func composePetDP(dir string) (*image.RGBA, bool) {
 		return nil, false
 	}
 	sort.SliceStable(layers, func(i, j int) bool { return layers[i].z < layers[j].z })
+	view := petFit(layers)
 	out := image.NewRGBA(image.Rect(0, 0, dpPetW, dpPetH))
 	for _, l := range layers {
-		petBlit(out, l)
+		petBlit(out, l, view)
 	}
 	return out, true
 }
 
-// petBlit draws one layer with inverse mapping and bilinear sampling (source-over).
-func petBlit(dst *image.RGBA, l petLayer) {
-	m := l.m
-	m[4] += dpPetOX
-	m[5] += dpPetOY
+// petFit returns the armature-to-canvas transform. When every layer's image corners fit inside
+// the canvas with dpPetMargin at the usual origin, that is the plain origin (pixel-identical to
+// the fitted 1:1 render). Otherwise the whole pose is scaled down uniformly (never up) and its
+// bounding box is centred on the canvas.
+func petFit(layers []petLayer) affine {
+	minX, minY := math.Inf(1), math.Inf(1)
+	maxX, maxY := math.Inf(-1), math.Inf(-1)
+	for _, l := range layers {
+		w, h := float64(l.img.Bounds().Dx()), float64(l.img.Bounds().Dy())
+		// the image spans [-px, w-px] x [-py, h-py] in armature space (petBlit's pivot)
+		for _, c := range [4][2]float64{{-l.px, -l.py}, {w - l.px, -l.py}, {w - l.px, h - l.py}, {-l.px, h - l.py}} {
+			x := l.m[0]*c[0] + l.m[2]*c[1] + l.m[4] + dpPetOX
+			y := l.m[1]*c[0] + l.m[3]*c[1] + l.m[5] + dpPetOY
+			minX, maxX = math.Min(minX, x), math.Max(maxX, x)
+			minY, maxY = math.Min(minY, y), math.Max(maxY, y)
+		}
+	}
+	if minX >= dpPetMargin && minY >= dpPetMargin && maxX <= dpPetW-dpPetMargin && maxY <= dpPetH-dpPetMargin {
+		return affine{1, 0, 0, 1, dpPetOX, dpPetOY}
+	}
+	s := math.Min(1, math.Min((dpPetW-2*dpPetMargin)/(maxX-minX), (dpPetH-2*dpPetMargin)/(maxY-minY)))
+	cx, cy := (minX+maxX)/2, (minY+maxY)/2
+	return affine{s, 0, 0, s, dpPetW/2 + s*(dpPetOX-cx), dpPetH/2 + s*(dpPetOY-cy)}
+}
+
+// petBlit draws one layer with inverse mapping and bilinear sampling (source-over). view maps
+// the armature space onto the canvas.
+func petBlit(dst *image.RGBA, l petLayer, view affine) {
+	m := view.mul(l.m)
 	det := m[0]*m[3] - m[1]*m[2]
 	if math.Abs(det) < 1e-9 {
 		return

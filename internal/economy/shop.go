@@ -700,6 +700,7 @@ func registerShopRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/v4/inven/recycle/cfg", httpx.HandleJSONBody(recycleCfgBody))
 	mux.HandleFunc("/v4/inven/recycle/closet/v2", handleRecycle(false))
 	mux.HandleFunc("/v4/inven/recycle/interior", handleRecycle(true))
+	registerGachaRoutes(mux)
 }
 
 // ---- item names ----

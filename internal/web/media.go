@@ -304,13 +304,20 @@ func handleMediaUpload(w http.ResponseWriter, r *http.Request, dir string, stora
 	}
 	var contentHash [sha256.Size]byte
 	copy(contentHash[:], hash.Sum(nil))
-	if acc, ok := store.AccountForRequest(r); kind == mediaProfile && ok && acc.Aid == params.UserID {
-		// The client names a profile upload userid_<unix seconds>, so the head and whole-body
-		// images can collide when both land in one second: the latest upload wins, but only for
-		// the owner (the upload may lack AV_AUTH; anyone else gets the diary conflict reply).
-		diaryMediaSaveMu.Lock()
-		_ = os.Remove(path)
-		diaryMediaSaveMu.Unlock()
+	if kind == mediaProfile {
+		// The client sends the head image, then the whole-body image, each named userid_<unix
+		// seconds> (ReqObsProfileUploadURL @0x1bbb1c8; time(NULL) per call), and saves the first as
+		// imageUrl. Both usually land in one second, so the first upload (the head, which every
+		// profile screen shows) wins and a same-oid repeat is acknowledged without a write.
+		// Uploads carry AV_AUTH (OBSUpload::ASyncBodyBuild @0x1b0c0c0): only the owner may store.
+		if acc, ok := store.AccountForRequest(r); !ok || acc.Aid != params.UserID {
+			writeDiaryMediaJSON(w, http.StatusBadRequest, diaryMediaBadRequestBody)
+			return
+		}
+		if _, err := os.Stat(path); err == nil {
+			writeDiaryMediaJSON(w, http.StatusOK, `{"result":true}`)
+			return
+		}
 	}
 	if err := storeDiaryMedia(path, tmpPath, written, contentHash, storageLimit); err != nil {
 		var conflict diaryMediaConflictError

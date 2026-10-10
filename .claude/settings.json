@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(adb -s emulator-5554 shell input:*)",
+      "Bash(adb -s JVHQVCROVWPBJNBA shell input:*)"
+    ]
+  }
+}

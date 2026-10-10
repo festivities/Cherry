@@ -15,6 +15,7 @@ Hard rules:
 - No Frida, client patches, app-data resets, new guest accounts, Delete Avatar, or blanket chmod.
 - Never touch YunDetectService or any non-Cherry process.
 - Physical phone (JVHQVCROVWPBJNBA): touch only LINE PLAY; screenshots only of LINE PLAY. Never open, list or read anything else on it.
+- Right before EVERY phone screenshot, confirm LINE PLAY is the foreground app (`adb -s JVHQVCROVWPBJNBA shell dumpsys window | grep mCurrentFocus` must show `jp.naver.lineplay.android`). If it is not (the app may have crashed between steps), do not screenshot; check `pidof jp.naver.lineplay.android`, stop and report.
 - Take a fresh screenshot/snapshot before and after every tap; coordinates from another device or an old screenshot are invalid. Read `wm size` per device. Native Cocos screens: menu items are tapped on the icon ~80–100 px above the label.
 - Use `timeout` on every adb call; bounded commands only. In Git Bash `export MSYS_NO_PATHCONV=1` before adb with device paths.
 - Do not trigger real-money/billing flows. Spend only in-game Gems/Cash as the step requires.
