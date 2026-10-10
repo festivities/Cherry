@@ -23,8 +23,8 @@ import (
 
 // Closet cell thumbnails. The client loads a local <itemFolder>/dp.png and,
 // when that file is missing, GETs it from play-static (DNS-sunk to Cherry):
-//   /img/read/arts_item_{custom|dress}_{id}/dp.png
-//   /arts_item_{custom|dress}_{id}/dp.png
+//   /img/read/arts_item_{custom|dress|interior|tile|pet}_{id}/dp.png
+//   /arts_item_{custom|dress|interior|tile|pet}_{id}/dp.png
 // Item folders live under the santi device backup. An item without an
 // authentic dp.png gets a composite of its own part sprites, laid out with the
 // offsets recorded in 1409_iteminfo.artsitem (format reverse-engineered from
@@ -67,7 +67,7 @@ func ParseDpPath(path string) (kind, id string, ok bool) {
 		return "", "", false
 	}
 	switch kind {
-	case "custom", "dress", "interior", "tile":
+	case "custom", "dress", "interior", "tile", "pet":
 		return kind, id, true
 	default:
 		return "", "", false
@@ -477,6 +477,9 @@ func dpAnimLayers(rig *dpRig, dir, text string, seq int) []dpLayer {
 func composeItemDP(dir, kind string) (*image.RGBA, bool) {
 	if kind == "interior" || kind == "tile" {
 		return composeRoomDP(dir, kind)
+	}
+	if kind == "pet" {
+		return composePetDP(dir)
 	}
 	img, cat, ok := dpComposeNatural(dir, kind)
 	if !ok {

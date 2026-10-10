@@ -83,13 +83,14 @@ func handleFriendSync(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	for _, rel := range rels {
-		name := rel.aid
+		name, obs := rel.aid, ""
 		if acc, ok := store.AccountByAvatarID(rel.aid); ok {
-			name = acc.Name
+			name, obs = acc.Name, acc.ProfileImage.Image
 		}
 		buddies = append(buddies, buddyRow{
 			AvatarNo: rel.aid, AvatarName: name, BuddyAvatarNo: rel.aid,
 			Status: rel.status, FriendStatus: rel.status, LineBuddyYn: "N", Mid: rel.aid,
+			ObsProfileImagePath: obs,
 		})
 	}
 	friends := 0
@@ -163,7 +164,11 @@ func handleProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if acc, ok := store.AccountByAvatarID(aid); ok {
-		profileJSON(w, profileBodyFor(aid, acc.Name, true, viewer, viewerOK))
+		body := profileBodyFor(aid, acc.Name, true, viewer, viewerOK)
+		if pi := acc.ProfileImage; pi.Image != "" {
+			body["obsProfileImagePath"], body["obsWholeBodyProfileImagePath"], body["bg"] = pi.Image, pi.WholeBody, pi.Bg
+		}
+		profileJSON(w, body)
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, profileBody)

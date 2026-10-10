@@ -21,6 +21,7 @@ type AccountSnapshot struct {
 	Country        string
 	ItemCodes      []string
 	InventoryCodes []string
+	ProfileImage   ProfileImage
 }
 
 func AccountInventoryCodes(acc *Account) []string {
@@ -66,6 +67,7 @@ func AccountByAvatarID(id string) (AccountSnapshot, bool) {
 				Country:        acc.Country,
 				ItemCodes:      AppearanceItemCodes(acc.Gender, acc.ItemCodes),
 				InventoryCodes: AccountOwnedCodes(acc),
+				ProfileImage:   acc.ProfileImage,
 			}, true
 		}
 	}
@@ -97,6 +99,15 @@ type Account struct {
 	AttendKey      int64     // day key (06:00 JST boundary) of the last attend
 	Mail           []MailRow // unclaimed mailbox rows, mailbox.go; replaced, never edited in place
 	NextMailSeq    int64
+	ProfileImage   ProfileImage // saved profile picture (OBS paths + background), profileimage.go
+}
+
+// ProfileImage is the "Take profile picture" result: OBS paths as the client sent them
+// ("/lineplay/pr/<userid>_<ctime>") and the "profilebg/<n>.jpg" background name.
+type ProfileImage struct {
+	Image     string `json:"image,omitempty"`
+	WholeBody string `json:"wholeBody,omitempty"`
+	Bg        string `json:"bg,omitempty"`
 }
 
 const MinAvatarID = 10

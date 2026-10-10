@@ -59,6 +59,7 @@ func RegisterEconomyRoutes(mux *http.ServeMux) {
 	}
 	registerLoginBonusRoutes(mux)
 	registerMailRoutes(mux)
+	registerShopRoutes(mux)
 }
 
 const EmptySpecialChanceBody = `{"result":{"items":[],"location":""}}`

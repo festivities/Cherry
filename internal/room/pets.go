@@ -43,9 +43,9 @@ func PetSkinID(cd string) int {
 	return 326400000 + int(n)
 }
 
-// ensurePetsLocked grants the showcase pets once; pet 1 follows the owner, 2-3
+// EnsurePetsLocked grants the showcase pets once; pet 1 follows the owner, 2-3
 // are arranged on LEVEL_1. Caller holds accountsMu.
-func ensurePetsLocked(acc *store.Account) error {
+func EnsurePetsLocked(acc *store.Account) error {
 	if len(acc.Pets) > 0 || !store.LabAids[acc.Aid] {
 		return nil
 	}
@@ -69,6 +69,16 @@ func ensurePetsLocked(acc *store.Account) error {
 	return nil
 }
 
+// NewPetLocked builds a pet of item code cd for acc (not appended): the id is the
+// next free one in the owner's aid*100+n range. Caller holds accountsMu.
+func NewPetLocked(acc *store.Account, cd string) store.PetItem {
+	id := petBaseID(acc.Aid)
+	for _, p := range acc.Pets {
+		id = max(id, p.ID+1)
+	}
+	return store.PetItem{ID: id, Cd: cd, Name: "Minipet " + strconv.Itoa(len(acc.Pets)+1)}
+}
+
 // petAccount mirrors roomAccount: caller unlocks accountsMu iff non-nil.
 func petAccount(w http.ResponseWriter, r *http.Request) *store.Account {
 	store.AccountsMu.Lock()
@@ -78,7 +88,7 @@ func petAccount(w http.ResponseWriter, r *http.Request) *store.Account {
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
 		return nil
 	}
-	if err := ensurePetsLocked(acc); err != nil {
+	if err := EnsurePetsLocked(acc); err != nil {
 		store.AccountsMu.Unlock()
 		httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
 		return nil
@@ -92,7 +102,7 @@ func PetsOfAid(aid string) []store.PetItem {
 	defer store.AccountsMu.Unlock()
 	for _, acc := range store.Accounts {
 		if acc.Aid == aid {
-			if ensurePetsLocked(acc) != nil {
+			if EnsurePetsLocked(acc) != nil {
 				return nil
 			}
 			return slices.Clone(acc.Pets)

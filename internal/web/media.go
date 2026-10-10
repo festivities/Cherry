@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"cherry/internal/store"
@@ -41,6 +42,14 @@ const (
 )
 
 var diaryMediaSaveMu sync.Mutex
+
+type mediaKind int
+
+const (
+	mediaDiary mediaKind = iota
+	mediaRoom
+	mediaProfile
+)
 
 type diaryImageUploadParams struct {
 	Version string `json:"ver"`
@@ -87,7 +96,7 @@ func handleRoomImageUpload(w http.ResponseWriter, r *http.Request) {
 		writeDiaryMediaJSON(w, http.StatusInternalServerError, diaryMediaSaveFailedBody)
 		return
 	}
-	handleMediaUpload(w, r, dir, maxDiaryMediaStorage, true)
+	handleMediaUpload(w, r, dir, maxDiaryMediaStorage, mediaRoom)
 }
 
 func handleRoomImageDownload(w http.ResponseWriter, r *http.Request) {
@@ -97,6 +106,53 @@ func handleRoomImageDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	handleMediaDownload(w, r, dir, true)
+}
+
+// handleProfileImageUpload serves POST /lineplay/pr/upload.nhn (ReqObsProfileUploadURL
+// @0x1bbb1c8: params ver/type/name/userid/oid/ctime with oid = name = userid_ctime). The
+// reply body is ignored by ResObsProfileUploadURL @0x1a78bac, so any 200 succeeds.
+func handleProfileImageUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeDiaryMediaJSON(w, http.StatusNotFound, diaryMediaNotFoundBody)
+		return
+	}
+	dir, err := defaultProfileMediaDir()
+	if err != nil {
+		writeDiaryMediaJSON(w, http.StatusInternalServerError, diaryMediaSaveFailedBody)
+		return
+	}
+	handleMediaUpload(w, r, dir, maxDiaryMediaStorage, mediaProfile)
+}
+
+// handleProfileImageDownload serves GET <obs>/lineplay/pr/<oid> and <obs-cdn>/r/lineplay/pr/<oid>
+// (ReqObsProfileAsyncImageDownload @0x1b872e0 and ReqObsOrObsCdnDownload @0x1b7ff80). The client
+// caches the bytes as profiles/<oid>.png, so the stored image is served unchanged.
+func handleProfileImageDownload(w http.ResponseWriter, r *http.Request) {
+	dir, err := defaultProfileMediaDir()
+	if err != nil {
+		writeDiaryMediaJSON(w, http.StatusInternalServerError, diaryMediaSaveFailedBody)
+		return
+	}
+	handleProfileImageDownloadAt(w, r, dir)
+}
+
+func handleProfileImageDownloadAt(w http.ResponseWriter, r *http.Request, dir string) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		writeDiaryMediaJSON(w, http.StatusNotFound, diaryMediaNotFoundBody)
+		return
+	}
+	oid := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
+	i := strings.LastIndex(oid, "_")
+	if i < 0 || !store.ValidDiaryMediaTuple(oid[:i], oid[i+1:], oid) {
+		writeDiaryMediaJSON(w, http.StatusNotFound, diaryMediaNotFoundBody)
+		return
+	}
+	serveMediaFile(w, r, diaryMediaHashPath(dir, oid[:i], oid[i+1:], oid), true)
+}
+
+func defaultProfileMediaDir() (string, error) {
+	d, err := defaultDiaryMediaDir()
+	return filepath.Join(filepath.Dir(d), "profile-media"), err
 }
 
 func defaultRoomMediaDir() (string, error) {
@@ -121,14 +177,15 @@ func handleDiaryImageUploadAt(w http.ResponseWriter, r *http.Request, dir string
 }
 
 func handleDiaryImageUploadAtWithLimit(w http.ResponseWriter, r *http.Request, dir string, storageLimit int64) {
-	handleMediaUpload(w, r, dir, storageLimit, false)
+	handleMediaUpload(w, r, dir, storageLimit, mediaDiary)
 }
 
-// handleMediaUpload serves the OBS upload for diary photos (room=false) and My
-// Room preset thumbnails (room=true). ponytail: the room client's oid format is
-// unverified, so room mode accepts any printable oid equal to the form name
+// handleMediaUpload serves the OBS upload for diary photos, My Room preset thumbnails
+// (mediaRoom) and profile pictures (mediaProfile, diary naming, re-uploadable).
+// ponytail: the room client's oid format is unverified, so room mode accepts any printable oid equal to the form name
 // instead of requiring userid_ctime.
-func handleMediaUpload(w http.ResponseWriter, r *http.Request, dir string, storageLimit int64, room bool) {
+func handleMediaUpload(w http.ResponseWriter, r *http.Request, dir string, storageLimit int64, kind mediaKind) {
+	room := kind == mediaRoom
 	if r.Method != http.MethodPost {
 		writeDiaryMediaJSON(w, http.StatusNotFound, diaryMediaNotFoundBody)
 		return
@@ -247,6 +304,14 @@ func handleMediaUpload(w http.ResponseWriter, r *http.Request, dir string, stora
 	}
 	var contentHash [sha256.Size]byte
 	copy(contentHash[:], hash.Sum(nil))
+	if acc, ok := store.AccountForRequest(r); kind == mediaProfile && ok && acc.Aid == params.UserID {
+		// The client names a profile upload userid_<unix seconds>, so the head and whole-body
+		// images can collide when both land in one second: the latest upload wins, but only for
+		// the owner (the upload may lack AV_AUTH; anyone else gets the diary conflict reply).
+		diaryMediaSaveMu.Lock()
+		_ = os.Remove(path)
+		diaryMediaSaveMu.Unlock()
+	}
 	if err := storeDiaryMedia(path, tmpPath, written, contentHash, storageLimit); err != nil {
 		var conflict diaryMediaConflictError
 		if errors.As(err, &conflict) {
@@ -340,7 +405,11 @@ func handleMediaDownload(w http.ResponseWriter, r *http.Request, dir string, roo
 		writeDiaryMediaJSON(w, http.StatusNotFound, diaryMediaNotFoundBody)
 		return
 	}
-	path := diaryMediaHashPath(dir, userID, ctime, oid)
+	serveMediaFile(w, r, diaryMediaHashPath(dir, userID, ctime, oid), room)
+}
+
+// serveMediaFile validates and serves one stored image (diary PNGs are flattened to JPEG).
+func serveMediaFile(w http.ResponseWriter, r *http.Request, path string, keepFormat bool) {
 	file, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -369,7 +438,7 @@ func handleMediaDownload(w http.ResponseWriter, r *http.Request, dir string, roo
 		writeDiaryMediaJSON(w, http.StatusInternalServerError, diaryMediaSaveFailedBody)
 		return
 	}
-	if !room && contentType == "image/png" {
+	if !keepFormat && contentType == "image/png" {
 		// The client caches diary downloads as <oid>.jpg and cocos2d-x picks the decoder from
 		// the extension, so PNG bytes (e.g. the comic photozone render) never display.
 		img, err := png.Decode(file)

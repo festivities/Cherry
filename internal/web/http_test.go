@@ -189,10 +189,15 @@ func TestInvenCounts(t *testing.T) {
 func TestItemsSome(t *testing.T) {
 	paths := []string{"/v4/items/dress/some", "/v4/items/room/some"}
 	for _, path := range paths {
-		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`["CUON00164"]`))
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`["CUTO00164","RUCH00001","bad","CUHA-0000"]`+"\x00"))
 		rec := serveRequest(t, req)
-		if rec.Code != http.StatusOK || rec.Body.String() != itemsSomeBody {
+		const want = `{"result":[{"cd":"CUTO00164","isRare":false,"names":{"en":"Top 00164","ja":"Top 00164"}},` +
+			`{"cd":"RUCH00001","isRare":false,"names":{"en":"Chair 00001","ja":"Chair 00001"}}]}`
+		if rec.Code != http.StatusOK || rec.Body.String() != want {
 			t.Fatalf("POST %s: status = %d, body = %q", path, rec.Code, rec.Body.String())
+		}
+		if rec := serveRequest(t, httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"not":"array"}`))); rec.Code != http.StatusBadRequest {
+			t.Fatalf("POST %s non-array = %d, want 400", path, rec.Code)
 		}
 	}
 
@@ -1003,7 +1008,6 @@ func TestClosetStaticRoutes(t *testing.T) {
 	}{
 		{"/v4/storage/display", storageDisplayBody, http.MethodPost},
 		{"/v4/style/slot/list", styleSlotListBody, http.MethodPut},
-		{"/v4/inven/recycle/cfg", recycleConfigBody, http.MethodPost},
 	} {
 		if rec := serve(t, http.MethodGet, route.path); rec.Code != http.StatusOK || rec.Body.String() != route.body {
 			t.Errorf("GET %s: status = %d, body = %q", route.path, rec.Code, rec.Body.String())
@@ -1031,11 +1035,12 @@ func TestAvatarSaveV2RoundTrip(t *testing.T) {
 
 	// The curated Cherry-closet grant is lab-only (economy); exercise it as a lab account.
 	setLab(t, "0", true)
+	thumbFixture(t) // empty item root: no animated (premium) prices
 	accessToken := guestGenerate(t)
 	token := avAuthValue(t, createSession(t, accessToken))
 	emptyItemsReq := httptest.NewRequest(http.MethodPost, "/v4/inven/closet/items/all", nil)
 	emptyItemsReq.AddCookie(&http.Cookie{Name: "AV_AUTH", Value: token})
-	const curatedGrantClosetBody = `{"result":{"basicFaceList":[],"inventoryList":[{"itemCode":"CUHA0036Z","invenSeq":"1","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUON004TV","invenSeq":"2","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUSH00267","invenSeq":"3","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUAH004JH","invenSeq":"4","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0}]}}`
+	const curatedGrantClosetBody = `{"result":{"basicFaceList":[],"inventoryList":[{"itemCode":"CUHA0036Z","invenSeq":"1","count":1,"price":200,"newArrival":false,"specialEffects":"","grade":"N","dyeType":0},{"itemCode":"CUON004TV","invenSeq":"2","count":1,"price":250,"newArrival":false,"specialEffects":"","grade":"N","dyeType":0},{"itemCode":"CUSH00267","invenSeq":"3","count":1,"price":120,"newArrival":false,"specialEffects":"","grade":"N","dyeType":0},{"itemCode":"CUAH004JH","invenSeq":"4","count":1,"price":120,"newArrival":false,"specialEffects":"","grade":"N","dyeType":0}]}}`
 	if rec := serveRequest(t, emptyItemsReq); rec.Code != http.StatusOK || rec.Body.String() != curatedGrantClosetBody {
 		t.Fatalf("initial closet inventory: status = %d, body = %q", rec.Code, rec.Body.String())
 	}
@@ -1056,7 +1061,7 @@ func TestAvatarSaveV2RoundTrip(t *testing.T) {
 	if itemsRec.Code != http.StatusOK {
 		t.Fatalf("closet items: status = %d, body = %q", itemsRec.Code, itemsRec.Body.String())
 	}
-	const closetInventoryBody = `{"result":{"basicFaceList":[{"itemCode":"CUEY00002"},{"itemCode":"CUMO00002"},{"itemCode":"CUEB00001"},{"itemCode":"CUNO00001"},{"itemCode":"CUHE0000L"}],"inventoryList":[{"itemCode":"CUON00164","invenSeq":"1","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUSH002BH","invenSeq":"2","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUON004TV","invenSeq":"3","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUHA0036Z","invenSeq":"4","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUSH00267","invenSeq":"5","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUAH004JH","invenSeq":"6","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUEY00002","invenSeq":"7","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUEY00003","invenSeq":"8","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUMO00002","invenSeq":"9","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUEB00001","invenSeq":"10","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUNO00001","invenSeq":"11","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0},{"itemCode":"CUHE0000L","invenSeq":"12","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"","dyeType":0}]}}`
+	const closetInventoryBody = `{"result":{"basicFaceList":[{"itemCode":"CUEY00002"},{"itemCode":"CUMO00002"},{"itemCode":"CUEB00001"},{"itemCode":"CUNO00001"},{"itemCode":"CUHE0000L"}],"inventoryList":[{"itemCode":"CUON00164","invenSeq":"1","count":1,"price":250,"newArrival":false,"specialEffects":"","grade":"N","dyeType":0},{"itemCode":"CUSH002BH","invenSeq":"2","count":1,"price":120,"newArrival":false,"specialEffects":"","grade":"N","dyeType":0},{"itemCode":"CUON004TV","invenSeq":"3","count":1,"price":250,"newArrival":false,"specialEffects":"","grade":"N","dyeType":0},{"itemCode":"CUHA0036Z","invenSeq":"4","count":1,"price":200,"newArrival":false,"specialEffects":"","grade":"N","dyeType":0},{"itemCode":"CUSH00267","invenSeq":"5","count":1,"price":120,"newArrival":false,"specialEffects":"","grade":"N","dyeType":0},{"itemCode":"CUAH004JH","invenSeq":"6","count":1,"price":120,"newArrival":false,"specialEffects":"","grade":"N","dyeType":0},{"itemCode":"CUEY00002","invenSeq":"7","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"N","dyeType":0},{"itemCode":"CUEY00003","invenSeq":"8","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"N","dyeType":0},{"itemCode":"CUMO00002","invenSeq":"9","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"N","dyeType":0},{"itemCode":"CUEB00001","invenSeq":"10","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"N","dyeType":0},{"itemCode":"CUNO00001","invenSeq":"11","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"N","dyeType":0},{"itemCode":"CUHE0000L","invenSeq":"12","count":1,"price":0,"newArrival":false,"specialEffects":"","grade":"N","dyeType":0}]}}`
 	if got := itemsRec.Body.String(); got != closetInventoryBody {
 		t.Fatalf("closet items = %q, want %q", got, closetInventoryBody)
 	}

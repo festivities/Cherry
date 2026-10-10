@@ -116,6 +116,8 @@ func TestParseDpPath(t *testing.T) {
 		{"/arts_item_dress_12ab/dp.png", "", "", false},
 		{"/arts_item_dress_/dp.png", "", "", false},
 		{"/arts_item_dress_1/dp.png/", "", "", false},
+		{"/arts_item_pet_326400017/dp.png", "pet", "326400017", true},
+		{"/img/read/arts_item_pet_326400017/dp.png", "pet", "326400017", true},
 		{"/arts_item_room_5/dp.png", "", "", false},
 		{"/arts_item_dress_1/dp.pngx", "", "", false},
 		{"/arts_item_../etc/dp.png", "", "", false},

@@ -88,7 +88,7 @@ func TestRoomShowcaseSeedAndInventory(t *testing.T) {
 	}
 	first := b.Result[0]
 	if first["seq"] != "100000" || first["cd"] != "RUWA000HR" || first["grade"] != "N" || first["categoryCode"] != "UWLPP" ||
-		first["price"] != float64(0) || first["newArrival"] != false || first["specialEffects"] != "" {
+		first["price"] != float64(100) || first["newArrival"] != false || first["specialEffects"] != "" {
 		t.Fatalf("row shape = %v", first)
 	}
 	cats := map[string]string{}
@@ -410,7 +410,7 @@ func TestRoomSecondFloor(t *testing.T) {
 	}
 }
 
-func TestRoomDiaryTopUp(t *testing.T) {
+func TestRoomNoRefillAfterSeed(t *testing.T) {
 	acc := decorSetup(t)
 	store.AccountsMu.Lock()
 	for i, cd := range room.RoomShowcaseCodes[:55] { // pre-diary grant, already seeded with nothing placed
@@ -423,7 +423,9 @@ func TestRoomDiaryTopUp(t *testing.T) {
 	store.AccountsMu.Lock()
 	lay, n, next := acc.Rooms[room.DefaultLevel], len(acc.RoomItems), acc.NextRoomSeq
 	store.AccountsMu.Unlock()
-	if n != 56 || next != 100056 || len(lay.Placed) != 2 || lay.Floor.Seq != 100013 || lay.Placed[1].Seq != 100055 {
+	// A seeded room is never refilled (sold items must stay sold), so the missing diary is not granted;
+	// the owned door is still auto-placed.
+	if n != 55 || next != 100055 || len(lay.Placed) != 1 || lay.Floor.Seq != 100013 || lay.Placed[0].Cd != "RUDO0002Z" {
 		t.Fatalf("top-up = %+v n=%d next=%d", lay, n, next)
 	}
 	// idempotent: a second read changes nothing
@@ -431,7 +433,7 @@ func TestRoomDiaryTopUp(t *testing.T) {
 	store.AccountsMu.Lock()
 	again := len(acc.Rooms[room.DefaultLevel].Placed)
 	store.AccountsMu.Unlock()
-	if again != 2 {
+	if again != 1 {
 		t.Fatalf("second ensure placed %d", again)
 	}
 }
@@ -527,7 +529,7 @@ func TestRoomImageUploadDownload(t *testing.T) {
 	params, _ := json.Marshal(diaryImageUploadParams{Version: "1.0", Type: "image", Name: oid, UserID: userID, OID: oid, CTime: ctime})
 	data := diaryTestImage(t, "png", 3, 2, 7)
 	rec := httptest.NewRecorder()
-	handleMediaUpload(rec, diaryUploadRequest(t, params, data, "image/png"), dir, maxDiaryMediaStorage, true)
+	handleMediaUpload(rec, diaryUploadRequest(t, params, data, "image/png"), dir, maxDiaryMediaStorage, mediaRoom)
 	if rec.Code != http.StatusOK || rec.Body.String() != "x-obs-oid: "+oid+"\r\n" || rec.Header()["x-obs-oid"][0] != oid {
 		t.Fatalf("upload = %d %s", rec.Code, rec.Body.String())
 	}

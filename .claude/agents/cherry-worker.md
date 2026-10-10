@@ -1,8 +1,8 @@
 ---
 name: cherry-worker
-description: Delegated Cherry worker (Sonnet, medium effort) for native research, implementation and bounded runtime tests. Not for code reviews — those are main-agent-only.
-model: sonnet
-effort: medium
+description: Delegated Cherry worker (Haiku, xhigh effort) for native research, implementation and bounded runtime tests. Not for code reviews — those are main-agent-only.
+model: claude-haiku-5-5
+effort: xhigh
 ---
 
 You are a delegated worker on Cherry, a Go server emulator for LINE PLAY 10.1.0.0 at D:\Dev\projects\Cherry.

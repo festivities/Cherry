@@ -229,15 +229,11 @@ const storageDisplayBody = `{"result":false}`
 
 const styleSlotListBody = `{"result":{"styleSlotResponses":[]}}`
 
-const recycleConfigBody = `{"result":{"config":[]}}`
-
 // Empty questProgress maps to enum 0 (no active quest), avoiding the client's per-frame status retry.
 const questStatusBody = `{"result":{"heart":0,"heartBase":0,"heartRewardCoin":0,"questProgress":"","toExpire":"0"}}`
 
 // Parser-valid empty inventory counts; ResGetInventoryItemCountInfo @0x1b2afe0 defaults every field.
 const invenCountsBody = `{"result":{}}`
-
-const itemsSomeBody = `{"result":[]}`
 
 const playDetailLPRmchatBody = `{"result":{"gameInfo":{"gameId":"lp_rmchat","executable":true,"underMaintenance":false,"minLinePlayVersion":"","startDate":"1577836800000","endDate":"4102444800000"}}}`
 
@@ -318,11 +314,14 @@ func NewMux() *http.ServeMux {
 	mux.HandleFunc("/lineplay/r/upload.nhn", handleRoomImageUpload)
 	mux.HandleFunc("/lineplay/r/download.nhn", handleRoomImageDownload)
 	mux.HandleFunc("/lineplay/r/delete.nhn", handleRoomImageDelete)
+	mux.HandleFunc("/lineplay/pr/upload.nhn", handleProfileImageUpload)
+	mux.HandleFunc("/lineplay/pr/", handleProfileImageDownload)
+	mux.HandleFunc("/r/lineplay/pr/", handleProfileImageDownload)
+	mux.HandleFunc("/v4/avatar/profile/image", handleProfileImageSave)
 	mux.HandleFunc("/v4/home/list/ext/", handleHomeListExt)
 	mux.HandleFunc("/v4/inven/closet/items/all", handleClosetItemsAll)
 	mux.HandleFunc("/v4/storage/display", httpx.HandleJSONBody(storageDisplayBody))
 	mux.HandleFunc("/v4/style/slot/list", httpx.HandleJSONBody(styleSlotListBody))
-	mux.HandleFunc("/v4/inven/recycle/cfg", httpx.HandleJSONBody(recycleConfigBody))
 	mux.HandleFunc("/v4/avatar/save/v2", handleAvatarSaveV2)
 	mux.HandleFunc("/v4/photozone/shop/info/", economy.HandlePhotoZoneShopInfo)
 	mux.HandleFunc("/v4/r/badge/reset/", handleBadgeReset)
@@ -330,11 +329,11 @@ func NewMux() *http.ServeMux {
 	mux.HandleFunc("/v4/faceshop/saveAndPurchase/v2", economy.HandleFaceShopPurchase)
 	economy.RegisterEconomyRoutes(mux)
 	registerDeleteAccountRoutes(mux)
-	mux.HandleFunc("/v4/items/dress/some", handleItemsSome)
-	mux.HandleFunc("/v4/items/room/some", handleItemsSome)
+	mux.HandleFunc("/v4/items/dress/some", economy.HandleItemsSome)
+	mux.HandleFunc("/v4/items/room/some", economy.HandleItemsSome)
 	mux.HandleFunc("/v4/playhome/games/lp_rmchat", handlePlayDetailLPRmchat)
 	mux.HandleFunc("/v4/playhome/games/lp_sq", httpx.HandleJSONBody(playDetailLPSquareBody))
-	mux.HandleFunc("/v4/inven/interior/items/all", room.HandleInvenInterior)
+	mux.HandleFunc("/v4/inven/interior/items/all", room.InvenInteriorHandler(economy.InteriorPrice))
 	mux.HandleFunc("/v4/inven/use/list/interior/dividefloor", room.HandleInvenDivideFloor)
 	mux.HandleFunc("/v4/room/save/new", room.HandleRoomSaveNew)
 	mux.HandleFunc("/v4/room/preset/list", room.HandleRoomPresetList)
@@ -417,11 +416,9 @@ func handleClosetItemsAll(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	items := make([]closetInventoryItem, 0, len(codes))
-	for i, code := range wearableCodes {
-		items = append(items, closetInventoryItem{ItemCode: code, InvenSeq: strconv.Itoa(i + 1), Count: 1})
-	}
-	for i, code := range faceCodes {
-		items = append(items, closetInventoryItem{ItemCode: code, InvenSeq: strconv.Itoa(len(wearableCodes) + i + 1), Count: 1})
+	for i, code := range append(wearableCodes, faceCodes...) {
+		price, _, grade, _ := economy.ItemPrice(code) // faces and unclassified codes: price 0, grade N
+		items = append(items, closetInventoryItem{ItemCode: code, InvenSeq: strconv.Itoa(i + 1), Count: 1, Price: int(price), Grade: grade})
 	}
 	payload, _ := json.Marshal(struct {
 		Result closetItemsResult `json:"result"`
@@ -435,14 +432,6 @@ func handlePlayDetailLPRmchat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, playDetailLPRmchatBody)
-}
-
-func handleItemsSome(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		httpx.ServeNotFound(w)
-		return
-	}
-	httpx.WriteJSON(w, http.StatusOK, itemsSomeBody)
 }
 
 func handleSnsTerms(w http.ResponseWriter, r *http.Request) {

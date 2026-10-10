@@ -37,12 +37,12 @@ var RoomShowcaseCodes = strings.Fields(
 // the showcase above and the pets are granted to lab accounts alone.
 var roomStarterCodes = []string{RoomFloorCode, RoomWallCode, roomDoorCode, roomDiaryCode}
 
-// roomCategoryCode maps the cd category letters to the client's categoryCode.
+// RoomCategoryCode maps the cd category letters to the client's categoryCode.
 // Confidence: WA->UWLPP and TI->UFLOR medium (names; the qword_3BDDB20 table is
 // NOT positional against catIdx, only coincidentally at 14/15), WD/DO/TD/CH/TA/
 // BE/KI/BA/PL/FD/GC/AB/VO fairly high by name, the rest are guesses falling to
 // UPROP. The parser only uses it for UI tab grouping.
-func roomCategoryCode(cd string) string {
+func RoomCategoryCode(cd string) string {
 	if len(cd) < 4 {
 		return "UPROP"
 	}
@@ -106,9 +106,9 @@ var roomDefaultPlaced = []store.RoomPlaced{
 	{Cd: roomDiaryCode, X: 2, Y: 2, Dir: "FR"},
 }
 
-// ensureRoomLocked grants missing showcase codes and gives LEVEL_1 a default
+// EnsureRoomLocked grants missing showcase codes and gives LEVEL_1 a default
 // floor/wall (first seed) and door/diary (whenever none is placed). Caller holds accountsMu.
-func ensureRoomLocked(acc *store.Account) error {
+func EnsureRoomLocked(acc *store.Account) error {
 	owned := map[string]int64{}
 	for _, it := range acc.RoomItems {
 		if _, ok := owned[it.Cd]; !ok {
@@ -123,7 +123,8 @@ func ensureRoomLocked(acc *store.Account) error {
 		codes = RoomShowcaseCodes
 	}
 	for _, cd := range codes {
-		if _, ok := owned[cd]; !ok {
+		// Seed only an empty room: re-granting missing codes would refill sold items (sell-back loop).
+		if _, ok := owned[cd]; !ok && fresh {
 			items = append(items, store.RoomItem{Seq: seq, Cd: cd})
 			owned[cd] = seq
 			seq++
@@ -146,10 +147,11 @@ func ensureRoomLocked(acc *store.Account) error {
 	placed := slices.Clone(lay.Placed)
 	for _, d := range roomDefaultPlaced {
 		cat := d.Cd[2:4]
-		if slices.ContainsFunc(placed, func(p store.RoomPlaced) bool { return p.Cd[2:4] == cat }) || used[owned[d.Cd]] {
+		seq, have := owned[d.Cd]
+		if !have || slices.ContainsFunc(placed, func(p store.RoomPlaced) bool { return p.Cd[2:4] == cat }) || used[seq] {
 			continue
 		}
-		d.Seq = owned[d.Cd]
+		d.Seq = seq
 		placed = append(placed, d)
 	}
 	if len(items) == len(acc.RoomItems) && len(placed) == len(lay.Placed) && ok {
@@ -180,7 +182,7 @@ func roomAccount(w http.ResponseWriter, r *http.Request) *store.Account {
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
 		return nil
 	}
-	if err := ensureRoomLocked(acc); err != nil {
+	if err := EnsureRoomLocked(acc); err != nil {
 		store.AccountsMu.Unlock()
 		httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
 		return nil
@@ -188,17 +190,25 @@ func roomAccount(w http.ResponseWriter, r *http.Request) *store.Account {
 	return acc
 }
 
-func HandleInvenInterior(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		httpx.ServeNotFound(w)
-		return
+// InvenInteriorHandler serves GET inven/interior/items/all. priceOf gives the
+// sell-back price and grade code per item (economy owns the table and sits above room).
+func InvenInteriorHandler(priceOf func(code string) (int64, string)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			httpx.ServeNotFound(w)
+			return
+		}
+		acc := roomAccount(w, r)
+		if acc == nil {
+			return
+		}
+		items := slices.Clone(acc.RoomItems)
+		store.AccountsMu.Unlock()
+		invenInteriorRows(w, items, priceOf)
 	}
-	acc := roomAccount(w, r)
-	if acc == nil {
-		return
-	}
-	items := slices.Clone(acc.RoomItems)
-	store.AccountsMu.Unlock()
+}
+
+func invenInteriorRows(w http.ResponseWriter, items []store.RoomItem, priceOf func(string) (int64, string)) {
 	type row struct {
 		Seq            string `json:"seq"`
 		Cd             string `json:"cd"`
@@ -210,7 +220,8 @@ func HandleInvenInterior(w http.ResponseWriter, r *http.Request) {
 	}
 	rows := make([]row, 0, len(items))
 	for _, it := range items {
-		rows = append(rows, row{Seq: strconv.FormatInt(it.Seq, 10), Cd: it.Cd, Grade: "N", CategoryCode: roomCategoryCode(it.Cd)})
+		price, grade := priceOf(it.Cd)
+		rows = append(rows, row{Seq: strconv.FormatInt(it.Seq, 10), Cd: it.Cd, Price: int(price), Grade: grade, CategoryCode: RoomCategoryCode(it.Cd)})
 	}
 	body, _ := json.Marshal(map[string]any{"result": rows})
 	httpx.WriteJSON(w, http.StatusOK, string(body))
@@ -431,7 +442,7 @@ func RoomDecorInfo(r *http.Request, aid, level string) map[string]any {
 			}
 		}
 	}
-	if acc == nil || ensureRoomLocked(acc) != nil {
+	if acc == nil || EnsureRoomLocked(acc) != nil {
 		return nil
 	}
 	lay, ok := roomLevelLayout(acc, level)
