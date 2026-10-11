@@ -100,6 +100,7 @@ type Account struct {
 	Mail           []MailRow // unclaimed mailbox rows, mailbox.go; replaced, never edited in place
 	NextMailSeq    int64
 	ProfileImage   ProfileImage // saved profile picture (OBS paths + background), profileimage.go
+	Quests         *QuestDay    // Garden daily quest progress, economy/quests.go; replaced, never edited in place
 }
 
 // ProfileImage is the "Take profile picture" result: OBS paths as the client sent them
@@ -108,6 +109,14 @@ type ProfileImage struct {
 	Image     string `json:"image,omitempty"`
 	WholeBody string `json:"wholeBody,omitempty"`
 	Bg        string `json:"bg,omitempty"`
+}
+
+// QuestDay is one game day (06:00 JST boundary) of daily-quest progress. Done and
+// Claimed hold quest IDs. A record whose Day is not today counts as empty.
+type QuestDay struct {
+	Day     int64   `json:"day"`
+	Done    []int64 `json:"done,omitempty"`
+	Claimed []int64 `json:"claimed,omitempty"`
 }
 
 const MinAvatarID = 10

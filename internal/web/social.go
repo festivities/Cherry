@@ -2,7 +2,9 @@ package web
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -10,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"cherry/internal/httpx"
+	"cherry/internal/lpn"
 	"cherry/internal/store"
 )
 
@@ -555,12 +558,21 @@ func handleDiaryWrite(w http.ResponseWriter, r *http.Request) {
 		OpenState     string             `json:"openState"`
 		Images        []store.DiaryImage `json:"images"`
 	}
-	if _, err = httpx.UnmarshalNativeJSON(raw, &req); err != nil || req.AvatarID == "" || req.AvatarID != actor.Aid || len(req.Title) > 200 || len(req.Content) > 16000 || len(req.ImageTypeKind) > 64 || len(req.OpenState) > 32 || len(req.Images) > 20 || !utf8.ValidString(req.Title) || !utf8.ValidString(req.Content) || !utf8.ValidString(req.ImageTypeKind) {
+	if _, err = httpx.UnmarshalNativeJSON(raw, &req); err != nil {
+		log.Printf("cherry: diary write reject aid=%s bytes=%d err=%v", actor.Aid, len(raw), err)
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
 	}
+	if req.AvatarID == "" || req.AvatarID != actor.Aid || len(req.Title) > 200 || len(req.Content) > 16000 || len(req.ImageTypeKind) > 64 || len(req.OpenState) > 32 || len(req.Images) > 20 || !utf8.ValidString(req.Title) || !utf8.ValidString(req.Content) || !utf8.ValidString(req.ImageTypeKind) {
+		log.Printf("cherry: diary write reject aid=%s avatarId=%q title=%d content=%d kind=%q open=%q images=%d", actor.Aid, req.AvatarID, len(req.Title), len(req.Content), req.ImageTypeKind, req.OpenState, len(req.Images))
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
+	// A text-only post still carries images:[{"imageUrl":""}] (runtime 2026-10-11); drop empty rows.
+	req.Images = slices.DeleteFunc(req.Images, func(image store.DiaryImage) bool { return image.ImageURL == "" })
 	for _, image := range req.Images {
 		if !store.ValidDiaryImage(image) {
+			log.Printf("cherry: diary write reject aid=%s invalid image %+v", actor.Aid, image)
 			httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 			return
 		}
@@ -610,6 +622,7 @@ func handleDiaryWrite(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
 	}
+	markDiaryQuest(actor.Aid)
 	httpx.WriteJSON(w, http.StatusOK, string(body))
 }
 
@@ -933,4 +946,11 @@ func restoreFriend(w http.ResponseWriter) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, `{"result":1}`)
+}
+
+// markDiaryQuest completes the diary daily quest; the notice shows on the next Garden entry.
+func markDiaryQuest(aid string) {
+	if n, err := strconv.ParseUint(aid, 10, 64); err == nil {
+		lpn.MarkQuest(n, "diary")
+	}
 }

@@ -283,6 +283,7 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 					return
 				}
 				logger.Printf("OBS %s garden-room-enter remote=%s result=197377 map=%s", addr, remote, gardenMapStem)
+				gardenQuestVisit(gardenLoginAid, ownerAid)
 				gardenLeaveIfOtherOwner(gardenLoginAid, ownerAid, logger)
 				gardenOwnerAid = ownerAid
 				gardenRoomEntered = true
@@ -304,20 +305,17 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 				logger.Printf("OBS %s garden-relay-start remote=%s result=0", addr, remote)
 				gardenRelayStarted = true
 				hard = time.Time{} // Keep the entered Garden connected until the client disconnects.
-			}
-			if agent == 10 && msgid == 15 && gardenRelayStarted && length == 12 && bytes.Equal(frame[2:10], gardenRoomTunnel[:]) {
-				reply := make([]byte, 18)
-				binary.BigEndian.PutUint32(reply, 14)
-				reply[4], reply[5] = 'G', frame[1]
-				copy(reply[6:14], frame[2:10])
-				binary.BigEndian.PutUint16(reply[14:16], 21)
-				// ponytail: empty quest list until account-backed Garden quest state exists.
-				reply[16], reply[17] = 0x08, 0 // hc_quest_list_res.error_code = 0.
-				if n, err := conn.Write(reply); err != nil || n != len(reply) {
-					logger.Printf("OBS %s garden-quest-list remote=%s err=%v", addr, remote, err)
+				// The completion notice waits for relay-start: the client lists quests itself after entering.
+				if err := gardenQuestNotify(conn, frame, takeQuestNotices(gardenLoginAid), logger); err != nil {
+					logger.Printf("OBS %s garden-quest push remote=%s err=%v", addr, remote, err)
 					return
 				}
-				logger.Printf("OBS %s garden-quest-list remote=%s errorCode=0", addr, remote)
+			}
+			if agent == 10 && gardenQuestMsg(msgid) && gardenRelayStarted && length >= 12 && bytes.Equal(frame[2:10], gardenRoomTunnel[:]) {
+				if err := gardenQuestHandle(conn, frame, msgid, gardenLoginAid, logger); err != nil {
+					logger.Printf("OBS %s garden-quest remote=%s err=%v", addr, remote, err)
+					return
+				}
 			}
 			continue
 		}

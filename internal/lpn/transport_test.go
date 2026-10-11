@@ -399,13 +399,12 @@ func TestGatewayObserverBannerHello(t *testing.T) {
 	if _, err := client.Write(questListReq); err != nil {
 		t.Fatalf("garden quest-list request write: %v", err)
 	}
-	questListReply := readFullDeadline(t, client, 18)
-	wantQuestListReply := binary.BigEndian.AppendUint32(nil, 14)
-	wantQuestListReply = append(wantQuestListReply, 'G', 0x48)
-	wantQuestListReply = append(wantQuestListReply, gardenOpen[6:14]...)
-	wantQuestListReply = append(wantQuestListReply, 0, 21, 0x08, 0)
-	if !bytes.Equal(questListReply, wantQuestListReply) {
-		t.Fatalf("garden quest-list reply = %x, want %x", questListReply, wantQuestListReply)
+	questListPrefix := readFullDeadline(t, client, 4)
+	questListReply := append(questListPrefix, readFullDeadline(t, client, int(binary.BigEndian.Uint32(questListPrefix)))...)
+	// The list body now carries the four daily quests; check the envelope and error_code 0 (quests.md 10.2).
+	if len(questListReply) < 18 || questListReply[4] != 'G' || !bytes.Equal(questListReply[6:14], gardenOpen[6:14]) ||
+		!bytes.Equal(questListReply[14:18], []byte{0, 21, 0x08, 0}) {
+		t.Fatalf("garden quest-list reply = %x", questListReply)
 	}
 	select {
 	case <-cleared:
@@ -432,7 +431,7 @@ func TestGatewayObserverBannerHello(t *testing.T) {
 		!bytes.Contains(output.Bytes(), []byte("OBS :10000 garden-login remote=pipe result=197121")) ||
 		!bytes.Contains(output.Bytes(), []byte("OBS :10000 garden-room-enter remote=pipe result=197377 map="+gardenMapStem)) ||
 		!bytes.Contains(output.Bytes(), []byte("OBS :10000 garden-relay-start remote=pipe result=0")) ||
-		!bytes.Contains(output.Bytes(), []byte("OBS :10000 garden-quest-list remote=pipe errorCode=0")) ||
+		!bytes.Contains(output.Bytes(), []byte("garden-quest list aid=")) ||
 		!bytes.Contains(output.Bytes(), []byte("garden-room-enter remote=pipe invalid owner aid")) ||
 		!bytes.Contains(output.Bytes(), []byte("agent=4 msgid=1 bytes=15")) ||
 		bytes.Contains(output.Bytes(), []byte("K3Y")) {

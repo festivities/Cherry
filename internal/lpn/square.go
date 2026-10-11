@@ -438,6 +438,7 @@ func (s *squareSession) handleData(frame []byte) error {
 		body = pbVar(body, 7, 0) // playerType
 		s.entered = true
 		s.logger.Printf("SQUARE enter aid=%d map=%s", s.aid, squareMapFileName)
+		MarkQuest(s.aid, "square")
 		return s.reply(frame, 6, body)
 	case 5: // cr_room_relaystart_req -> rc_room_relaystart_res + adduser_all
 		if !s.entered {

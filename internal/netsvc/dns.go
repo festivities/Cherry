@@ -17,7 +17,7 @@ const (
 	dnsUpstreamAddr = "1.1.1.1:53"
 	dnsSinkAddr     = "10.0.2.2"
 	// ponytail: lab LAN IP; update alongside start-emulator.bat if DHCP changes.
-	dnsGatewayAddr  = "192.168.1.12"
+	dnsGatewayAddr  = "192.168.1.11"
 	dnsRelayTimeout = 4 * time.Second
 )
 

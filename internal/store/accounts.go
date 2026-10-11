@@ -39,6 +39,7 @@ type StoredAccount struct {
 	Mail           []MailRow             `json:"mail,omitempty"`
 	NextMailSeq    int64                 `json:"nextMailSeq,omitempty"`
 	ProfileImage   *ProfileImage         `json:"profileImage,omitempty"`
+	Quests         *QuestDay             `json:"quests,omitempty"`
 }
 
 type savedAccounts struct {
@@ -92,7 +93,7 @@ func LoadAccountsFrom(path string) error {
 				RoomItems: saved.RoomItems, NextRoomSeq: roomNextSeq(saved.RoomItems, saved.NextRoomSeq), Rooms: saved.Rooms, Presets: saved.Presets, Pets: saved.Pets,
 				Gems: max(saved.Gems, 0), Cash: max(saved.Cash, 0), FaceTickets: max(saved.FaceTickets, 0), Welcomed: saved.Welcomed,
 				AttendDay: saved.AttendDay, AttendKey: saved.AttendKey, Mail: saved.Mail, NextMailSeq: saved.NextMailSeq,
-				ProfileImage: derefProfile(saved.ProfileImage),
+				ProfileImage: derefProfile(saved.ProfileImage), Quests: saved.Quests,
 			}
 		}
 		for token, id := range state.Aliases {
@@ -179,7 +180,7 @@ func StoredFrom(acc *Account) StoredAccount {
 		RoomItems:      acc.RoomItems, NextRoomSeq: acc.NextRoomSeq, Rooms: acc.Rooms, Presets: acc.Presets, Pets: acc.Pets,
 		Gems: acc.Gems, Cash: acc.Cash, FaceTickets: acc.FaceTickets, Welcomed: acc.Welcomed,
 		AttendDay: acc.AttendDay, AttendKey: acc.AttendKey, Mail: acc.Mail, NextMailSeq: acc.NextMailSeq,
-		ProfileImage: pi,
+		ProfileImage: pi, Quests: acc.Quests,
 	}
 }
 
