@@ -99,8 +99,19 @@ type Account struct {
 	AttendKey      int64     // day key (06:00 JST boundary) of the last attend
 	Mail           []MailRow // unclaimed mailbox rows, mailbox.go; replaced, never edited in place
 	NextMailSeq    int64
-	ProfileImage   ProfileImage // saved profile picture (OBS paths + background), profileimage.go
-	Quests         *QuestDay    // Garden daily quest progress, economy/quests.go; replaced, never edited in place
+	ProfileImage   ProfileImage    // saved profile picture (OBS paths + background), profileimage.go
+	Quests         *QuestDay       // Garden daily quest progress, economy/quests.go; replaced, never edited in place
+	Fishing        *FishingDay     // Square fishing Gems for one game day, economy/fishing.go; replaced, never edited in place
+	FishCaught     map[int64]int64 // Square catches per fish id (the fishing book); replaced, never edited in place
+	Gear           *FishingGear    // Square fish shop: bought gear and what is in use, economy/fishing_shop.go; replaced, never edited in place
+}
+
+// FishingGear is the Square fishing gear an account bought (economy/fishing_shop.go): the item IDs
+// it owns and the rod and bait in use (0 = none).
+type FishingGear struct {
+	Owned []int64 `json:"owned,omitempty"`
+	Rod   int64   `json:"rod,omitempty"`
+	Bait  int64   `json:"bait,omitempty"`
 }
 
 // ProfileImage is the "Take profile picture" result: OBS paths as the client sent them
@@ -117,6 +128,13 @@ type QuestDay struct {
 	Day     int64   `json:"day"`
 	Done    []int64 `json:"done,omitempty"`
 	Claimed []int64 `json:"claimed,omitempty"`
+}
+
+// FishingDay is the Square fishing Gems credited on one game day (06:00 JST boundary).
+// A record whose Day is not today counts as zero.
+type FishingDay struct {
+	Day  int64 `json:"day"`
+	Gems int64 `json:"gems,omitempty"`
 }
 
 const MinAvatarID = 10

@@ -97,6 +97,17 @@ func handleCoinBalance(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, fmt.Sprintf(`{"result":{"totalCoinBalance":%d,"freeCoinBalance":%d,"payedCoinBalance":0}}`, n, n))
 }
 
+// Balances returns aid's Gem and Cash balances; ok is false for an unknown aid.
+func Balances(aid string) (gems, cash int64, ok bool) {
+	store.AccountsMu.Lock()
+	defer store.AccountsMu.Unlock()
+	acc := store.AccountByAidLocked(aid)
+	if acc == nil {
+		return 0, 0, false
+	}
+	return acc.Gems, acc.Cash, true
+}
+
 // HandleWelcomeGift serves POST create/complete (tutorialDone, ResTutorialDoneWithCachePolicy
 // @0x1a5e918: status asBool, rewardCoin asInt only when status is true). The client retries
 // forever on 404 and shows a network-error dialog + retry on status:false, so this always

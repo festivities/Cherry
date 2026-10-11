@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"log"
 	"net"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -20,11 +21,14 @@ const (
 	squareWriteTTL   = 5 * time.Second
 	squareMaxChatLen = 512
 
-	squareLoginResult    = 131073
-	squareEnterResult    = 196609
-	squareRelayResult    = 196623
-	squareMapFileName    = "2401039000"
-	squareThemeID        = 1
+	squareLoginResult = 131073
+	squareEnterResult = 196609
+	squareRelayResult = 196623
+	squareMapFileName = "2401039000"
+	// World type 6 is the Square with fishing: NaWorldManager::GetConnectedWorldType == 6 shows the
+	// book (WorldMain tag 1) and the bait/rod buttons (WorldChatNotificationBg4 tags 5/2), and makes the
+	// client ask for rods (59) and bait (91). Stock fishing returns sent to type 6 as well.
+	squareThemeID        = 6
 	squareDefaultCountry = "JP"
 )
 
@@ -92,6 +96,7 @@ type squarePlayer struct {
 	sid     [8]byte
 	avatar  []byte // encoded _AvatarInfo
 	x, y, d uint64 // guarded by squareRoom.mu
+	seat    []byte // encoded _player_interaction while seated (PlayerInfo.Interaction); guarded by squareRoom.mu
 }
 
 type squareRoom struct {
@@ -226,11 +231,16 @@ func squarePositionInfo(x, y, dir uint64) []byte {
 	return pbVar(b, 6, 1) // actionType=1 per research
 }
 
-// info encodes PlayerInfo; the caller holds the room lock (position fields).
+// info encodes PlayerInfo; the caller holds the room lock (position and seat fields). A seated
+// player carries its Interaction (field 4): AddAvatarToWorld_2_0 seats the avatar on DestObjectIndex.
 func (p *squarePlayer) info() []byte {
 	b := pbVar(nil, 1, p.aid)
 	b = pbLen(b, 2, p.avatar)
-	return pbLen(b, 3, squarePositionInfo(p.x, p.y, p.d))
+	b = pbLen(b, 3, squarePositionInfo(p.x, p.y, p.d))
+	if p.seat != nil {
+		b = pbLen(b, 4, p.seat)
+	}
+	return b
 }
 
 // squareSex maps Cherry's gender to the client's sex enum. [I] unverified:
@@ -302,8 +312,9 @@ func squareDelUser(aid uint64) []byte { return pbVar(pbVar(nil, 1, aid), 2, 0) }
 // aid is already in the room (GO again on the same Square, or a reconnect), p
 // takes over that entry and its position silently: other clients still show
 // the avatar there, and a deluser+adduser pair would lose it because the
-// client deletes departed avatars after a delay (_WaitDeleteWorldAvatar_2_0).
-func (r *squareRoom) join(p *squarePlayer) (roster []byte, rejoined bool) {
+// client deletes departed avatars after a delay (_WaitDeleteWorldAvatar_2_0). A re-entered
+// client starts standing, so the old seat is dropped (wasSeated) and the caller tells the others.
+func (r *squareRoom) join(p *squarePlayer) (roster []byte, rejoined, wasSeated bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	index := -1
@@ -311,6 +322,7 @@ func (r *squareRoom) join(p *squarePlayer) (roster []byte, rejoined bool) {
 		if o.aid == p.aid {
 			index = i
 			p.x, p.y, p.d = o.x, o.y, o.d
+			wasSeated = o.seat != nil
 			break
 		}
 	}
@@ -330,7 +342,7 @@ func (r *squareRoom) join(p *squarePlayer) (roster []byte, rejoined bool) {
 	} else {
 		r.players = append(r.players, p)
 	}
-	return roster, index >= 0
+	return roster, index >= 0, wasSeated
 }
 
 // leave removes p if still registered and tells the rest. Idempotent.
@@ -362,6 +374,8 @@ type squareSession struct {
 	entered  bool
 	player   *squarePlayer
 	moves    int
+	fish     *squareFish // catch chosen at the last fishing start, paid once by its finish
+	fishing  bool        // busy status 20 was broadcast and no end followed yet
 }
 
 // handleOpen answers an agent-7 tunnel open with the same type-1 control shape
@@ -384,6 +398,10 @@ func (s *squareSession) reply(frame []byte, msgid uint16, body []byte) error {
 // close unregisters this connection's membership (exit/EOF/error).
 func (s *squareSession) close() {
 	if s.player != nil {
+		if s.fishing { // left mid-cast: clear the bobber/busy state on the others
+			s.room.broadcast(s.logger, s.player, squareRcPlayerStatus, squareBusyStatus(s.aid, squareStatusIdle))
+			s.fish, s.fishing = nil, false
+		}
 		s.logger.Printf("SQUARE leave aid=%d moves=%d", s.aid, s.moves)
 		s.room.leave(s.logger, s.player)
 		s.player = nil
@@ -431,7 +449,8 @@ func (s *squareSession) handleData(frame []byte) error {
 		return s.reply(frame, 1, body)
 	case 2: // cr_room_enter_req -> rc_room_enter_res (idx6)
 		body := pbVar(nil, 1, squareEnterResult)
-		body = pbVar(body, 3, 1) // squareCode
+		body = pbLen(body, 2, squareFishingSpotList()) // NpcList: one fishing spot
+		body = pbVar(body, 3, 1)                       // squareCode
 		body = pbVar(body, 4, squareThemeID)
 		body = pbVar(body, 5, 1) // clientMapRevision
 		body = pbLen(body, 6, []byte(squareMapFileName))
@@ -447,7 +466,7 @@ func (s *squareSession) handleData(frame []byte) error {
 		}
 		p := &squarePlayer{aid: s.aid, conn: s.conn, b1: frame[1], avatar: squareAvatarInfo(s.aid)}
 		copy(p.sid[:], frame[2:10])
-		roster, rejoined := s.room.join(p)
+		roster, rejoined, wasSeated := s.room.join(p)
 		s.player = p
 		s.room.mu.Lock()
 		n := len(s.room.players)
@@ -457,6 +476,12 @@ func (s *squareSession) handleData(frame []byte) error {
 			return err
 		}
 		if rejoined {
+			if wasSeated { // others still show the old seat: stand the avatar up at its stored position
+				s.room.mu.Lock()
+				stand := squarePositionInfo(p.x, p.y, p.d)
+				s.room.mu.Unlock()
+				s.room.broadcast(s.logger, p, 9, pbLen(pbVar(nil, 1, s.aid), 2, stand))
+			}
 			return nil
 		}
 		s.room.mu.Lock()
@@ -497,12 +522,36 @@ func (s *squareSession) handleData(frame []byte) error {
 		}
 		s.room.mu.Lock()
 		s.player.x, s.player.y, s.player.d = tx, ty, dir
+		s.player.seat = nil // walking stands up: rc_player_move_all removes the seat on the others
 		s.room.mu.Unlock()
 		s.moves++
 		if s.moves <= 20 || s.moves%50 == 0 {
 			s.logger.Printf("SQUARE move aid=%d count=%d fields=%s", s.aid, s.moves, pbSummary(move))
 		}
 		s.room.broadcast(s.logger, s.player, 9, pbLen(pbVar(nil, 1, s.aid), 2, move))
+	case 13: // cr_player_interaction_req (sit; Info only) -> rc_player_interaction_all to the others
+		info, found, ok := pbBytesField(data, 1)
+		var dest uint64
+		if ok && found {
+			ok = pbScan(info, func(f, v uint64, _ []byte) {
+				if f == 6 { // DestObjectIndex: the chair the avatar is seated on
+					dest = v
+				}
+			})
+		}
+		if !ok || !found {
+			s.logger.Printf("SQUARE interaction invalid")
+			return nil
+		}
+		s.room.mu.Lock()
+		if dest != 0 {
+			s.player.seat = slices.Clone(info)
+		} else {
+			s.player.seat = nil
+		}
+		s.room.mu.Unlock()
+		s.logger.Printf("SQUARE interaction aid=%d fields=%s", s.aid, pbSummary(info))
+		s.room.broadcast(s.logger, s.player, 15, pbLen(pbVar(nil, 1, s.aid), 2, info))
 	case 8: // cr_common_chat -> rc_common_chat_all to everyone
 		msg, found, ok := pbBytesField(data, 1)
 		if !ok || !found || len(msg) == 0 || len(msg) > squareMaxChatLen || !utf8.Valid(msg) {
@@ -538,6 +587,8 @@ func (s *squareSession) handleData(frame []byte) error {
 		}
 		s.logger.Printf("SQUARE playerlist aid=%d count=%d", s.aid, len(members))
 		return s.reply(frame, 24, body)
+	case 25, 26, 27, 28, 29, 30, 45, 56, 59, 87, 88, 89, 90, 91: // fishing: cast, book, boss refusal, shop, bag, gear (square_fishing.go)
+		return s.handleFishing(frame, msgid, data)
 	case 10: // cr_trunk_call_req: whisper-state notification, no reply needed
 	default:
 		s.logger.Printf("SQUARE unknown msgid=%d bytes=%d fields=%s", msgid, len(data), pbSummary(data))

@@ -103,7 +103,12 @@ func (c *sqClient) join(aid uint64) []byte {
 	c.send(0, loginBody(aid))
 	c.expect(0, []byte{0x08, 0x81, 0x80, 0x08}) // 131073
 	c.send(2, pbVar(nil, 1, 1))
-	c.expect(6, append(append([]byte{0x08, 0x81, 0x80, 0x0c, 0x18, 1, 0x20, 1, 0x28, 1, 0x32, 10}, squareMapFileName...), 0x38, 0))
+	// rc_room_enter_res: result, then NpcList (the fishing spot, field 2), then the rest.
+	id, enter := c.read()
+	tail := append(append([]byte{0x18, 1, 0x20, byte(squareThemeID), 0x28, 1, 0x32, 10}, squareMapFileName...), 0x38, 0)
+	if id != 6 || !bytes.HasPrefix(enter, []byte{0x08, 0x81, 0x80, 0x0c, 0x12}) || !bytes.HasSuffix(enter, tail) {
+		c.t.Fatalf("room enter = %d/%x", id, enter)
+	}
 	c.send(5, nil)
 	id, body := c.read()
 	if id != 8 {
@@ -138,7 +143,7 @@ func TestSquareThemeList(t *testing.T) {
 	a.send(0, loginBody(11))
 	a.read()
 	a.send(1, pbVar(nil, 1, 0))
-	theme := []byte{0x08, 1, 0x10, 0, 0x3a, 0, 0x40, 0, 0x4a, 6}
+	theme := []byte{0x08, squareThemeID, 0x10, 0, 0x3a, 0, 0x40, 0, 0x4a, 6}
 	theme = append(theme, "Square"...)
 	theme = append(theme, 0x52, 0, 0x58, 1, 0x60, 0, 0x70, 1, 0x80, 1, 0, 0x8a, 1, 6)
 	theme = append(theme, "Square"...)
@@ -358,4 +363,83 @@ func TestSquareReenterKeepsAvatarForOthers(t *testing.T) {
 	// Moves after re-entry still reach B.
 	a.send(6, pbLen(nil, 1, squarePositionInfo(7040, 2780, 1)))
 	b.expect(9, pbLen(pbVar(nil, 1, 11), 2, squarePositionInfo(7040, 2780, 1)))
+}
+
+// sitInfo is the cr_player_interaction_req Info (_player_interaction) for a sit on chair object 77.
+func sitInfo() []byte {
+	b := pbVar(pbVar(pbVar(pbVar(nil, 1, 6900), 2, 2940), 3, 6960), 4, 2420)
+	return pbVar(pbVar(pbVar(b, 5, 2), 6, 77), 7, 1)
+}
+
+// Sit: the request is relayed to the others as rc_player_interaction_all{Aid, Info}, never echoed.
+// A late joiner sees the seat in PlayerInfo.Interaction; walking stands the sitter up for everyone.
+func TestSquareSitRelayAndStandUp(t *testing.T) {
+	room := &squareRoom{}
+	a, b := newSqClient(t, room, 1), newSqClient(t, room, 2)
+	a.join(11)
+	b.join(22)
+	a.read() // adduser 22
+	info := sitInfo()
+
+	a.send(13, pbLen(nil, 1, info))
+	b.expect(15, pbLen(pbVar(nil, 1, 11), 2, info))
+	a.none()
+	a.send(13, pbLen(nil, 1, []byte{0x08})) // malformed Info is dropped, not relayed
+	b.none()
+
+	c := newSqClient(t, room, 3)
+	if rc := c.join(33); !bytes.Contains(rc, pbLen(nil, 4, info)) {
+		t.Fatalf("roster C lacks A's seat: %x", rc)
+	}
+	a.read() // adduser 33
+	b.read()
+
+	// Walking stands A up: move_all reaches B and C, and a later joiner no longer sees the seat.
+	walk := squarePositionInfo(7000, 2800, 2)
+	a.send(6, pbLen(nil, 1, walk))
+	b.expect(9, pbLen(pbVar(nil, 1, 11), 2, walk))
+	c.expect(9, pbLen(pbVar(nil, 1, 11), 2, walk))
+	d := newSqClient(t, room, 4)
+	if rd := d.join(44); bytes.Contains(rd, pbLen(nil, 4, info)) {
+		t.Fatalf("roster D still shows A seated after walking: %x", rd)
+	}
+	a.read()
+	b.read()
+	c.read()
+
+	// Leave while seated: the deluser removes A and its seat for everyone; a later joiner sees neither.
+	a.send(13, pbLen(nil, 1, info))
+	b.expect(15, pbLen(pbVar(nil, 1, 11), 2, info))
+	c.expect(15, pbLen(pbVar(nil, 1, 11), 2, info))
+	d.expect(15, pbLen(pbVar(nil, 1, 11), 2, info))
+	a.sess.close()
+	for _, p := range []*sqClient{b, c, d} {
+		p.expect(3, []byte{0x08, 11, 0x10, 0})
+	}
+	e := newSqClient(t, room, 5)
+	if re := e.join(55); bytes.Contains(re, pbLen(nil, 4, info)) || bytes.Contains(re, pbVar(nil, 1, 11)) {
+		t.Fatalf("roster E shows departed A: %x", re)
+	}
+}
+
+// Re-entry while seated (Back -> GO on the same Square): the client starts standing, so the others
+// get a move to its stored position (not a deluser/adduser) and the roster carries no seat for it.
+func TestSquareReenterStandsUpSeat(t *testing.T) {
+	room := &squareRoom{}
+	a, b := newSqClient(t, room, 1), newSqClient(t, room, 2)
+	a.join(11)
+	b.join(22)
+	a.read() // adduser 22
+	a.send(13, pbLen(nil, 1, sitInfo()))
+	b.expect(15, pbLen(pbVar(nil, 1, 11), 2, sitInfo()))
+
+	a.send(2, pbVar(nil, 1, 1))
+	a.read() // room enter reply
+	a.send(5, nil)
+	id, roster := a.read()
+	if id != 8 || bytes.Contains(roster, pbLen(nil, 4, sitInfo())) {
+		t.Fatalf("re-enter roster = %d/%x, want no own seat", id, roster)
+	}
+	b.expect(9, pbLen(pbVar(nil, 1, 11), 2, squarePositionInfo(squareSpawnX, squareSpawnY, 0)))
+	b.none()
 }
