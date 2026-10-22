@@ -232,10 +232,7 @@ func TestDpPartLandsAtRecordedOffset(t *testing.T) {
 }
 
 func TestDpUnknownIDNotFound(t *testing.T) {
-	itemRoot, _ := setDpFixture(t)
-	if err := os.MkdirAll(filepath.Join(itemRoot, "dress", "999999999"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	setDpFixture(t) // no item folder at all: not in the catalog
 	rec := serveDp(t, http.MethodGet, "/arts_item_dress_999999999/dp.png")
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
@@ -270,12 +267,89 @@ func TestDpNonGetNotFound(t *testing.T) {
 	}
 }
 
-func TestDpMissingPartsNotFound(t *testing.T) {
-	itemRoot, _ := setDpFixture(t)
+// An item whose archive folder has no drawable art (artsitem lists part PNGs that are absent) gets
+// the neutral placeholder, and nothing is cached so that a later archive fix is picked up.
+func TestDpMissingPartsPlaceholderUncached(t *testing.T) {
+	itemRoot, cacheDir := setDpFixture(t)
 	writeItemFile(t, itemRoot, "dress", "8", "1409_iteminfo.artsitem", []byte(dressItemInfo("4", "10", "0", "0", "0_0.png")))
 	rec := serveDp(t, http.MethodGet, "/arts_item_dress_8/dp.png")
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" {
+		t.Fatalf("status = %d type %q, want 200 image/png", rec.Code, rec.Header().Get("Content-Type"))
+	}
+	if !bytes.Equal(rec.Body.Bytes(), dpPlaceholderPNG("dress")) {
+		t.Fatal("body is not the neutral placeholder")
+	}
+	img := decodePNG(t, rec.Body.Bytes())
+	if img.Bounds().Dx() != dpOutW || img.Bounds().Dy() != dpOutH {
+		t.Fatalf("placeholder size %v, want %dx%d", img.Bounds(), dpOutW, dpOutH)
+	}
+	if r, _, _, a := img.At(0, 0).RGBA(); a != 0xffff || r>>8 != 0xd9 {
+		t.Fatalf("placeholder pixel not opaque neutral grey: r=%d a=%d", r>>8, a>>8)
+	}
+	if entries, _ := os.ReadDir(cacheDir); len(entries) != 0 {
+		t.Fatalf("placeholder was cached: %d files", len(entries))
+	}
+}
+
+// A folder with no part files at all (artsitem only) is still an existing item.
+func TestDpEmptyItemFolderPlaceholder(t *testing.T) {
+	itemRoot, _ := setDpFixture(t)
+	if err := os.MkdirAll(filepath.Join(itemRoot, "interior", "121601242"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rec := serveDp(t, http.MethodGet, "/arts_item_interior_121601242/dp.png")
+	if rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), dpPlaceholderPNG("interior")) {
+		t.Fatalf("status = %d, want the 130x100 placeholder", rec.Code)
+	}
+}
+
+// Placeholder (1x1) parts carry only an animation; anchor 17 animations must draw too.
+func TestDpPlaceholderPartsDrawTheirAnimation(t *testing.T) {
+	itemRoot, cacheDir := setDpFixture(t)
+	writeItemFile(t, itemRoot, "dress", "225510001", "0_0.png", solidPNG(t, 1, 1, color.RGBA{A: 0xff}))
+	writeItemFile(t, itemRoot, "dress", "225510001", "0_1.png", solidPNG(t, 1, 1, color.RGBA{A: 0xff}))
+	writeItemFile(t, itemRoot, "dress", "225510001", "sp.png", solidPNG(t, 10, 10, color.RGBA{R: 0xff, A: 0xff}))
+	writeItemFile(t, itemRoot, "dress", "225510001", "1.aniproj", []byte(`<ANIMATIONS version="1"><SYMBOLS>
+<symbol szName="IA_1" dwTotalFrame="1" dwFrameTime="32"><layer dwIndex="0">
+<process dwProcessKey="0"><property dwFrame="0" szSymbolKey="sp.png" dwKeepFrame="1" dwBlendType="0"/></process>
+</layer></symbol>
+<symbol szName="IA_2" dwTotalFrame="1" dwFrameTime="32"><layer dwIndex="0">
+<process dwProcessKey="0"><property dwFrame="0" szSymbolKey="sp.png" dwKeepFrame="1" dwBlendType="0"/></process>
+</layer></symbol></SYMBOLS></ANIMATIONS>`))
+	// anchor 5 (none_head) and anchor 17 (root): one placeholder part with one animation each.
+	writeItemFile(t, itemRoot, "dress", "225510001", "1409_iteminfo.artsitem", []byte(
+		"0;0;0;0;0;2;5;96;0;0;0;0;0_0.png;1;1;0;0;1;255;0;40;"+
+			"17;255;0;0;6;-3;0_1.png;1;2;0;0;1;255;-10;90;"+
+			"0;"))
+	rec := serveDp(t, http.MethodGet, "/arts_item_dress_225510001/dp.png")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if bytes.Equal(rec.Body.Bytes(), dpPlaceholderPNG("dress")) {
+		t.Fatal("animation-only item served the grey placeholder")
+	}
+	img := decodePNG(t, rec.Body.Bytes())
+	if _, _, _, a := img.At(img.Bounds().Dx()/2, img.Bounds().Dy()/2).RGBA(); a == 0 {
+		// the content is centred by dpFrame, so the middle of the canvas must be painted
+		t.Fatal("animation-only item rendered blank")
+	}
+	if _, err := os.Stat(filepath.Join(cacheDir, dpCacheVersion+"dress_225510001.png")); err != nil {
+		t.Fatalf("generated composite not cached: %v", err)
+	}
+}
+
+// Room furniture names its main layer <prefix>_l0_a00.png; fr_/bl_ prefixes must not fall back.
+func TestDpRoomMainLayerAnyPrefix(t *testing.T) {
+	itemRoot, _ := setDpFixture(t)
+	dir := filepath.Join(itemRoot, "interior", "120401546")
+	writeItemFile(t, itemRoot, "interior", "120401546", "bl_l1_a00.png", solidPNG(t, 4, 4, color.RGBA{B: 0xff, A: 0xff}))
+	writeItemFile(t, itemRoot, "interior", "120401546", "bl_l0_a00.png", solidPNG(t, 8, 6, color.RGBA{R: 0xff, A: 0xff}))
+	img, ok := composeRoomDP(dir, "interior")
+	if !ok || img.Bounds().Dx() != 8 || img.Bounds().Dy() != 6 {
+		t.Fatalf("room item not composed from bl_l0_a00: ok=%v bounds=%v", ok, img.Bounds())
+	}
+	if c := img.RGBAAt(0, 0); c != (color.RGBA{R: 0xff, A: 0xff}) {
+		t.Fatalf("picked the wrong layer: %v", c)
 	}
 }
 
@@ -398,8 +472,9 @@ func TestDpRigPlacementMath(t *testing.T) {
 	if !ok || x != ll[0]+20-5 || y != ll[1]+30-3 {
 		t.Fatalf("place = (%v,%v,%v), want (%v,%v)", x, y, ok, ll[0]+15, ll[1]+27)
 	}
-	if _, _, ok := rig.place(dpTagSpecial, 0, 0, img); ok {
-		t.Fatal("anchor 17 must have no frame")
+	// anchor 17 has no body node: it hangs off the root (none_body) and has no sprite of its own.
+	if root := rig.ll[0]; rig.ll[dpTagSpecial] != root {
+		t.Fatalf("anchor 17 at %v, want root %v", rig.ll[dpTagSpecial], root)
 	}
 	for _, tag := range []int{dpTagNoneHd, dpTagNoneChe, 11, 13, 14} {
 		if _, ok := rig.ll[tag]; !ok {

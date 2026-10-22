@@ -21,23 +21,33 @@ import (
 // info row bonus[todayCount-1], not from the attend reply, which only refreshes the
 // Gem/Cash HUD and the "next sticker time" text (nextAttdFrom = time LEFT, hour or min).
 
-// Amounts in one table so they are easy to tune. Type is the native bonusType string:
-// GEM = Gems popup, CASH = Cash popup, VOUCH = Face Shop ticket popup
-// (NaAttendanceMainLayer::GetRewardType @0x19196e4). A row's popup shows only its Type
-// reward; the other columns are still credited (the HUD refreshes from the attend reply).
-var attendCycle = [7]struct {
+// calDay is one reward row of a calendar (the normal cycle or a season, season.go).
+// Type is the native bonusType string: GEM = Gems popup, CASH = Cash popup, VOUCH = Face Shop
+// ticket popup (NaAttendanceMainLayer::GetRewardType @0x19196e4). An item day has Type
+// itemRewardType and Item set. A row's popup shows only its Type reward; the other columns are
+// still credited (the HUD refreshes from the attend reply).
+type calDay struct {
 	Type    string
 	Gems    int64
 	Cash    int64
 	Tickets int64
-}{
-	{"GEM", 90, 0, 0},
-	{"GEM", 120, 0, 0},
-	{"GEM", 150, 0, 0},
-	{"GEM", 180, 0, 0},
-	{"GEM", 240, 0, 0},
-	{"GEM", 300, 0, 0},
-	{"VOUCH", 450, 15, 3},
+	Item    string
+}
+
+// itemRewardType is the bonusType of an item day. Static (libgame.so arm64, 2026-10-22): the
+// static init of GetRewardType's table (sub_14CE4C8) puts "ITEM" at index 1, which the reward
+// popup (SetItemDpImage) draws from the row's itemCd.
+const itemRewardType = "ITEM"
+
+// Amounts in one table so they are easy to tune.
+var attendCycle = [7]calDay{
+	{Type: "GEM", Gems: 90},
+	{Type: "GEM", Gems: 120},
+	{Type: "GEM", Gems: 150},
+	{Type: "GEM", Gems: 180},
+	{Type: "GEM", Gems: 240},
+	{Type: "GEM", Gems: 300},
+	{Type: "VOUCH", Gems: 450, Cash: 15, Tickets: 3},
 }
 
 const (
@@ -51,11 +61,16 @@ var NowFunc = time.Now
 // AttendDayKey numbers days that start at 06:00 JST.
 func AttendDayKey(t time.Time) int64 { return (t.Unix() + attendBoundaryShift) / 86400 }
 
-// AttendState derives the calendar view for an account at time t.
+// AttendState derives the calendar view for an account at time t. A season has its own cycle:
+// when the last attend fell in another calendar, the count starts again at day 1.
 func AttendState(acc *store.Account, t time.Time) (todayCount int, attendable bool, hour, min int) {
 	key := AttendDayKey(t)
+	base := acc.AttendDay
+	if acc.AttendKey != 0 && scheduleAt(keyTime(acc.AttendKey)).Name != scheduleAt(t).Name {
+		base = 0
+	}
 	attended := acc.AttendKey == key && acc.AttendDay > 0
-	todayCount = acc.AttendDay%7 + 1
+	todayCount = base%7 + 1
 	if attended {
 		todayCount = acc.AttendDay
 	}
@@ -63,14 +78,24 @@ func AttendState(acc *store.Account, t time.Time) (todayCount int, attendable bo
 	return todayCount, !attended, int(rem / 3600), int(rem % 3600 / 60)
 }
 
-func attendRows(acc *store.Account, todayCount int, attendable bool) []map[string]any {
-	rows := make([]map[string]any, 0, 7)
-	for i, r := range attendCycle {
+// attendRows builds bonus[] for the calendar in force. An item day the account does not own
+// shows the item (bonusType ITEM, itemCd) with its Gems; an owned one shows the day's Gems plus the
+// item's sell-back Gems; a missing item shows the day's normal reward.
+func attendRows(acc *store.Account, sched calSchedule, todayCount int, attendable bool) []map[string]any {
+	rows := make([]map[string]any, 0, len(sched.Cycle))
+	for i, r := range sched.Cycle {
 		day := i + 1
+		switch {
+		case r.Item == "":
+		case !seasonItemAvailable(r.Item):
+			r.Type, r.Item = "GEM", ""
+		case itemOwnedLocked(acc, r.Item):
+			r.Type, r.Gems, r.Item = "GEM", r.Gems+sellBackGems(r.Item), ""
+		}
 		row := map[string]any{
 			"count": day, "attendYN": day < todayCount || (day == todayCount && !attendable),
 			"bonusType": r.Type, "bonusCategory": "", "gem": r.Gems, "cash": r.Cash, "heart": 0,
-			"powder": 0, "vipPoint": 0, "itemCd": "", "attdYmdt": "", "voucherCode": "",
+			"powder": 0, "vipPoint": 0, "itemCd": r.Item, "attdYmdt": "", "voucherCode": "",
 			"gachaCategoryCode": "", "ecoinCode": "", "ecoinImgPath": "", "ecoinName": "",
 			"ecoinAmt": 0, "smile": 0, "energy": 0, "luckyPowd": 0, "luckyPowdCnt": 0,
 			"craftItem": 0, "craftItemCnt": 0, "luckyPowdImgUrl": "", "craftItemImgUrl": "",
@@ -132,20 +157,24 @@ func handleAttendInfo(w http.ResponseWriter, r *http.Request) {
 	var able bool
 	var h, m int
 	var rows []map[string]any
+	var sched calSchedule
+	now := NowFunc()
 	if acc != nil {
-		count, able, h, m = AttendState(acc, NowFunc())
-		rows = attendRows(acc, count, able)
+		sched = scheduleAt(now)
+		count, able, h, m = AttendState(acc, now)
+		rows = attendRows(acc, sched, count, able)
 	}
 	store.AccountsMu.Unlock()
 	if acc == nil {
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
 		return
 	}
+	start, end := sched.window(now)
 	httpx.WriteObj(w, map[string]any{"result": map[string]any{
-		"avtNo": attendDailyBonusID, "title": "Daily Login", "dailyBonusId": attendDailyBonusID,
-		"scheduleId": AttendScheduleID, "startYmdt": "20200101000000", "endYmdt": "20991231235959",
-		"bonusCount": len(attendCycle), "todayCount": count, "attendable": able,
-		"lastDay":      count == len(attendCycle),
+		"avtNo": attendDailyBonusID, "title": sched.Title, "dailyBonusId": attendDailyBonusID,
+		"scheduleId": sched.ID, "startYmdt": start, "endYmdt": end,
+		"bonusCount": len(sched.Cycle), "todayCount": count, "attendable": able,
+		"lastDay":      count == len(sched.Cycle),
 		"nextAttdFrom": map[string]string{"hour": fmt.Sprint(h), "min": fmt.Sprint(m)},
 		"bonus":        rows,
 	}})
@@ -169,8 +198,21 @@ func handleAttend(w http.ResponseWriter, r *http.Request) {
 	now := NowFunc()
 	if count, able, _, _ := AttendState(acc, now); able {
 		prev := *acc
-		rw := attendCycle[count-1]
-		lines, err := store.SpendLocked(acc, store.LedgerDeltas{Gems: rw.Gems, Cash: rw.Cash, FaceTickets: rw.Tickets}, fmt.Sprintf("daily login day %d", count))
+		sched := scheduleAt(now)
+		rw := sched.Cycle[count-1]
+		reason := sched.reason(count)
+		credit := store.LedgerDeltas{Gems: rw.Gems, Cash: rw.Cash, FaceTickets: rw.Tickets}
+		var err error
+		if rw.Item != "" && seasonItemAvailable(rw.Item) {
+			var sellBack int64
+			sellBack, err = itemGrantLocked(acc, rw.Item)
+			credit.Gems += sellBack // a duplicate's sell-back rides on the day's Gems: one ledger line
+			reason += " item " + rw.Item
+		}
+		var lines []store.LedgerLine
+		if err == nil {
+			lines, err = store.SpendLocked(acc, credit, reason)
+		}
 		acc.AttendDay, acc.AttendKey = count, AttendDayKey(now)
 		if err == nil {
 			err = store.SaveAccountsLocked()

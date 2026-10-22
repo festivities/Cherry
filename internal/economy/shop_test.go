@@ -1,17 +1,29 @@
 package economy
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
+	"cherry/internal/room"
+	"cherry/internal/store"
 	"cherry/internal/thumbs"
 )
 
 // shopFixture points the catalog at a temp item root: files maps "kind/id" to the file names in it.
+// The 2014 archive and the thumbnail cache are pointed at empty temp paths too, so that the real
+// backup cannot give a fixture item its art.
 func shopFixture(t *testing.T, files map[string][]string) {
 	t.Helper()
 	root := t.TempDir()
+	oldZip, oldCache := thumbs.DpZipPath, thumbs.DpCacheDir
+	thumbs.DpZipPath, thumbs.DpCacheDir = filepath.Join(t.TempDir(), "none.zip"), t.TempDir()
+	t.Cleanup(func() { thumbs.DpZipPath, thumbs.DpCacheDir = oldZip, oldCache })
 	for dir, names := range files {
 		d := filepath.Join(root, filepath.FromSlash(dir))
 		if err := os.MkdirAll(d, 0o755); err != nil {
@@ -45,17 +57,17 @@ func TestItemCodeFromID(t *testing.T) {
 
 func TestItemPriceTable(t *testing.T) {
 	shopFixture(t, map[string][]string{
-		"dress/225106259":    {"a.png", "x.aniproj"}, // CUON004TV animated one-piece
-		"dress/225000001":    {"a.png"},              // CUTO00001
-		"dress/235100001":    {"a.png"},              // CAON00001 animal one-piece
-		"custom/224400001":   {"a.png"},              // CUHA00001
-		"custom/223800001":   {"a.png"},              // CUHE00001 face: not sold here
-		"interior/121400639": {"a.png"},              // RUWA000HR wall
-		"interior/121700005": {"a.png"},              // RUTD00005 floor decor
-		"interior/122000002": {"a.aniproj"},          // RUGO00002 animated furniture
-		"tile/121500101":     {"a.png"},              // RUTI0002T floor
-		"pet/326400016":      {"skeleton.xml"},       // PUPE0000G
-		"pet/326400230":      {"skeleton.xml", "r.aniproj"},
+		"dress/225106259":    {"dp.png", "x.aniproj"},    // CUON004TV animated one-piece
+		"dress/225000001":    {"dp.png"},                 // CUTO00001
+		"dress/235100001":    {"dp.png"},                 // CAON00001 animal one-piece
+		"custom/224400001":   {"dp.png"},                 // CUHA00001
+		"custom/223800001":   {"dp.png"},                 // CUHE00001 face: not sold here
+		"interior/121400639": {"dp.png"},                 // RUWA000HR wall
+		"interior/121700005": {"dp.png"},                 // RUTD00005 floor decor
+		"interior/122000002": {"dp.png", "a.aniproj"},    // RUGO00002 animated furniture
+		"tile/121500101":     {"dp.png"},                 // RUTI0002T floor
+		"pet/326400016":      {"skeleton.xml", "dp.png"}, // PUPE0000G
+		"pet/326400230":      {"skeleton.xml", "r.aniproj", "dp.png"},
 		"pet/326400300":      {"dp.png"}, // no render assets: not in the catalog
 	})
 	cases := []struct {
@@ -103,5 +115,119 @@ func TestMissingItemRootIsEmpty(t *testing.T) {
 	}
 	if price, _, _, ok := ItemPrice("CUTO00001"); price != 150 || !ok {
 		t.Errorf("price without catalog = %d %v", price, ok)
+	}
+}
+
+// noArtFixture has art items (dp.png) next to items with no art at all: no dp.png and nothing the
+// generator can draw. CUON004SR is the archive's dress case (225106219), RUTD00005 a furniture one.
+func noArtFixture(t *testing.T) {
+	t.Helper()
+	shopFixture(t, map[string][]string{
+		"dress/225000001":    {"dp.png"},
+		"dress/225106219":    {"a.png"},
+		"dress/225106259":    {"x.aniproj"}, // CUON004TV animated, no art: still priced 625 R
+		"interior/121400639": {"dp.png"},
+		"interior/121700005": {"a.png"},
+		"pet/326400016":      {"skeleton.xml", "dp.png"},
+		"pet/326400017":      {"skeleton.xml"},
+	})
+}
+
+// listedCodes returns the item codes of a shop itemlist reply.
+func listedCodes(t *testing.T, rec *httptest.ResponseRecorder) []string {
+	t.Helper()
+	var out struct {
+		Result struct {
+			Items []struct {
+				ItemCode string `json:"itemCode"`
+			} `json:"items"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("itemlist body %q: %v", rec.Body.String(), err)
+	}
+	var codes []string
+	for _, it := range out.Result.Items {
+		codes = append(codes, it.ItemCode)
+	}
+	return codes
+}
+
+// TestNoArtItemsNotSoldOrGranted: items without art leave the catalogs, the gacha pool, buy, mail and
+// season rewards, but keep their price so that an owned one still sells back.
+func TestNoArtItemsNotSoldOrGranted(t *testing.T) {
+	noArtFixture(t)
+	cat := loadCatalog()
+	if len(cat.fashion) != 1 || len(cat.interior) != 1 || len(cat.pet) != 1 || cat.byCode["CUON004SR"] != nil || cat.byCode["RUTD00005"] != nil {
+		t.Fatalf("catalog fashion %d interior %d pet %d, want one art item each", len(cat.fashion), len(cat.interior), len(cat.pet))
+	}
+	if price, _, _, ok := ItemPrice("CUON004SR"); price != 250 || !ok {
+		t.Errorf("ItemPrice(CUON004SR) = %d %v, want 250 for sell-back", price, ok)
+	}
+	if price, cash, grade, ok := ItemPrice("CUON004TV"); price != 625 || cash || grade != "R" || !ok {
+		t.Errorf("ItemPrice(CUON004TV) = %d %v %s %v, want the animated 625 R for sell-back", price, cash, grade, ok)
+	}
+
+	list := func(h http.HandlerFunc, path string) []string {
+		rec := httptest.NewRecorder()
+		h(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		return listedCodes(t, rec)
+	}
+	if got := list(handleShopList(kindFashion), "/v4/shop/fashion/itemlist/MDRESS"); len(got) != 0 {
+		t.Errorf("no-art outfit listed: %v", got)
+	}
+	if got := list(handleShopList(kindFashion), "/v4/shop/fashion/itemlist/MTOPS"); !slices.Equal(got, []string{"CUTO00001"}) {
+		t.Errorf("tops list = %v", got)
+	}
+	if got := list(handleShopList(kindInterior), "/v4/shop/interior/itemlist/"+room.RoomCategoryCode("RUTD00005")); len(got) != 0 {
+		t.Errorf("no-art furniture listed: %v", got)
+	}
+	if got := list(handleShopList(kindPet), "/v4/shop/interior/petitemlist/UPETINT"); !slices.Equal(got, []string{"PUPE0000G"}) {
+		t.Errorf("pet list = %v", got)
+	}
+
+	acc, _ := phaseEAccount(t, 5000, []string{"CUON004SR"})
+	acc.ItemCodes = nil // owned, not worn: the closet may sell it
+	buy := func(path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		req.Header.Set("Cookie", `AV_AUTH="ptok"`)
+		rec := httptest.NewRecorder()
+		handleShopBuy(kindFashion)(rec, req)
+		return rec
+	}
+	if rec := buy("/v4/purchase/dress/buy", `{"items":[{"itemCode":"CUON004SR","price":250}]}`); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), errUnknown) {
+		t.Errorf("buy no-art = %d %s, want 400 %s", rec.Code, rec.Body.String(), errUnknown)
+	}
+	if rec := buy("/v4/purchase/dress/buy", `{"items":[{"itemCode":"CUTO00001","price":150}]}`); rec.Code != http.StatusOK {
+		t.Errorf("buy art = %d %s", rec.Code, rec.Body.String())
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v4/inven/recycle/closet/v2", strings.NewReader(`{"recycleItems":[{"invenSeq":"0","itemCode":"CUON004SR","count":1}]}`))
+	req.Header.Set("Cookie", `AV_AUTH="ptok"`)
+	rec := httptest.NewRecorder()
+	handleRecycle(false)(rec, req)
+	if rec.Code != http.StatusOK || acc.Gems != 5000-150+250 {
+		t.Errorf("sell-back of owned no-art item = %d gems %d, want 5100 after the 150 buy", rec.Code, acc.Gems)
+	}
+
+	if pool := gachaPoolNow(); !slices.Equal(gachaCodes(pool.normal), []string{"CUTO00001", "RUWA000HR"}) || len(pool.rare) != 0 {
+		t.Errorf("gacha pool normal %v rare %v", gachaCodes(pool.normal), gachaCodes(pool.rare))
+	}
+	if validMailPayload(store.MailTypeItem, 0, "CUON004SR") || !validMailPayload(store.MailTypeItem, 0, "CUTO00001") {
+		t.Error("mail item validation")
+	}
+	if seasonItemAvailable("RUTD00005") || !seasonItemAvailable("RUWA000HR") {
+		t.Error("season item validation")
+	}
+	if _, err := itemGrantLocked(acc, "CUON004SR"); err != errItemUnknown {
+		t.Errorf("grant of no-art item err = %v, want errItemUnknown", err)
+	}
+
+	mail := httptest.NewRequest(http.MethodPost, "/admin/mail", strings.NewReader(`{"aid":"9901","type":"item","item":"CUON004SR","message":"x"}`))
+	mail.RemoteAddr = "127.0.0.1:5555"
+	rec = httptest.NewRecorder()
+	handleAdminMail(rec, mail)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("admin mail of no-art item = %d, want 400", rec.Code)
 	}
 }

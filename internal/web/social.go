@@ -192,12 +192,16 @@ func profileBodyFor(aid, name string, hasGarden bool, viewer store.AccountSnapsh
 		}
 	}
 	store.SocialMu.Unlock()
-	return map[string]any{
+	body := map[string]any{
 		"avatarId": aid, "name": name, "nickname": name, "diaryName": name,
 		"newbie": false, "friendStatus": friendStatus, "hasGarden": hasGarden,
 		"showGuestBook": true, "showCmt": true, "showProfile": true,
 		"diaryCount": diaryCount, "guestBookCount": guestbookCount,
 	}
+	for k, v := range heartProfileFields(viewer.Aid, aid) {
+		body[k] = v
+	}
+	return body
 }
 
 func canViewDiaryPost(post store.DiaryPost, viewer store.AccountSnapshot, viewerOK bool) bool {

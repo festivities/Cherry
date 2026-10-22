@@ -24,6 +24,7 @@ func shopSetup(t *testing.T, gems, cash int64) *store.Account {
 		{"pet", "326400017", "skeleton.xml"}, {"pet", "326400018", "skeleton.xml"},
 	} {
 		writeThumbItem(t, root, f[0], f[1], f[2], []byte("x"))
+		writeThumbItem(t, root, f[0], f[1], "dp.png", []byte("x")) // art marker: no-art items are not sold or pooled
 	}
 	// species sound decides dog (215) or cat (214); no sound = toy
 	writeThumbItem(t, root, "pet", "326400016", "behavior.xml", []byte(`{"type": "action_sound", "sndindex": 215}`))

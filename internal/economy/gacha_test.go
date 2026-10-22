@@ -22,15 +22,16 @@ import (
 // CUHE00001 (face) and PUPE0000G (pet) are catalog-excluded.
 func gachaFixture(t *testing.T) gachaPool {
 	t.Helper()
+	// dp.png marks an item with art (shopFixture's items have none unless they list it).
 	shopFixture(t, map[string][]string{
-		"dress/225000001":    {"a.png"},
-		"dress/225106259":    {"a.png", "x.aniproj"},
-		"custom/224400001":   {"a.png"},
-		"interior/121400639": {"a.png"},
-		"interior/121700005": {"a.png"},
-		"interior/122000002": {"a.aniproj"},
-		"custom/223800001":   {"a.png"},
-		"pet/326400016":      {"skeleton.xml"},
+		"dress/225000001":    {"dp.png"},
+		"dress/225106259":    {"dp.png", "x.aniproj"},
+		"custom/224400001":   {"dp.png"},
+		"interior/121400639": {"dp.png"},
+		"interior/121700005": {"dp.png"},
+		"interior/122000002": {"dp.png", "a.aniproj"},
+		"custom/223800001":   {"dp.png"},
+		"pet/326400016":      {"skeleton.xml", "dp.png"},
 	})
 	return gachaPoolNow()
 }

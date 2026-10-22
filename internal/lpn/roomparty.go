@@ -955,6 +955,15 @@ func HandleRoom(w http.ResponseWriter, r *http.Request) {
 		httpx.ServeNotFound(w)
 		return
 	}
+	if viewer, ok := store.AccountForRequest(r); ok {
+		if v, err := strconv.ParseUint(viewer.Aid, 10, 64); err == nil {
+			if parts[0] == "myroom" {
+				ClearRoomVisit(v)
+			} else if owner, err := strconv.ParseUint(parts[1], 10, 64); err == nil {
+				NoteRoomVisit(v, owner)
+			}
+		}
+	}
 	roomInfo := map[string]any{
 		"groundLevel": level,
 		"tileSize":    12, // ponytail: unverified; hero spawn tile (8,4) must fit inside

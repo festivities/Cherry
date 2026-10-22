@@ -2,7 +2,9 @@ package economy
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"slices"
@@ -31,16 +33,51 @@ import (
 // NaPostBoxPopup::MsgProc: 62102 "already expired", 62107 "You can only receive this item once".
 
 const (
-	MailMaxRows      = 100
-	mailDefaultDays  = 30
-	MailSender       = "Cherry Staff"
-	errMailExpired   = `{"errorCode":"62102","errorMessage":"cherry: mail expired"}`
-	errMailNotThere  = `{"errorCode":"62107","errorMessage":"cherry: mail already received"}`
-	maxMailAmountCap = 1_000_000
+	MailMaxRows        = 100
+	mailDefaultDays    = 30
+	MailSender         = "Cherry Staff"
+	errMailExpired     = `{"errorCode":"62102","errorMessage":"cherry: mail expired"}`
+	errMailNotThere    = `{"errorCode":"62107","errorMessage":"cherry: mail already received"}`
+	errMailItemMissing = `{"errorCode":"62110","errorMessage":"cherry: mail item unavailable"}`
+	maxMailAmountCap   = 1_000_000
 )
 
 func validMailType(t string) bool {
-	return t == store.MailTypeGems || t == store.MailTypeCash || t == store.MailTypeTickets
+	return t == store.MailTypeGems || t == store.MailTypeCash || t == store.MailTypeTickets || t == store.MailTypeItem
+}
+
+// mailPostJSON is the native Post row. An item row names the item (productData = code, title =
+// its display name, itemType ROOM/DRESS picks the receive message) and points its picture at the
+// item's dp.png on the host the client called.
+func mailPostJSON(m store.MailRow, host string) map[string]any {
+	row := m.PostRow()
+	if m.Type != store.MailTypeItem {
+		return row
+	}
+	_, _, grade, _ := ItemPrice(m.Item)
+	if grade != "N" {
+		row["itemGradeType"] = grade
+	}
+	row["title"], row["itemType"] = ItemName(m.Item), itemTypeOf(m.Item)
+	row["productImageUrl"] = itemImageURL(m.Item, host)
+	return row
+}
+
+// receiveLocked credits one mail row: currency through the ledger, an item through grantItemLocked.
+func receiveLocked(acc *store.Account, row store.MailRow) ([]store.LedgerLine, error) {
+	reason := "mail receive " + strconv.FormatInt(row.Seq, 10)
+	if row.Type == store.MailTypeItem {
+		return grantItemLocked(acc, row.Item, reason)
+	}
+	return store.SpendLocked(acc, row.Deltas(), reason)
+}
+
+// validMailPayload checks the amount (currency) or the item code (item rows, which take no amount).
+func validMailPayload(typ string, amount int64, item string) bool {
+	if typ == store.MailTypeItem {
+		return itemAvailable(item)
+	}
+	return amount >= 1 && amount <= maxMailAmountCap
 }
 
 // liveMail returns the unexpired rows.
@@ -56,15 +93,15 @@ func liveMail(acc *store.Account, now time.Time) []store.MailRow {
 
 // addMailLocked appends a row to a fresh slice (rollback copies of *acc share the old one)
 // and drops expired rows. It returns false when the mailbox is full.
-func addMailLocked(acc *store.Account, typ string, amount int64, message, sender string, days int, now time.Time) bool {
+func addMailLocked(acc *store.Account, row store.MailRow, days int, now time.Time) bool {
 	rows := liveMail(acc, now)
 	if len(rows) >= MailMaxRows {
 		return false
 	}
 	acc.NextMailSeq++
-	rows = append(rows, store.MailRow{Seq: acc.NextMailSeq, Type: typ, Amount: amount, Message: message, Sender: sender, Created: now.UnixMilli(),
-		Expires: now.Add(time.Duration(days) * 24 * time.Hour).UnixMilli()})
-	acc.Mail = rows
+	row.Seq, row.Created = acc.NextMailSeq, now.UnixMilli()
+	row.Expires = now.Add(time.Duration(days) * 24 * time.Hour).UnixMilli()
+	acc.Mail = append(rows, row)
 	return true
 }
 
@@ -112,7 +149,7 @@ func handleMailList(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]map[string]any, 0, len(rows))
 	for i := len(rows) - 1; i >= 0; i-- { // newest first
-		items = append(items, rows[i].PostRow())
+		items = append(items, mailPostJSON(rows[i], r.Host))
 	}
 	httpx.WriteObj(w, map[string]any{"result": map[string]any{
 		"nextCursor": "0", "previousCursor": "0", "totalCount": strconv.Itoa(len(items)), "items": items,
@@ -153,7 +190,13 @@ func handleMailReceive(w http.ResponseWriter, r *http.Request) {
 	var lines []store.LedgerLine
 	var err error
 	if !expired {
-		lines, err = store.SpendLocked(acc, row.Deltas(), "mail receive "+strconv.FormatInt(row.Seq, 10))
+		lines, err = receiveLocked(acc, row)
+	}
+	if errors.Is(err, errItemUnknown) { // the row stays in the mailbox for staff to fix
+		*acc = prev
+		log.Printf("cherry: mail item missing code=%s seq=%d", row.Item, row.Seq)
+		httpx.WriteJSON(w, http.StatusBadRequest, errMailItemMissing)
+		return
 	}
 	if err == nil {
 		acc.Mail = rest
@@ -213,8 +256,10 @@ func readAdminJSON(r *http.Request, dst any) bool {
 // POST /admin/mail mails one account (aid) or every account ("all"):
 //
 //	curl -X POST http://127.0.0.1:8099/admin/mail -d "{\"aid\":\"1002\",\"type\":\"gems\",\"amount\":500,\"message\":\"Thanks for testing\",\"expiresDays\":30}"
+//	curl -X POST http://127.0.0.1:8099/admin/mail -d "{\"aid\":\"all\",\"type\":\"item\",\"item\":\"CUAE00B9R\",\"message\":\"Halloween gift\"}"
 //
-// type is gems | cash | faceTickets; expiresDays defaults to 30.
+// type is gems | cash | faceTickets | item; an item takes "item" (a sellable code) instead of amount.
+// expiresDays defaults to 30.
 func handleAdminMail(w http.ResponseWriter, r *http.Request) {
 	if !adminLoopback(r) {
 		httpx.ServeNotFound(w)
@@ -224,11 +269,12 @@ func handleAdminMail(w http.ResponseWriter, r *http.Request) {
 		Aid         string `json:"aid"`
 		Type        string `json:"type"`
 		Amount      int64  `json:"amount"`
+		Item        string `json:"item"`
 		Message     string `json:"message"`
 		ExpiresDays int    `json:"expiresDays"`
 	}
 	if !readAdminJSON(r, &req) || req.Aid == "" || !validMailType(req.Type) ||
-		req.Amount < 1 || req.Amount > maxMailAmountCap || len(req.Message) > 500 || req.ExpiresDays < 0 || req.ExpiresDays > 3650 {
+		len(req.Message) > 500 || req.ExpiresDays < 0 || req.ExpiresDays > 3650 || !validMailPayload(req.Type, req.Amount, req.Item) {
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
 	}
@@ -257,7 +303,8 @@ func handleAdminMail(w http.ResponseWriter, r *http.Request) {
 	sent := 0
 	for i, a := range targets {
 		prevs[i] = *a
-		if addMailLocked(a, req.Type, req.Amount, req.Message, MailSender, req.ExpiresDays, NowFunc()) {
+		row := store.MailRow{Type: req.Type, Amount: req.Amount, Item: req.Item, Message: req.Message, Sender: MailSender}
+		if addMailLocked(a, row, req.ExpiresDays, NowFunc()) {
 			sent++
 		}
 	}

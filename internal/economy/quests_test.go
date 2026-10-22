@@ -44,10 +44,12 @@ func questGems(t *testing.T, aid string) int64 {
 func TestQuestCatalogTotalsOneHundredFifty(t *testing.T) {
 	total := int64(0)
 	for _, def := range QuestCatalog {
-		total += def.Gems
+		if !def.Display { // the hearts row's 30 Gems are HeartSend's, not the quest machinery's
+			total += def.Gems
+		}
 	}
-	if total != 150 || len(QuestCatalog) != 4 {
-		t.Fatalf("catalog = %d quests / %d Gems, want 4 / 150", len(QuestCatalog), total)
+	if total != 150 || len(QuestCatalog) != 5 {
+		t.Fatalf("catalog = %d quests / %d Gems, want 5 / 150 credited here", len(QuestCatalog), total)
 	}
 }
 
@@ -58,6 +60,9 @@ func TestQuestProgressCompletesEachTriggerOnce(t *testing.T) {
 	now := jstAt(11, 12, 0)
 	completed := 0
 	for _, def := range QuestCatalog {
+		if def.Display {
+			continue
+		}
 		if got, done := MarkQuest("9701", def.Key, now); done && got.ID == def.ID {
 			completed++
 		}
@@ -207,5 +212,32 @@ func TestQuestMarkCreditsLegacyDoneRecord(t *testing.T) {
 	}
 	if lines := gachaLedger(t, dir); len(lines) != 1 || lines[0].Reason != "quest:9001:20261011" {
 		t.Fatalf("ledger = %+v", lines)
+	}
+}
+
+// TestHeartRowNeverPaysThroughQuests: the hearts row is display-only. MarkQuest and ClaimQuest
+// refuse it, and five HeartSend hearts credit its 30 Gems once, as one heart:<day> ledger line.
+func TestHeartRowNeverPaysThroughQuests(t *testing.T) {
+	questAccount(t, "9701")
+	dir := questStore(t)
+	now := jstAt(11, 12, 0)
+	if _, done := MarkQuest("9701", "", now); done {
+		t.Fatal("empty key completed the hearts row")
+	}
+	if gems, code := ClaimQuest("9701", QuestHeartID, now); gems != 0 || code != questErrRejected {
+		t.Fatalf("claim before hearts = %d/%d, want refused", gems, code)
+	}
+	sendHearts(t, "9701", store.FriendAID, HeartBase, now)
+	if gems, code := ClaimQuest("9701", QuestHeartID, now); gems != 0 || code != questErrRejected {
+		t.Fatalf("claim after hearts = %d/%d, want refused", gems, code)
+	}
+	if got := questGems(t, "9701"); got != HeartRewardGems {
+		t.Fatalf("gems = %d, want %d from HeartSend only", got, HeartRewardGems)
+	}
+	if rec := QuestProgress("9701", now); len(rec.Done) != 0 || len(rec.Claimed) != 0 {
+		t.Fatalf("quest record marked the hearts row: %+v", rec)
+	}
+	if lines := gachaLedger(t, dir); len(lines) != 1 || lines[0].Reason != "heart:20261011" {
+		t.Fatalf("ledger = %+v, want one heart:20261011 line", lines)
 	}
 }

@@ -10,26 +10,32 @@ import (
 )
 
 // Economy Phase D slice 1: four Garden daily quests paying Gems (user decision 2026-10-11;
-// 150 Gems per game day in total). Progress is server-side: the Garden, Square and diary
+// 150 Gems per game day in total). The fifth row, the hearts quest, is display-only (hearts.go pays it). Progress is server-side: the Garden, Square and diary
 // handlers call MarkQuest, and the client only lists, reads and claims. Game days start at
 // 06:00 JST like the login calendar. Wire notes: %TEMP%\opencode\cherry\phaseD-20261011\quests.md section 10.
+
+// QuestHeartID is the hearts row. HeartSend credits its 30 Gems (ledger heart:<day>) and the row
+// reads its count from HeartsLeft, so the quest machinery never marks or pays it.
+const QuestHeartID = 9005
 
 // QuestDef is one daily quest. ID is the QuestId the client sends back. It is Cherry-chosen
 // and sits above the client's compiled eQUEST_CODE values.
 type QuestDef struct {
-	ID   int64
-	Key  string // progress key passed to MarkQuest
-	Name string
-	Desc string
-	Gems int64
+	ID      int64
+	Key     string // progress key passed to MarkQuest
+	Name    string
+	Desc    string
+	Gems    int64
+	Display bool // credited by another handler (hearts); MarkQuest and ClaimQuest refuse it
 }
 
 // QuestCatalog is the daily list in display order.
 var QuestCatalog = []QuestDef{
-	{9001, "garden-own", "Visit your Garden", "Enter your own Garden today.", 30},
-	{9002, "garden-visit", "Visit a friend's Garden", "Enter a friend's Garden today.", 40},
-	{9003, "square", "Hang out in Square", "Enter Square today.", 40},
-	{9004, "diary", "Write in your Diary", "Post a diary entry today.", 40},
+	{9001, "garden-own", "Visit your Garden", "Enter your own Garden today.", 30, false},
+	{9002, "garden-visit", "Visit a friend's Garden", "Enter a friend's Garden today.", 40, false},
+	{9003, "square", "Hang out in Square", "Enter Square today.", 40, false},
+	{9004, "diary", "Write in your Diary", "Post a diary entry today.", 40, false},
+	{QuestHeartID, "", "Send 5 hearts", "Send 5 hearts today.", 30, true},
 }
 
 // questErrRejected is the error_code for every refused claim (unknown id, not done, already
@@ -89,7 +95,7 @@ func QuestResetMillis(now time.Time) int64 {
 // failed save or ledger change rolls back.
 func MarkQuest(aid, key string, now time.Time) (QuestDef, bool) {
 	def, ok := questByKey(key)
-	if !ok {
+	if !ok || def.Display {
 		return QuestDef{}, false
 	}
 	store.AccountsMu.Lock()
@@ -133,7 +139,7 @@ func ClaimQuest(aid string, id int64, now time.Time) (int64, int) {
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
 	acc := store.AccountByAidLocked(aid)
-	if !ok || acc == nil {
+	if !ok || def.Display || acc == nil {
 		return 0, questErrRejected
 	}
 	day := AttendDayKey(now)

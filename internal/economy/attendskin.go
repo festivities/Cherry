@@ -48,12 +48,7 @@ const attendSkinRev = "2" // 2: "DAY n" header on every tile
 // AttendScheduleID is the skin version (3 digits, see above), derived from the reward table.
 var AttendScheduleID = attendVersion(attendCycle)
 
-func attendVersion(c [7]struct {
-	Type    string
-	Gems    int64
-	Cash    int64
-	Tickets int64
-}) int {
+func attendVersion(c [7]calDay) int {
 	return 100 + int(crc32.ChecksumIEEE([]byte(fmt.Sprint(c, attendSkinRev)))%900)
 }
 
@@ -80,20 +75,26 @@ var attendFrameFiles = []string{
 
 func attendTileName(day int) string { return fmt.Sprintf("%s%02d.png", attendTilePfx, day) }
 
-// attendNames lists every file of the skin (the ini content).
-func attendNames() []string {
+// attendNames lists every file of the normal calendar's skin (the ini content).
+func attendNames() []string { return skinNames(normalSchedule()) }
+
+// skinNames lists every file of one calendar's skin.
+func skinNames(s calSchedule) []string {
 	names := append([]string(nil), attendFrameFiles...)
-	for d := 1; d <= len(attendCycle); d++ {
+	for d := 1; d <= len(s.Cycle); d++ {
 		names = append(names, attendTileName(d))
 	}
 	sort.Strings(names)
 	return names
 }
 
-// attendPlist rewrites the stock plist: each IMG_DAYnn_OFF filepath becomes the Cherry tile
+// attendPlist is the normal calendar's plist.
+func attendPlist() ([]byte, error) { return skinPlist(normalSchedule()) }
+
+// skinPlist rewrites the stock plist: each IMG_DAYnn_OFF filepath becomes the Cherry tile
 // for that day, or the 1px transparent image for cells beyond the cycle (they are hidden).
 // In the plist XML a node's "filepath" key precedes its "nameTag".
-func attendPlist() ([]byte, error) {
+func skinPlist(s calSchedule) ([]byte, error) {
 	raw, err := fs.ReadFile(attendanceSkin, "DailybonusMainPopupNew.plist")
 	if err != nil {
 		return nil, err
@@ -115,7 +116,7 @@ func attendPlist() ([]byte, error) {
 			continue
 		}
 		name := "alpha1px.png"
-		if day <= len(attendCycle) {
+		if day <= len(s.Cycle) {
 			name = attendTileName(day)
 		}
 		end := strings.Index(seg, "</string>")
@@ -124,14 +125,17 @@ func attendPlist() ([]byte, error) {
 	return []byte(strings.Join(parts, marker)), nil
 }
 
-// attendFile returns one generated or passthrough image of the skin.
-func attendFile(name string) ([]byte, error) {
+// attendFile returns one generated or passthrough image of the normal calendar's skin.
+func attendFile(name string) ([]byte, error) { return skinFile(normalSchedule(), name) }
+
+// skinFile returns one generated or passthrough image of one calendar's skin.
+func skinFile(s calSchedule, name string) ([]byte, error) {
 	if strings.HasPrefix(name, attendTilePfx) {
 		d, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(name, attendTilePfx), ".png"))
-		if err != nil || d < 1 || d > len(attendCycle) || name != attendTileName(d) {
+		if err != nil || d < 1 || d > len(s.Cycle) || name != attendTileName(d) {
 			return nil, fs.ErrNotExist
 		}
-		return encodePNG(attendTile(d))
+		return encodePNG(skinTile(s, d))
 	}
 	if name == "dailybonus_bg.png" {
 		return attendBG()
@@ -144,24 +148,32 @@ func attendFile(name string) ([]byte, error) {
 	return nil, fs.ErrNotExist
 }
 
+// ServeAttendanceSkin serves /arts_attendance_<lang>_<dailyBonusId>_<scheduleId>/...: the scheduleId
+// picks the calendar's skin (a season has its own); an unknown id gets the normal skin.
 func ServeAttendanceSkin(w http.ResponseWriter, p string) bool {
 	rest, ok := strings.CutPrefix(p, "/arts_attendance_")
 	if !ok {
 		return false
 	}
-	_, rel, ok := strings.Cut(rest, "/")
+	key, rel, ok := strings.Cut(rest, "/")
 	if !ok {
 		return false
+	}
+	s := normalSchedule()
+	if i := strings.LastIndexByte(key, '_'); i >= 0 {
+		if id, err := strconv.Atoi(key[i+1:]); err == nil {
+			s = scheduleByID(id)
+		}
 	}
 	var data []byte
 	var err error
 	switch {
 	case rel == "DailybonusMainPopupNew.plist":
-		data, err = attendPlist()
+		data, err = skinPlist(s)
 	case rel == "ini/"+attendanceIni:
-		data = []byte("[" + strings.Join(attendNames(), "][") + "]")
+		data = []byte("[" + strings.Join(skinNames(s), "][") + "]")
 	case strings.HasPrefix(rel, "UIImage_hd/") && path.Base(rel) == rel[len("UIImage_hd/"):]:
-		data, err = attendFile(rel[len("UIImage_hd/"):])
+		data, err = skinFile(s, rel[len("UIImage_hd/"):])
 	default:
 		return false
 	}
@@ -275,14 +287,11 @@ func textSize(n int64, sc int) (w, h int) { return strSize(strconv.FormatInt(n, 
 
 func strSize(t string, sc int) (w, h int) { return len(t)*6*sc - sc, 7 * sc }
 
-// drawNumber draws n with its top-left at (x, y); it renders 4x larger and shrinks for
-// soft edges.
-func drawNumber(dst *image.NRGBA, n int64, x, y, sc int) {
-	drawText(dst, strconv.FormatInt(n, 10), x, y, sc)
-}
+// drawText draws t (digits, D, A, Y, space) in the stock ink with its top-left at (x, y).
+func drawText(dst *image.NRGBA, t string, x, y, sc int) { drawTextInk(dst, t, x, y, sc, attendInk) }
 
-// drawText draws t (digits, D, A, Y, space) with its top-left at (x, y).
-func drawText(dst *image.NRGBA, t string, x, y, sc int) {
+// drawTextInk is drawText in the given ink (a season's colour).
+func drawTextInk(dst *image.NRGBA, t string, x, y, sc int, ink color.NRGBA) {
 	const ss = 4
 	w, h := strSize(t, sc)
 	big := image.NewNRGBA(image.Rect(0, 0, w*ss, h*ss))
@@ -293,7 +302,7 @@ func drawText(dst *image.NRGBA, t string, x, y, sc int) {
 			for c, bit := range row {
 				if bit == '1' {
 					x0, y0 := (i*6+c)*px, r*px
-					draw.Draw(big, image.Rect(x0, y0, x0+px, y0+px), image.NewUniform(attendInk), image.Point{}, draw.Src)
+					draw.Draw(big, image.Rect(x0, y0, x0+px, y0+px), image.NewUniform(ink), image.Point{}, draw.Src)
 				}
 			}
 		}
@@ -307,8 +316,7 @@ type attendReward struct {
 	n    int64
 }
 
-func attendRewards(day int) []attendReward {
-	r := attendCycle[day-1]
+func attendRewards(r calDay) []attendReward {
 	var out []attendReward
 	if r.Gems > 0 {
 		out = append(out, attendReward{"common_rewardpopup_gem_2.png", r.Gems})
@@ -325,9 +333,9 @@ func attendRewards(day int) []attendReward {
 // Tile geometry in the 137x136 stock canvas: the opaque tile spans x 6..112, y 22..127.
 const tileCX = 59
 
-// attendTile builds the reward tile of one day: one reward is drawn as a big icon with the
+// skinTile builds the reward tile of one day: one reward is drawn as a big icon with the
 // amount below; several rewards are stacked as rows of small icon + amount.
-func attendTile(day int) (*image.NRGBA, error) {
+func skinTile(s calSchedule, day int) (*image.NRGBA, error) {
 	img, err := loadNRGBA(attendanceSkin, attendanceBase)
 	if err != nil {
 		return nil, err
@@ -342,11 +350,26 @@ func attendTile(day int) (*image.NRGBA, error) {
 	}
 	label := fmt.Sprintf("DAY %d", day)
 	lw, _ := strSize(label, 2)
-	drawText(img, label, tileCX-lw/2, 30, 2)
-	rw := attendRewards(day)
+	drawTextInk(img, label, tileCX-lw/2, 30, 2, s.Ink)
+	day1 := s.Cycle[day-1]
+	rw := attendRewards(day1)
 	place := func(icon *image.NRGBA, cx, cy int) {
 		b := icon.Bounds()
 		draw.Draw(img, image.Rect(cx-b.Dx()/2, cy-b.Dy()/2, cx-b.Dx()/2+b.Dx(), cy-b.Dy()/2+b.Dy()), icon, b.Min, draw.Over)
+	}
+	if day1.Item != "" { // an item day: the item's picture (its dp.png) over its Gems; no picture = the normal tile
+		if dp, ok := itemDPImage(day1.Item); ok {
+			place(fitInto(dp, 48, 48), tileCX, 62)
+			gem, err := loadNRGBA(attendIconFS, "common_rewardpopup_gem_2.png")
+			if err != nil {
+				return nil, err
+			}
+			lw2, lh := textSize(day1.Gems, 2)
+			x0 := tileCX - (18+lw2)/2
+			place(fitInto(gem, 16, 16), x0+8, 104)
+			drawTextInk(img, strconv.FormatInt(day1.Gems, 10), x0+18, 104-lh/2, 2, s.Ink)
+			return img, nil
+		}
 	}
 	for i, r := range rw {
 		src, err := loadNRGBA(attendIconFS, r.icon)
@@ -356,13 +379,13 @@ func attendTile(day int) (*image.NRGBA, error) {
 		if len(rw) == 1 {
 			place(fitInto(src, 50, 50), tileCX, 72)
 			w, _ := textSize(r.n, 3)
-			drawNumber(img, r.n, tileCX-w/2, 98, 3)
+			drawTextInk(img, strconv.FormatInt(r.n, 10), tileCX-w/2, 98, 3, s.Ink)
 			continue
 		}
 		cy := 58 + 22*i
 		place(fitInto(src, 22, 22), 28, cy)
 		_, h := textSize(r.n, 2)
-		drawNumber(img, r.n, 48, cy-h/2, 2)
+		drawTextInk(img, strconv.FormatInt(r.n, 10), 48, cy-h/2, 2, s.Ink)
 	}
 	return img, nil
 }

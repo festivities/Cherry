@@ -63,12 +63,14 @@ func classify(code string) (base int64, kind byte) {
 // ItemPrice is the one server price table (catalog, buy, inventory rows, recycle).
 // Animated items (an .aniproj in the item dir) are premium: grade "R", 2.5x Gems for
 // clothing and furniture, 25 Cash for pets. Unsellable codes return ok=false, price 0.
+// Items without art keep their price here so that owned ones still sell back; the catalog
+// (scanCatalog) is what keeps them out of shops, gacha, mail and season rewards.
 func ItemPrice(code string) (price int64, cash bool, grade string, ok bool) {
 	base, kind := classify(code)
 	if kind == 0 {
 		return 0, false, "N", false
 	}
-	if it := loadCatalog().byCode[code]; it != nil && it.Animated {
+	if loadCatalog().animated[code] {
 		if kind == kindPet {
 			return 25, true, "R", true
 		}
@@ -94,8 +96,9 @@ type shopItem struct {
 
 type shopCatalog struct {
 	root                   string
-	fashion, interior, pet []shopItem
-	byCode                 map[string]*shopItem
+	fashion, interior, pet []shopItem           // sellable: art, so listed, pooled and granted
+	byCode                 map[string]*shopItem // the same items by code
+	animated               map[string]bool      // every priced code, art or not (ItemPrice; sell-back needs it)
 }
 
 var (
@@ -175,7 +178,7 @@ func petCategory(dir string, ride bool) string {
 }
 
 func scanCatalog(root string) *shopCatalog {
-	c := &shopCatalog{root: root, byCode: map[string]*shopItem{}}
+	c := &shopCatalog{root: root, byCode: map[string]*shopItem{}, animated: map[string]bool{}}
 	for _, sub := range []string{"custom", "dress", "interior", "tile", "pet"} {
 		entries, err := os.ReadDir(filepath.Join(root, sub))
 		if err != nil {
@@ -203,6 +206,12 @@ func scanCatalog(root string) *shopCatalog {
 			}
 			if kind == kindPet {
 				it.Catg = petCategory(dir, it.Animated)
+			}
+			// Priced whether or not it has art, so an owned copy sells back at its real price.
+			c.animated[code] = it.Animated
+			if !thumbs.HasArt(sub, n) {
+				// No art: the client would show the grey placeholder, so it is not listed, pooled or granted.
+				continue
 			}
 			switch kind {
 			case kindFashion:

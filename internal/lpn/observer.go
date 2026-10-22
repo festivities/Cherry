@@ -8,7 +8,10 @@ import (
 	"io"
 	"log"
 	"net"
+	"strconv"
 	"time"
+
+	"cherry/internal/economy"
 )
 
 const (
@@ -98,6 +101,7 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 	gardenRelayStarted := false
 	var gardenLoginAid, gardenOwnerAid uint64
 	var gardenRoomTunnel [8]byte
+	var tlupSession [8]byte // the latest agent-5 TLUP D session on this connection
 	defer func() { gardenLeave(gardenLoginAid, logger) }()
 	var prefix [4]byte
 	for {
@@ -137,16 +141,22 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 			msgid := binary.BigEndian.Uint16(frame[16:18])
 			logger.Printf("OBS %s direct remote=%s type=0x%02x agent=%d packetId=%d msgid=%d bytes=%d",
 				addr, remote, frame[1], agent, packetId, msgid, length)
+			if frame[1] == 0 && agent == 5 {
+				copy(tlupSession[:], frame[2:10])
+			}
 			if frame[1] != 0 || agent != 5 || msgid > 1 {
 				continue
 			}
 			var body []byte
+			var sender uint64
+			var hearted []uint64
 			if msgid == 1 {
 				packetNo, ok := clientEventPacketNo(frame[18:])
 				if !ok {
 					logger.Printf("OBS %s direct remote=%s client-event invalid request", addr, remote)
 					continue
 				}
+				sender, hearted = recordTLUPEvents(logger, frame[18:])
 				body = binary.AppendUvarint([]byte{0x08}, packetNo)
 			}
 			reply := make([]byte, 22+len(body))
@@ -162,6 +172,27 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 				return
 			}
 			logger.Printf("OBS %s direct-reply remote=%s agent=%d packetId=%d msgid=%d", addr, remote, agent, packetId, msgid)
+			// The client ignores a show that arrives while its room is still loading, so a pending show
+			// goes out right after the quest-list request (msgid 0) that follows the room load. The
+			// request has no aid, so the connection's login aid names the viewer.
+			if msgid == 0 {
+				viewer := gatewayLoginAid(rp, sq, gardenLoginAid)
+				if owner, ok := takeRoomVisitShow(viewer); ok {
+					if err := heartButtonShow(conn, tlupSession, viewer, owner, economy.NowFunc(), logger); err != nil {
+						logger.Printf("OBS %s heart-button remote=%s err=%v", addr, remote, err)
+						return
+					}
+				}
+			}
+			// A counted heart to the room the sender is visiting hides the button.
+			for _, target := range hearted {
+				if takeRoomVisitHide(sender, target) {
+					if err := heartButtonPush(conn, tlupSession, heartButtonHideID, sender, target, logger); err != nil {
+						logger.Printf("OBS %s heart-button remote=%s err=%v", addr, remote, err)
+						return
+					}
+				}
+			}
 			continue
 		}
 		if frame[0] == 'M' && length == 2 {
@@ -285,6 +316,7 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 				logger.Printf("OBS %s garden-room-enter remote=%s result=197377 map=%s", addr, remote, gardenMapStem)
 				gardenQuestVisit(gardenLoginAid, ownerAid)
 				gardenLeaveIfOtherOwner(gardenLoginAid, ownerAid, logger)
+				ClearRoomVisit(gardenLoginAid)
 				gardenOwnerAid = ownerAid
 				gardenRoomEntered = true
 				gardenRelayStarted = false
@@ -383,6 +415,118 @@ func clientEventPacketNo(data []byte) (uint64, bool) {
 		return 0, false
 	}
 	return 0, gardenLoginValid(data[1+n:]) // ClientSession also has sessionKey(1) and aid(2).
+}
+
+// tlupEvent is one EventRequestData of a numbered ct_clientevent_req. Field numbers come from the
+// client serializer (TLUP::EventRequestData::SerializeWithCachedSizes 0x2543c44, written by
+// NaQuestManager::ReqSendHeart 0x22b32ac): #1 ServiceId (102 for the heart), #2 Eventid (12 avatar
+// heart, 13 pet heart), #3 Param (repeated ParamData).
+type tlupEvent struct {
+	serviceID, eventID uint64
+	names              []string // ParamData names in order; values are never logged
+	target             uint64   // youraid Intvalue, 0 when absent
+}
+
+// isHeart reports whether ev sends a heart to a target. The avatar buttons (Garden, profile,
+// ranking) send Eventid 12 and the pet buttons 13, both under ServiceId 102.
+func (ev tlupEvent) isHeart() bool {
+	return ev.serviceID == 102 && (ev.eventID == 12 || ev.eventID == 13) && ev.target != 0 && ev.target <= (1<<63)-1
+}
+
+// recordTLUPEvents logs one credential-free line per event of a numbered TLUP request (sender aid,
+// ids and ParamData names) and counts its hearts. It returns the sender and the targets of the
+// counted hearts. The packetNo reply is the caller's job and goes out either way.
+func recordTLUPEvents(logger *log.Logger, data []byte) (uint64, []uint64) {
+	sender, events, ok := tlupClientEvents(data)
+	if !ok {
+		logger.Printf("cherry: tlup event invalid request")
+		return 0, nil
+	}
+	var hearted []uint64
+	for _, ev := range events {
+		logger.Printf("cherry: tlup event aid=%d service=%d event=%d params=%q", sender, ev.serviceID, ev.eventID, ev.names)
+		if ev.isHeart() && economy.HeartSend(strconv.FormatUint(sender, 10), strconv.FormatUint(ev.target, 10), economy.NowFunc()) {
+			heartQuestNotice(sender, economy.NowFunc())
+			hearted = append(hearted, ev.target)
+		}
+	}
+	return sender, hearted
+}
+
+// gatewayLoginAid is the account a gateway connection logged in as. Room Party (agent 4) and Square
+// (agent 7) log in on the same socket as TLUP (agent 5) and the Garden login (agent 10) is the
+// fallback. It returns 0 before any login.
+func gatewayLoginAid(rp *roomPartySession, sq *squareSession, gardenAid uint64) uint64 {
+	switch {
+	case rp.loggedIn:
+		return rp.aid
+	case sq.loggedIn:
+		return sq.aid
+	}
+	return gardenAid
+}
+
+// tlupClientEvents reads one numbered TLUP request: #1 ClientSession (sessionKey #1, aid #2 varint),
+// #2 packetNo, #3 EventRequestData. ParamData is #1 Name, #2 Intvalue int64 (youraid is always an
+// Intvalue, the atoll of the target aid in ReqSendHeart) and #4 Strvalue (not read). ok is false for
+// a missing sender or any malformed message, so a bad request counts nothing.
+func tlupClientEvents(data []byte) (sender uint64, events []tlupEvent, ok bool) {
+	sess, found, ok := pbBytesField(data, 1)
+	if !ok || !found {
+		return 0, nil, false
+	}
+	sender, ok = protobufUintField(sess, 2)
+	if !ok || sender == 0 || sender > (1<<63)-1 {
+		return 0, nil, false
+	}
+	bad := false
+	valid := pbScan(data, func(field, _ uint64, event []byte) {
+		if field != 3 || event == nil {
+			return
+		}
+		ev, evOK := tlupEventRequest(event)
+		bad = bad || !evOK
+		events = append(events, ev)
+	})
+	if !valid || bad {
+		return 0, nil, false
+	}
+	return sender, events, true
+}
+
+// tlupEventRequest reads one EventRequestData (see tlupEvent).
+func tlupEventRequest(data []byte) (tlupEvent, bool) {
+	var ev tlupEvent
+	bad := false
+	valid := pbScan(data, func(f, v uint64, d []byte) {
+		switch {
+		case f == 1 && d == nil:
+			ev.serviceID = v
+		case f == 2 && d == nil:
+			ev.eventID = v
+		case f == 3 && d != nil:
+			name, value, paramOK := tlupParam(d)
+			bad = bad || !paramOK
+			ev.names = append(ev.names, name)
+			if name == "youraid" {
+				ev.target = value
+			}
+		}
+	})
+	return ev, valid && !bad
+}
+
+// tlupParam reads one ParamData (#1 Name string, #2 Intvalue varint). ok is false when malformed.
+func tlupParam(data []byte) (name string, value uint64, ok bool) {
+	ok = pbScan(data, func(f, v uint64, d []byte) {
+		switch {
+		case f == 1 && d != nil:
+			name = string(d)
+		case f == 2 && d == nil:
+			value = v
+		}
+	})
+	return name, value, ok
 }
 
 func protobufUintField(data []byte, field uint64) (uint64, bool) {

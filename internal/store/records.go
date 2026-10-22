@@ -8,14 +8,16 @@ const (
 	MailTypeGems    = "gems"
 	MailTypeCash    = "cash"
 	MailTypeTickets = "faceTickets"
+	MailTypeItem    = "item" // Item holds the code; the grant is economy's grantItemLocked
 	mailTitle       = "Gift from Cherry"
 )
 
 // MailRow is one unclaimed mail; Created/Expires are epoch milliseconds.
 type MailRow struct {
 	Seq     int64  `json:"postSeq"`
-	Type    string `json:"type"` // gems | cash | faceTickets
+	Type    string `json:"type"` // gems | cash | faceTickets | item
 	Amount  int64  `json:"amount"`
+	Item    string `json:"item,omitempty"` // item code when Type is item
 	Message string `json:"message"`
 	Sender  string `json:"sender"`
 	Created int64  `json:"created"`
@@ -28,6 +30,8 @@ func (m MailRow) Deltas() LedgerDeltas {
 		return LedgerDeltas{Cash: m.Amount}
 	case MailTypeTickets:
 		return LedgerDeltas{FaceTickets: m.Amount}
+	case MailTypeItem:
+		return LedgerDeltas{}
 	}
 	return LedgerDeltas{Gems: m.Amount}
 }
@@ -40,6 +44,8 @@ func (m MailRow) PostRow() map[string]any {
 		postType = "cash"
 	case MailTypeTickets:
 		postType, data, detail = "voucher", "0", strconv.FormatInt(m.Amount, 10)
+	case MailTypeItem:
+		postType, data = "item", m.Item // economy fills title, itemType, grade and the picture URL
 	}
 	return map[string]any{
 		"postSeq": strconv.FormatInt(m.Seq, 10), "postType": postType,

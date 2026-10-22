@@ -6,6 +6,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"image"
+	"image/color"
 	"image/draw"
 	"image/png"
 	"io"
@@ -383,7 +384,9 @@ func dpComposeNatural(dir, kind string) (*dpNat, dpCat, bool) {
 		b := lp.img.Bounds()
 		placeholder = placeholder || (b.Dx() <= 2 && b.Dy() <= 2)
 	}
-	if !anchors[dpTagSpecial] && (len(anchors) > 1 || cat.head() || placeholder) {
+	// Placeholder parts carry only an animation, which the legacy crop cannot draw, so they always
+	// take the skeleton path (the legacy crop of 1x1 stand-ins rendered as a blank thumbnail).
+	if placeholder || (!anchors[dpTagSpecial] && (len(anchors) > 1 || cat.head())) {
 		if n := dpSkeletonCompose(dir, text, loaded, cat); n != nil {
 			return n, cat, true
 		}
@@ -561,6 +564,20 @@ func dpZipPreview(kind, id string) ([]byte, bool) {
 	return b, true
 }
 
+// dpPlaceholderPNG is the neutral grey stand-in served when an item has no drawable art, sized
+// like the kind's real thumbnails (pets 260x200, everything else 130x100).
+func dpPlaceholderPNG(kind string) []byte {
+	w, h := dpOutW, dpOutH
+	if kind == "pet" {
+		w, h = dpPetW, dpPetH
+	}
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	draw.Draw(img, img.Bounds(), image.NewUniform(color.RGBA{0xd9, 0xd9, 0xd9, 0xff}), image.Point{}, draw.Src)
+	var buf bytes.Buffer
+	_ = png.Encode(&buf, img)
+	return buf.Bytes()
+}
+
 func dpWritePNG(w http.ResponseWriter, b []byte) {
 	w.Header().Set("Content-Type", "image/png")
 	w.WriteHeader(http.StatusOK)
@@ -588,8 +605,15 @@ func ServeDpPNG(w http.ResponseWriter, kind, id string) {
 	b, ok := dpZipPreview(kind, id)
 	if !ok {
 		img, ok := composeItemDP(dir, kind)
-		if !ok {
-			httpx.ServeNotFound(w)
+		if !ok || dpAlphaBBox(img).Empty() {
+			// The archive has no drawable art for this item (its part PNGs and animations are
+			// absent). The item still exists, so answer with a neutral stand-in. It is not cached:
+			// a later archive or generator fix must be picked up without deleting cache files.
+			if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+				httpx.ServeNotFound(w)
+				return
+			}
+			dpWritePNG(w, dpPlaceholderPNG(kind))
 			return
 		}
 		var buf bytes.Buffer
@@ -632,6 +656,11 @@ func composeRoomDP(dir, kind string) (*image.RGBA, bool) {
 	names := []string{"fl_l0_a00.png", "wall_l_1.png"}
 	if kind == "tile" {
 		names = []string{"tile_1.png"}
+	}
+	// Other furniture names its main layer <prefix>_l0_a00.png (fr_, bl_, ...); Glob sorts.
+	layer0, _ := filepath.Glob(filepath.Join(dir, "*_l0_a00.png"))
+	for _, p := range layer0 {
+		names = append(names, filepath.Base(p))
 	}
 	for _, name := range names {
 		f, err := os.Open(filepath.Join(dir, name))

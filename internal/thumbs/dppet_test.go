@@ -1,6 +1,7 @@
 package thumbs
 
 import (
+	"bytes"
 	"image"
 	"image/color"
 	"net/http"
@@ -80,7 +81,7 @@ func TestDpPetComposedAndCached(t *testing.T) {
 	}
 }
 
-func TestDpPetAuthenticWinsAndBrokenIsNotFound(t *testing.T) {
+func TestDpPetAuthenticWinsAndBrokenGetsPlaceholder(t *testing.T) {
 	itemRoot, _ := setDpFixture(t)
 	writePetFixture(t, itemRoot, "326400016")
 	writeItemFile(t, itemRoot, "pet", "326400016", "dp.png", []byte("authentic pet dp"))
@@ -88,8 +89,12 @@ func TestDpPetAuthenticWinsAndBrokenIsNotFound(t *testing.T) {
 		t.Fatalf("authentic pet dp not served unchanged: %q", rec.Body.String())
 	}
 	writeItemFile(t, itemRoot, "pet", "326400018", "skeleton.xml", []byte("<not xml"))
-	if rec := serveDp(t, http.MethodGet, "/arts_item_pet_326400018/dp.png"); rec.Code != http.StatusNotFound {
-		t.Fatalf("broken pet = %d, want 404", rec.Code)
+	rec := serveDp(t, http.MethodGet, "/arts_item_pet_326400018/dp.png")
+	if rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), dpPlaceholderPNG("pet")) {
+		t.Fatalf("broken pet = %d, want the pet-sized placeholder", rec.Code)
+	}
+	if w := decodePNG(t, rec.Body.Bytes()).Bounds().Dx(); w != dpPetW {
+		t.Fatalf("pet placeholder width %d, want %d", w, dpPetW)
 	}
 }
 

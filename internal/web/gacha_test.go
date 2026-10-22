@@ -21,6 +21,7 @@ func gachaWebSetup(t *testing.T, gems int64) *store.Account {
 		{"interior", "121400639", "a.png"}, {"interior", "122000002", "a.aniproj"}, {"pet", "326400016", "skeleton.xml"},
 	} {
 		writeThumbItem(t, root, f[0], f[1], f[2], []byte("x"))
+		writeThumbItem(t, root, f[0], f[1], "dp.png", []byte("x")) // art marker: no-art items are not sold or pooled
 	}
 	acc := &store.Account{Aid: "9701", Name: "GachaWeb", Gender: "FEMALE", Gems: gems,
 		ItemCodes: []string{"CUHA00001"}, InventoryCodes: []string{"CUHA00001"}}

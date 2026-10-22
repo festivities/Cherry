@@ -43,6 +43,7 @@ type StoredAccount struct {
 	Fishing        *FishingDay           `json:"fishing,omitempty"`
 	FishCaught     map[int64]int64       `json:"fishCaught,omitempty"`
 	Gear           *FishingGear          `json:"fishingGear,omitempty"`
+	Hearts         *Hearts               `json:"hearts,omitempty"`
 }
 
 type savedAccounts struct {
@@ -97,7 +98,7 @@ func LoadAccountsFrom(path string) error {
 				Gems: max(saved.Gems, 0), Cash: max(saved.Cash, 0), FaceTickets: max(saved.FaceTickets, 0), Welcomed: saved.Welcomed,
 				AttendDay: saved.AttendDay, AttendKey: saved.AttendKey, Mail: saved.Mail, NextMailSeq: saved.NextMailSeq,
 				ProfileImage: derefProfile(saved.ProfileImage), Quests: saved.Quests, Fishing: saved.Fishing,
-				FishCaught: saved.FishCaught, Gear: saved.Gear,
+				FishCaught: saved.FishCaught, Gear: saved.Gear, Hearts: saved.Hearts,
 			}
 		}
 		for token, id := range state.Aliases {
@@ -185,6 +186,7 @@ func StoredFrom(acc *Account) StoredAccount {
 		Gems: acc.Gems, Cash: acc.Cash, FaceTickets: acc.FaceTickets, Welcomed: acc.Welcomed,
 		AttendDay: acc.AttendDay, AttendKey: acc.AttendKey, Mail: acc.Mail, NextMailSeq: acc.NextMailSeq,
 		ProfileImage: pi, Quests: acc.Quests, Fishing: acc.Fishing, FishCaught: acc.FishCaught, Gear: acc.Gear,
+		Hearts: acc.Hearts,
 	}
 }
 

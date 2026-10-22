@@ -163,6 +163,10 @@ func buildRig(set string) *dpRig {
 	if nb, ok := nodes["none_body"]; ok {
 		r.ll[0] = [2]float64{nb.px, nb.py}
 	}
+	// Anchor 17 has no body node; its parts and animations hang off the root (none_body).
+	if root, ok := r.ll[0]; ok {
+		r.ll[dpTagSpecial] = root
+	}
 	// The ear node position is local to the head sprite (not avatar space).
 	if hl, ok := r.ll[dpTagHead]; ok {
 		if ear, ok2 := nodes["ear"]; ok2 && r.sprite[dpTagEar] != nil {

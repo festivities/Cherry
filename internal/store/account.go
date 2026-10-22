@@ -104,6 +104,7 @@ type Account struct {
 	Fishing        *FishingDay     // Square fishing Gems for one game day, economy/fishing.go; replaced, never edited in place
 	FishCaught     map[int64]int64 // Square catches per fish id (the fishing book); replaced, never edited in place
 	Gear           *FishingGear    // Square fish shop: bought gear and what is in use, economy/fishing_shop.go; replaced, never edited in place
+	Hearts         *Hearts         // heart quest state, economy/hearts.go; replaced, never edited in place
 }
 
 // FishingGear is the Square fishing gear an account bought (economy/fishing_shop.go): the item IDs
@@ -135,6 +136,15 @@ type QuestDay struct {
 type FishingDay struct {
 	Day  int64 `json:"day"`
 	Gems int64 `json:"gems,omitempty"`
+}
+
+// Hearts is one account's heart state (economy/hearts.go). Sent and From belong to game
+// day Day and count as empty on another day; Received is the lifetime total.
+type Hearts struct {
+	Day      int64    `json:"day"`
+	Sent     int64    `json:"sent,omitempty"`     // hearts this account sent on Day
+	Received int64    `json:"received,omitempty"` // hearts received, all days
+	From     []string `json:"from,omitempty"`     // sender aids that hearted this account on Day, bounded
 }
 
 const MinAvatarID = 10

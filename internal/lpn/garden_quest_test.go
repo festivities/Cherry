@@ -28,28 +28,36 @@ func pbFields(t *testing.T, data []byte) (vars map[uint64]uint64, msgs map[uint6
 }
 
 // TestGardenQuestListEncoding checks hc_quest_list_res field numbers, the required error_code,
-// and each row's status, progress and Gem reward (quests.md section 10).
+// and each row's status, progress and Gem reward (quests.md section 10). The hearts row shows
+// the hearts sent today (2 of 5 here) and is not claimable.
 func TestGardenQuestListEncoding(t *testing.T) {
+	testutil.InstallAccounts(t, map[string]*store.Account{"qlist": {AccessToken: "qlist", SessionKey: "sk", Aid: "9716", Name: "List"}})
+	testutil.SetLab(t, "9716", false)
 	now := time.Date(2026, time.October, 11, 12, 0, 0, 0, time.UTC)
-	rec := store.QuestDay{Day: economy.AttendDayKey(now), Done: []int64{9001, 9003}, Claimed: []int64{9001}}
-	vars, msgs := pbFields(t, gardenQuestList(rec, now))
+	economy.MarkQuest("9716", "garden-own", now) // completion credits and claims at once
+	economy.MarkQuest("9716", "square", now)
+	for range 2 {
+		economy.HeartSend("9716", store.FriendAID, now)
+	}
+	vars, msgs := pbFields(t, gardenQuestList("9716", now))
 	if v, ok := vars[1]; !ok || v != 0 {
 		t.Fatalf("error_code = %d present=%v, want present 0", v, ok)
 	}
 	if len(msgs[2]) != len(economy.QuestCatalog) {
 		t.Fatalf("regular quests = %d, want %d", len(msgs[2]), len(economy.QuestCatalog))
 	}
-	if vars[10] != 1 || vars[11] != 4 || vars[13] != 1 {
-		t.Fatalf("today/max/tutorial = %d/%d/%d, want 1/4/1", vars[10], vars[11], vars[13])
+	if vars[10] != 2 || vars[11] != 5 || vars[13] != 1 {
+		t.Fatalf("today/max/tutorial = %d/%d/%d, want 2/5/1", vars[10], vars[11], vars[13])
 	}
 	if want := uint64(economy.QuestResetMillis(now)); vars[12] != want {
 		t.Fatalf("reset = %d, want %d", vars[12], want)
 	}
-	want := map[uint64]struct{ status, current uint64 }{
-		9001: {2, 1}, // claimed
-		9002: {1, 0}, // in progress
-		9003: {3, 1}, // claimable
-		9004: {1, 0},
+	want := map[uint64]struct{ status, current, complete uint64 }{
+		9001: {2, 1, 1}, // claimed
+		9002: {1, 0, 1}, // in progress
+		9003: {2, 1, 1}, // claimed
+		9004: {1, 0, 1},
+		9005: {1, 2, economy.HeartBase}, // hearts: 2 of 5 sent
 	}
 	for i, def := range economy.QuestCatalog {
 		qv, qm := pbFields(t, msgs[2][i])
@@ -60,7 +68,7 @@ func TestGardenQuestListEncoding(t *testing.T) {
 			t.Fatalf("quest %d status = %d, want %d", def.ID, qv[7], want[uint64(def.ID)].status)
 		}
 		dv, _ := pbFields(t, getBytes(t, qm[5]))
-		if dv[3] != want[uint64(def.ID)].current || dv[4] != 1 {
+		if dv[3] != want[uint64(def.ID)].current || dv[4] != want[uint64(def.ID)].complete {
 			t.Fatalf("quest %d detail current/complete = %d/%d", def.ID, dv[3], dv[4])
 		}
 		rv, _ := pbFields(t, getBytes(t, qm[6]))
@@ -119,6 +127,33 @@ func TestGardenQuestCompleteAndInfoReplies(t *testing.T) {
 		if msgid != tc.reply || vars[1] != 9002 || vars[2] != 0 {
 			t.Fatalf("req %d reply = msgid %d vars %v", tc.req, msgid, vars)
 		}
+	}
+
+	// The hearts row is display-only: five hearts show it claimed (status 2, 5 of 5), and a claim
+	// is refused with no reward row, because HeartSend already paid the 30 Gems.
+	for range economy.HeartBase {
+		economy.HeartSend("9711", store.FriendAID, now)
+	}
+	msgid, body = gardenQuestReply(16, 9711, pbVar(nil, 1, economy.QuestHeartID), now, logger)
+	vars, msgs = pbFields(t, body)
+	if msgid != 22 || vars[2] != 0 || len(msgs[3]) != 1 {
+		t.Fatalf("hearts info reply = msgid %d vars %v", msgid, vars)
+	}
+	iv, im := pbFields(t, getBytes(t, msgs[3]))
+	dv, _ := pbFields(t, getBytes(t, im[5]))
+	if iv[7] != 2 || dv[3] != economy.HeartBase || dv[4] != economy.HeartBase {
+		t.Fatalf("hearts row status/current/complete = %d/%d/%d, want 2/5/5", iv[7], dv[3], dv[4])
+	}
+	msgid, body = gardenQuestReply(18, 9711, pbVar(nil, 1, economy.QuestHeartID), now, logger)
+	vars, msgs = pbFields(t, body)
+	if msgid != 25 || vars[2] != 1 || len(msgs[4]) != 0 {
+		t.Fatalf("hearts claim reply = msgid %d vars %v rewards %d, want refused", msgid, vars, len(msgs[4]))
+	}
+	store.AccountsMu.Lock()
+	gems := store.AccountByAidLocked("9711").Gems
+	store.AccountsMu.Unlock()
+	if gems != economy.HeartRewardGems {
+		t.Fatalf("gems after hearts claim = %d, want %d (credited once by HeartSend)", gems, economy.HeartRewardGems)
 	}
 }
 
