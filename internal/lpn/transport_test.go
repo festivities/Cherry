@@ -357,15 +357,23 @@ func TestGatewayObserverBannerHello(t *testing.T) {
 	if _, err := client.Write(roomReq); err != nil {
 		t.Fatalf("garden room request write: %v", err)
 	}
-	roomReply := readFullDeadline(t, client, 34)
-	wantRoomReply := binary.BigEndian.AppendUint32(nil, 30)
-	wantRoomReply = append(wantRoomReply, 'G', 0x48)
-	wantRoomReply = append(wantRoomReply, gardenOpen[6:14]...)
-	wantRoomReply = append(wantRoomReply, 0, 1, 0x08, 0x81, 0x86, 0x0c, 0x22, 0x0a)
-	wantRoomReply = append(wantRoomReply, gardenMapStem...)
-	wantRoomReply = append(wantRoomReply, 0x28, 42)
-	if !bytes.Equal(roomReply, wantRoomReply) {
-		t.Fatalf("garden room reply = %x, want %x", roomReply, wantRoomReply)
+	// The reply is result, map stem and owner, then npc_info (field 2, the gathering spots).
+	roomHead := readFullDeadline(t, client, 4)
+	roomReply := append(roomHead, readFullDeadline(t, client, int(binary.BigEndian.Uint32(roomHead)))...)
+	wantRoomPrefix := binary.BigEndian.AppendUint32(nil, 0)
+	wantRoomPrefix = append(wantRoomPrefix, 'G', 0x48)
+	wantRoomPrefix = append(wantRoomPrefix, gardenOpen[6:14]...)
+	wantRoomPrefix = append(wantRoomPrefix, 0, 1, 0x08, 0x81, 0x86, 0x0c, 0x22, 0x0a)
+	wantRoomPrefix = append(wantRoomPrefix, gardenMapStem...)
+	wantRoomPrefix = append(wantRoomPrefix, 0x28, 42)
+	roomBody := roomReply[16:]
+	if !bytes.Equal(roomReply[4:16], wantRoomPrefix[4:16]) || len(roomBody) < len(wantRoomPrefix)-16 ||
+		!bytes.Equal(roomBody[:len(wantRoomPrefix)-16], wantRoomPrefix[16:]) {
+		t.Fatalf("garden room reply = %x, want prefix %x", roomReply, wantRoomPrefix)
+	}
+	npcInfo := roomBody[len(wantRoomPrefix)-16:]
+	if n, k := binary.Uvarint(npcInfo[min(1, len(npcInfo)):]); len(npcInfo) < 2 || npcInfo[0] != 0x12 || k <= 0 || 1+k+int(n) != len(npcInfo) {
+		t.Fatalf("garden room npc_info = %x", npcInfo)
 	}
 	otherTunnelRelay := append([]byte(nil), relayReq...)
 	otherTunnelRelay[6]++
@@ -382,13 +390,15 @@ func TestGatewayObserverBannerHello(t *testing.T) {
 	if _, err := client.Write(relayReq); err != nil {
 		t.Fatalf("garden relay request write: %v", err)
 	}
-	relayReply := readFullDeadline(t, client, 18)
-	wantRelayReply := binary.BigEndian.AppendUint32(nil, 14)
-	wantRelayReply = append(wantRelayReply, 'G', 0x48)
-	wantRelayReply = append(wantRelayReply, gardenOpen[6:14]...)
-	wantRelayReply = append(wantRelayReply, 0, 3, 0x08, 0)
-	if !bytes.Equal(relayReply, wantRelayReply) {
-		t.Fatalf("garden relay reply = %x, want %x", relayReply, wantRelayReply)
+	// Relay start: result 0, no other players, then npc_info (f3) and one GatheringInfo per type (f4).
+	relayHead := readFullDeadline(t, client, 4)
+	relayReply := append(relayHead, readFullDeadline(t, client, int(binary.BigEndian.Uint32(relayHead)))...)
+	if len(relayReply) < 16 || relayReply[4] != 'G' || !bytes.Equal(relayReply[6:16], append(append([]byte(nil), gardenOpen[6:14]...), 0, 3)) {
+		t.Fatalf("garden relay reply envelope = %x", relayReply)
+	}
+	relayVars, relayMsgs := pbFields(t, relayReply[16:])
+	if relayVars[1] != 0 || len(relayMsgs[2]) != 0 || len(relayMsgs[3]) != 1 || len(relayMsgs[4]) != 3 {
+		t.Fatalf("garden relay body = %x", relayReply[16:])
 	}
 	otherTunnelQuest := append([]byte(nil), questListReq...)
 	otherTunnelQuest[6]++

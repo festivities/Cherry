@@ -108,3 +108,23 @@ type RoomPreset struct {
 }
 
 const FirstRoomSeq = 100000
+
+// GardenBagStack is one stack of Garden materials in the Bag (economy/gathering.go). Item is the
+// material's item id, which is also the stack's InvenItem serial. Updated is epoch milliseconds
+// of the last gain.
+type GardenBagStack struct {
+	Item    int64 `json:"item"`
+	Count   int64 `json:"count"`
+	Updated int64 `json:"updated,omitempty"`
+}
+
+// GatherDay is one game day (06:00 JST boundary) of Garden gathering. Own counts gathers in the
+// account's own Garden; Gardens counts gathers per other Garden, keyed by owner aid (its length is
+// the friend Gardens used today). Gems is the gathering Gem bonus paid. A record from another day
+// counts as empty.
+type GatherDay struct {
+	Day     int64            `json:"day"`
+	Own     int64            `json:"own,omitempty"`
+	Gardens map[string]int64 `json:"gardens,omitempty"`
+	Gems    int64            `json:"gems,omitempty"`
+}

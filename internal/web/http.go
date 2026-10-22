@@ -274,6 +274,7 @@ func NewMux() *http.ServeMux {
 	mux.HandleFunc("/arts_session/sckey.enc", lpn.HandleSckeyEnc)
 	mux.HandleFunc("/cherry/fish/", economy.HandleFishImage)
 	mux.HandleFunc("/cherry/fishing/", economy.HandleFishingItemImage)
+	mux.HandleFunc("/cherry/garden/items/", economy.HandleGatherImage)
 	mux.HandleFunc("/v4/setInitConf", handleSetInitConf)
 	mux.HandleFunc("/v4/resource/splash/", handleSplash)
 	mux.HandleFunc("/notice/adr/checkresource2.json", handleCheckResource2)

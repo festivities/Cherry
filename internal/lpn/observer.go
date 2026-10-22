@@ -102,6 +102,7 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 	gardenRelayStarted := false
 	var gardenLoginAid, gardenOwnerAid uint64
 	var gardenRoomTunnel [8]byte
+	gather := &gardenGather{} // this connection's touch state (garden_gather.go)
 	defer func() { gardenLeave(gardenLoginAid, logger) }()
 	var prefix [4]byte
 	for {
@@ -303,6 +304,7 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 				body := []byte{0x08, 0x81, 0x86, 0x0c, 0x22, byte(len(gardenMapStem))}
 				body = append(body, gardenMapStem...)
 				body = binary.AppendUvarint(append(body, 0x28), ownerAid)
+				body = pbLen(body, 2, gardenSpotList()) // npc_info: the gathering spots (garden_gather.go)
 				reply := make([]byte, 16+len(body))
 				binary.BigEndian.PutUint32(reply, uint32(12+len(body)))
 				reply[4], reply[5] = 'G', frame[1]
@@ -324,6 +326,7 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 			}
 			if agent == 10 && msgid == 3 && gardenRoomEntered && length == 12 && bytes.Equal(frame[2:10], gardenRoomTunnel[:]) {
 				body := gardenRelayStart(gardenOwnerAid, gardenLoginAid, conn, frame[1], frame[2:10], logger)
+				body = append(body, gardenGatherRelay(gardenLoginAid, gardenOwnerAid, economy.NowFunc())...)
 				reply := make([]byte, 16+len(body))
 				binary.BigEndian.PutUint32(reply, uint32(12+len(body)))
 				reply[4], reply[5] = 'G', frame[1]
@@ -340,6 +343,15 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 				// The completion notice waits for relay-start: the client lists quests itself after entering.
 				if err := gardenQuestNotify(conn, frame, takeQuestNotices(gardenLoginAid), logger); err != nil {
 					logger.Printf("OBS %s garden-quest push remote=%s err=%v", addr, remote, err)
+					return
+				}
+			}
+			if agent == 10 && gardenGatherMsg(msgid) && !(gardenRelayStarted && length >= 12 && bytes.Equal(frame[2:10], gardenRoomTunnel[:])) {
+				logger.Printf("GARDEN gather skip msgid=%d relay=%v tunnel=%v", msgid, gardenRelayStarted, bytes.Equal(frame[2:10], gardenRoomTunnel[:]))
+			}
+			if agent == 10 && gardenGatherMsg(msgid) && gardenRelayStarted && length >= 12 && bytes.Equal(frame[2:10], gardenRoomTunnel[:]) {
+				if err := gardenGatherHandle(conn, frame, msgid, gardenLoginAid, gardenOwnerAid, gather, logger); err != nil {
+					logger.Printf("OBS %s garden-gather remote=%s err=%v", addr, remote, err)
 					return
 				}
 			}

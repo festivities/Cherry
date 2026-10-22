@@ -16,8 +16,9 @@ var LabAids = map[string]bool{"1001": true, "1002": true}
 // MaxBalance keeps every balance inside the client's int32 asInt.
 const MaxBalance = 1 << 30
 
-// LedgerDeltas is a set of signed balance changes applied together.
-type LedgerDeltas struct{ Gems, Cash, FaceTickets int64 }
+// LedgerDeltas is a set of signed balance changes applied together. Smiles is the earned
+// Atelier currency (Garden gathering pays it, economy/gathering.go).
+type LedgerDeltas struct{ Gems, Cash, FaceTickets, Smiles int64 }
 
 // BalanceError is returned when a delta would take a balance below 0 or above maxBalance.
 type BalanceError struct {
@@ -44,9 +45,9 @@ type LedgerLine struct {
 // mutation, restores `*acc = previous` on failure, and calls flushLedgerLocked after a
 // successful save. Nothing changes when an error is returned.
 func SpendLocked(acc *Account, d LedgerDeltas, reason string) ([]LedgerLine, error) {
-	names := [3]string{"gems", "cash", "faceTickets"}
-	fields := [3]*int64{&acc.Gems, &acc.Cash, &acc.FaceTickets}
-	deltas := [3]int64{d.Gems, d.Cash, d.FaceTickets}
+	names := [4]string{"gems", "cash", "faceTickets", "smiles"}
+	fields := [4]*int64{&acc.Gems, &acc.Cash, &acc.FaceTickets, &acc.Smiles}
+	deltas := [4]int64{d.Gems, d.Cash, d.FaceTickets, d.Smiles}
 	for i, v := range deltas {
 		nb := *fields[i] + v
 		if v > MaxBalance || v < -MaxBalance || nb < 0 || nb > MaxBalance {

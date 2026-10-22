@@ -106,6 +106,9 @@ type Account struct {
 	Gear           *FishingGear     // Square fish shop: bought gear and what is in use, economy/fishing_shop.go; replaced, never edited in place
 	Hearts         *Hearts          // heart quest state, economy/hearts.go; replaced, never edited in place
 	PaidPrices     map[string]int64 // clothing codes bought at a daily deal: Gems paid (economy/deals.go); replaced, never edited in place
+	Smiles         int64            // earned Smiles (Garden gathering, economy/gathering.go); ledger-backed like Gems
+	GardenBag      []GardenBagStack // Garden materials in the Bag (economy/gathering.go); replaced, never edited in place
+	Gather         *GatherDay       // Garden gathering caps and Gem bonus for one game day (economy/gathering.go); replaced, never edited in place
 }
 
 // FishingGear is the Square fishing gear an account bought (economy/fishing_shop.go): the item IDs

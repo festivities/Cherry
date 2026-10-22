@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"cherry/internal/economy"
 	"cherry/internal/store"
 )
 
@@ -379,7 +380,9 @@ func gardenRelayStart(owner, viewer uint64, conn *lockedConn, b1 byte, sid []byt
 	}
 	gardensMu.Unlock()
 	for i, o := range sends {
-		gardenSend(o, logger, 3, bodies[i])
+		// Relay start also refreshes the client's NPC list, so the spots ride along (built outside
+		// gardensMu: the gathering state reads the account store).
+		gardenSend(o, logger, 3, append(bodies[i], gardenGatherRelay(o.aid, owner, economy.NowFunc())...))
 	}
 	gardenStartWander()
 	if logger != nil {
