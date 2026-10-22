@@ -6,9 +6,12 @@ import (
 	"slices"
 	"strconv"
 	"testing"
+	"time"
 
+	"cherry/internal/economy"
 	"cherry/internal/store"
 	"cherry/internal/testutil"
+	"cherry/internal/thumbs"
 )
 
 // shopSetup installs a non-lab account and a small fake item root:
@@ -78,9 +81,11 @@ func TestShopCatalogShapes(t *testing.T) {
 	}
 	items := shopItems(t, "/v4/shop/fashion/itemlist/FDRESS")
 	row := items[0].(map[string]any)
-	if len(items) != 1 || row["itemCode"] != "CUON004TV" || row["price"] != 625.0 || row["discountedPrice"] != 625.0 ||
-		row["paymentType"] != "GEM" || row["sellingIconType"] != "RARE" || row["specialEffects"] != "ANIMATION" ||
-		row["discount"] != false || row["selling"] != true || row["display"] != true || row["soldout"] != false {
+	// The only one-piece is a daily deal (every clothing item of this fixture is one: 3 candidates).
+	if len(items) != 1 || row["itemCode"] != "CUON004TV" || row["price"] != 625.0 || row["discountedPrice"] != 438.0 ||
+		row["paymentType"] != "GEM" || row["sellingIconType"] != "SALE" || row["specialEffects"] != "ANIMATION" ||
+		row["discount"] != true || row["sellingEnd"] == "" || row["discountEnd"] != row["sellingEnd"] ||
+		row["selling"] != true || row["display"] != true || row["soldout"] != false {
 		t.Errorf("dress row = %v", row)
 	}
 	if _, ok := row["itemID"]; !ok {
@@ -148,26 +153,30 @@ func TestDressBuy(t *testing.T) {
 	wantErr(t, code, out, 400, "61003") // client price differs from the table
 	code, out = shopCall(t, http.MethodPost, "/v4/purchase/dress/buy", buyDress(150, "CUFAKE000"))
 	wantErr(t, code, out, 400, "61001")
+	code, out = shopCall(t, http.MethodPost, "/v4/purchase/dress/buy", buyDress(438, "CUON004TV"))
+	wantErr(t, code, out, 400, "71001") // the deal price, but 400 gems < 438
 	code, out = shopCall(t, http.MethodPost, "/v4/purchase/dress/buy", buyDress(625, "CUON004TV"))
-	wantErr(t, code, out, 400, "71001") // 400 gems < 625
+	wantErr(t, code, out, 400, "61003") // full price on a daily deal
 	if acc.Gems != 400 {
 		t.Fatalf("failed buys changed gems to %d", acc.Gems)
 	}
 	code, out = shopCall(t, http.MethodPost, "/v4/purchase/dress/buy", buyDress(150, "CUTO00001"))
+	wantErr(t, code, out, 400, "61003") // full price on a daily deal (tops deal: 105)
+	code, out = shopCall(t, http.MethodPost, "/v4/purchase/dress/buy", buyDress(105, "CUTO00001"))
 	res, _ := out["result"].(map[string]any)
-	if code != 200 || res["balance"] != 250.0 || res["resultCode"] != 0.0 || !slices.Equal(codesFromAny(res["buyItems"]), []string{"CUTO00001"}) {
+	if code != 200 || res["balance"] != 295.0 || res["resultCode"] != 0.0 || !slices.Equal(codesFromAny(res["buyItems"]), []string{"CUTO00001"}) {
 		t.Fatalf("buy = %d %v", code, out)
 	}
-	if acc.Gems != 250 || !slices.Contains(acc.InventoryCodes, "CUTO00001") {
+	if acc.Gems != 295 || !slices.Contains(acc.InventoryCodes, "CUTO00001") {
 		t.Fatalf("gems %d inventory %v", acc.Gems, acc.InventoryCodes)
 	}
-	code, out = shopCall(t, http.MethodPost, "/v4/purchase/dress/buy", buyDress(150, "CUTO00001"))
+	code, out = shopCall(t, http.MethodPost, "/v4/purchase/dress/buy", buyDress(105, "CUTO00001"))
 	wantErr(t, code, out, 400, "61009")
 	// The immediate avatar/save/v2 with the new item equipped must pass ownership.
 	if rec := decorReq(t, "stok", http.MethodPut, "/v4/avatar/save/v2", `[{"itemCode":"CUTO00001","invenSeq":1},{"itemCode":"CUHA00001","invenSeq":2}]`+"\x00"); rec.Code != 200 {
 		t.Fatalf("save/v2 = %d %s", rec.Code, rec.Body.String())
 	}
-	// Closet rows carry the table price and grade.
+	// Closet rows carry the grade, the table price of a plain item and the paid price of a deal.
 	rec := decorReq(t, "stok", http.MethodPost, "/v4/inven/closet/items/all", "{}")
 	var inv struct {
 		Result struct {
@@ -182,9 +191,8 @@ func TestDressBuy(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, r := range inv.Result.InventoryList {
-		want := map[string]int{"CUTO00001": 150, "CUHA00001": 200}[r.ItemCode]
-		if r.Price != want || r.Grade != "N" {
-			t.Errorf("closet row %+v, want price %d grade N", r, want)
+		if r.Grade != "N" || r.ItemCode == "CUHA00001" && r.Price != 200 || r.ItemCode == "CUTO00001" && r.Price != 105 {
+			t.Errorf("closet row %+v, want grade N, the hair price 200 and the deal top's paid 105", r)
 		}
 	}
 	if len(inv.Result.InventoryList) != 2 {
@@ -202,10 +210,11 @@ func codesFromAny(v any) []string {
 
 func TestInteriorAndPetBuy(t *testing.T) {
 	acc := shopSetup(t, 1000, 30)
-	body := `{"itemType":"ROOM","items":[{"itemCode":"RUCH00001","price":150,"cpId":"avtplay"},{"itemCode":"RUCH00001","price":150}]}` + "\x00"
+	// RUCH00001 (150) and RUGO00002 (375) are today's furniture deals: 105 and 263 (ceil 70%).
+	body := `{"itemType":"ROOM","items":[{"itemCode":"RUCH00001","price":105,"cpId":"avtplay"},{"itemCode":"RUCH00001","price":105}]}` + "\x00"
 	code, out := shopCall(t, http.MethodPost, "/v4/purchase/interior/buy", body)
 	res, _ := out["result"].(map[string]any)
-	if code != 200 || res["balance"] != 700.0 || len(res) != 1 {
+	if code != 200 || res["balance"] != 790.0 || len(res) != 1 {
 		t.Fatalf("interior buy = %d %v", code, out)
 	}
 	n := 0
@@ -214,7 +223,7 @@ func TestInteriorAndPetBuy(t *testing.T) {
 			n++
 		}
 	}
-	if n != 2 || acc.Gems != 700 {
+	if n != 2 || acc.Gems != 790 {
 		t.Fatalf("copies %d gems %d", n, acc.Gems)
 	}
 	if got := shopItems(t, "/v4/shop/interior/itemlist/UCHAIR")[0].(map[string]any); got["existInven"] != true {
@@ -223,10 +232,12 @@ func TestInteriorAndPetBuy(t *testing.T) {
 	code, out = shopCall(t, http.MethodPost, "/v4/purchase/interior/buy", `{"items":[{"itemCode":"RUGO00002","price":100}]}`)
 	wantErr(t, code, out, 400, "61003")
 	code, out = shopCall(t, http.MethodPost, "/v4/purchase/interior/buy", `{"items":[{"itemCode":"RUGO00002","price":375}]}`)
-	if code != 200 || acc.Gems != 325 {
+	wantErr(t, code, out, 400, "61003") // full price on a deal
+	code, out = shopCall(t, http.MethodPost, "/v4/purchase/interior/buy", `{"items":[{"itemCode":"RUGO00002","price":263}]}`)
+	if code != 200 || acc.Gems != 527 {
 		t.Fatalf("animated furniture = %d %v gems %d", code, out, acc.Gems)
 	}
-	code, out = shopCall(t, http.MethodPost, "/v4/purchase/interior/buy", `{"items":[{"itemCode":"RUGO00002","price":375},{"itemCode":"RUGO00002","price":375}]}`)
+	code, out = shopCall(t, http.MethodPost, "/v4/purchase/interior/buy", `{"items":[{"itemCode":"RUGO00002","price":263},{"itemCode":"RUGO00002","price":263},{"itemCode":"RUGO00002","price":263}]}`)
 	wantErr(t, code, out, 400, "60001")
 
 	// Animated pet: 25 Cash, balance is the Cash balance.
@@ -234,7 +245,7 @@ func TestInteriorAndPetBuy(t *testing.T) {
 	wantErr(t, code, out, 400, "61001")
 	code, out = shopCall(t, http.MethodPost, "/v4/purchase/interior/buy", `{"items":[{"itemCode":"PUPE0006E","price":25}],"giveNo":""}`)
 	res, _ = out["result"].(map[string]any)
-	if code != 200 || res["balance"] != 5.0 || res["resultCode"] != 0.0 || acc.Cash != 5 || acc.Gems != 325 || len(acc.Pets) != 1 || acc.Pets[0].Cd != "PUPE0006E" || acc.Pets[0].ID != 950101 {
+	if code != 200 || res["balance"] != 5.0 || res["resultCode"] != 0.0 || acc.Cash != 5 || acc.Gems != 527 || len(acc.Pets) != 1 || acc.Pets[0].Cd != "PUPE0006E" || acc.Pets[0].ID != 950101 {
 		t.Fatalf("pet buy = %d %v cash %d gems %d pets %v", code, out, acc.Cash, acc.Gems, acc.Pets)
 	}
 	code, out = shopCall(t, http.MethodPost, "/v4/purchase/pet/buy", `{"items":[{"itemCode":"PUPE0006E","price":25}]}`)
@@ -264,10 +275,10 @@ func TestRecycleCfgAndSellBack(t *testing.T) {
 		}
 	}
 
-	shopCall(t, http.MethodPost, "/v4/purchase/dress/buy", buyDress(150, "CUTO00001"))
-	shopCall(t, http.MethodPost, "/v4/purchase/dress/buy", buyDress(625, "CUON004TV"))
-	if acc.Gems != 225 {
-		t.Fatalf("gems %d, want 225", acc.Gems)
+	shopCall(t, http.MethodPost, "/v4/purchase/dress/buy", buyDress(105, "CUTO00001")) // tops deal
+	shopCall(t, http.MethodPost, "/v4/purchase/dress/buy", buyDress(438, "CUON004TV")) // one-piece deal
+	if acc.Gems != 457 {
+		t.Fatalf("gems %d, want 457", acc.Gems)
 	}
 	sell := func(items string) (int, map[string]any) {
 		return shopCall(t, http.MethodPost, "/v4/inven/recycle/closet/v2",
@@ -281,7 +292,7 @@ func TestRecycleCfgAndSellBack(t *testing.T) {
 	wantErr(t, code, out, 400, "50024")
 	code, out = sell(row(1, "CUSH00001", "120"))
 	wantErr(t, code, out, 400, "50001")
-	// The client's expected price is ignored: payout is 100% of the table (150 + 625).
+	// The client's expected price is ignored: payout is the price paid at the deal (105 + 438).
 	code, out = sell(row(2, "CUTO00001", "999999") + "," + row(3, "CUON004TV", "1"))
 	res = out["result"].(map[string]any)
 	if _, has := res["config"]; has || code != 200 || res["balance"] != 1000.0 || len(res["invalidItems"].([]any)) != 0 {
@@ -292,7 +303,7 @@ func TestRecycleCfgAndSellBack(t *testing.T) {
 	}
 
 	// Interior: a placed item is refused, an unplaced one sells by seq and code.
-	shopCall(t, http.MethodPost, "/v4/purchase/interior/buy", `{"items":[{"itemCode":"RUCH00001","price":150}]}`)
+	shopCall(t, http.MethodPost, "/v4/purchase/interior/buy", `{"items":[{"itemCode":"RUCH00001","price":105}]}`)
 	rec := decorReq(t, "stok", http.MethodGet, "/v4/inven/interior/items/all", "")
 	var inv struct {
 		Result []struct {
@@ -308,7 +319,7 @@ func TestRecycleCfgAndSellBack(t *testing.T) {
 		switch r.Cd {
 		case "RUCH00001":
 			chair = r.Seq
-			if r.Price != 150 || r.Grade != "N" {
+			if r.Grade != "N" || r.Price != 105 { // bought at the deal price
 				t.Errorf("chair row %+v", r)
 			}
 		case "RUWA000HR":
@@ -359,5 +370,88 @@ func TestRecycleCfgAndSellBack(t *testing.T) {
 		if it.Cd == "RUWA000HR" {
 			t.Fatalf("starter wall re-granted: %v", acc.RoomItems)
 		}
+	}
+}
+
+// saleClock pins the shop clock to a JST wall time for the test.
+func saleClock(t *testing.T, y int, m time.Month, d, h, min int) {
+	t.Helper()
+	old := economy.NowFunc
+	jst := time.FixedZone("JST", 9*3600)
+	economy.NowFunc = func() time.Time { return time.Date(y, m, d, h, min, 0, 0, jst) }
+	t.Cleanup(func() { economy.NowFunc = old })
+}
+
+// TestSaleFlagsOnRoutes: limited items are listed only in their season's game dates (winter on Jan 3,
+// while the New Year calendar runs), with LIMIT and the window's end; deals carry SALE.
+func TestSaleFlagsOnRoutes(t *testing.T) {
+	shopSetup(t, 0, 0)
+	root := thumbs.DpItemRoot
+	writeThumbItem(t, root, "dress", "225106219", "dp.png", []byte("x"))    // CUON004SR: Halloween
+	writeThumbItem(t, root, "dress", "225303853", "dp.png", []byte("x"))    // CUSH002Z1: winter
+	writeThumbItem(t, root, "interior", "120406168", "dp.png", []byte("x")) // RUCH004RC: winter
+
+	saleClock(t, 2026, time.October, 22, 12, 0)
+	if got := codesOf(shopItems(t, "/v4/shop/fashion/itemlist/MDRESS")); !slices.Equal(got, []string{"CUON004TV"}) {
+		t.Errorf("Oct 22 MDRESS = %v, want the one-piece only", got)
+	}
+	tops := shopItems(t, "/v4/shop/fashion/itemlist/MTOPS")
+	if row := tops[0].(map[string]any); row["discount"] != true || row["sellingIconType"] != "SALE" {
+		t.Errorf("tops row = %v, want a deal", row)
+	}
+
+	saleClock(t, 2026, time.October, 26, 12, 0)
+	dress := shopItems(t, "/v4/shop/fashion/itemlist/MDRESS")
+	if got := codesOf(dress); !slices.Equal(got, []string{"CUON004SR", "CUON004TV"}) {
+		t.Fatalf("Oct 26 MDRESS = %v", got)
+	}
+	if row := dress[0].(map[string]any); row["sellingIconType"] != "LIMIT" || row["discount"] != false || row["discountEnd"] != "" ||
+		row["sellingEnd"] != strconv.FormatInt(time.Date(2026, time.November, 8, 6, 0, 0, 0, time.FixedZone("JST", 9*3600)).UnixMilli(), 10) {
+		t.Errorf("limited row = %v", row)
+	}
+
+	saleClock(t, 2026, time.November, 8, 6, 0)
+	if got := codesOf(shopItems(t, "/v4/shop/fashion/itemlist/MDRESS")); !slices.Equal(got, []string{"CUON004TV"}) {
+		t.Errorf("Nov 8 06:00 MDRESS = %v, want the window closed", got)
+	}
+
+	saleClock(t, 2027, time.January, 3, 12, 0)
+	if got := codesOf(shopItems(t, "/v4/shop/interior/itemlist/UCHAIR")); !slices.Contains(got, "RUCH004RC") {
+		t.Errorf("Jan 3 UCHAIR = %v, want the winter chair", got)
+	}
+	if got := codesOf(shopItems(t, "/v4/shop/fashion/itemlist/MSHOE")); !slices.Equal(got, []string{"CUSH002Z1"}) {
+		t.Errorf("Jan 3 MSHOE = %v, want the winter shoes", got)
+	}
+}
+
+// TestDealAndLimitedSellBackRoutes: a deal sells back at the price paid; a limited item bought at its
+// table price sells back at the table price.
+func TestDealAndLimitedSellBackRoutes(t *testing.T) {
+	acc := shopSetup(t, 400, 0)
+	writeThumbItem(t, thumbs.DpItemRoot, "dress", "225303853", "dp.png", []byte("x")) // CUSH002Z1: winter
+	saleClock(t, 2027, time.January, 3, 12, 0)
+
+	code, out := shopCall(t, http.MethodPost, "/v4/purchase/dress/buy", buyDress(120, "CUSH002Z1"))
+	if code != 200 || acc.Gems != 280 {
+		t.Fatalf("limited buy = %d %v gems %d", code, out, acc.Gems)
+	}
+	code, out = shopCall(t, http.MethodPost, "/v4/purchase/dress/buy", buyDress(105, "CUTO00001"))
+	if code != 200 || acc.Gems != 175 || acc.PaidPrices["CUTO00001"] != 105 {
+		t.Fatalf("deal buy = %d %v gems %d paid %v", code, out, acc.Gems, acc.PaidPrices)
+	}
+	sell := func(seq int, code string, price int) (int, map[string]any) {
+		return shopCall(t, http.MethodPost, "/v4/inven/recycle/closet/v2",
+			`{"recycleItems":[{"invenSeq":`+strconv.Itoa(seq)+`,"itemCode":"`+code+`","count":1,"exepectedPrice":"`+strconv.Itoa(price)+`","price":"`+strconv.Itoa(price)+`"}]}`+"\x00")
+	}
+	code, out = sell(2, "CUSH002Z1", 120)
+	if code != 200 || out["result"].(map[string]any)["balance"] != 295.0 {
+		t.Fatalf("limited sell-back = %d %v", code, out)
+	}
+	code, out = sell(3, "CUTO00001", 105)
+	if code != 200 || out["result"].(map[string]any)["balance"] != 400.0 || acc.Gems != 400 {
+		t.Fatalf("deal sell-back = %d %v gems %d", code, out, acc.Gems)
+	}
+	if _, kept := acc.PaidPrices["CUTO00001"]; kept {
+		t.Errorf("paid record of the sold deal kept: %v", acc.PaidPrices)
 	}
 }

@@ -68,8 +68,9 @@ type PetItem struct {
 }
 
 type RoomItem struct {
-	Seq int64  `json:"seq"`
-	Cd  string `json:"cd"`
+	Seq  int64  `json:"seq"`
+	Cd   string `json:"cd"`
+	Paid int64  `json:"paid,omitempty"` // Gems paid at a daily deal (economy/deals.go); sell-back pays it
 }
 
 type RoomPlaced struct {

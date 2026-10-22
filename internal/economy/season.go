@@ -5,6 +5,7 @@ import (
 	"hash/crc32"
 	"image/color"
 	"net/http"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -28,6 +29,7 @@ type calSchedule struct {
 	Start, End int // JST game dates as MMDD; 0 for the normal calendar (wrapping when Start > End)
 	Ink        color.NRGBA
 	Cycle      [7]calDay
+	Limited    []string // limited shop items, on sale only inside Start..End (limitedSale)
 }
 
 // seasonTable is checked in order (New Year before Winter for the Jan 1-5 overlap). A zero Cycle
@@ -35,6 +37,10 @@ type calSchedule struct {
 // normal reward (Gems, and Cash/tickets on day 7) plus Item, or the item's sell-back Gems when the
 // account already owns it; a missing item pays the normal reward only (see itemAvailable). Candidates
 // for the picks: %TEMP%\opencode\cherry\phaseDE-20261022\season-candidates.txt (idx in comments).
+//
+// Limited lists (user 2026-10-22, slice 2): each is on sale in the shops only inside its own Start..End
+// game dates, whichever calendar is in force (Winter's Jan 1-5 overlap with New Year included), and
+// is still obtainable from the gacha, mail and calendar grants. New Year has none yet.
 var seasonTable = []calSchedule{
 	{Name: "newyear", Title: "New Year Login", Start: 101, End: 114, Ink: color.NRGBA{170, 40, 40, 255}}, // no item days yet
 	{Name: "winter", Title: "Winter Login", Start: 1215, End: 105, Ink: color.NRGBA{40, 100, 170, 255}, Cycle: [7]calDay{
@@ -42,13 +48,16 @@ var seasonTable = []calSchedule{
 		{Type: itemRewardType, Gems: 150, Item: "CUAE00737"}, // candidate 29: Christmas tree accessory
 		{Type: "GEM", Gems: 180}, {Type: "GEM", Gems: 240}, {Type: "GEM", Gems: 300},
 		{Type: itemRewardType, Gems: 450, Cash: 15, Tickets: 3, Item: "RUCH004RC"}, // candidate 39: Shining Christmas (room)
-	}},
+	}, Limited: []string{"CAAE008Z2", "CUAE0072Z", "CUAE00737", "CUAE0076K", "CUAE0085C", "CUAE0093S", "CUAE009EA",
+		"CUAE009RR", "CUAE009T6", "CUAE009W5", "CUSH002Z1", "CUSH003E1", "RUCH004RC"}},
 	{Name: "halloween", Title: "Halloween Login", Start: 1025, End: 1107, Ink: color.NRGBA{200, 90, 20, 255}, Cycle: [7]calDay{
 		{Type: "GEM", Gems: 90}, {Type: "GEM", Gems: 120},
 		{Type: itemRewardType, Gems: 150, Item: "CUAE00B9R"}, // candidate 14: VIP Halloween accessory
 		{Type: "GEM", Gems: 180}, {Type: "GEM", Gems: 240}, {Type: "GEM", Gems: 300},
 		{Type: itemRewardType, Gems: 450, Cash: 15, Tickets: 3, Item: "CUON0062I"}, // candidate 18: petit dark-witch one-piece
-	}},
+	}, Limited: []string{"CAAE007BS", "CAAE008J2", "CAAE00AFM", "CUAE007T4", "CUAE007Z8", "CUAE0084K", "CUAE008NH",
+		"CUAE008QU", "CUAE009CL", "CUAE009NQ", "CUAE009R5", "CUAE00A66", "CUAE00A8A", "CUAE00AMI", "CUAE00B9R",
+		"CUAH0075G", "CUAH0075V", "CUON004SR", "CUON0062I"}},
 }
 
 // seasonOverride is the staff tool's choice: nil = by date, "" = the normal calendar, else a season name.
@@ -132,14 +141,61 @@ func scheduleAt(t time.Time) calSchedule {
 			return s
 		}
 	}
-	gd := gameDay(t)
-	md := int(gd.Month())*100 + gd.Day()
+	md := gameMD(t)
 	for _, s := range seasonTable {
 		if s.contains(md) {
 			return s.withID()
 		}
 	}
 	return normalSchedule()
+}
+
+// gameMD is the game day holding t as MMDD (JST).
+func gameMD(t time.Time) int {
+	gd := gameDay(t)
+	return int(gd.Month())*100 + gd.Day()
+}
+
+// limitedSale is a code's limited state at now: limited (it is in some season's list), open (listed
+// and buyable now) and end (its window's end, 06:00 JST after the last game day; zero when closed).
+// A window is open on its own game dates, whichever calendar is in force, or while its season is
+// forced by the staff tool (/admin/season opens that season's limited set too).
+func limitedSale(code string, now time.Time) (limited, open bool, end time.Time) {
+	forced := ""
+	if p := seasonOverride.Load(); p != nil {
+		forced = *p
+	}
+	for _, s := range seasonTable {
+		if !slices.Contains(s.Limited, code) {
+			continue
+		}
+		if forced == s.Name || s.contains(gameMD(now)) {
+			return true, true, s.limitedEnd(now)
+		}
+		return true, false, time.Time{}
+	}
+	return false, false, time.Time{}
+}
+
+// limitedEnd is the end of the window that holds now or comes next (a forced season may be out of
+// its dates). Windows are shorter than a year, so this year's end or next year's decides.
+func (s calSchedule) limitedEnd(now time.Time) time.Time {
+	year := gameDay(now).Year()
+	if end := s.endIn(year); end.After(now) {
+		return end
+	}
+	return s.endIn(year + 1)
+}
+
+// endIn is 06:00 JST on the day after the window's last game day, in the given calendar year.
+func (s calSchedule) endIn(year int) time.Time {
+	return time.Date(year, time.Month(s.End/100), s.End%100+1, attendDayStartHour, 0, 0, 0, jst)
+}
+
+// onSale reports whether a catalog code is listed and buyable at now: limited items only inside their window.
+func onSale(code string, now time.Time) bool {
+	limited, open, _ := limitedSale(code, now)
+	return !limited || open
 }
 
 // scheduleByID finds the calendar whose skin version key is id; unknown keys get the normal skin.

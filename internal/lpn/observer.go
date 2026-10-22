@@ -93,7 +93,8 @@ func observeConn(conn net.Conn, addr string, logger *log.Logger) {
 func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Logger) {
 	sq := &squareSession{room: defaultSquare, conn: conn, logger: logger}
 	defer sq.close()
-	rp := &roomPartySession{conn: conn, logger: logger}
+	var tlupSession [8]byte // the latest agent-5 TLUP D session on this connection
+	rp := &roomPartySession{conn: conn, logger: logger, tlup: &tlupSession}
 	defer rp.close()
 	hard := time.Now().Add(gatewayTTL)
 	gardenControlSent := false
@@ -101,7 +102,6 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 	gardenRelayStarted := false
 	var gardenLoginAid, gardenOwnerAid uint64
 	var gardenRoomTunnel [8]byte
-	var tlupSession [8]byte // the latest agent-5 TLUP D session on this connection
 	defer func() { gardenLeave(gardenLoginAid, logger) }()
 	var prefix [4]byte
 	for {

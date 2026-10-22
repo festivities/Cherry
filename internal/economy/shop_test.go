@@ -198,7 +198,9 @@ func TestNoArtItemsNotSoldOrGranted(t *testing.T) {
 	if rec := buy("/v4/purchase/dress/buy", `{"items":[{"itemCode":"CUON004SR","price":250}]}`); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), errUnknown) {
 		t.Errorf("buy no-art = %d %s, want 400 %s", rec.Code, rec.Body.String(), errUnknown)
 	}
-	if rec := buy("/v4/purchase/dress/buy", `{"items":[{"itemCode":"CUTO00001","price":150}]}`); rec.Code != http.StatusOK {
+	// CUTO00001 is the only tops item, so it is today's tops deal: it buys at the deal price.
+	paid := dealPrice(150)
+	if rec := buy("/v4/purchase/dress/buy", buyBody("CUTO00001", paid)); rec.Code != http.StatusOK {
 		t.Errorf("buy art = %d %s", rec.Code, rec.Body.String())
 	}
 
@@ -206,8 +208,8 @@ func TestNoArtItemsNotSoldOrGranted(t *testing.T) {
 	req.Header.Set("Cookie", `AV_AUTH="ptok"`)
 	rec := httptest.NewRecorder()
 	handleRecycle(false)(rec, req)
-	if rec.Code != http.StatusOK || acc.Gems != 5000-150+250 {
-		t.Errorf("sell-back of owned no-art item = %d gems %d, want 5100 after the 150 buy", rec.Code, acc.Gems)
+	if rec.Code != http.StatusOK || acc.Gems != 5000-paid+250 {
+		t.Errorf("sell-back of owned no-art item = %d gems %d, want %d after the %d buy", rec.Code, acc.Gems, 5000-paid+250, paid)
 	}
 
 	if pool := gachaPoolNow(); !slices.Equal(gachaCodes(pool.normal), []string{"CUTO00001", "RUWA000HR"}) || len(pool.rare) != 0 {

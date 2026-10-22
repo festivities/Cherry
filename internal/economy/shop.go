@@ -79,12 +79,6 @@ func ItemPrice(code string) (price int64, cash bool, grade string, ok bool) {
 	return base, false, "N", true
 }
 
-// InteriorPrice adapts ItemPrice for the room inventory rows.
-func InteriorPrice(code string) (int64, string) {
-	price, _, grade, _ := ItemPrice(code)
-	return price, grade
-}
-
 // ---- catalog (item dirs the client has) ----
 
 type shopItem struct {
@@ -244,8 +238,8 @@ func itemsBody(rows []map[string]any) string {
 	return string(b)
 }
 
-// priceKeys are the keys every row kind shares.
-func priceKeys(it shopItem) map[string]any {
+// priceKeys are the keys every row kind shares; deals and limited items add their sale keys (deals.go).
+func priceKeys(it shopItem, deals dealSet, now time.Time) map[string]any {
 	price, cash, _, _ := ItemPrice(it.Code)
 	row := map[string]any{
 		"itemCode": it.Code, "name": "", "price": price, "discount": false, "discountedPrice": price,
@@ -258,6 +252,7 @@ func priceKeys(it shopItem) map[string]any {
 	if it.Animated {
 		row["sellingIconType"], row["specialEffects"] = "RARE", "ANIMATION"
 	}
+	saleKeys(row, it.Code, deals, now)
 	return row
 }
 
@@ -312,13 +307,15 @@ func handleShopList(kind byte) http.HandlerFunc {
 		}
 		cat := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
 		c := loadCatalog()
+		now := NowFunc()
+		deals := dealsOn(now)
 		var rows []map[string]any
 		switch kind {
 		case kindFashion:
 			prefix, slots := fashionSlots(cat)
 			for _, it := range c.fashion {
-				if it.Code[:2] == prefix && slices.Contains(slots, it.Code[2:4]) {
-					row := priceKeys(it)
+				if it.Code[:2] == prefix && slices.Contains(slots, it.Code[2:4]) && onSale(it.Code, now) {
+					row := priceKeys(it, deals, now)
 					row["itemID"], row["representImageURL"], row["bigRepresentImageURL"] = it.ID, "", ""
 					rows = append(rows, row)
 				}
@@ -326,10 +323,10 @@ func handleShopList(kind byte) http.HandlerFunc {
 		case kindInterior:
 			owned, _ := requesterOwned(r)
 			for _, it := range c.interior {
-				if cat == "URCMD" && !slices.Contains(room.RoomShowcaseCodes, it.Code) || cat != "URCMD" && room.RoomCategoryCode(it.Code) != cat {
+				if cat == "URCMD" && !slices.Contains(room.RoomShowcaseCodes, it.Code) || cat != "URCMD" && room.RoomCategoryCode(it.Code) != cat || !onSale(it.Code, now) {
 					continue
 				}
-				rows = append(rows, interiorRow(it, owned[it.Code]))
+				rows = append(rows, interiorRow(it, owned[it.Code], deals, now))
 			}
 		default:
 			_, owned := requesterOwned(r)
@@ -340,7 +337,7 @@ func handleShopList(kind byte) http.HandlerFunc {
 				// Dog tab; move them to UPETINT only if the stock UI turns out to have a Toy tab.
 				if cat == "UPETINT" || cat == "UDOGINT" && (it.Catg == "UDOG" || it.Catg == "UTOY") ||
 					cat == "UCATINT" && it.Catg == "UCAT" || cat == "URIDEINT" && it.Catg == "URIDE" {
-					row := interiorRow(it, owned[it.Code])
+					row := interiorRow(it, owned[it.Code], deals, now)
 					row["purchasedYn"] = owned[it.Code]
 					for k, v := range map[string]any{"raceId": 1, "catgCd": it.Catg, "petSkinId": room.PetSkinID(it.Code), "petSkinCode": it.Code,
 						"linkPosX": 0, "linkPosY": 0, "linkScale": 100, "linkPosScale": 100, "speed": 0, "power": 0, "stamina": 0, "itemSlot": 0} {
@@ -350,12 +347,25 @@ func handleShopList(kind byte) http.HandlerFunc {
 				}
 			}
 		}
+		// Deals and limited items lead their tab; tabs hold hundreds of rows.
+		featured := func(row map[string]any) bool {
+			return row["sellingIconType"] == "SALE" || row["sellingIconType"] == "LIMIT"
+		}
+		slices.SortStableFunc(rows, func(a, b map[string]any) int {
+			switch fa, fb := featured(a), featured(b); {
+			case fa && !fb:
+				return -1
+			case fb && !fa:
+				return 1
+			}
+			return 0
+		})
 		httpx.WriteJSON(w, http.StatusOK, itemsBody(rows))
 	}
 }
 
-func interiorRow(it shopItem, owned bool) map[string]any {
-	row := priceKeys(it)
+func interiorRow(it shopItem, owned bool, deals dealSet, now time.Time) map[string]any {
+	row := priceKeys(it, deals, now)
 	for k, v := range map[string]any{"itemId": it.ID, "description": "", "itemType": "ROOM", "existInven": owned, "purchased": owned,
 		"sellingStart": "", "discountStart": ""} {
 		row[k] = v
@@ -435,21 +445,32 @@ func handleShopBuy(kind byte) http.HandlerFunc {
 			return
 		}
 		c := loadCatalog()
+		now := NowFunc()
+		deals := dealsOn(now)
 		codes := make([]string, 0, len(req.Items))
+		paid := map[string]int64{} // deal items bought below their table price: the Gems paid
 		var total int64
 		cash := false
 		for i, it := range req.Items {
 			price, c2, _, ok := ItemPrice(it.ItemCode)
-			if _, k := classify(it.ItemCode); !ok || k != kind || c.byCode[it.ItemCode] == nil || i > 0 && c2 != cash {
+			if _, k := classify(it.ItemCode); !ok || k != kind || c.byCode[it.ItemCode] == nil || !onSale(it.ItemCode, now) || i > 0 && c2 != cash {
 				shopError(w, r, raw, errUnknown, "unknown item")
 				return
 			}
-			if cp, ok := lenientInt(it.Price); !ok || cp != price {
+			// A daily deal takes exactly its deal price; any other item exactly the table price (deals.go).
+			want := price
+			if d, deal := deals[it.ItemCode]; deal {
+				want = d
+			}
+			if cp, ok := lenientInt(it.Price); !ok || cp != want {
 				shopError(w, r, raw, errUpdated, "shop updated")
 				return
 			}
+			if want < price {
+				paid[it.ItemCode] = want
+			}
 			cash = c2
-			total += price
+			total += want
 			codes = append(codes, it.ItemCode)
 		}
 		noMoney, label := errNoMoney, "interior"
@@ -507,6 +528,7 @@ func handleShopBuy(kind byte) http.HandlerFunc {
 		switch kind {
 		case kindFashion:
 			acc.InventoryCodes = store.AppendUniqueItemCodes(store.AccountInventoryCodes(acc), codes)
+			acc.PaidPrices = withPaid(acc.PaidPrices, paid)
 		case kindInterior:
 			items := slices.Clone(acc.RoomItems)
 			seq := max(acc.NextRoomSeq, store.FirstRoomSeq)
@@ -514,7 +536,7 @@ func handleShopBuy(kind byte) http.HandlerFunc {
 				seq = max(seq, it.Seq+1)
 			}
 			for _, code := range codes {
-				items = append(items, store.RoomItem{Seq: seq, Cd: code})
+				items = append(items, store.RoomItem{Seq: seq, Cd: code, Paid: paid[code]})
 				seq++
 			}
 			acc.RoomItems, acc.NextRoomSeq = items, seq
@@ -626,6 +648,7 @@ func handleRecycle(interior bool) http.HandlerFunc {
 				shopError(w, r, raw, errRecycle, "bad item")
 				return
 			}
+			var paid int64 // the Gems the item was bought for at a deal (0 = none): pays back instead of the table price
 			if interior {
 				// ReqRecycleInterior @0x1bdeab0 sends only invenSeq, exepectedPrice and price per row
 				// (no itemCode, no count): the item is found by seq alone. A code, if present, must match.
@@ -635,6 +658,7 @@ func handleRecycle(interior bool) http.HandlerFunc {
 					return
 				}
 				it.ItemCode = acc.RoomItems[i].Cd
+				paid = acc.RoomItems[i].Paid
 				sellSeqs[seq] = true
 			} else {
 				if sellCodes[it.ItemCode] || !slices.Contains(store.AccountInventoryCodes(acc), it.ItemCode) {
@@ -642,12 +666,13 @@ func handleRecycle(interior bool) http.HandlerFunc {
 					return
 				}
 				sellCodes[it.ItemCode] = true
+				paid = acc.PaidPrices[it.ItemCode]
 			}
 			if interior && inUse[seq] || !interior && slices.Contains(acc.ItemCodes, it.ItemCode) {
 				shopError(w, r, raw, errInUse, "item in use")
 				return
 			}
-			price, _, _, _ := ItemPrice(it.ItemCode)
+			price := soldPrice(it.ItemCode, paid)
 			if price == 0 { // faces/unpriced: kept, reported back so the client keeps them too
 				delete(sellCodes, it.ItemCode)
 				delete(sellSeqs, seq)
@@ -676,6 +701,15 @@ func handleRecycle(interior bool) http.HandlerFunc {
 				}
 			}
 			acc.InventoryCodes = kept
+			if len(acc.PaidPrices) > 0 { // a sold item's paid price goes with it
+				left := make(map[string]int64, len(acc.PaidPrices))
+				for code, p := range acc.PaidPrices {
+					if !sellCodes[code] {
+						left[code] = p
+					}
+				}
+				acc.PaidPrices = left
+			}
 		}
 		if err := store.SaveAccountsLocked(); err != nil {
 			*acc = previous

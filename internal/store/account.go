@@ -99,12 +99,13 @@ type Account struct {
 	AttendKey      int64     // day key (06:00 JST boundary) of the last attend
 	Mail           []MailRow // unclaimed mailbox rows, mailbox.go; replaced, never edited in place
 	NextMailSeq    int64
-	ProfileImage   ProfileImage    // saved profile picture (OBS paths + background), profileimage.go
-	Quests         *QuestDay       // Garden daily quest progress, economy/quests.go; replaced, never edited in place
-	Fishing        *FishingDay     // Square fishing Gems for one game day, economy/fishing.go; replaced, never edited in place
-	FishCaught     map[int64]int64 // Square catches per fish id (the fishing book); replaced, never edited in place
-	Gear           *FishingGear    // Square fish shop: bought gear and what is in use, economy/fishing_shop.go; replaced, never edited in place
-	Hearts         *Hearts         // heart quest state, economy/hearts.go; replaced, never edited in place
+	ProfileImage   ProfileImage     // saved profile picture (OBS paths + background), profileimage.go
+	Quests         *QuestDay        // Garden daily quest progress, economy/quests.go; replaced, never edited in place
+	Fishing        *FishingDay      // Square fishing Gems for one game day, economy/fishing.go; replaced, never edited in place
+	FishCaught     map[int64]int64  // Square catches per fish id (the fishing book); replaced, never edited in place
+	Gear           *FishingGear     // Square fish shop: bought gear and what is in use, economy/fishing_shop.go; replaced, never edited in place
+	Hearts         *Hearts          // heart quest state, economy/hearts.go; replaced, never edited in place
+	PaidPrices     map[string]int64 // clothing codes bought at a daily deal: Gems paid (economy/deals.go); replaced, never edited in place
 }
 
 // FishingGear is the Square fishing gear an account bought (economy/fishing_shop.go): the item IDs

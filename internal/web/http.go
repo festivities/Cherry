@@ -337,7 +337,7 @@ func NewMux() *http.ServeMux {
 	mux.HandleFunc("/v4/items/room/some", economy.HandleItemsSome)
 	mux.HandleFunc("/v4/playhome/games/lp_rmchat", handlePlayDetailLPRmchat)
 	mux.HandleFunc("/v4/playhome/games/lp_sq", httpx.HandleJSONBody(playDetailLPSquareBody))
-	mux.HandleFunc("/v4/inven/interior/items/all", room.InvenInteriorHandler(economy.InteriorPrice))
+	mux.HandleFunc("/v4/inven/interior/items/all", room.InvenInteriorHandler(economy.RoomItemPrice))
 	mux.HandleFunc("/v4/inven/use/list/interior/dividefloor", room.HandleInvenDivideFloor)
 	mux.HandleFunc("/v4/room/save/new", room.HandleRoomSaveNew)
 	mux.HandleFunc("/v4/room/preset/list", room.HandleRoomPresetList)
@@ -399,8 +399,10 @@ func handleClosetItemsAll(w http.ResponseWriter, r *http.Request) {
 	store.AccountsMu.Lock()
 	acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]
 	var codes []string
+	var paid map[string]int64 // copy-on-write, safe to read after unlock
 	if acc != nil {
 		codes = store.AccountOwnedCodes(acc)
+		paid = acc.PaidPrices
 	}
 	store.AccountsMu.Unlock()
 	basicFaceItems := make([]closetBasicFaceItem, 0, len(codes))
@@ -421,7 +423,7 @@ func handleClosetItemsAll(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]closetInventoryItem, 0, len(codes))
 	for i, code := range append(wearableCodes, faceCodes...) {
-		price, _, grade, _ := economy.ItemPrice(code) // faces and unclassified codes: price 0, grade N
+		price, grade := economy.ClosetPrice(paid, code) // faces and unclassified codes: price 0, grade N
 		items = append(items, closetInventoryItem{ItemCode: code, InvenSeq: strconv.Itoa(i + 1), Count: 1, Price: int(price), Grade: grade})
 	}
 	payload, _ := json.Marshal(struct {

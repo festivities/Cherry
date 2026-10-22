@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"cherry/internal/economy"
 	"cherry/internal/httpx"
 	"cherry/internal/room"
 	"cherry/internal/store"
@@ -151,9 +152,13 @@ type partyHub struct {
 	mu       sync.Mutex
 	sessions map[uint64]*partyMember
 	rooms    map[uint64]*partyRoom
-	ticking  bool          // status loop running, guarded by mu
-	every    time.Duration // status refresh period; 0 = partyStatusEvery
+	bows     map[uint64]partyBows // ponytail: in memory, resets on restart; no per-day bow cap
+	ticking  bool                 // status loop running, guarded by mu
+	every    time.Duration        // status refresh period; 0 = partyStatusEvery
 }
+
+// partyBows is one source's bow count on game day day (economy.AttendDayKey), guarded by hub.mu.
+type partyBows struct{ day, n int64 }
 
 // partyStatusEvery is how often an open room's host gets rc_room_status_push again
 // (the client keeps MyRoomAlive for 2*Timeout s, so this must stay below 1200 s).
@@ -335,6 +340,7 @@ type roomPartySession struct {
 	conn     *lockedConn
 	logger   *log.Logger
 	hub      *partyHub // nil = defaultParty
+	tlup     *[8]byte  // the connection's latest TLUP session; the observer writes it on this goroutine, nil in tests
 	aid      uint64
 	loggedIn bool
 	pm       *partyMember
@@ -526,6 +532,8 @@ func (s *roomPartySession) handleData(frame []byte) error {
 		return s.floorRelayStart(data)
 	case 18: // cr_friend_invite_cancel_req -> idx22
 		return s.inviteCancel(frame, data)
+	case 17: // cr_quest_archive_req (TargetAid#1) -> rc_quest_archive_all idx21 (bow)
+		return s.bow(frame, data)
 	}
 	return s.relay(msgid, data)
 }
@@ -843,6 +851,63 @@ func (s *roomPartySession) invite(frame, data []byte) error {
 		}
 	}
 	return nil
+}
+
+// bowBody is rc_quest_archive_all idx21 {Success#1, SourceId#2, TargetId#3, ArchiveCount#4,
+// RewardCoin#5 (0), CompleteQuest#6 (false: true would pop a completion popup)}.
+func bowBody(src, dst uint64, count int64) []byte {
+	b := pbVar(pbVar(pbVar(pbVar(nil, 1, 1), 2, src), 3, dst), 4, uint64(count))
+	return pbVar(pbVar(b, 5, 0), 6, 0)
+}
+
+// bow handles cr_quest_archive_req {TargetAid#1}: a room member bows another member. Bows pay
+// nothing. Both sides get idx21. A bow to the host also re-sends the heart show, because the client
+// creates the host's heart button hidden unless the host is already in its bow-complete list.
+func (s *roomPartySession) bow(frame, data []byte) error {
+	h := s.h()
+	target, _ := protobufUintField(data, 1)
+	now := economy.NowFunc()
+	h.mu.Lock()
+	var dst *partyMember
+	r := s.joined
+	if r != nil && r.index(s.pm) >= 0 { // not replaced by a newer connection of the same aid
+		for _, o := range r.members {
+			if o != s.pm && o.aid == target {
+				dst = o
+			}
+		}
+	}
+	if dst == nil {
+		h.mu.Unlock()
+		s.logger.Printf("ROOMPARTY bow ignored aid=%d target=%d", s.aid, target)
+		return nil
+	}
+	day := economy.AttendDayKey(now)
+	if h.bows == nil {
+		h.bows = map[uint64]partyBows{}
+	}
+	b := h.bows[s.aid]
+	if b.day != day {
+		b = partyBows{day: day}
+	}
+	b.n++
+	h.bows[s.aid] = b
+	host := r.host
+	h.mu.Unlock()
+	s.logger.Printf("ROOMPARTY bow aid=%d target=%d count=%d", s.aid, target, b.n)
+	body := bowBody(s.aid, target, b.n)
+	if err := s.reply(frame, 21, body); err != nil {
+		return err
+	}
+	dst.send(s.logger, 21, body)
+	if target != host {
+		return nil
+	}
+	if s.tlup == nil || *s.tlup == ([8]byte{}) { // zero = no TLUP session seen on this connection yet
+		s.logger.Printf("ROOMPARTY bow heart-show skipped aid=%d no TLUP session", s.aid)
+		return nil
+	}
+	return heartButtonShow(s.conn, *s.tlup, s.aid, host, now, s.logger)
 }
 
 // relay handles move/chat/action from a room member.
