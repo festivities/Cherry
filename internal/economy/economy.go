@@ -269,6 +269,10 @@ const adminAddr = "127.0.0.1:8099"
 // the public mux. Example (deltas may be negative; balances never go below 0):
 //
 //	curl -X POST http://127.0.0.1:8099/admin/grant -d "{\"aid\":\"1002\",\"gems\":500,\"cash\":10,\"faceTickets\":3,\"reason\":\"test\"}"
+//
+// smiles and materials (Garden Bag item id -> count delta, gathering drops or Atelier goods) work the same way:
+//
+//	curl -X POST http://127.0.0.1:8099/admin/grant -d "{\"aid\":\"1001\",\"smiles\":50,\"materials\":{\"110000\":6}}"
 func NewAdminMux() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/admin/grant", handleAdminGrant)
@@ -286,15 +290,23 @@ func handleAdminGrant(w http.ResponseWriter, r *http.Request) {
 	}
 	raw, err := io.ReadAll(io.LimitReader(r.Body, 4096))
 	var req struct {
-		Aid         string `json:"aid"`
-		Gems        int64  `json:"gems"`
-		Cash        int64  `json:"cash"`
-		FaceTickets int64  `json:"faceTickets"`
-		Reason      string `json:"reason"`
+		Aid         string          `json:"aid"`
+		Gems        int64           `json:"gems"`
+		Cash        int64           `json:"cash"`
+		FaceTickets int64           `json:"faceTickets"`
+		Smiles      int64           `json:"smiles"`
+		Materials   map[int64]int64 `json:"materials"` // Garden Bag item id -> count delta
+		Reason      string          `json:"reason"`
 	}
 	if err != nil || json.Unmarshal(raw, &req) != nil || req.Aid == "" {
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
+	}
+	for item := range req.Materials {
+		if _, ok := GatherMaterialByID(item); !ok {
+			httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+			return
+		}
 	}
 	reason := "staff grant"
 	if req.Reason != "" {
@@ -307,7 +319,14 @@ func handleAdminGrant(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
 		return
 	}
-	err = store.ApplyDeltasLocked(acc, store.LedgerDeltas{Gems: req.Gems, Cash: req.Cash, FaceTickets: req.FaceTickets}, reason)
+	prevBag, now := acc.GardenBag, time.Now()
+	for item, n := range req.Materials {
+		acc.GardenBag = gardenBagChange(acc.GardenBag, item, n, now)
+	}
+	err = store.ApplyDeltasLocked(acc, store.LedgerDeltas{Gems: req.Gems, Cash: req.Cash, FaceTickets: req.FaceTickets, Smiles: req.Smiles}, reason)
+	if err != nil {
+		acc.GardenBag = prevBag
+	}
 	if _, ok := err.(*store.BalanceError); ok {
 		httpx.WriteJSON(w, http.StatusBadRequest, errNotEnoughBody)
 		return
@@ -316,7 +335,7 @@ func handleAdminGrant(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
 		return
 	}
-	body, _ := json.Marshal(map[string]any{"aid": acc.Aid, "gems": acc.Gems, "cash": acc.Cash, "faceTickets": acc.FaceTickets})
+	body, _ := json.Marshal(map[string]any{"aid": acc.Aid, "gems": acc.Gems, "cash": acc.Cash, "faceTickets": acc.FaceTickets, "smiles": acc.Smiles, "bag": acc.GardenBag})
 	httpx.WriteJSON(w, http.StatusOK, string(body))
 }
 

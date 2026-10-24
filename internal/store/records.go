@@ -128,3 +128,12 @@ type GatherDay struct {
 	Gardens map[string]int64 `json:"gardens,omitempty"`
 	Gems    int64            `json:"gems,omitempty"`
 }
+
+// AtelierState is one account's Garden Atelier state (economy/atelier.go): Stamina points as of
+// StaminaAt (epoch milliseconds, the regen timer base; only set while stamina is below full), and the
+// design ids of the blueprints bought with Smiles. A missing record means full stamina and none bought.
+type AtelierState struct {
+	Stamina    int64   `json:"stamina,omitempty"`
+	StaminaAt  int64   `json:"staminaAt,omitempty"`
+	Blueprints []int64 `json:"blueprints,omitempty"`
+}

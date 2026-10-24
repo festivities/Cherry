@@ -48,6 +48,7 @@ type StoredAccount struct {
 	Smiles         int64                 `json:"smiles,omitempty"`
 	GardenBag      []GardenBagStack      `json:"gardenBag,omitempty"`
 	Gather         *GatherDay            `json:"gathering,omitempty"`
+	Atelier        *AtelierState         `json:"atelier,omitempty"`
 }
 
 type savedAccounts struct {
@@ -104,6 +105,7 @@ func LoadAccountsFrom(path string) error {
 				ProfileImage: derefProfile(saved.ProfileImage), Quests: saved.Quests, Fishing: saved.Fishing,
 				FishCaught: saved.FishCaught, Gear: saved.Gear, Hearts: saved.Hearts, PaidPrices: saved.PaidPrices,
 				Smiles: max(saved.Smiles, 0), GardenBag: saved.GardenBag, Gather: saved.Gather,
+				Atelier: saved.Atelier,
 			}
 		}
 		for token, id := range state.Aliases {
@@ -192,7 +194,7 @@ func StoredFrom(acc *Account) StoredAccount {
 		AttendDay: acc.AttendDay, AttendKey: acc.AttendKey, Mail: acc.Mail, NextMailSeq: acc.NextMailSeq,
 		ProfileImage: pi, Quests: acc.Quests, Fishing: acc.Fishing, FishCaught: acc.FishCaught, Gear: acc.Gear,
 		Hearts: acc.Hearts, PaidPrices: acc.PaidPrices,
-		Smiles: acc.Smiles, GardenBag: acc.GardenBag, Gather: acc.Gather,
+		Smiles: acc.Smiles, GardenBag: acc.GardenBag, Gather: acc.Gather, Atelier: acc.Atelier,
 	}
 }
 

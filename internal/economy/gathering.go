@@ -92,8 +92,20 @@ func PickGather(kind GatherKind, roll func(n int) int) (GatherPick, bool) {
 	return p, true
 }
 
-// GatherMaterialByID returns the material with item id.
+// GatherMaterialByID returns the Garden material with item id: a gathering drop, or a crafted good
+// of the Atelier recipe file (its name comes from there).
 func GatherMaterialByID(item int64) (GatherDrop, bool) {
+	if d, ok := gatherDropByID(item); ok {
+		return d, true
+	}
+	if g, ok := ActiveAtelier().Good(item); ok {
+		return GatherDrop{Item: g.ID, Name: g.Name}, true
+	}
+	return GatherDrop{}, false
+}
+
+// gatherDropByID returns the gathering drop with item id.
+func gatherDropByID(item int64) (GatherDrop, bool) {
 	for _, drops := range gatherDrops {
 		for _, d := range drops {
 			if d.Item == item {
@@ -175,7 +187,7 @@ func GatherCredit(aid, owner string, kind GatherKind, item int64, now time.Time)
 		return lim, 0, false
 	}
 	acc.Gather = &next
-	acc.GardenBag = gardenBagAdd(acc.GardenBag, item, now)
+	acc.GardenBag = gardenBagChange(acc.GardenBag, item, 1, now)
 	if err := store.SaveAccountsLocked(); err != nil {
 		*acc = prev
 		return lim, 0, false
@@ -184,17 +196,26 @@ func GatherCredit(aid, owner string, kind GatherKind, item int64, now time.Time)
 	return gatherLimitOf(next, owner, own), gems, true
 }
 
-// gardenBagAdd returns bag with one more of item. It is a new slice, so a failed save can roll back.
-func gardenBagAdd(bag []store.GardenBagStack, item int64, now time.Time) []store.GardenBagStack {
+// gardenBagChange returns bag with delta more of item (fewer when negative). A stack that reaches
+// zero is removed, and a gain stamps Updated. It is a new slice, so a failed save can roll back.
+// Callers check the counts first.
+func gardenBagChange(bag []store.GardenBagStack, item, delta int64, now time.Time) []store.GardenBagStack {
 	out := slices.Clone(bag)
-	for i := range out {
-		if out[i].Item == item {
-			out[i].Count++
-			out[i].Updated = now.UnixMilli()
-			return out
+	i := slices.IndexFunc(out, func(s store.GardenBagStack) bool { return s.Item == item })
+	if i < 0 {
+		if delta > 0 {
+			out = append(out, store.GardenBagStack{Item: item, Count: delta, Updated: now.UnixMilli()})
 		}
+		return out
 	}
-	return append(out, store.GardenBagStack{Item: item, Count: 1, Updated: now.UnixMilli()})
+	out[i].Count += delta
+	if delta > 0 {
+		out[i].Updated = now.UnixMilli()
+	}
+	if out[i].Count <= 0 {
+		out = slices.Delete(out, i, i+1)
+	}
+	return out
 }
 
 // GardenBag returns a copy of aid's material stacks and its Smiles (zero when the account is unknown).
@@ -234,6 +255,14 @@ func GardenBagDelete(aid string, item int64) bool {
 // prefixes its static base to the path. HandleGatherImage serves it.
 func GatherImageURL(item int64) string {
 	return "cherry/garden/items/item" + strconv.FormatInt(item, 10) + ".png"
+}
+
+// GatherCraftImage is the material's picture as the craft and Bag cells read AssetItem.img_url: a path
+// under the client's item/craftitem/ folder. The client checks that folder on disk first
+// (NaDpCraftSprite::InitWithPath 0x1ef1524), so a played install draws the icon without a download.
+// The download route (GatherImageURL) is served (200) but the sprite stays on the spinner or "!".
+func GatherCraftImage(item int64) string {
+	return "garden01/items/item" + strconv.FormatInt(item, 10) + ".png"
 }
 
 // HandleGatherImage serves GET /cherry/garden/items/item<id>.png with the client's own craft icon,

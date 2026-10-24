@@ -263,14 +263,21 @@ func TestGardenBagDelete(t *testing.T) {
 	}
 }
 
-// TestGardenBagAddIsCopyOnWrite checks that a new stack never edits the slice it was given, so a
-// rollback keeps the old bag.
-func TestGardenBagAddIsCopyOnWrite(t *testing.T) {
+// TestGardenBagChangeIsCopyOnWrite checks that a change never edits the slice it was given, so a
+// rollback keeps the old bag, and that a stack reaching zero is removed.
+func TestGardenBagChangeIsCopyOnWrite(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
-	old := []store.GardenBagStack{{Item: 210000, Count: 1}}
-	next := gardenBagAdd(old, 210000, now)
+	old := []store.GardenBagStack{{Item: 210000, Count: 1}, {Item: 110000, Count: 2}}
+	next := gardenBagChange(old, 210000, 1, now)
 	if old[0].Count != 1 || next[0].Count != 2 || next[0].Updated != now.UnixMilli() {
 		t.Fatalf("old %+v next %+v", old, next)
+	}
+	gone := gardenBagChange(old, 210000, -1, now)
+	if len(gone) != 1 || gone[0].Item != 110000 || old[0].Count != 1 {
+		t.Fatalf("removed %+v old %+v", gone, old)
+	}
+	if got := gardenBagChange(old, 330000, -1, now); len(got) != 2 {
+		t.Fatalf("missing stack changed the bag: %+v", got)
 	}
 }
 

@@ -8,3 +8,9 @@ import _ "embed"
 //
 //go:embed face_codes.txt
 var FaceCodes string
+
+// AtelierJSON is the default Garden Atelier recipe file (economy/atelier.go). An operator file in
+// %LOCALAPPDATA%\Cherry\config\atelier.json replaces it entirely.
+//
+//go:embed atelier.json
+var AtelierJSON []byte

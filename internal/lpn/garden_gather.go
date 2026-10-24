@@ -264,9 +264,13 @@ func gardenAssetItem(d economy.GatherDrop) []byte {
 	a = pbLen(a, 3, []byte(d.Name))                               // itemname
 	a = pbVar(a, 4, 1)                                            // grade
 	a = pbLen(a, 5, []byte("item"+strconv.FormatInt(d.Item, 10))) // item_code
-	a = pbLen(a, 6, []byte(economy.GatherImageURL(d.Item)))       // img_url
-	a = pbLen(a, 7, []byte("Gathered in a Garden."))              // detail_msg
-	noDate := uint64(math.MaxUint64)                              // int64 -1: no validity dates (0 would show 1970)
+	a = pbLen(a, 6, []byte(economy.GatherCraftImage(d.Item)))     // img_url: local craft path (economy.GatherCraftImage)
+	detail := "Gathered in a Garden."
+	if _, ok := economy.ActiveAtelier().Good(d.Item); ok {
+		detail = "Made in the Atelier."
+	}
+	a = pbLen(a, 7, []byte(detail))  // detail_msg
+	noDate := uint64(math.MaxUint64) // int64 -1: no validity dates (0 would show 1970)
 	return pbVar(pbVar(a, 9, noDate), 10, noDate)
 }
 
@@ -335,13 +339,13 @@ func gardenBagReply(msgid uint16, viewer uint64, data []byte, logger *log.Logger
 	return nil
 }
 
-// gardenGatherMsg reports whether msgid is a touch or Bag request answered here.
+// gardenGatherMsg reports whether msgid is a touch, Bag or Atelier request answered here.
 func gardenGatherMsg(msgid uint16) bool {
 	switch msgid {
 	case 11, 12, 13, 25, 26, 27, 28, 47:
 		return true
 	}
-	return false
+	return gardenCraftMsg(msgid)
 }
 
 // gardenGatherReply answers one request and returns the frames to send, in order.
@@ -353,6 +357,9 @@ func gardenGatherReply(msgid uint16, viewer, owner uint64, data []byte, g *garde
 		return gatherBegin(viewer, owner, data, g, now, logger)
 	case 13:
 		return gatherEnd(viewer, g, now, logger)
+	}
+	if gardenCraftMsg(msgid) {
+		return gardenCraftReply(msgid, viewer, data, now, logger)
 	}
 	return gardenBagReply(msgid, viewer, data, logger)
 }

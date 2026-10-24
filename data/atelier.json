@@ -1,0 +1,27 @@
+{
+  "stamina": {"max": 100, "regen_seconds": 300},
+  "themes": [
+    {"id": 1012, "kind": "material", "name": "Garden Craft", "information": "Turn gathered Garden materials into goods.", "banner": "craft01/1012/craft_1012_home_banner.png", "icon": "craft01/1012/craft_1012_home_list_item.png"},
+    {"id": 1013, "kind": "clothes", "name": "Garden Clothes", "information": "Sew clothing from Garden goods.", "banner": "craft01/1013/craft_1013_home_banner.png", "icon": "craft01/1013/craft_1013_home_list_item.png"}
+  ],
+  "goods": [
+    {"id": 490000, "name": "Pond Charm"},
+    {"id": 490001, "name": "Bloom Thread"},
+    {"id": 490002, "name": "Glow Dye"},
+    {"id": 491000, "name": "Moon Lace"},
+    {"id": 491001, "name": "Koi Silk"},
+    {"id": 491002, "name": "Rainbow Gem"}
+  ],
+  "designs": [
+    {"id": 101201, "theme": 1012, "product_material": 490000, "inputs": [{"item": 110000, "count": 3}, {"item": 210000, "count": 1}], "stamina": 5, "blueprint_smiles": 0},
+    {"id": 101202, "theme": 1012, "product_material": 490001, "inputs": [{"item": 220000, "count": 2}, {"item": 310000, "count": 2}], "stamina": 5, "blueprint_smiles": 0},
+    {"id": 101203, "theme": 1012, "product_material": 490002, "inputs": [{"item": 321000, "count": 2}, {"item": 120000, "count": 1}], "stamina": 5, "blueprint_smiles": 0},
+    {"id": 101204, "theme": 1012, "product_material": 491000, "inputs": [{"item": 230000, "count": 1}, {"item": 331000, "count": 1}], "stamina": 5, "blueprint_smiles": 0},
+    {"id": 101205, "theme": 1012, "product_material": 491001, "inputs": [{"item": 130000, "count": 1}, {"item": 330000, "count": 2}], "stamina": 5, "blueprint_smiles": 0},
+    {"id": 101206, "theme": 1012, "product_material": 491002, "inputs": [{"item": 132000, "count": 1}, {"item": 131000, "count": 1}, {"item": 331000, "count": 1}], "stamina": 5, "blueprint_smiles": 0},
+    {"id": 101301, "theme": 1013, "product_clothes": "CUAH0066I", "product_name": "Pond Charm Hat", "inputs": [{"item": 490000, "count": 2}, {"item": 490001, "count": 1}], "stamina": 10, "blueprint_smiles": 15},
+    {"id": 101302, "theme": 1013, "product_clothes": "CUAE007IB", "product_name": "Glow Dye Brooch", "inputs": [{"item": 490002, "count": 2}, {"item": 490001, "count": 1}], "stamina": 10, "blueprint_smiles": 15},
+    {"id": 101303, "theme": 1013, "product_clothes": "CUON0050V", "product_name": "Moon Lace Gown", "inputs": [{"item": 491000, "count": 1}, {"item": 491001, "count": 2}], "stamina": 10, "blueprint_smiles": 30},
+    {"id": 101304, "theme": 1013, "product_clothes": "CUAE009IZ", "product_name": "Rainbow Gem Pendant", "inputs": [{"item": 491002, "count": 1}, {"item": 491000, "count": 1}], "stamina": 10, "blueprint_smiles": 45}
+  ]
+}
