@@ -51,7 +51,7 @@ func EnsurePetsLocked(acc *store.Account) error {
 	}
 	pets := make([]store.PetItem, 0, len(PetShowcaseNums))
 	for i, n := range PetShowcaseNums {
-		p := store.PetItem{ID: petBaseID(acc.Aid) + int64(i), Cd: PetItemCode(n), Name: "Minipet " + strconv.Itoa(i+1)}
+		p := store.PetItem{ID: petBaseID(acc.Aid) + int64(i), Cd: PetItemCode(n), Name: PetName(i + 1)}
 		switch i {
 		case 0:
 			p.Rep = true
@@ -76,7 +76,7 @@ func NewPetLocked(acc *store.Account, cd string) store.PetItem {
 	for _, p := range acc.Pets {
 		id = max(id, p.ID+1)
 	}
-	return store.PetItem{ID: id, Cd: cd, Name: "Minipet " + strconv.Itoa(len(acc.Pets)+1)}
+	return store.PetItem{ID: id, Cd: cd, Name: PetName(len(acc.Pets) + 1)}
 }
 
 // petAccount mirrors roomAccount: caller unlocks accountsMu iff non-nil.

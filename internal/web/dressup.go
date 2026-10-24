@@ -2,10 +2,16 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
+	"maps"
 	"net/http"
+	"slices"
 	"strings"
 
+	"cherry/data"
 	"cherry/internal/httpx"
+	"cherry/internal/opdata"
+	"cherry/internal/store"
 )
 
 // Avatar creation dress-up fixtures.
@@ -39,6 +45,10 @@ import (
 // The four Cherry closet originals (CUHA0036Z, CUON004TV, CUSH00267,
 // CUAH004JH) are intentionally not advertised here: they belong to the
 // first-intro client closet, and CUON004TV has no dp.png anywhere.
+//
+// Which items each tab lists, and the look sets, are Cherry's choice: they are
+// operator data in data/dressup.json (Dressup below). The client's category
+// keys and the wire shapes above stay in code.
 
 // dressItem is a per-category item entry (only "cd" is parsed by the client).
 type dressItem struct {
@@ -72,81 +82,113 @@ type avatarSetRollEntry struct {
 	SetItem    []dressSet `json:"setItem"`
 }
 
-// maleSets use hair/clothes flagged use_man=1 (use_girl=0) in the 2014
-// items.db over M/F-compatible face parts. Every cd and element has a verified
-// dp.png (the original iOS preview is 140x140 and the create cell scales it).
-// Set cd is a real dress-category item from the same look: the
-// client resolves cd through SbItemTable::GetIntIdx and rejects unknown element
-// codes (NaCreateLayer::RequestFaceSetItemData @0x18ae1f8).
-var maleSets = []dressSet{
-	{
-		CD:   "CUON00164",
-		Name: "Style M1",
-		ElementCodes: []string{
-			"CUHE0000M", "CUNO00006", "CUEY0000Q", "CUEB0000A", "CUMO0000C",
-			"CUHA0004X", "CUON00164", "CUSH000DU",
-		},
-	},
-	{
-		CD:   "CUON001BD",
-		Name: "Style M2",
-		ElementCodes: []string{
-			"CUHE0000M", "CUNO00016", "CUEY0000S", "CUEB0000G", "CUMO0000F",
-			"CUHA0004Z", "CUON001BD", "CUSH000KV",
-		},
-	},
+// Dressup is data/dressup.json: the items and look sets the creation flow offers, one look per sex.
+// The client's category keys (EYE, FHAIR, ... and the sex prefix M, F or A) stay in code.
+//
+//	male, female, animal  {categories, dress, sets}
+//	categories            {category: [item code]}: the items each create tab lists. Human categories are
+//	                      EYE, FACE, MOUTH, FHAIR, NOSE, BROW, ETC; animal ones EYE, FACE, MOUTH, EAR, NOSE,
+//	                      TAIL, ETC. A category left out lists nothing.
+//	dress                 [item code]: the DRESS tab
+//	sets                  [{cd, name, elements}]: the look sets (the SET tab). cd is the dress item of the
+//	                      look and elements the codes it wears. A look needs at least one set: the first
+//	                      one is the stand-in appearance for auto-match and the tutorial avatars.
+//
+// Item codes are checked for shape only (store.ValidItemCode); the archive is not consulted.
+type Dressup struct {
+	Male   Look `json:"male"`
+	Female Look `json:"female"`
+	Animal Look `json:"animal"`
 }
 
-// femaleSets use hair/clothes flagged use_girl=1 (use_man=0), or dual-flagged
-// items where the archive lists them under the female alternatives
-// (CUON001CH, CUPA000EQ, CUSH0005G).
-var femaleSets = []dressSet{
-	{
-		CD:   "CUON001CH",
-		Name: "Style F1",
-		ElementCodes: []string{
-			"CUHE0000M", "CUNO00006", "CUEY000CB", "CUEB0000A", "CUMO0000C",
-			"CUHA0003L", "CUON001CH", "CUSH000Q5",
-		},
-	},
-	{
-		CD:   "CUON001GS",
-		Name: "Style F2",
-		ElementCodes: []string{
-			"CUHE0000M", "CUNO00016", "CUEY000CG", "CUEB0000G", "CUMO0000F",
-			"CUHA0003E", "CUON001GS", "CUSH000VR",
-		},
-	},
+// Look is one sex's entry in dressup.json.
+type Look struct {
+	Categories map[string][]string `json:"categories"`
+	Dress      []string            `json:"dress"`
+	Sets       []LookSet           `json:"sets"`
 }
 
-// animalSets keep the original fully-renderable bottoms/shoes as elements, but
-// those codes are not advertised in the DRESS catalog because they have no
-// dp.png. Every cd and custom-category element is dp-ready.
-var animalSets = []dressSet{
-	{
-		CD:   "CATO000IU",
-		Name: "Animal Set 1",
-		ElementCodes: []string{
-			"CAFA0000S", "CAEY0000D", "CAMO00002", "CANO00001", "CAEA0000E",
-			"CATL00006", "CATO000IU", "CAPA000BP", "CASH00001",
-		},
-	},
-	{
-		CD:   "CATO000GR",
-		Name: "Animal Set 2",
-		ElementCodes: []string{
-			"CAFA0000X", "CAEY0000G", "CAMO00009", "CANO00005", "CAEA0000M",
-			"CATL0000K", "CATO000GR", "CAPA0006Q", "CASH0003L",
-		},
-	},
+// LookSet is one look set in dressup.json.
+type LookSet struct {
+	CD       string   `json:"cd"`
+	Name     string   `json:"name"`
+	Elements []string `json:"elements"`
 }
 
-// humanSetsFor returns the sex-appropriate set list.
+var dressupFile = opdata.New("dressup.json", data.DressupJSON, checkDressup, nil)
+
+// humanCategories and animalCategories are the category names the client reads (after the sex prefix).
+var (
+	humanCategories  = []string{"EYE", "FACE", "MOUTH", "FHAIR", "NOSE", "BROW", "ETC"}
+	animalCategories = []string{"EYE", "FACE", "MOUTH", "EAR", "NOSE", "TAIL", "ETC"}
+)
+
+// dressupCurrent is the dress-up file in use.
+func dressupCurrent() *Dressup { return dressupFile.Get() }
+
+func checkDressup(d *Dressup) error {
+	if err := checkLook("male", &d.Male, humanCategories); err != nil {
+		return err
+	}
+	if err := checkLook("female", &d.Female, humanCategories); err != nil {
+		return err
+	}
+	return checkLook("animal", &d.Animal, animalCategories)
+}
+
+func checkLook(sex string, l *Look, allowed []string) error {
+	for _, cat := range slices.Sorted(maps.Keys(l.Categories)) {
+		if !slices.Contains(allowed, cat) {
+			return fmt.Errorf("%s: category %q must be one of %s", sex, cat, strings.Join(allowed, ", "))
+		}
+		if err := checkItemCodes(sex+" "+cat, l.Categories[cat]); err != nil {
+			return err
+		}
+	}
+	if err := checkItemCodes(sex+" dress", l.Dress); err != nil {
+		return err
+	}
+	if len(l.Sets) == 0 {
+		return fmt.Errorf("%s: sets must list at least one look", sex)
+	}
+	for _, s := range l.Sets {
+		if s.Name == "" {
+			return fmt.Errorf("%s: set %s needs a name", sex, s.CD)
+		}
+		if len(s.Elements) == 0 {
+			return fmt.Errorf("%s: set %q needs elements", sex, s.Name)
+		}
+		if err := checkItemCodes(sex+" set "+s.Name, append([]string{s.CD}, s.Elements...)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func checkItemCodes(where string, codes []string) error {
+	for _, c := range codes {
+		if !store.ValidItemCode(c) {
+			return fmt.Errorf("%s: %q is not an item code", where, c)
+		}
+	}
+	return nil
+}
+
+// wireSets turns look sets into the client's setItem objects (imgPath stays empty).
+func wireSets(sets []LookSet) []dressSet {
+	out := make([]dressSet, 0, len(sets))
+	for _, s := range sets {
+		out = append(out, dressSet{CD: s.CD, Name: s.Name, ElementCodes: s.Elements})
+	}
+	return out
+}
+
+// humanSetsFor returns the sex-appropriate set list (anything but MALE gets the female looks).
 func humanSetsFor(sex string) []dressSet {
 	if sex == "MALE" {
-		return maleSets
+		return wireSets(dressupCurrent().Male.Sets)
 	}
-	return femaleSets
+	return wireSets(dressupCurrent().Female.Sets)
 }
 
 // normalizeAvatarType maps short wire types to the long form used by avatar
@@ -165,16 +207,16 @@ func normalizeAvatarType(s string) string {
 }
 
 // workableLook is the deterministic stand-in appearance for a sex, shared by
-// auto-match analyze and the synthesized tutorial avatars. It is
-// sex-appropriate and dp-ready at the set-cd level.
+// auto-match analyze and the synthesized tutorial avatars. It is the sex's first
+// look set, which is dp-ready at the set-cd level.
 func workableLook(sex string) []string {
 	switch sex {
 	case "ANIMAL":
-		return animalSets[0].ElementCodes
+		return dressupCurrent().Animal.Sets[0].Elements
 	case "MALE":
-		return maleSets[0].ElementCodes
+		return dressupCurrent().Male.Sets[0].Elements
 	default:
-		return femaleSets[0].ElementCodes
+		return dressupCurrent().Female.Sets[0].Elements
 	}
 }
 
@@ -189,69 +231,34 @@ func dressItems(codes []string) []dressItem {
 // humanCatalog builds one M/F sex object for /v4/create/all/items. MFACE and
 // FFACE stay empty by project decision (no CUFA human face asset exists).
 // Every advertised code has a verified authentic dp.png and matching 2014
-// items.db sex flags.
+// items.db sex flags (data/dressup.json).
 func humanCatalog(sex string) map[string]any {
-	prefix := "M"
+	prefix, look := "M", &dressupCurrent().Male
 	if sex == "FEMALE" {
-		prefix = "F"
-	}
-	// Hair's client key is MFHAIR/FFHAIR (prefix + "FHAIR").
-	cats := map[string][]string{
-		"EYE":   {"CUEY0000Q", "CUEY0000S"},
-		"FACE":  nil,
-		"MOUTH": {"CUMO0000C", "CUMO0000F"},
-		"FHAIR": {"CUHA0004X", "CUHA0004Z", "CUHA00053"},
-		"NOSE":  {"CUNO00006", "CUNO00016"},
-		"BROW":  {"CUEB0000A", "CUEB0000G"},
-		"ETC":   {"CUFE0004H", "CUFE0008L"},
-	}
-	dress := []string{
-		"CUON00164", "CUON001BD",
-		"CUTO000JN", "CUTO000T3",
-		"CUPA000DG",
-		"CUSH000DU", "CUSH000KV",
-	}
-	if sex == "FEMALE" {
-		cats["EYE"] = []string{"CUEY000CB", "CUEY000CG"}
-		cats["FHAIR"] = []string{"CUHA0003L", "CUHA0003E", "CUHA0003C"}
-		cats["ETC"] = []string{"CUFE00013", "CUFE00016"}
-		dress = []string{
-			"CUON001CH", "CUON001GS",
-			"CUTO000AQ",
-			"CUPA00091", "CUPA000DA", "CUPA000EP", "CUPA000EQ",
-			"CUSH000Q5", "CUSH0005G", "CUSH000VR",
-		}
+		prefix, look = "F", &dressupCurrent().Female
 	}
 	out := make(map[string]any, 9)
-	for key, codes := range cats {
-		out[prefix+key] = dressCategory{Items: dressItems(codes)}
+	for _, cat := range humanCategories {
+		out[prefix+cat] = dressCategory{Items: dressItems(look.Categories[cat])}
 	}
-	out["DRESS"] = dressItems(dress)
-	out["SET"] = dressSetGroup{Items: humanSetsFor(sex)}
+	out["DRESS"] = dressItems(look.Dress)
+	out["SET"] = dressSetGroup{Items: wireSets(look.Sets)}
 	return out
 }
 
-// animalCatalog builds the A sex object. AETC stays empty: SetPaveViewItemCellSexData
-// maps ETC to category 56 (FE), and no CAFE item has both device render assets
-// and an authentic dp.png. The verified CAAH accessories are category 54 (AH),
-// which has no create-UI tab, so they are not advertised.
+// animalCatalog builds the A sex object. Animal bottoms/shoes stay set-element-only
+// (no dp.png), and AETC is empty by choice (data/dressup.json): SetPaveViewItemCellSexData
+// maps ETC to category 56 (FE), and no CAFE item has both device render assets and an
+// authentic dp.png. The verified CAAH accessories are category 54 (AH), which has no
+// create-UI tab, so they are not advertised.
 func animalCatalog() map[string]any {
-	cats := map[string][]string{
-		"EYE":   {"CAEY0000D", "CAEY0000G"},
-		"FACE":  {"CAFA0000S", "CAFA0000X"},
-		"MOUTH": {"CAMO00002", "CAMO00009"},
-		"EAR":   {"CAEA0000E", "CAEA0000M"},
-		"NOSE":  {"CANO00001", "CANO00005"},
-		"TAIL":  {"CATL00006", "CATL0000K"},
-		"ETC":   nil,
-	}
+	look := &dressupCurrent().Animal
 	out := make(map[string]any, 9)
-	for key, codes := range cats {
-		out["A"+key] = dressCategory{Items: dressItems(codes)}
+	for _, cat := range animalCategories {
+		out["A"+cat] = dressCategory{Items: dressItems(look.Categories[cat])}
 	}
-	// Animal bottoms/shoes have no dp.png and stay set-element-only.
-	out["DRESS"] = dressItems([]string{"CATO000GR", "CATO000IU"})
-	out["SET"] = dressSetGroup{Items: animalSets}
+	out["DRESS"] = dressItems(look.Dress)
+	out["SET"] = dressSetGroup{Items: wireSets(look.Sets)}
 	return out
 }
 
@@ -265,7 +272,7 @@ func handleCreateFaceSetItemsRoll(w http.ResponseWriter, r *http.Request) {
 	}{Result: []avatarSetRollEntry{
 		{AvatarType: "MALE", SetItem: humanSetsFor("MALE")},
 		{AvatarType: "FEMALE", SetItem: humanSetsFor("FEMALE")},
-		{AvatarType: "ANIMAL", SetItem: animalSets},
+		{AvatarType: "ANIMAL", SetItem: wireSets(dressupCurrent().Animal.Sets)},
 	}})
 	httpx.WriteJSON(w, http.StatusOK, string(payload))
 }

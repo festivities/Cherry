@@ -10,17 +10,21 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"cherry/data"
 	"cherry/internal/economy"
 	"cherry/internal/httpx"
 	"cherry/internal/lpn"
+	"cherry/internal/opdata"
 	"cherry/internal/room"
 	"cherry/internal/store"
 	"cherry/internal/thumbs"
@@ -60,136 +64,185 @@ const badgeInfosBody = `{"result":{"NEWS":0,"CHAT":0,"NFRD":0,"IFRD":0,"GIFT":0,
 
 const friendBrandBuddyBody = `{"result":[]}`
 
+// homeLinks is the home menu in display order. The link type selects the client's screen and the row
+// id is its position, so both stay in code; each row's label is operator data (data/menu.json).
+var homeLinks = []string{
+	"goSomewhere(closet)",
+	"goSomewhere(myfriends)",
+	"goSomewhere(diary)",
+	"openWithBrowser",
+	"html",
+	"event",
+	"gamelink",
+	"gamelink(custom)",
+	"gamelink(embedded)",
+	"goSomewhere(myHome)",
+	"goSomewhere(myRoom)",
+	"goSomewhere(otherRoom)",
+	"goSomewhere(interiorShop)",
+	"goSomewhere(fashionShop)",
+	"goSomewhere(brandShop)",
+	"goSomewhere(brandShopEx)",
+	"goSomewhere(gachaShop)",
+	"goSomewhere(giftShop)",
+	"goSomewhere(modelhouse)",
+	"goSomewhere(faceShop)",
+	"goSomewhere(badgeShop)",
+	"goSomewhere(gemShop)",
+	"goSomewhere(extraHeartShop)",
+	"goSomewhere(cashShop)",
+	"goSomewhere(profileedit)",
+	"goSomewhere(notice)",
+	"goSomewhere(addfriends)",
+	"goSomewhere(invitation)",
+	"goSomewhere(loungeChat)",
+	"goSomewhere(todayMember)",
+	"goSomewhere(roomEdit)",
+	"goSomewhere(setting)",
+	"goSomewhere(square)",
+	"goSomewhere(postbox)",
+	"goSomewhere(randomRoom)",
+	"goSomewhere(luckyspin)",
+	"goSomewhere(subMoreShop)",
+	"goSomewhere(subMoreGacha)",
+	"goSomewhere(subMoreEvent)",
+	"goSomewhere(subMoreGame)",
+	"goSomewhere(gachaCatg)",
+	"goSomewhere(gachaCatgNotap)",
+	"goSomewhere(gachaDetail)",
+	"goSomewhere(gachaTop)",
+	"goSomewhere(gachaNew)",
+	"goSomewhere(mailbox)",
+	"goSomewhere(jackpotspin)",
+	"goSomewhere(minipetShop)",
+	"goSomewhere(minipetBook)",
+	"goSomewhere(viplounge)",
+	"goSomewhere(vipenterpopup)",
+	"goSomewhere(vipdetail)",
+	"goSomewhere(fashionQuest)",
+	"goSomewhere(enterSquare)",
+	"goSomewhere(goldenChance)",
+	"goSomewhere(gotoFriend)",
+	"goSomewhere(playpasspopup)",
+	"goSomewhere(remodelingShop)",
+	"goSomewhere(quest)",
+	"goSomewhere(attendance)",
+	"goSomewhere(roompartyInvite)",
+	"goSomewhere(avatarChat)",
+	"goSomewhere(diaryDetail)",
+	"goSomewhere(cherrytip)",
+	"goSomewhere(videoplay)",
+	"goSomewhere(eventRanking)",
+	"goSomewhere(billPackageDay1)",
+	"goSomewhere(billPackageDay30)",
+	"goSomewhere(billPackage)",
+	"goSomewhere(billPackageItemHigh)",
+	"goSomewhere(billPackageItemLow)",
+	"goSomewhere(recommendPostList)",
+	"goSomewhere(fashionista)",
+	"goSomewhere(fashionistaList)",
+	"goSomewhere(circle)",
+	"goSomewhere(circleFashionQuest)",
+	"goSomewhere(gachaMain)",
+	"goSomewhere(gachaSearch)",
+	"goSomewhere(gachaKeyword)",
+	"goSomewhere(ComicGuide)",
+	"goSomewhere(MoreComicGuide)",
+	"goSomewhere(timemagic)",
+	"goSomewhere(ItemTrade)",
+	"goSomewhere(storygacha)",
+	"goSomewhere(storygachaList)",
+	"goSomewhere(storygachaDetail)",
+	"goSomewhere(SquareCollaboEvent)",
+	"goSomewhere(lineGameEvent)",
+	"goSomewhere(storeList)",
+	"goSomewhere(storeDetail)",
+	"goSomewhere(eventLottoDetail)",
+	"goSomewhere(treasureWorld)",
+	"goSomewhere(giftShopDetail)",
+	"goSomewhere(collectionmain)",
+	"goSomewhere(collectiondetail)",
+	"goSomewhere(gardenedit)",
+	"goSomewhere(gardeneditcloud)",
+	"goSomewhere(bag)",
+	"goSomewhere(factory)",
+	"goSomewhere(myGarden)",
+	"goSomewhere(otherGarden)",
+	"goSomewhere(randomGarden)",
+	"goSomewhere(gardenbuffInfo)",
+	"goSomewhere(marbleboardWebview)",
+	"goSomewhere(billPkg)",
+	"goSomewhere(colorantShop)",
+	"goSomewhere(colorantBaseShop)",
+	"goSomewhere(colorantInven)",
+	"goSomewhere(butlerShop)",
+	"goSomewhere(butlerBook)",
+	"goSomewhere(butlerSkinSelect)",
+	"goSomewhere(storage)",
+	"goSomewhere(imagePopupDetail)",
+	"goSomewhere(fishingBossRanking)",
+	"goSomewhere(fishingExchange)",
+	"goSomewhere(minigameRanking)",
+	"goSomewhere(ridingpetplayinfo)",
+	"goSomewhere(ridingpetGacha)",
+	"goSomewhere(seasonPass)",
+	"goSomewhere(rcvFreeGem)",
+	"goSomewhere(homeAd)",
+	"goSomewhere(findMagic)",
+	"goSomewhere(survey)",
+	"goSomewhere(squarewebview)",
+}
+
+// Menu is data/menu.json: the home menu labels, keyed by the link type of each row in homeLinks.
+//
+//	labels  {link type: name}: one non-empty name per home menu row; a key that no row uses is refused
+type Menu struct {
+	Labels map[string]string `json:"labels"`
+}
+
+var menuFile = opdata.New("menu.json", data.MenuJSON, checkMenu, nil)
+
+// LoadOperatorData loads the web layer's operator data files (menu.json, dressup.json) at startup.
+func LoadOperatorData() error {
+	for _, load := range []func() error{menuFile.Load, dressupFile.Load} {
+		if err := load(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func checkMenu(m *Menu) error {
+	for _, link := range slices.Sorted(maps.Keys(m.Labels)) {
+		if !slices.Contains(homeLinks, link) {
+			return fmt.Errorf("label %q: no home menu row has that link type", link)
+		}
+	}
+	for _, link := range homeLinks {
+		name, ok := m.Labels[link]
+		switch {
+		case !ok:
+			return fmt.Errorf("no label for the home menu row %s", link)
+		case strings.TrimSpace(name) == "":
+			return fmt.Errorf("label for %s must not be empty", link)
+		}
+	}
+	return nil
+}
+
 type homeIconRow struct {
 	Name     string
 	LinkType string
 }
 
-var homeIconRows = []homeIconRow{
-	{"Closet", "goSomewhere(closet)"},
-	{"Friends", "goSomewhere(myfriends)"},
-	{"Diary", "goSomewhere(diary)"},
-	{"Browser", "openWithBrowser"},
-	{"HTML", "html"},
-	{"Events", "event"},
-	{"Game Link", "gamelink"},
-	{"Game Link Custom", "gamelink(custom)"},
-	{"Game Link Embedded", "gamelink(embedded)"},
-	{"My Home", "goSomewhere(myHome)"},
-	{"My Room", "goSomewhere(myRoom)"},
-	{"Other Room", "goSomewhere(otherRoom)"},
-	{"Interior Shop", "goSomewhere(interiorShop)"},
-	{"Fashion Shop", "goSomewhere(fashionShop)"},
-	{"Brand Shop", "goSomewhere(brandShop)"},
-	{"Brand Shop Ex", "goSomewhere(brandShopEx)"},
-	{"Gacha Shop", "goSomewhere(gachaShop)"},
-	{"Gift Shop", "goSomewhere(giftShop)"},
-	{"Model House", "goSomewhere(modelhouse)"},
-	{"Face Shop", "goSomewhere(faceShop)"},
-	{"Badge Shop", "goSomewhere(badgeShop)"},
-	{"Gem Shop", "goSomewhere(gemShop)"},
-	{"Heart Shop", "goSomewhere(extraHeartShop)"},
-	{"Cash Shop", "goSomewhere(cashShop)"},
-	{"Profile Edit", "goSomewhere(profileedit)"},
-	{"Notice", "goSomewhere(notice)"},
-	{"Add Friends", "goSomewhere(addfriends)"},
-	{"Invitation", "goSomewhere(invitation)"},
-	{"Lounge Chat", "goSomewhere(loungeChat)"},
-	{"Today Members", "goSomewhere(todayMember)"},
-	{"Room Edit", "goSomewhere(roomEdit)"},
-	{"Settings", "goSomewhere(setting)"},
-	{"Square", "goSomewhere(square)"},
-	{"Postbox", "goSomewhere(postbox)"},
-	{"Random Room", "goSomewhere(randomRoom)"},
-	{"Lucky Spin", "goSomewhere(luckyspin)"},
-	{"More Shop", "goSomewhere(subMoreShop)"},
-	{"More Gacha", "goSomewhere(subMoreGacha)"},
-	{"More Events", "goSomewhere(subMoreEvent)"},
-	{"More Games", "goSomewhere(subMoreGame)"},
-	{"Gacha Category", "goSomewhere(gachaCatg)"},
-	{"Gacha Category No Tap", "goSomewhere(gachaCatgNotap)"},
-	{"Gacha Detail", "goSomewhere(gachaDetail)"},
-	{"Gacha Top", "goSomewhere(gachaTop)"},
-	{"Gacha New", "goSomewhere(gachaNew)"},
-	{"Mailbox", "goSomewhere(mailbox)"},
-	{"Jackpot Spin", "goSomewhere(jackpotspin)"},
-	{"Minipet Shop", "goSomewhere(minipetShop)"},
-	{"Minipet Book", "goSomewhere(minipetBook)"},
-	{"VIP Lounge", "goSomewhere(viplounge)"},
-	{"VIP Enter Popup", "goSomewhere(vipenterpopup)"},
-	{"VIP Detail", "goSomewhere(vipdetail)"},
-	{"Fashion Quest", "goSomewhere(fashionQuest)"},
-	{"Enter Square", "goSomewhere(enterSquare)"},
-	{"Golden Chance", "goSomewhere(goldenChance)"},
-	{"Go To Friend", "goSomewhere(gotoFriend)"},
-	{"Play Pass Popup", "goSomewhere(playpasspopup)"},
-	{"Remodeling Shop", "goSomewhere(remodelingShop)"},
-	{"Quest", "goSomewhere(quest)"},
-	{"Attendance", "goSomewhere(attendance)"},
-	{"Room Party Invite", "goSomewhere(roompartyInvite)"},
-	{"Avatar Chat", "goSomewhere(avatarChat)"},
-	{"Diary Detail", "goSomewhere(diaryDetail)"},
-	{"Cherry Tip", "goSomewhere(cherrytip)"},
-	{"Video Play", "goSomewhere(videoplay)"},
-	{"Event Ranking", "goSomewhere(eventRanking)"},
-	{"Package Day 1", "goSomewhere(billPackageDay1)"},
-	{"Package Day 30", "goSomewhere(billPackageDay30)"},
-	{"Bill Package", "goSomewhere(billPackage)"},
-	{"Package Item High", "goSomewhere(billPackageItemHigh)"},
-	{"Package Item Low", "goSomewhere(billPackageItemLow)"},
-	{"Recommended Posts", "goSomewhere(recommendPostList)"},
-	{"Fashionista", "goSomewhere(fashionista)"},
-	{"Fashionista List", "goSomewhere(fashionistaList)"},
-	{"Circle", "goSomewhere(circle)"},
-	{"Circle Fashion Quest", "goSomewhere(circleFashionQuest)"},
-	{"Gacha Main", "goSomewhere(gachaMain)"},
-	{"Gacha Search", "goSomewhere(gachaSearch)"},
-	{"Gacha Keyword", "goSomewhere(gachaKeyword)"},
-	{"Comic Guide", "goSomewhere(ComicGuide)"},
-	{"More Comic Guide", "goSomewhere(MoreComicGuide)"},
-	{"Time Magic", "goSomewhere(timemagic)"},
-	{"Item Trade", "goSomewhere(ItemTrade)"},
-	{"Story Gacha", "goSomewhere(storygacha)"},
-	{"Story Gacha List", "goSomewhere(storygachaList)"},
-	{"Story Gacha Detail", "goSomewhere(storygachaDetail)"},
-	{"Square Collab Event", "goSomewhere(SquareCollaboEvent)"},
-	{"Line Game Event", "goSomewhere(lineGameEvent)"},
-	{"Store List", "goSomewhere(storeList)"},
-	{"Store Detail", "goSomewhere(storeDetail)"},
-	{"Event Lotto", "goSomewhere(eventLottoDetail)"},
-	{"Treasure World", "goSomewhere(treasureWorld)"},
-	{"Gift Shop Detail", "goSomewhere(giftShopDetail)"},
-	{"Collection", "goSomewhere(collectionmain)"},
-	{"Collection Detail", "goSomewhere(collectiondetail)"},
-	{"Garden Edit", "goSomewhere(gardenedit)"},
-	{"Garden Edit Cloud", "goSomewhere(gardeneditcloud)"},
-	{"Bag", "goSomewhere(bag)"},
-	{"Factory", "goSomewhere(factory)"},
-	{"My Garden", "goSomewhere(myGarden)"},
-	{"Other Garden", "goSomewhere(otherGarden)"},
-	{"Random Garden", "goSomewhere(randomGarden)"},
-	{"Garden Buff Info", "goSomewhere(gardenbuffInfo)"},
-	{"Marble Board", "goSomewhere(marbleboardWebview)"},
-	{"Bill Package", "goSomewhere(billPkg)"},
-	{"Colorant Shop", "goSomewhere(colorantShop)"},
-	{"Colorant Base Shop", "goSomewhere(colorantBaseShop)"},
-	{"Colorant Inventory", "goSomewhere(colorantInven)"},
-	{"Butler Shop", "goSomewhere(butlerShop)"},
-	{"Butler Book", "goSomewhere(butlerBook)"},
-	{"Butler Skin Select", "goSomewhere(butlerSkinSelect)"},
-	{"Storage", "goSomewhere(storage)"},
-	{"Image Popup", "goSomewhere(imagePopupDetail)"},
-	{"Fishing Boss Ranking", "goSomewhere(fishingBossRanking)"},
-	{"Fishing Exchange", "goSomewhere(fishingExchange)"},
-	{"Minigame Ranking", "goSomewhere(minigameRanking)"},
-	{"Riding Pet Info", "goSomewhere(ridingpetplayinfo)"},
-	{"Riding Pet Gacha", "goSomewhere(ridingpetGacha)"},
-	{"Season Pass", "goSomewhere(seasonPass)"},
-	{"Free Gems", "goSomewhere(rcvFreeGem)"},
-	{"Home Ad", "goSomewhere(homeAd)"},
-	{"Find Magic", "goSomewhere(findMagic)"},
-	{"Survey", "goSomewhere(survey)"},
-	{"Square Web View", "goSomewhere(squarewebview)"},
+// homeIconRows pairs each row with its label in the menu file in use.
+func homeIconRows() []homeIconRow {
+	labels := menuFile.Get().Labels
+	rows := make([]homeIconRow, len(homeLinks))
+	for i, link := range homeLinks {
+		rows[i] = homeIconRow{Name: labels[link], LinkType: link}
+	}
+	return rows
 }
 
 type homeIconEntry struct {
@@ -211,8 +264,9 @@ type homeListExtResult struct {
 }
 
 func buildHomeListExtBody() string {
-	icons := make([]homeIconEntry, len(homeIconRows))
-	for i, row := range homeIconRows {
+	rows := homeIconRows()
+	icons := make([]homeIconEntry, len(rows))
+	for i, row := range rows {
 		icons[i] = homeIconEntry{ID: i + 1, Name: row.Name, LinkType: row.LinkType}
 	}
 	payload, _ := json.Marshal(struct {
@@ -220,8 +274,6 @@ func buildHomeListExtBody() string {
 	}{Result: homeListExtResult{HomeIconList: icons, EventIconList: []homeIconEntry{}}})
 	return string(payload)
 }
-
-var homeListExtBody = buildHomeListExtBody()
 
 const storageDisplayBody = `{"result":false}`
 
@@ -369,7 +421,7 @@ func handleHomeListExt(w http.ResponseWriter, r *http.Request) {
 		httpx.ServeNotFound(w)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, homeListExtBody)
+	httpx.WriteJSON(w, http.StatusOK, buildHomeListExtBody())
 }
 
 type closetInventoryItem struct {
@@ -853,12 +905,12 @@ func handleAvatarInfo(w http.ResponseWriter, r *http.Request) {
 	if acc, ok := store.AccountByAvatarID(id); ok {
 		info = store.AvatarInfoForAccount(acc)
 	} else if id == store.FriendAID {
-		info.Name = store.FriendName
+		info.Name = store.FriendName()
 		info.Items = store.AvatarItemsFromCodes(workableLook("FEMALE"))
-	} else if sex, ok := economy.ActiveProfiles().CloneAvatars[id]; ok {
+	} else if sex, ok := store.ActiveProfiles().CloneAvatars[id]; ok {
 		// The four clone avatars the create flow asks for (NaCreateLayer::InitCloneAvatars); their
 		// synthesized appearance is operator data (profiles.json). The authentic ones are not in the archives.
-		info.Name = economy.ActiveProfiles().CloneName
+		info.Name = store.ActiveProfiles().CloneName
 		info.Gender = sex
 		info.Items = store.AvatarItemsFromCodes(workableLook(sex))
 	}

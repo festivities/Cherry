@@ -9,8 +9,6 @@ import (
 	"cherry/internal/httpx"
 )
 
-var CuratedGrantCodes = []string{"CUHA0036Z", "CUON004TV", "CUSH00267", "CUAH004JH"}
-
 // AccountSnapshot is a copy of the fields /v4/avatar/<id> serves, taken under
 // AccountsMu so the handler never reads fields while an avatar mutation writes.
 type AccountSnapshot struct {
@@ -38,7 +36,7 @@ func AccountOwnedCodes(acc *Account) []string {
 	if !LabAids[acc.Aid] { // economy: new players own only what they create, earn or buy
 		return AccountInventoryCodes(acc)
 	}
-	return AppendUniqueItemCodes(AccountInventoryCodes(acc), CuratedGrantCodes)
+	return AppendUniqueItemCodes(AccountInventoryCodes(acc), CuratedGrantCodes())
 }
 
 func AppendUniqueItemCodes(existing, additions []string) []string {

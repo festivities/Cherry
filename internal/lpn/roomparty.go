@@ -1005,7 +1005,7 @@ func HandleRoom(w http.ResponseWriter, r *http.Request) {
 	case len(parts) == 3 && parts[0] == "enter":
 		level = parts[2]
 		if parts[1] == store.FriendAID {
-			name = store.FriendName
+			name = store.FriendName()
 		} else if acc, ok := store.AccountByAvatarID(parts[1]); ok {
 			name, decorAID = acc.Name, parts[1]
 		} else {

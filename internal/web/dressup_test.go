@@ -11,7 +11,6 @@ import (
 	"sync"
 	"testing"
 
-	"cherry/internal/economy"
 	"cherry/internal/httpx"
 	"cherry/internal/store"
 )
@@ -425,7 +424,7 @@ func TestCreateFaceAnalyze(t *testing.T) {
 }
 
 func TestAvatarInfoTutorialFixtures(t *testing.T) {
-	for id, sex := range economy.ActiveProfiles().CloneAvatars {
+	for id, sex := range store.ActiveProfiles().CloneAvatars {
 		rec := serve(t, http.MethodGet, "/v4/avatar/"+id)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("%s: status = %d, body = %q", id, rec.Code, rec.Body.String())

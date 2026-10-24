@@ -68,12 +68,10 @@ func ValidAvatarID(id string) bool {
 	return len(id) > 0 && len(id) <= 20 && httpx.IsAllDigits(id)
 }
 
-const (
-	// Synthetic friend lives outside the account allocator's range; it was "2"
-	// until a real phone guest was also assigned aid 2 and got shadowed.
-	FriendAID  = "100000"
-	FriendName = "Friend"
-)
+// Synthetic friend lives outside the account allocator's range; it was "2"
+// until a real phone guest was also assigned aid 2 and got shadowed. Its display
+// name is operator data (profiles.json friend_name, FriendName()).
+const FriendAID = "100000"
 
 var RetiredAvatarIDs = []string{"1", "2"}
 

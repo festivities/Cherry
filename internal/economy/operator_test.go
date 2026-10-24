@@ -18,7 +18,6 @@ func resetOperatorData() {
 	fishingFile.Reset()
 	calendarsFile.Reset()
 	rewardsFile.Reset()
-	profilesFile.Reset()
 	atelierFile.Reset()
 }
 
@@ -188,18 +187,6 @@ func TestRewardsFileRefusals(t *testing.T) {
 	}
 	for _, c := range cases {
 		refuseFile(t, rewardsFile.LoadFrom, "rewards.json", c.text, c.want)
-	}
-}
-
-func TestProfilesFileRefusals(t *testing.T) {
-	t.Cleanup(resetOperatorData)
-	raw := data.ProfilesJSON
-	cases := []struct{ text, want string }{
-		{mutateDefault(t, raw, `"1151262555912366100": "MALE"`, `"1151262555912366100": "ROBOT"`), "type must be MALE, FEMALE or ANIMAL"},
-		{mutateDefault(t, raw, `"1151262590612422506"`, `"11512x590612422506"`), "id must be digits"},
-	}
-	for _, c := range cases {
-		refuseFile(t, profilesFile.LoadFrom, "profiles.json", c.text, c.want)
 	}
 }
 

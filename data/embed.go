@@ -48,7 +48,22 @@ var CalendarsJSON []byte
 //go:embed rewards.json
 var RewardsJSON []byte
 
-// ProfilesJSON is the synthetic clone-avatar profiles the create flow asks for.
+// ProfilesJSON is the synthetic friend and clone-avatar profiles, and the lab grant list (store/profiles.go).
 //
 //go:embed profiles.json
 var ProfilesJSON []byte
+
+// StarterJSON is the new-account room starter codes and the default pet name (room/starter.go).
+//
+//go:embed starter.json
+var StarterJSON []byte
+
+// DressupJSON is the creation dress-up look sets and the item lists each create tab shows (web/dressup.go).
+//
+//go:embed dressup.json
+var DressupJSON []byte
+
+// MenuJSON is the home menu labels (web/http.go).
+//
+//go:embed menu.json
+var MenuJSON []byte

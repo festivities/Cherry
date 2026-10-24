@@ -1,0 +1,50 @@
+{
+  "male": {
+    "categories": {
+      "EYE": ["CUEY0000Q", "CUEY0000S"],
+      "FACE": [],
+      "MOUTH": ["CUMO0000C", "CUMO0000F"],
+      "FHAIR": ["CUHA0004X", "CUHA0004Z", "CUHA00053"],
+      "NOSE": ["CUNO00006", "CUNO00016"],
+      "BROW": ["CUEB0000A", "CUEB0000G"],
+      "ETC": ["CUFE0004H", "CUFE0008L"]
+    },
+    "dress": ["CUON00164", "CUON001BD", "CUTO000JN", "CUTO000T3", "CUPA000DG", "CUSH000DU", "CUSH000KV"],
+    "sets": [
+      {"cd": "CUON00164", "name": "Style M1", "elements": ["CUHE0000M", "CUNO00006", "CUEY0000Q", "CUEB0000A", "CUMO0000C", "CUHA0004X", "CUON00164", "CUSH000DU"]},
+      {"cd": "CUON001BD", "name": "Style M2", "elements": ["CUHE0000M", "CUNO00016", "CUEY0000S", "CUEB0000G", "CUMO0000F", "CUHA0004Z", "CUON001BD", "CUSH000KV"]}
+    ]
+  },
+  "female": {
+    "categories": {
+      "EYE": ["CUEY000CB", "CUEY000CG"],
+      "FACE": [],
+      "MOUTH": ["CUMO0000C", "CUMO0000F"],
+      "FHAIR": ["CUHA0003L", "CUHA0003E", "CUHA0003C"],
+      "NOSE": ["CUNO00006", "CUNO00016"],
+      "BROW": ["CUEB0000A", "CUEB0000G"],
+      "ETC": ["CUFE00013", "CUFE00016"]
+    },
+    "dress": ["CUON001CH", "CUON001GS", "CUTO000AQ", "CUPA00091", "CUPA000DA", "CUPA000EP", "CUPA000EQ", "CUSH000Q5", "CUSH0005G", "CUSH000VR"],
+    "sets": [
+      {"cd": "CUON001CH", "name": "Style F1", "elements": ["CUHE0000M", "CUNO00006", "CUEY000CB", "CUEB0000A", "CUMO0000C", "CUHA0003L", "CUON001CH", "CUSH000Q5"]},
+      {"cd": "CUON001GS", "name": "Style F2", "elements": ["CUHE0000M", "CUNO00016", "CUEY000CG", "CUEB0000G", "CUMO0000F", "CUHA0003E", "CUON001GS", "CUSH000VR"]}
+    ]
+  },
+  "animal": {
+    "categories": {
+      "EYE": ["CAEY0000D", "CAEY0000G"],
+      "FACE": ["CAFA0000S", "CAFA0000X"],
+      "MOUTH": ["CAMO00002", "CAMO00009"],
+      "EAR": ["CAEA0000E", "CAEA0000M"],
+      "NOSE": ["CANO00001", "CANO00005"],
+      "TAIL": ["CATL00006", "CATL0000K"],
+      "ETC": []
+    },
+    "dress": ["CATO000GR", "CATO000IU"],
+    "sets": [
+      {"cd": "CATO000IU", "name": "Animal Set 1", "elements": ["CAFA0000S", "CAEY0000D", "CAMO00002", "CANO00001", "CAEA0000E", "CATL00006", "CATO000IU", "CAPA000BP", "CASH00001"]},
+      {"cd": "CATO000GR", "name": "Animal Set 2", "elements": ["CAFA0000X", "CAEY0000G", "CAMO00009", "CANO00005", "CAEA0000M", "CATL0000K", "CATO000GR", "CAPA0006Q", "CASH0003L"]}
+    ]
+  }
+}

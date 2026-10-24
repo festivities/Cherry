@@ -932,14 +932,15 @@ func TestIsBasicFaceItemCode(t *testing.T) {
 }
 
 func TestHomeListExt(t *testing.T) {
+	rows := homeIconRows()
 	wantFirst := []homeIconRow{
 		{"Closet", "goSomewhere(closet)"},
 		{"Friends", "goSomewhere(myfriends)"},
 		{"Diary", "goSomewhere(diary)"},
 	}
 	for i, want := range wantFirst {
-		if homeIconRows[i] != want {
-			t.Fatalf("table row %d = %+v, want %+v", i, homeIconRows[i], want)
+		if rows[i] != want {
+			t.Fatalf("table row %d = %+v, want %+v", i, rows[i], want)
 		}
 	}
 	rec := serve(t, http.MethodGet, "/v4/home/list/ext/10.1.0.0/Android")
@@ -964,10 +965,10 @@ func TestHomeListExt(t *testing.T) {
 	if len(body.Result.EventIconList) != 0 {
 		t.Fatalf("eventIconList has %d rows, want 0", len(body.Result.EventIconList))
 	}
-	if len(body.Result.HomeIconList) != len(homeIconRows) {
-		t.Fatalf("homeIconList has %d rows, want %d", len(body.Result.HomeIconList), len(homeIconRows))
+	if len(body.Result.HomeIconList) != len(rows) {
+		t.Fatalf("homeIconList has %d rows, want %d", len(body.Result.HomeIconList), len(rows))
 	}
-	seen := make(map[int]bool, len(homeIconRows))
+	seen := make(map[int]bool, len(rows))
 	for i, row := range body.Result.HomeIconList {
 		var id int
 		if raw, ok := row["id"]; !ok || json.Unmarshal(raw, &id) != nil {
@@ -991,8 +992,8 @@ func TestHomeListExt(t *testing.T) {
 		if err := json.Unmarshal(row["linkType"], &linkType); err != nil {
 			t.Fatalf("row %d linkType = %s, want string", i, row["linkType"])
 		}
-		if linkType != homeIconRows[i].LinkType {
-			t.Fatalf("row %d linkType = %q, want %q", i, linkType, homeIconRows[i].LinkType)
+		if linkType != rows[i].LinkType {
+			t.Fatalf("row %d linkType = %q, want %q", i, linkType, rows[i].LinkType)
 		}
 		if linkType == "start" || linkType == "goSomewhere(profile)" {
 			t.Fatalf("row %d has excluded linkType %q", i, linkType)

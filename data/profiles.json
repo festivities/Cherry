@@ -1,9 +1,11 @@
 {
+  "friend_name": "Friend",
   "clone_name": "cherry",
   "clone_avatars": {
     "1151262555912366100": "MALE",
     "1151262590612422506": "FEMALE",
     "1151262602112441105": "ANIMAL",
     "1151262571612391402": "MALE"
-  }
+  },
+  "lab_grant_codes": ["CUHA0036Z", "CUON004TV", "CUSH00267", "CUAH004JH"]
 }

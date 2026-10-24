@@ -81,7 +81,7 @@ func handleFriendSync(w http.ResponseWriter, r *http.Request) {
 	if !removed {
 		// Native sorts by status: 1 is an accepted friend (My Friends); 0 lands in Received Requests.
 		buddies = append(buddies, buddyRow{
-			AvatarNo: store.FriendAID, AvatarName: store.FriendName, BuddyAvatarNo: store.FriendAID,
+			AvatarNo: store.FriendAID, AvatarName: store.FriendName(), BuddyAvatarNo: store.FriendAID,
 			Status: 1, FriendStatus: 1, LineBuddyYn: "N", Mid: store.FriendAID,
 		})
 	}
@@ -163,7 +163,7 @@ func handleProfile(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/v4/profile/")
 	aid, _, _ := strings.Cut(rest, "/")
 	if aid == store.FriendAID {
-		profileJSON(w, profileBodyFor(aid, store.FriendName, true, viewer, viewerOK))
+		profileJSON(w, profileBodyFor(aid, store.FriendName(), true, viewer, viewerOK))
 		return
 	}
 	if acc, ok := store.AccountByAvatarID(aid); ok {
@@ -366,7 +366,7 @@ func handleDiaryIntro(w http.ResponseWriter, r *http.Request) {
 	}
 	nickname := "guest"
 	if aid == store.FriendAID {
-		nickname = store.FriendName
+		nickname = store.FriendName()
 	} else if acc, ok := store.AccountByAvatarID(aid); ok && acc.Name != "" {
 		nickname = acc.Name
 	}
@@ -714,7 +714,7 @@ func handleFriendSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items := []friendSearchItem{{AvatarID: store.FriendAID, CaricNickName: store.FriendName, FriendStatus: "1"}}
+	items := []friendSearchItem{{AvatarID: store.FriendAID, CaricNickName: store.FriendName(), FriendStatus: "1"}}
 	store.SocialMu.Lock()
 	removed := store.FriendRemoved
 	store.SocialMu.Unlock()

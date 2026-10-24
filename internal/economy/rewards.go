@@ -3,12 +3,10 @@ package economy
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 
 	"cherry/data"
-	"cherry/internal/httpx"
 	"cherry/internal/opdata"
 )
 
@@ -62,26 +60,12 @@ type MailRules struct {
 	MaxRows     int    `json:"max_rows"`
 }
 
-// Profiles is data/profiles.json: the synthetic profiles of the four clone avatars the create flow
-// asks for (the ids are the client's; the sex and the name are Cherry's stand-ins).
-//
-//	clone_name     the display name of every clone avatar
-//	clone_avatars  {avatar id: "MALE" | "FEMALE" | "ANIMAL"}
-type Profiles struct {
-	CloneName    string            `json:"clone_name"`
-	CloneAvatars map[string]string `json:"clone_avatars"`
-}
-
 var (
-	rewardsFile  = opdata.New("rewards.json", data.RewardsJSON, checkRewards, nil)
-	profilesFile = opdata.New("profiles.json", data.ProfilesJSON, checkProfiles, nil)
+	rewardsFile = opdata.New("rewards.json", data.RewardsJSON, checkRewards, nil)
 )
 
 // ActiveRewards is the rewards file in use.
 func ActiveRewards() *Rewards { return rewardsFile.Get() }
-
-// ActiveProfiles is the profiles file in use.
-func ActiveProfiles() *Profiles { return profilesFile.Get() }
 
 // HeartQuest is the hearts row of the quest list (checkRewards guarantees one).
 func HeartQuest() QuestDef {
@@ -174,23 +158,6 @@ func checkRewards(r *Rewards) error {
 			eventKeys[e.Season] = map[string]bool{}
 		}
 		eventKeys[e.Season][e.Key] = true
-	}
-	return nil
-}
-
-func checkProfiles(p *Profiles) error {
-	if p.CloneName == "" {
-		return errors.New("clone_name must not be empty")
-	}
-	for _, id := range slices.Sorted(maps.Keys(p.CloneAvatars)) {
-		if !httpx.IsAllDigits(id) {
-			return fmt.Errorf("clone avatar %q: id must be digits", id)
-		}
-		switch p.CloneAvatars[id] {
-		case "MALE", "FEMALE", "ANIMAL":
-		default:
-			return fmt.Errorf("clone avatar %s: type must be MALE, FEMALE or ANIMAL", id)
-		}
 	}
 	return nil
 }

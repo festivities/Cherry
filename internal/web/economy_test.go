@@ -446,7 +446,7 @@ func TestCuratedGrantLabOnly(t *testing.T) {
 	if got := store.AccountOwnedCodes(&store.Account{Aid: "9701", InventoryCodes: []string{}}); len(got) != 0 {
 		t.Fatalf("new account owns %v", got)
 	}
-	if got := store.AccountOwnedCodes(&store.Account{Aid: "9702", InventoryCodes: []string{}}); len(got) != len(store.CuratedGrantCodes) {
+	if got := store.AccountOwnedCodes(&store.Account{Aid: "9702", InventoryCodes: []string{}}); len(got) != len(store.CuratedGrantCodes()) {
 		t.Fatalf("lab account owns %v", got)
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"cherry/internal/httpx"
 	"cherry/internal/lpn"
 	"cherry/internal/netsvc"
+	"cherry/internal/room"
 	"cherry/internal/store"
 	"cherry/internal/web"
 )
@@ -32,8 +33,10 @@ func main() {
 	if err := store.LoadSocial(); err != nil {
 		logger.Fatalf("cherry: load social: %v", err)
 	}
-	if err := economy.LoadOperatorData(); err != nil {
-		logger.Fatalf("cherry: operator data: %v", err)
+	for _, load := range []func() error{store.LoadOperatorData, room.LoadOperatorData, economy.LoadOperatorData, web.LoadOperatorData} {
+		if err := load(); err != nil {
+			logger.Fatalf("cherry: operator data: %v", err)
+		}
 	}
 
 	certs, err := netsvc.GenerateCerts()
