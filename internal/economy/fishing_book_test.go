@@ -35,11 +35,11 @@ func TestFishCatalogOrder(t *testing.T) {
 // Every hooked catch enters the book, including once the daily cap pays 0 (no ledger line then).
 func TestFishCatchRecordsBookAtCap(t *testing.T) {
 	now := jstAt(11, 12, 0)
-	fishAccount(t, "9911", 0, &store.FishingDay{Day: AttendDayKey(now), Gems: FishingDailyCap})
-	if credit, ok := FishCatch("9911", fishNormal[5], now); !ok || credit != 0 {
+	fishAccount(t, "9911", 0, &store.FishingDay{Day: AttendDayKey(now), Gems: ActiveFishing().DailyCap})
+	if credit, ok := FishCatch("9911", ActiveFishing().normal[5], now); !ok || credit != 0 {
 		t.Fatalf("capped catch = (%d, %v), want (0, true)", credit, ok)
 	}
-	if credit, ok := FishCatch("9911", fishRare[1], now); !ok || credit != 0 {
+	if credit, ok := FishCatch("9911", ActiveFishing().rare[1], now); !ok || credit != 0 {
 		t.Fatalf("second capped catch = (%d, %v), want (0, true)", credit, ok)
 	}
 	if book := fishBook(t, "9911"); book[4106] != 1 || book[4202] != 1 || len(book) != 2 {
@@ -55,7 +55,7 @@ func TestFishCatchRecordsBookAtCap(t *testing.T) {
 func TestFishCatchBookPersists(t *testing.T) {
 	dir := fishAccount(t, "9912", 0, nil)
 	for i := 0; i < 2; i++ {
-		if _, ok := FishCatch("9912", fishNormal[0], jstAt(11, 12, i)); !ok {
+		if _, ok := FishCatch("9912", ActiveFishing().normal[0], jstAt(11, 12, i)); !ok {
 			t.Fatal("catch failed")
 		}
 	}
@@ -78,7 +78,7 @@ func TestFishCatchBookRollsBackWithSave(t *testing.T) {
 	store.AccountsMu.Lock()
 	store.AccountStorePath = filepath.Join(blocker, "accounts.json")
 	store.AccountsMu.Unlock()
-	if _, ok := FishCatch("9913", fishNormal[0], jstAt(11, 12, 0)); ok {
+	if _, ok := FishCatch("9913", ActiveFishing().normal[0], jstAt(11, 12, 0)); ok {
 		t.Fatal("failed save reported ok")
 	}
 	if book := fishBook(t, "9913"); book != nil {

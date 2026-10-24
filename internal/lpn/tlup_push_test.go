@@ -99,7 +99,7 @@ func TestHeartButtonShowConditions(t *testing.T) {
 	if got := show(9721, 9722); !bytes.Equal(got, wantShow) {
 		t.Fatalf("friend Garden push = %x, want %x", got, wantShow)
 	}
-	for range economy.HeartBase {
+	for range economy.HeartBase() {
 		economy.HeartSend("9721", "9723", now)
 	}
 	if got := show(9721, 9722); len(got) != 0 {
@@ -280,7 +280,7 @@ func TestRoomHeartButtonFlow(t *testing.T) {
 	})
 
 	t.Run("capped viewer pushes nothing", func(t *testing.T) {
-		for range economy.HeartBase {
+		for range economy.HeartBase() {
 			economy.HeartSend("9745", "9743", now)
 		}
 		client, stop := heartGateway(t)

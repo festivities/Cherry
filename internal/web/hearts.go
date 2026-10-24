@@ -35,8 +35,8 @@ func handleQuestStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	body, _ := json.Marshal(map[string]any{"result": map[string]any{
 		"heart":           left,
-		"heartBase":       economy.HeartBase,
-		"heartRewardCoin": economy.HeartRewardGems,
+		"heartBase":       economy.HeartBase(),
+		"heartRewardCoin": economy.HeartRewardGems(),
 		"questProgress":   progress,
 		"toExpire":        strconv.FormatInt(economy.HeartResetSeconds(now), 10),
 	}})

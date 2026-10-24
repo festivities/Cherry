@@ -39,10 +39,9 @@ func itemOwnedLocked(acc *store.Account, code string) bool {
 	return false
 }
 
-// sellBackGems is the Gem payout for a duplicate: the item's table price (the recycle rule).
+// sellBackGems is the Gem payout for a duplicate: the item's sell-back price (the recycle rule).
 func sellBackGems(code string) int64 {
-	price, _, _, _ := ItemPrice(code)
-	return price
+	return soldPrice(code, 0)
 }
 
 // itemAvailable reports whether the code is sellable and its item folder is in the archive with art

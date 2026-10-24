@@ -129,7 +129,7 @@ func TestGatherBeginDoEndCredits(t *testing.T) {
 		t.Fatalf("pre-rolled item %d is not a material", item.vars[1])
 	}
 	info := pbFieldsOf(t, begin.msgs[4][0])
-	if info.vars[1] != uint64(economy.GatherEssence) || info.vars[2] != economy.GatherOwnCap || info.vars[7] != 1 {
+	if info.vars[1] != uint64(economy.GatherEssence) || info.vars[2] != uint64(economy.ActiveGathering().OwnCap) || info.vars[7] != 1 {
 		t.Fatalf("begin info = %v", info.vars)
 	}
 	if !g.armed || g.spot.serial != 101 {
@@ -149,7 +149,7 @@ func TestGatherBeginDoEndCredits(t *testing.T) {
 	}
 	end := pbFieldsOf(t, msgs[0].body)
 	endInfo := pbFieldsOf(t, end.msgs[10][0])
-	if end.vars[1] != 0 || endInfo.vars[2] != economy.GatherOwnCap-1 {
+	if end.vars[1] != 0 || endInfo.vars[2] != uint64(economy.ActiveGathering().OwnCap)-1 {
 		t.Fatalf("end = %v info %v", end.vars, endInfo.vars)
 	}
 	push := pbFieldsOf(t, msgs[1].body)
@@ -165,7 +165,7 @@ func TestGatherBeginDoEndCredits(t *testing.T) {
 	}
 
 	gems, smiles, stacks := gatherGems(t, "9921")
-	if gems != 2 || smiles != economy.GatherSmiles || stacks != 1 {
+	if gems != 2 || smiles != economy.ActiveGathering().Smiles || stacks != 1 {
 		t.Fatalf("after credit: gems %d smiles %d stacks %d", gems, smiles, stacks)
 	}
 	// The pickup is armed no more: a second end pays nothing.
@@ -173,7 +173,7 @@ func TestGatherBeginDoEndCredits(t *testing.T) {
 	if len(msgs) != 1 || pbFieldsOf(t, msgs[0].body).vars[1] != gatherRefused {
 		t.Fatalf("second end = %+v", msgs)
 	}
-	if gems, smiles, _ := gatherGems(t, "9921"); gems != 2 || smiles != economy.GatherSmiles {
+	if gems, smiles, _ := gatherGems(t, "9921"); gems != 2 || smiles != economy.ActiveGathering().Smiles {
 		t.Fatalf("second end paid: gems %d smiles %d", gems, smiles)
 	}
 }
@@ -210,7 +210,7 @@ func TestGatherBeginRefusals(t *testing.T) {
 		{"key type 1", nil, gatherTouch(1, 101, 41, true), false},
 		{"unknown serial", nil, gatherTouch(3, 999, 41, true), false},
 		{"action mismatch", nil, gatherTouch(3, 101, 42, true), false},
-		{"own cap used", &store.GatherDay{Day: economy.AttendDayKey(now), Own: economy.GatherOwnCap}, gatherTouch(3, 101, 41, true), true},
+		{"own cap used", &store.GatherDay{Day: economy.AttendDayKey(now), Own: economy.ActiveGathering().OwnCap}, gatherTouch(3, 101, 41, true), true},
 		{"three friend gardens used", &store.GatherDay{Day: economy.AttendDayKey(now), Gardens: map[string]int64{"7001": 5, "7002": 5, "7003": 5}}, gatherTouch(3, 102, 42, true), true},
 	}
 	for _, tc := range cases {
@@ -248,8 +248,9 @@ func TestGatherBeginRefusals(t *testing.T) {
 // pay: the cap is checked again at the end, so the second end pays nothing.
 func TestGatherCapStopsAtBeginAndEnd(t *testing.T) {
 	now := time.Date(2026, time.October, 11, 12, 0, 0, 0, time.UTC)
+	pinEventClock(t, now) // the third gather of the day would credit gather3 on the real date
 	logger := quietLogger()
-	gatherAccount(t, "9924", &store.GatherDay{Day: economy.AttendDayKey(now), Own: economy.GatherOwnCap - 1})
+	gatherAccount(t, "9924", &store.GatherDay{Day: economy.AttendDayKey(now), Own: economy.ActiveGathering().OwnCap - 1})
 	armed := &gardenGather{}
 	gardenGatherReply(12, 9924, 9924, gatherTouch(3, 102, 42, true), armed, now, logger) // one left: begins
 	other := &gardenGather{}
@@ -264,7 +265,7 @@ func TestGatherCapStopsAtBeginAndEnd(t *testing.T) {
 	if msgs := gardenGatherReply(13, 9924, 9924, nil, other, now, logger); len(msgs) != 1 || pbFieldsOf(t, msgs[0].body).vars[1] != gatherRefused {
 		t.Fatalf("second session past the cap = %+v", msgs)
 	}
-	if gems, smiles, stacks := gatherGems(t, "9924"); gems != 2 || smiles != economy.GatherSmiles || stacks != 1 {
+	if gems, smiles, stacks := gatherGems(t, "9924"); gems != 2 || smiles != economy.ActiveGathering().Smiles || stacks != 1 {
 		t.Fatalf("after two sessions: gems %d smiles %d stacks %d", gems, smiles, stacks)
 	}
 }
@@ -290,7 +291,7 @@ func TestGardenBagReplies(t *testing.T) {
 		t.Fatalf("baginfo = %+v", msgs)
 	}
 	for i, raw := range info.msgs[1] {
-		if bag := pbFieldsOf(t, raw); bag.vars[1] != uint64(i+1) || bag.vars[2] != economy.GatherBagSlots {
+		if bag := pbFieldsOf(t, raw); bag.vars[1] != uint64(i+1) || bag.vars[2] != uint64(economy.ActiveGathering().BagSlots) {
 			t.Fatalf("baginfo %d = %v", i, bag.vars)
 		}
 	}
@@ -367,7 +368,7 @@ func TestGardenRelayGatherFields(t *testing.T) {
 	}
 	for i, want := range []uint64{1, 2, 3} {
 		info := pbFieldsOf(t, fields.msgs[4][i])
-		if info.vars[1] != want || info.vars[2] != economy.GatherOwnCap-3 || info.vars[3] != economy.GatherOwnCap || info.vars[7] != 1 || info.vars[10] == 0 {
+		if info.vars[1] != want || info.vars[2] != uint64(economy.ActiveGathering().OwnCap)-3 || info.vars[3] != uint64(economy.ActiveGathering().OwnCap) || info.vars[7] != 1 || info.vars[10] == 0 {
 			t.Fatalf("info %d = %v", want, info.vars)
 		}
 	}

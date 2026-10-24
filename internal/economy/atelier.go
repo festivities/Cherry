@@ -1,21 +1,14 @@
 package economy
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
-	"log"
-	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"cherry/data"
+	"cherry/internal/opdata"
 	"cherry/internal/store"
 	"cherry/internal/thumbs"
 )
@@ -170,72 +163,15 @@ func findFirst[T any](xs []T, match func(T) bool) (T, bool) {
 	return zero, false
 }
 
-var (
-	atelierLoaded   atomic.Pointer[Atelier]
-	atelierEmbedded = sync.OnceValue(func() *Atelier {
-		a, err := parseAtelier(data.AtelierJSON)
-		if err != nil {
-			panic("embedded data/atelier.json: " + err.Error())
-		}
-		return a
-	})
-)
+// atelierFile is the recipe file. Its startup check adds the item archive (checkAtelierProducts).
+var atelierFile = opdata.New("atelier.json", data.AtelierJSON, (*Atelier).check, checkAtelierProducts)
 
-// ActiveAtelier is the recipe set in use: the startup load, or the embedded default when nothing
-// was loaded (tests).
-func ActiveAtelier() *Atelier {
-	if a := atelierLoaded.Load(); a != nil {
-		return a
-	}
-	return atelierEmbedded()
-}
-
-// LoadAtelier is the startup load (cmd/cherry). It refuses, with an error naming the bad entry, a
-// recipe file that does not validate or a clothing product the item archive cannot serve.
-func LoadAtelier() error {
-	path := ""
-	if dir, err := os.UserCacheDir(); err == nil {
-		path = filepath.Join(dir, "Cherry", "config", "atelier.json")
-	}
-	return loadAtelierFrom(path)
-}
-
-// loadAtelierFrom loads the operator file at path when it exists (the embedded default otherwise).
-func loadAtelierFrom(path string) error {
-	raw, source := data.AtelierJSON, "embedded data/atelier.json"
-	if path != "" {
-		b, err := os.ReadFile(path)
-		switch {
-		case err == nil:
-			raw, source = b, path
-		case !errors.Is(err, fs.ErrNotExist):
-			return fmt.Errorf("read %s: %w", path, err)
-		}
-	}
-	a, err := parseAtelier(raw)
-	if err == nil {
-		err = checkAtelierProducts(a)
-	}
-	if err != nil {
-		return fmt.Errorf("atelier recipes (%s): %w", source, err)
-	}
-	atelierLoaded.Store(a)
-	log.Printf("cherry: atelier recipes loaded from %s (%d themes, %d goods, %d designs)", source, len(a.Themes), len(a.Goods), len(a.Designs))
-	return nil
-}
+// ActiveAtelier is the recipe set in use: the startup load, or the embedded default (tests).
+func ActiveAtelier() *Atelier { return atelierFile.Get() }
 
 // parseAtelier decodes and validates a recipe file (no archive checks; see checkAtelierProducts).
 func parseAtelier(raw []byte) (*Atelier, error) {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
-	var a Atelier
-	if err := dec.Decode(&a); err != nil {
-		return nil, err
-	}
-	if err := a.check(); err != nil {
-		return nil, err
-	}
-	return &a, nil
+	return opdata.Decode(raw, (*Atelier).check)
 }
 
 func (a *Atelier) check() error {

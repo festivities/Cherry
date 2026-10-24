@@ -213,6 +213,8 @@ func (s *squareSession) handleFishing(frame []byte, msgid uint16, data []byte) e
 		result := uint64(squareFishOK)
 		if !ok {
 			result = squareFishMiss // the save failed: no credit, and the client shows its fail branch
+		} else {
+			MarkQuest(aid, "square-fish") // any hooked catch counts, even one past the Gem cap
 		}
 		s.logger.Printf("SQUARE fishing finish aid=%d fish=%d gems=%d result=%d", aid, def.ID, gems, result)
 		body := pbVar(nil, 1, aid)

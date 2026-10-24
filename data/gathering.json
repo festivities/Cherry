@@ -1,0 +1,32 @@
+{
+  "own_cap": 20,
+  "friend_cap": 5,
+  "friend_gardens": 3,
+  "smiles": 3,
+  "gems": 2,
+  "gems_cap": 30,
+  "bag_slots": 200,
+  "fish_length_min": 10,
+  "fish_length_max": 70,
+  "drops": {
+    "fish": [
+      {"item": 110000, "name": "Pond Minnow", "weight": 40},
+      {"item": 111000, "name": "Pond Perch", "weight": 25},
+      {"item": 120000, "name": "Lily Carp", "weight": 15},
+      {"item": 130000, "name": "Golden Carp", "weight": 10},
+      {"item": 131000, "name": "Moonlit Koi", "weight": 6},
+      {"item": 132000, "name": "Rainbow Koi", "weight": 4}
+    ],
+    "essence": [
+      {"item": 210000, "name": "Dew Essence", "weight": 60},
+      {"item": 220000, "name": "Bloom Essence", "weight": 30},
+      {"item": 230000, "name": "Star Essence", "weight": 10}
+    ],
+    "ore": [
+      {"item": 310000, "name": "Star Fragment", "weight": 50},
+      {"item": 321000, "name": "Glow Fragment", "weight": 25},
+      {"item": 330000, "name": "Crystal Shard", "weight": 15},
+      {"item": 331000, "name": "Moon Crystal", "weight": 10}
+    ]
+  }
+}

@@ -103,8 +103,8 @@ func gardenGatherInfo(kind economy.GatherKind, lim economy.GatherLimit, now time
 	b = pbVar(b, 5, regen)
 	b = pbVar(b, 6, gatherActionTimeout)
 	b = pbVar(b, 7, squareBool(lim.Rest > 0)) // can_gather
-	b = pbVar(b, 8, economy.GatherFriendCap)
-	b = pbVar(b, 9, economy.GatherFriendGardens)
+	b = pbVar(b, 8, uint64(economy.ActiveGathering().FriendCap))
+	b = pbVar(b, 9, uint64(economy.ActiveGathering().FriendGardens))
 	return pbVar(b, 10, uint64(reset))
 }
 
@@ -233,6 +233,11 @@ func gatherEnd(viewer uint64, g *gardenGather, now time.Time, logger *log.Logger
 		body := pbVar(nil, 1, gatherRefused)
 		return []gardenMsg{{18, pbLen(body, 10, gardenGatherInfo(spot.kind, lim, now))}}
 	}
+	// gather3 (event quest) completes on the third successful gather of the game day; later gathers
+	// retry it, and MarkQuest does nothing once it is credited.
+	if economy.GatherCount(strconv.FormatUint(viewer, 10), now) >= 3 {
+		MarkQuest(viewer, "gather3")
+	}
 	body := gatherEcho(pbVar(nil, 1, 0), action)
 	body = pbLen(body, 10, gardenGatherInfo(spot.kind, lim, now))
 	reward := pbVar(nil, 1, uint64(pick.Drop.Item)) // GatheringRewardItem.item_id
@@ -253,7 +258,7 @@ func gardenBagHolds(bagtype uint64) bool { return bagtype == 0 || bagtype == 1 }
 
 // gardenBagInfo is BagInfo {bagtype, slot_size}.
 func gardenBagInfo(bagtype uint64) []byte {
-	return pbVar(pbVar(nil, 1, bagtype), 2, economy.GatherBagSlots)
+	return pbVar(pbVar(nil, 1, bagtype), 2, uint64(economy.ActiveGathering().BagSlots))
 }
 
 // gardenAssetItem is the AssetItem of one material: a name, grade 1, a non-empty code and picture

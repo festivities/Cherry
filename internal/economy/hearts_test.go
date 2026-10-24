@@ -50,42 +50,42 @@ func sendHearts(t *testing.T, from, to string, n int, now time.Time) {
 func TestHeartSendCapsAtBase(t *testing.T) {
 	heartAccounts(t, "9801", "9802")
 	now := jstAt(22, 12, 0)
-	sendHearts(t, "9801", "9802", HeartBase, now)
+	sendHearts(t, "9801", "9802", int(HeartBase()), now)
 	if HeartSend("9801", "9802", now) {
 		t.Fatal("sixth heart counted")
 	}
 	if left, _ := HeartsLeft("9801", now); left != 0 {
 		t.Fatalf("left = %d, want 0", left)
 	}
-	if got := HeartsReceived("9802"); got != HeartBase {
-		t.Fatalf("received = %d, want %d", got, HeartBase)
+	if got := HeartsReceived("9802"); got != HeartBase() {
+		t.Fatalf("received = %d, want %d", got, HeartBase())
 	}
-	if got := heartAccount(t, "9801").Hearts.Sent; got != HeartBase {
-		t.Fatalf("sent = %d, want %d", got, HeartBase)
+	if got := heartAccount(t, "9801").Hearts.Sent; got != HeartBase() {
+		t.Fatalf("sent = %d, want %d", got, HeartBase())
 	}
 }
 
-// TestHeartRewardOncePerDay: the HeartBase-th heart credits HeartRewardGems once; the next game
+// TestHeartRewardOncePerDay: the HeartBase()-th heart credits HeartRewardGems() once; the next game
 // day can earn it again.
 func TestHeartRewardOncePerDay(t *testing.T) {
 	heartAccounts(t, "9803", "9804")
 	day1 := jstAt(22, 12, 0)
-	sendHearts(t, "9803", "9804", HeartBase-1, day1)
+	sendHearts(t, "9803", "9804", int(HeartBase()-1), day1)
 	if got := heartAccount(t, "9803").Gems; got != 0 {
 		t.Fatalf("gems before the base heart = %d, want 0", got)
 	}
 	sendHearts(t, "9803", "9804", 1, day1)
-	if got := heartAccount(t, "9803").Gems; got != HeartRewardGems {
-		t.Fatalf("gems after base heart = %d, want %d", got, HeartRewardGems)
+	if got := heartAccount(t, "9803").Gems; got != HeartRewardGems() {
+		t.Fatalf("gems after base heart = %d, want %d", got, HeartRewardGems())
 	}
 	HeartSend("9803", "9804", day1) // refused: already at base, no second reward
-	if got := heartAccount(t, "9803").Gems; got != HeartRewardGems {
-		t.Fatalf("gems after refused heart = %d, want %d", got, HeartRewardGems)
+	if got := heartAccount(t, "9803").Gems; got != HeartRewardGems() {
+		t.Fatalf("gems after refused heart = %d, want %d", got, HeartRewardGems())
 	}
 	day2 := jstAt(23, 12, 0)
-	sendHearts(t, "9803", "9804", HeartBase, day2)
-	if got := heartAccount(t, "9803").Gems; got != 2*HeartRewardGems {
-		t.Fatalf("gems after day 2 = %d, want %d", got, 2*HeartRewardGems)
+	sendHearts(t, "9803", "9804", int(HeartBase()), day2)
+	if got := heartAccount(t, "9803").Gems; got != 2*HeartRewardGems() {
+		t.Fatalf("gems after day 2 = %d, want %d", got, 2*HeartRewardGems())
 	}
 }
 
@@ -104,8 +104,8 @@ func TestHeartSelfUnknownAndSynthetic(t *testing.T) {
 	if !HeartSend("9805", store.FriendAID, now) {
 		t.Fatal("heart to synthetic Friend refused")
 	}
-	if left, _ := HeartsLeft("9805", now); left != HeartBase-1 {
-		t.Fatalf("left after Friend heart = %d, want %d", left, HeartBase-1)
+	if left, _ := HeartsLeft("9805", now); left != HeartBase()-1 {
+		t.Fatalf("left after Friend heart = %d, want %d", left, HeartBase()-1)
 	}
 	if HeartsReceived(store.FriendAID) != 0 || HeartsReceived("9999") != 0 {
 		t.Fatal("received counted for a non-account")
@@ -120,9 +120,9 @@ func TestHeartSelfUnknownAndSynthetic(t *testing.T) {
 func TestHeartDayRollover(t *testing.T) {
 	heartAccounts(t, "9806", "9807")
 	day1, day2 := jstAt(22, 12, 0), jstAt(23, 7, 0)
-	sendHearts(t, "9806", "9807", HeartBase, day1)
-	if senders := HeartSenders("9807", day1); len(senders) != HeartBase {
-		t.Fatalf("day 1 senders = %d, want %d", len(senders), HeartBase)
+	sendHearts(t, "9806", "9807", int(HeartBase()), day1)
+	if senders := HeartSenders("9807", day1); int64(len(senders)) != HeartBase() {
+		t.Fatalf("day 1 senders = %d, want %d", len(senders), HeartBase())
 	}
 	if !HaveHeart("9806", day2) {
 		t.Fatal("haveHeart false on the new day")
@@ -133,26 +133,26 @@ func TestHeartDayRollover(t *testing.T) {
 	if senders := HeartSenders("9807", day2); len(senders) != 0 {
 		t.Fatalf("day 2 senders = %v, want none", senders)
 	}
-	if got := HeartsReceived("9807"); got != HeartBase {
-		t.Fatalf("received after rollover = %d, want %d", got, HeartBase)
+	if got := HeartsReceived("9807"); got != HeartBase() {
+		t.Fatalf("received after rollover = %d, want %d", got, HeartBase())
 	}
 	sendHearts(t, "9806", "9807", 1, day2)
-	if got := HeartsReceived("9807"); got != HeartBase+1 {
-		t.Fatalf("received after day 2 heart = %d, want %d", got, HeartBase+1)
+	if got := HeartsReceived("9807"); got != HeartBase()+1 {
+		t.Fatalf("received after day 2 heart = %d, want %d", got, HeartBase()+1)
 	}
 }
 
-// TestHeartSendersBounded: the receiver keeps the newest heartFromLimit sender aids of the day.
+// TestHeartSendersBounded: the receiver keeps the newest ActiveRewards().Hearts.FromLimit sender aids of the day.
 func TestHeartSendersBounded(t *testing.T) {
 	aids := []string{"9810", "9811", "9812", "9813", "9814", "9815", "9816", "9817", "9818", "9819", "9820", "9821"}
 	heartAccounts(t, append(aids, "9822")...)
 	now := jstAt(22, 12, 0)
 	for _, from := range aids[:11] { // 11 senders x 5 hearts = 55 counted, keep the newest 50
-		sendHearts(t, from, "9822", HeartBase, now)
+		sendHearts(t, from, "9822", int(HeartBase()), now)
 	}
 	senders := HeartSenders("9822", now)
-	if len(senders) != heartFromLimit {
-		t.Fatalf("senders = %d, want %d", len(senders), heartFromLimit)
+	if len(senders) != ActiveRewards().Hearts.FromLimit {
+		t.Fatalf("senders = %d, want %d", len(senders), ActiveRewards().Hearts.FromLimit)
 	}
 	if senders[0] != "9811" || senders[len(senders)-1] != "9820" {
 		t.Fatalf("senders first %q last %q, want 9811 and 9820", senders[0], senders[len(senders)-1])
@@ -169,7 +169,7 @@ func TestHeartLedgerLine(t *testing.T) {
 	store.AccountsMu.Lock()
 	store.AccountStorePath = filepath.Join(dir, "accounts.json")
 	store.AccountsMu.Unlock()
-	sendHearts(t, "9830", "9831", HeartBase, jstAt(22, 12, 0))
+	sendHearts(t, "9830", "9831", int(HeartBase()), jstAt(22, 12, 0))
 	f, err := os.Open(filepath.Join(dir, "ledger.jsonl"))
 	if err != nil {
 		t.Fatal(err)
@@ -184,8 +184,8 @@ func TestHeartLedgerLine(t *testing.T) {
 		}
 		lines = append(lines, l)
 	}
-	if len(lines) != 1 || lines[0].Aid != "9830" || lines[0].Currency != "gems" || lines[0].Delta != HeartRewardGems || lines[0].Reason != "heart:20261022" {
-		t.Fatalf("ledger = %+v, want one gems +%d heart:20261022 line", lines, HeartRewardGems)
+	if len(lines) != 1 || lines[0].Aid != "9830" || lines[0].Currency != "gems" || lines[0].Delta != HeartRewardGems() || lines[0].Reason != "heart:20261022" {
+		t.Fatalf("ledger = %+v, want one gems +%d heart:20261022 line", lines, HeartRewardGems())
 	}
 }
 

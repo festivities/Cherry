@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
 	"cherry/internal/store"
 	"cherry/internal/testutil"
@@ -128,6 +129,8 @@ func fishingReply(t *testing.T, c *sqClient, req uint16, body []byte, wantID uin
 }
 
 func TestSquareFishingCastCredits(t *testing.T) {
+	// Pinned outside the seasons: the exact balances below must not include an event quest credit.
+	pinEventClock(t, time.Date(2026, time.October, 11, 12, 0, 0, 0, eventJST))
 	const aidText = "9801"
 	aid, err := strconv.ParseUint(aidText, 10, 64)
 	if err != nil {

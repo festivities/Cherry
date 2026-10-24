@@ -10,32 +10,25 @@ import (
 )
 
 // Economy Phase D slice 1: four Garden daily quests paying Gems (user decision 2026-10-11;
-// 150 Gems per game day in total). The fifth row, the hearts quest, is display-only (hearts.go pays it). Progress is server-side: the Garden, Square and diary
+// 150 Gems per game day in total). The fifth row, the hearts quest, is display-only (hearts.go pays it).
+// Economy Phase E slice 3: event quests (rewards.json event_quests) are listed and creditable only while
+// their season is the calendar in force. Progress is server-side: the Garden, Square, diary and Atelier
 // handlers call MarkQuest, and the client only lists, reads and claims. Game days start at
 // 06:00 JST like the login calendar. Wire notes: %TEMP%\opencode\cherry\phaseD-20261011\quests.md section 10.
+// The list and its rewards are data/rewards.json (rewards.go).
 
-// QuestHeartID is the hearts row. HeartSend credits its 30 Gems (ledger heart:<day>) and the row
-// reads its count from HeartsLeft, so the quest machinery never marks or pays it.
-const QuestHeartID = 9005
+// questTriggers are the progress keys the game code passes to MarkQuest. A quest row with another key
+// could never complete, so checkRewards refuses it.
+var questTriggers = []string{"garden-own", "garden-visit", "square", "diary", "gather3", "atelier-craft", "square-fish"}
 
-// QuestDef is one daily quest. ID is the QuestId the client sends back. It is Cherry-chosen
-// and sits above the client's compiled eQUEST_CODE values.
+// QuestDef is one quest. ID is the QuestId the client sends back.
 type QuestDef struct {
-	ID      int64
-	Key     string // progress key passed to MarkQuest
-	Name    string
-	Desc    string
-	Gems    int64
-	Display bool // credited by another handler (hearts); MarkQuest and ClaimQuest refuse it
-}
-
-// QuestCatalog is the daily list in display order.
-var QuestCatalog = []QuestDef{
-	{9001, "garden-own", "Visit your Garden", "Enter your own Garden today.", 30, false},
-	{9002, "garden-visit", "Visit a friend's Garden", "Enter a friend's Garden today.", 40, false},
-	{9003, "square", "Hang out in Square", "Enter Square today.", 40, false},
-	{9004, "diary", "Write in your Diary", "Post a diary entry today.", 40, false},
-	{QuestHeartID, "", "Send 5 hearts", "Send 5 hearts today.", 30, true},
+	ID      int64  `json:"id"`
+	Key     string `json:"key"` // progress key passed to MarkQuest
+	Name    string `json:"name"`
+	Desc    string `json:"desc"`
+	Gems    int64  `json:"gems"`
+	Display bool   `json:"display"` // credited by another handler (hearts); MarkQuest and ClaimQuest refuse it
 }
 
 // questErrRejected is the error_code for every refused claim (unknown id, not done, already
@@ -44,9 +37,23 @@ const questErrRejected = 1
 
 var jst = time.FixedZone("JST", 9*3600)
 
-// QuestByID returns the catalog entry for id.
-func QuestByID(id int64) (QuestDef, bool) {
-	for _, def := range QuestCatalog {
+// QuestCatalog is the quest list at now in display order: the daily rows (hearts row included), then
+// the event quests of the season in force at now (none outside the seasons).
+func QuestCatalog(now time.Time) []QuestDef {
+	r := ActiveRewards()
+	out := slices.Clone(r.Quests)
+	season := scheduleAt(now).Name
+	for _, e := range r.EventQuests {
+		if e.Season == season {
+			out = append(out, QuestDef{ID: e.ID, Key: e.Key, Name: e.Name, Desc: e.Desc, Gems: e.Gems})
+		}
+	}
+	return out
+}
+
+// QuestByID returns the entry for id in QuestCatalog(now); an event quest outside its season is unknown.
+func QuestByID(id int64, now time.Time) (QuestDef, bool) {
+	for _, def := range QuestCatalog(now) {
 		if def.ID == id {
 			return def, true
 		}
@@ -54,8 +61,8 @@ func QuestByID(id int64) (QuestDef, bool) {
 	return QuestDef{}, false
 }
 
-func questByKey(key string) (QuestDef, bool) {
-	for _, def := range QuestCatalog {
+func questByKey(key string, now time.Time) (QuestDef, bool) {
+	for _, def := range QuestCatalog(now) {
 		if def.Key == key {
 			return def, true
 		}
@@ -94,7 +101,7 @@ func QuestResetMillis(now time.Time) int64 {
 // repeat the same day writes nothing. It reports the quest when this call completed it. A
 // failed save or ledger change rolls back.
 func MarkQuest(aid, key string, now time.Time) (QuestDef, bool) {
-	def, ok := questByKey(key)
+	def, ok := questByKey(key, now)
 	if !ok || def.Display {
 		return QuestDef{}, false
 	}
@@ -135,7 +142,7 @@ func MarkQuest(aid, key string, now time.Time) (QuestDef, bool) {
 // returns (gems, 0) on credit and (0, questErrRejected) otherwise, with no ledger line. The
 // claim is saved before the reply; a failed save rolls back.
 func ClaimQuest(aid string, id int64, now time.Time) (int64, int) {
-	def, ok := QuestByID(id)
+	def, ok := QuestByID(id, now)
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
 	acc := store.AccountByAidLocked(aid)

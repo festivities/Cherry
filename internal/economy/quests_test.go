@@ -42,14 +42,15 @@ func questGems(t *testing.T, aid string) int64 {
 }
 
 func TestQuestCatalogTotalsOneHundredFifty(t *testing.T) {
+	now := jstAt(11, 12, 0) // no season: the daily rows only
 	total := int64(0)
-	for _, def := range QuestCatalog {
+	for _, def := range QuestCatalog(now) {
 		if !def.Display { // the hearts row's 30 Gems are HeartSend's, not the quest machinery's
 			total += def.Gems
 		}
 	}
-	if total != 150 || len(QuestCatalog) != 5 {
-		t.Fatalf("catalog = %d quests / %d Gems, want 5 / 150 credited here", len(QuestCatalog), total)
+	if total != 150 || len(QuestCatalog(now)) != 5 {
+		t.Fatalf("catalog = %d quests / %d Gems, want 5 / 150 credited here", len(QuestCatalog(now)), total)
 	}
 }
 
@@ -59,7 +60,7 @@ func TestQuestProgressCompletesEachTriggerOnce(t *testing.T) {
 	questAccount(t, "9701")
 	now := jstAt(11, 12, 0)
 	completed := 0
-	for _, def := range QuestCatalog {
+	for _, def := range QuestCatalog(now) {
 		if def.Display {
 			continue
 		}
@@ -224,15 +225,15 @@ func TestHeartRowNeverPaysThroughQuests(t *testing.T) {
 	if _, done := MarkQuest("9701", "", now); done {
 		t.Fatal("empty key completed the hearts row")
 	}
-	if gems, code := ClaimQuest("9701", QuestHeartID, now); gems != 0 || code != questErrRejected {
+	if gems, code := ClaimQuest("9701", HeartQuest().ID, now); gems != 0 || code != questErrRejected {
 		t.Fatalf("claim before hearts = %d/%d, want refused", gems, code)
 	}
-	sendHearts(t, "9701", store.FriendAID, HeartBase, now)
-	if gems, code := ClaimQuest("9701", QuestHeartID, now); gems != 0 || code != questErrRejected {
+	sendHearts(t, "9701", store.FriendAID, int(HeartBase()), now)
+	if gems, code := ClaimQuest("9701", HeartQuest().ID, now); gems != 0 || code != questErrRejected {
 		t.Fatalf("claim after hearts = %d/%d, want refused", gems, code)
 	}
-	if got := questGems(t, "9701"); got != HeartRewardGems {
-		t.Fatalf("gems = %d, want %d from HeartSend only", got, HeartRewardGems)
+	if got := questGems(t, "9701"); got != HeartRewardGems() {
+		t.Fatalf("gems = %d, want %d from HeartSend only", got, HeartRewardGems())
 	}
 	if rec := QuestProgress("9701", now); len(rec.Done) != 0 || len(rec.Claimed) != 0 {
 		t.Fatalf("quest record marked the hearts row: %+v", rec)

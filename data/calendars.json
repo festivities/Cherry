@@ -1,0 +1,64 @@
+{
+  "normal": {
+    "ink": "#606094",
+    "cycle": [
+      {"gems": 90},
+      {"gems": 120},
+      {"gems": 150},
+      {"gems": 180},
+      {"gems": 240},
+      {"gems": 300},
+      {"gems": 450, "cash": 15, "tickets": 3}
+    ]
+  },
+  "seasons": [
+    {
+      "name": "newyear",
+      "title": "New Year Login",
+      "start": "01-01",
+      "end": "01-14",
+      "ink": "#aa2828"
+    },
+    {
+      "name": "winter",
+      "title": "Winter Login",
+      "start": "12-15",
+      "end": "01-05",
+      "ink": "#2864aa",
+      "cycle": [
+        {"gems": 90},
+        {"gems": 120},
+        {"gems": 150, "item": "CUAE00737"},
+        {"gems": 180},
+        {"gems": 240},
+        {"gems": 300},
+        {"gems": 450, "cash": 15, "tickets": 3, "item": "RUCH004RC"}
+      ],
+      "limited": ["CAAE008Z2", "CUAE0072Z", "CUAE00737", "CUAE0076K", "CUAE0085C", "CUAE0093S", "CUAE009EA",
+        "CUAE009RR", "CUAE009T6", "CUAE009W5", "CUSH002Z1", "CUSH003E1", "RUCH004RC"],
+      "popup": {"no": 9201, "title": "Winter is here!", "sub": "Login calendar, limited shop items and event quests until Jan 5",
+        "link": "goSomewhere(fashionShop)", "cookie_hours": 24, "background": "#1c3a5e", "text": "#ffffff", "button_skin": 4}
+    },
+    {
+      "name": "halloween",
+      "title": "Halloween Login",
+      "start": "10-25",
+      "end": "11-07",
+      "ink": "#c85a14",
+      "cycle": [
+        {"gems": 90},
+        {"gems": 120},
+        {"gems": 150, "item": "CUAE00B9R"},
+        {"gems": 180},
+        {"gems": 240},
+        {"gems": 300},
+        {"gems": 450, "cash": 15, "tickets": 3, "item": "CUON0062I"}
+      ],
+      "limited": ["CAAE007BS", "CAAE008J2", "CAAE00AFM", "CUAE007T4", "CUAE007Z8", "CUAE0084K", "CUAE008NH",
+        "CUAE008QU", "CUAE009CL", "CUAE009NQ", "CUAE009R5", "CUAE00A66", "CUAE00A8A", "CUAE00AMI", "CUAE00B9R",
+        "CUAH0075G", "CUAH0075V", "CUON004SR", "CUON0062I"],
+      "popup": {"no": 9101, "title": "Halloween is here!", "sub": "Login calendar, limited shop items and event quests until Nov 7",
+        "link": "goSomewhere(fashionShop)", "cookie_hours": 24, "background": "#3a1a08", "text": "#ffffff", "button_skin": 4}
+    }
+  ]
+}

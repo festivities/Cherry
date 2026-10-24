@@ -1,0 +1,12 @@
+{
+  "id": 1001,
+  "name": "Cherry Gacha",
+  "coin_price": 100,
+  "bundle_price": 900,
+  "bundle_size": 10,
+  "rare_percent": 10,
+  "refund_percent": 50,
+  "collection_max": 60,
+  "kinds": ["fashion", "interior"],
+  "exclude": []
+}

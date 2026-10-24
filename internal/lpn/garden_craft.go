@@ -309,6 +309,9 @@ func gardenCraftReply(msgid uint16, viewer uint64, data []byte, now time.Time, l
 		count, _ := protobufUintField(data, 2)
 		code, s := economy.AtelierMakeMaterial(aid, int64(id), int64(count), now)
 		logger.Printf("ATELIER make-material aid=%s design=%d count=%d result=%d stamina=%d", aid, id, count, code, s.Stamina)
+		if code == economy.AtelierOK {
+			MarkQuest(viewer, "atelier-craft")
+		}
 		body := pbVar(pbVar(nil, 1, uint64(code)), 2, id)
 		d, ok := a.Design(int64(id))
 		if !ok || !d.Material() {
@@ -344,6 +347,9 @@ func gardenCraftReply(msgid uint16, viewer uint64, data []byte, now time.Time, l
 		if retry == 0 {
 			if res = economy.AtelierClothesChoice(int64(id), string(code), int64(powder)); res == economy.AtelierOK {
 				res, s = economy.AtelierMakeClothes(aid, int64(id), now)
+				if res == economy.AtelierOK {
+					MarkQuest(viewer, "atelier-craft")
+				}
 			}
 		}
 		logger.Printf("ATELIER make-clothes aid=%s design=%d result=%d stamina=%d", aid, id, res, s.Stamina)

@@ -111,24 +111,24 @@ func TestRecordTLUPEvents(t *testing.T) {
 	var logs bytes.Buffer
 	logger := log.New(&logs, "", 0)
 
-	for range economy.HeartBase {
+	for range economy.HeartBase() {
 		recordTLUPEvents(logger, tlupClientEvent(9711, 3, heartEvent(9712)))
 	}
 	recordTLUPEvents(logger, tlupClientEvent(9711, 4, heartEvent(9712))) // refused: cap
-	if got := economy.HeartsReceived("9712"); got != economy.HeartBase {
-		t.Fatalf("received = %d, want %d", got, economy.HeartBase)
+	if got := economy.HeartsReceived("9712"); got != economy.HeartBase() {
+		t.Fatalf("received = %d, want %d", got, economy.HeartBase())
 	}
 	store.AccountsMu.Lock()
 	gems := store.AccountByAidLocked("9711").Gems
 	store.AccountsMu.Unlock()
-	if gems != economy.HeartRewardGems {
-		t.Fatalf("sender gems = %d, want %d", gems, economy.HeartRewardGems)
+	if gems != economy.HeartRewardGems() {
+		t.Fatalf("sender gems = %d, want %d", gems, economy.HeartRewardGems())
 	}
-	if notes := takeQuestNotices(9711); len(notes) != 1 || notes[0].ID != economy.QuestHeartID {
+	if notes := takeQuestNotices(9711); len(notes) != 1 || notes[0].ID != economy.HeartQuest().ID {
 		t.Fatalf("notices = %+v, want one hearts notice", notes)
 	}
-	if got := strings.Count(logs.String(), "cherry: tlup event aid=9711 "); got != economy.HeartBase+1 {
-		t.Fatalf("tlup event lines = %d, want %d", got, economy.HeartBase+1)
+	if got := strings.Count(logs.String(), "cherry: tlup event aid=9711 "); got != int(economy.HeartBase())+1 {
+		t.Fatalf("tlup event lines = %d, want %d", got, economy.HeartBase()+1)
 	}
 	if line := `cherry: tlup event aid=9711 service=102 event=12 params=["youraid"]` + "\n"; !strings.Contains(logs.String(), line) {
 		t.Fatalf("log lacks %q in %q", line, logs.String())

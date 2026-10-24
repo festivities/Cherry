@@ -1,0 +1,20 @@
+{
+  "daily_cap": 150,
+  "rare_percent": 10,
+  "fish": [
+    {"id": 4101, "name": "Square Carp", "level": 1, "gems": 5, "rare": false, "tint": "#f08228"},
+    {"id": 4102, "name": "Square Sunfish", "level": 1, "gems": 6, "rare": false, "tint": "#5aaa5a"},
+    {"id": 4103, "name": "Square Goldfish", "level": 1, "gems": 7, "rare": false, "tint": "#fabe28"},
+    {"id": 4104, "name": "Square Bream", "level": 1, "gems": 8, "rare": false, "tint": "#aab4c3"},
+    {"id": 4105, "name": "Square Trout", "level": 1, "gems": 9, "rare": false, "tint": "#7896d2"},
+    {"id": 4106, "name": "Square Eel", "level": 1, "gems": 10, "rare": false, "tint": "#5f693c"},
+    {"id": 4201, "name": "Golden Square Koi", "level": 3, "gems": 25, "rare": true, "tint": "#ffcd1e"},
+    {"id": 4202, "name": "Crystal Square Ray", "level": 3, "gems": 25, "rare": true, "tint": "#78e1ff"}
+  ],
+  "shop": [
+    {"id": 9001, "name": "Square Rod", "kind": "rod", "price": 150, "rare_bonus": 3},
+    {"id": 9002, "name": "Pro Rod", "kind": "rod", "price": 450, "rare_bonus": 6},
+    {"id": 9101, "name": "Worm Bait", "kind": "bait", "price": 40, "rare_bonus": 1},
+    {"id": 9102, "name": "Golden Bait", "kind": "bait", "price": 120, "rare_bonus": 2}
+  ]
+}

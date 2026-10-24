@@ -59,7 +59,7 @@ func TestQuestStatusHeartBlock(t *testing.T) {
 	if !ok || !regexp.MustCompile(`^[0-9]+$`).MatchString(expire) || expire != "64800" {
 		t.Fatalf("toExpire = %#v, want decimal string 64800 (18 h to the 06:00 JST reset)", got.Result["toExpire"])
 	}
-	for range economy.HeartBase {
+	for range economy.HeartBase() {
 		if !economy.HeartSend("9901", "9902", heartTestNow()) {
 			t.Fatal("heart refused")
 		}
@@ -112,7 +112,7 @@ func TestHeartRoutes(t *testing.T) {
 	if got := get("/v4/heart/haveHeart/9902"); !got["result"] {
 		t.Fatalf("haveHeart under cap = %v", got)
 	}
-	for range economy.HeartBase {
+	for range economy.HeartBase() {
 		economy.HeartSend("9901", "9902", heartTestNow())
 	}
 	if got := get("/v4/heart/haveHeart/9902"); got["result"] {

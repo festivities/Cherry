@@ -29,7 +29,7 @@ func TestAttendanceSkinServed(t *testing.T) {
 		t.Fatalf("plist %d", rec.Code)
 	}
 	ini := skinGet(v + "ini/DailybonusMainPopupNew.ini")
-	if ini.Code != 200 || strings.Count(ini.Body.String(), "[") != len(attendFrameFiles)+len(attendCycle) {
+	if ini.Code != 200 || strings.Count(ini.Body.String(), "[") != len(attendFrameFiles)+len(normalSchedule().Cycle) {
 		t.Fatalf("ini %d %q", ini.Code, ini.Body.String())
 	}
 	for _, n := range attendNames() {
@@ -66,7 +66,7 @@ func TestAttendancePlistRepointed(t *testing.T) {
 			t.Errorf("stock reward art %s still referenced", old)
 		}
 	}
-	for d := 1; d <= len(attendCycle); d++ {
+	for d := 1; d <= len(normalSchedule().Cycle); d++ {
 		if !strings.Contains(s, "UIResource/UIImage/"+attendTileName(d)) {
 			t.Errorf("day %d tile missing", d)
 		}
@@ -77,7 +77,7 @@ func TestAttendancePlistRepointed(t *testing.T) {
 }
 
 func TestAttendanceImages(t *testing.T) {
-	for d := 1; d <= len(attendCycle); d++ {
+	for d := 1; d <= len(normalSchedule().Cycle); d++ {
 		b, err := attendFile(attendTileName(d))
 		if err != nil {
 			t.Fatal(err)
@@ -103,14 +103,13 @@ func TestAttendanceImages(t *testing.T) {
 }
 
 func TestAttendanceVersionFollowsCycle(t *testing.T) {
-	old := attendCycle
-	defer func() { attendCycle = old }()
-	base := AttendScheduleID
+	base := NormalScheduleID()
 	if base < 100 || base > 999 {
 		t.Fatalf("schedule id %d not 3 digits", base)
 	}
-	attendCycle[0].Gems++
-	if v := attendVersion(attendCycle); v == base {
+	cycle := normalSchedule().Cycle // a copy: the loaded calendar is not touched
+	cycle[0].Gems++
+	if v := attendVersion(cycle); v == base {
 		t.Fatalf("version did not change with the cycle: %d", v)
 	}
 }
@@ -128,7 +127,7 @@ func TestAttendancePreview(t *testing.T) {
 	// the 568pt layer is assumed bottom-left anchored; the bg is cropped to fit
 	canvas := image.NewNRGBA(image.Rect(0, 0, W, H))
 	draw.Draw(canvas, canvas.Bounds(), bg, image.Pt(0, 0), draw.Src)
-	for i := 0; i < len(attendCycle); i++ {
+	for i := 0; i < len(normalSchedule().Cycle); i++ {
 		px, py := 11+60*(i%5), 342-60*(i/5) // cocos points, origin bottom-left
 		tile, _ := png.Decode(bytes.NewReader(mustFile(t, attendTileName(i+1))))
 		top := H - (py+5)*2 - 136

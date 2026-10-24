@@ -52,7 +52,7 @@ func TestChooseFishRollPaths(t *testing.T) {
 	if got.ID != 4106 || got.Rare || got.Gems != 10 {
 		t.Fatalf("common pick = %+v", got)
 	}
-	for _, f := range append(append([]FishDef{}, fishNormal...), fishRare...) {
+	for _, f := range append(append([]FishDef{}, ActiveFishing().normal...), ActiveFishing().rare...) {
 		if f.Gems < 5 || (f.Rare && f.Gems != 25) || (!f.Rare && f.Gems > 10) {
 			t.Fatalf("payout out of range: %+v", f)
 		}
@@ -62,7 +62,7 @@ func TestChooseFishRollPaths(t *testing.T) {
 func TestFishCatchCapsAtDailyLimit(t *testing.T) {
 	fishAccount(t, "9901", 100, nil)
 	now := jstAt(11, 12, 0)
-	eel := fishNormal[5] // 10 Gems
+	eel := ActiveFishing().normal[5] // 10 Gems
 	for i := 0; i < 15; i++ {
 		if credit, ok := FishCatch("9901", eel, now); !ok || credit != 10 {
 			t.Fatalf("catch %d = (%d, %v), want (10, true)", i, credit, ok)
@@ -72,7 +72,7 @@ func TestFishCatchCapsAtDailyLimit(t *testing.T) {
 		t.Fatalf("catch past cap = (%d, %v), want (0, true)", credit, ok)
 	}
 	gems, rec := fishGems(t, "9901")
-	if gems != 100+FishingDailyCap || rec == nil || rec.Gems != FishingDailyCap || rec.Day != AttendDayKey(now) {
+	if gems != 100+ActiveFishing().DailyCap || rec == nil || rec.Gems != ActiveFishing().DailyCap || rec.Day != AttendDayKey(now) {
 		t.Fatalf("gems=%d record=%+v", gems, rec)
 	}
 }
@@ -80,7 +80,7 @@ func TestFishCatchCapsAtDailyLimit(t *testing.T) {
 func TestFishCatchPartialLastCatchIsCapped(t *testing.T) {
 	today := AttendDayKey(jstAt(11, 12, 0))
 	fishAccount(t, "9902", 0, &store.FishingDay{Day: today, Gems: 145})
-	eel := fishNormal[5]
+	eel := ActiveFishing().normal[5]
 	if credit, ok := FishCatch("9902", eel, jstAt(11, 12, 0)); !ok || credit != 5 {
 		t.Fatalf("partial = (%d, %v), want (5, true)", credit, ok)
 	}
@@ -91,8 +91,8 @@ func TestFishCatchPartialLastCatchIsCapped(t *testing.T) {
 
 func TestFishCatchDayRolloverResetsCap(t *testing.T) {
 	yesterday := AttendDayKey(jstAt(10, 12, 0))
-	fishAccount(t, "9903", 0, &store.FishingDay{Day: yesterday, Gems: FishingDailyCap})
-	eel := fishNormal[5]
+	fishAccount(t, "9903", 0, &store.FishingDay{Day: yesterday, Gems: ActiveFishing().DailyCap})
+	eel := ActiveFishing().normal[5]
 	// 05:59 JST is still the previous game day, so the old record stays capped.
 	if credit, ok := FishCatch("9903", eel, jstAt(11, 5, 59)); !ok || credit != 0 {
 		t.Fatalf("before 06:00 = (%d, %v), want (0, true)", credit, ok)
@@ -114,7 +114,7 @@ func TestFishCatchSaveFailureRollsBack(t *testing.T) {
 	store.AccountsMu.Lock()
 	store.AccountStorePath = filepath.Join(blocker, "accounts.json") // MkdirAll fails: the parent is a file
 	store.AccountsMu.Unlock()
-	if credit, ok := FishCatch("9904", fishNormal[5], jstAt(11, 12, 0)); ok || credit != 0 {
+	if credit, ok := FishCatch("9904", ActiveFishing().normal[5], jstAt(11, 12, 0)); ok || credit != 0 {
 		t.Fatalf("failed save = (%d, %v), want (0, false)", credit, ok)
 	}
 	if gems, rec := fishGems(t, "9904"); gems != 40 || rec != nil {
@@ -124,7 +124,7 @@ func TestFishCatchSaveFailureRollsBack(t *testing.T) {
 
 func TestFishCatchLedgerReason(t *testing.T) {
 	dir := fishAccount(t, "9905", 0, nil)
-	if _, ok := FishCatch("9905", fishNormal[5], jstAt(11, 12, 0)); !ok {
+	if _, ok := FishCatch("9905", ActiveFishing().normal[5], jstAt(11, 12, 0)); !ok {
 		t.Fatal("catch failed")
 	}
 	b, err := os.ReadFile(filepath.Join(dir, "ledger.jsonl"))
@@ -140,13 +140,13 @@ func TestFishCatchLedgerReason(t *testing.T) {
 // TestFishCardNameAndImage: the card line carries the payout (stock fish card has no Gem line),
 // and every catalogue fish has a tinted picture; unknown ids 404.
 func TestFishCardNameAndImage(t *testing.T) {
-	if got := FishCardName(fishNormal[0], 5); got != "Square Carp +5 Gems" {
+	if got := FishCardName(ActiveFishing().normal[0], 5); got != "Square Carp +5 Gems" {
 		t.Fatalf("name = %q", got)
 	}
-	if got := FishCardName(fishNormal[0], 0); got != "Square Carp (daily Gem limit reached)" {
+	if got := FishCardName(ActiveFishing().normal[0], 0); got != "Square Carp (daily Gem limit reached)" {
 		t.Fatalf("capped name = %q", got)
 	}
-	for _, f := range append(slices.Clone(fishNormal), fishRare...) {
+	for _, f := range append(slices.Clone(ActiveFishing().normal), ActiveFishing().rare...) {
 		rec := httptest.NewRecorder()
 		HandleFishImage(rec, httptest.NewRequest(http.MethodGet, "/cherry/fish/"+strconv.FormatInt(f.ID, 10)+".png", nil))
 		if rec.Code != http.StatusOK {

@@ -32,8 +32,8 @@ func main() {
 	if err := store.LoadSocial(); err != nil {
 		logger.Fatalf("cherry: load social: %v", err)
 	}
-	if err := economy.LoadAtelier(); err != nil {
-		logger.Fatalf("cherry: %v", err)
+	if err := economy.LoadOperatorData(); err != nil {
+		logger.Fatalf("cherry: operator data: %v", err)
 	}
 
 	certs, err := netsvc.GenerateCerts()

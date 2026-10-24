@@ -119,7 +119,7 @@ func TestAtelierClothingProductNeedsArt(t *testing.T) {
 // TestAtelierOverrideReplacesDefault: an operator file replaces the default; a bad one is refused
 // and leaves the active recipes unchanged; a missing file keeps the default.
 func TestAtelierOverrideReplacesDefault(t *testing.T) {
-	t.Cleanup(func() { atelierLoaded.Store(nil) })
+	t.Cleanup(func() { atelierFile.Reset() })
 	dir := t.TempDir()
 	path := filepath.Join(dir, "atelier.json")
 	override := `{"stamina":{"max":3,"regen_seconds":60},
@@ -129,7 +129,7 @@ func TestAtelierOverrideReplacesDefault(t *testing.T) {
 	if err := os.WriteFile(path, []byte(override), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := loadAtelierFrom(path); err != nil {
+	if err := atelierFile.LoadFrom(path); err != nil {
 		t.Fatalf("override: %v", err)
 	}
 	if a := ActiveAtelier(); a.Stamina.Max != 3 || len(a.Designs) != 1 || a.Designs[0].ID != 700001 {
@@ -140,15 +140,15 @@ func TestAtelierOverrideReplacesDefault(t *testing.T) {
 	if err := os.WriteFile(bad, []byte(strings.Replace(override, `"item":210000`, `"item":5`, 1)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := loadAtelierFrom(bad); err == nil || !strings.Contains(err.Error(), "design 700001: input 5") || !strings.Contains(err.Error(), bad) {
+	if err := atelierFile.LoadFrom(bad); err == nil || !strings.Contains(err.Error(), "design 700001: input 5") || !strings.Contains(err.Error(), bad) {
 		t.Fatalf("bad override error = %v", err)
 	}
 	if a := ActiveAtelier(); len(a.Designs) != 1 || a.Designs[0].ID != 700001 {
 		t.Fatal("a refused override changed the active recipes")
 	}
 
-	atelierLoaded.Store(nil)
-	if err := loadAtelierFrom(filepath.Join(dir, "missing.json")); err != nil {
+	atelierFile.Reset()
+	if err := atelierFile.LoadFrom(filepath.Join(dir, "missing.json")); err != nil {
 		t.Fatalf("missing override: %v", err)
 	}
 	if a := ActiveAtelier(); a.Stamina.Max != 100 || len(a.Designs) != 10 {

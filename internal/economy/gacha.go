@@ -2,6 +2,7 @@ package economy
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"net/http"
@@ -10,7 +11,9 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"cherry/data"
 	"cherry/internal/httpx"
+	"cherry/internal/opdata"
 	"cherry/internal/room"
 	"cherry/internal/store"
 )
@@ -25,16 +28,64 @@ import (
 // array), ResGachaBannerList 0x1aac350 (result object), ResGachaCategroy 0x1b17224 (result array),
 // ResGachaCategroy_Detail 0x1aab120 (list object), ResGachaLikeItemList 0x1b51bb8 (result array).
 
-const (
-	gachaID            = 1001
-	gachaName          = "Cherry Gacha"
-	gachaCoinPrice     = 100
-	gachaBundlePrice   = 900
-	gachaBundleSize    = 10
-	gachaRarePct       = 10 // RARE odds per pull, percent; the rest is normal
-	gachaRefundPct     = 50 // duplicate refund, percent of the item price, rounded up
-	gachaCollectionMax = 60 // rows served on the detail page
-)
+// Gacha is data/gacha.json: the one Gem gacha over the shop's clothing and furniture.
+//
+//	id, name          the gacha's id and title (the client's gachaId and banner text)
+//	coin_price        Gems per pull; bundle_price buys bundle_size pulls (1 to 50)
+//	rare_percent      RARE (animated) odds per pull, 0 to 100; a bundle always includes one RARE
+//	refund_percent    a duplicate refunds this percent of its price in Gems, rounded up
+//	collection_max    rows served on the detail page
+//	kinds             the pool: "fashion" (clothing) and/or "interior" (furniture); pets and faces never
+//	exclude           item codes never drawn (each must be a sellable code)
+type Gacha struct {
+	ID            int64    `json:"id"`
+	Name          string   `json:"name"`
+	CoinPrice     int64    `json:"coin_price"`
+	BundlePrice   int64    `json:"bundle_price"`
+	BundleSize    int      `json:"bundle_size"`
+	RarePercent   int      `json:"rare_percent"`
+	RefundPercent int64    `json:"refund_percent"`
+	CollectionMax int      `json:"collection_max"`
+	Kinds         []string `json:"kinds"`
+	Exclude       []string `json:"exclude"`
+}
+
+var gachaFile = opdata.New("gacha.json", data.GachaJSON, checkGacha, nil)
+
+// ActiveGacha is the gacha file in use.
+func ActiveGacha() *Gacha { return gachaFile.Get() }
+
+func checkGacha(g *Gacha) error {
+	switch {
+	case g.ID < 1:
+		return errors.New("id must be positive")
+	case g.Name == "":
+		return errors.New("name must not be empty")
+	case g.CoinPrice < 0 || g.BundlePrice < 0:
+		return errors.New("coin_price and bundle_price must not be negative")
+	case g.BundleSize < 1 || g.BundleSize > 50:
+		return errors.New("bundle_size must be 1 to 50")
+	case g.RarePercent < 0 || g.RarePercent > 100:
+		return errors.New("rare_percent must be 0 to 100")
+	case g.RefundPercent < 0 || g.RefundPercent > 100:
+		return errors.New("refund_percent must be 0 to 100")
+	case g.CollectionMax < 1:
+		return errors.New("collection_max must be at least 1")
+	case len(g.Kinds) == 0:
+		return errors.New("kinds must name fashion or interior")
+	}
+	for i, k := range g.Kinds {
+		if k != "fashion" && k != "interior" || slices.Contains(g.Kinds[:i], k) {
+			return fmt.Errorf("kinds: %q must be fashion or interior, once each", k)
+		}
+	}
+	for _, code := range g.Exclude {
+		if _, kind := classify(code); kind == 0 {
+			return fmt.Errorf("exclude: %q is not a sellable item code", code)
+		}
+	}
+	return nil
+}
 
 // gachaRoll returns a uniform index in [0, n). Tests replace it with a seeded or scripted source.
 var gachaRoll = func(n int) int { return rand.IntN(n) }
@@ -55,14 +106,19 @@ type gachaPool struct{ normal, rare []gachaEntry }
 
 func gachaPoolNow() gachaPool {
 	var p gachaPool
+	g := ActiveGacha()
 	c := loadCatalog()
 	for _, src := range []struct {
 		items []shopItem
 		kind  byte
-	}{{c.fashion, kindFashion}, {c.interior, kindInterior}} {
+		name  string
+	}{{c.fashion, kindFashion, "fashion"}, {c.interior, kindInterior, "interior"}} {
+		if !slices.Contains(g.Kinds, src.name) {
+			continue
+		}
 		for _, it := range src.items {
 			price, _, grade, ok := ItemPrice(it.Code)
-			if !ok {
+			if !ok || slices.Contains(g.Exclude, it.Code) {
 				continue
 			}
 			e := gachaEntry{code: it.Code, kind: src.kind, price: price, rare: grade == "R"}
@@ -86,13 +142,14 @@ func (p gachaPool) pick(rare bool) gachaEntry {
 	return tier[gachaRoll(len(tier))]
 }
 
-// rollGacha draws n pulls: each is RARE with gachaRarePct percent odds, then uniform in its tier.
+// rollGacha draws n pulls: each is RARE with rare_percent odds, then uniform in its tier.
 // guaranteed (the 10-pull) re-rolls the last pull from the RARE tier when no pull was RARE.
 func rollGacha(p gachaPool, n int, guaranteed bool) []gachaEntry {
 	out := make([]gachaEntry, n)
 	anyRare := false
+	rare := ActiveGacha().RarePercent
 	for i := range out {
-		out[i] = p.pick(gachaRoll(100) < gachaRarePct)
+		out[i] = p.pick(gachaRoll(100) < rare)
 		anyRare = anyRare || out[i].rare
 	}
 	if guaranteed && !anyRare && n > 0 {
@@ -101,9 +158,9 @@ func rollGacha(p gachaPool, n int, guaranteed bool) []gachaEntry {
 	return out
 }
 
-// gachaRefund is the Gem refund for a duplicate: gachaRefundPct of the price, rounded up.
+// gachaRefund is the Gem refund for a duplicate: refund_percent of the price, rounded up.
 func gachaRefund(price int64) int64 {
-	return (price*gachaRefundPct + 99) / 100
+	return (price*ActiveGacha().RefundPercent + 99) / 100
 }
 
 // gachaRowFor is the one gacha row: the thumbnail is the first RARE item (any item if none).
@@ -113,37 +170,40 @@ func gachaRefund(price int64) int64 {
 // (GachaPriceData kind 1, "First purchase") only when firstBuyPrice < price and the collection's
 // gatheringCount is 0 (GetCurrentGachaPriceData 0x2618fb4, caller 0x261a890).
 func gachaRowFor(p gachaPool) gachaRow {
+	g := ActiveGacha()
 	code := ""
 	if len(p.rare) > 0 {
 		code = p.rare[0].code
 	} else if len(p.normal) > 0 {
 		code = p.normal[0].code
 	}
+	coin := int(g.CoinPrice)
 	return gachaRow{
-		ItemCode: code, ItemID: gachaID, GachaID: gachaID, GachaName: gachaName,
-		GachaDesc: fmt.Sprintf("%d%% normal / %d%% RARE", 100-gachaRarePct, gachaRarePct), GachaType: "S",
-		Price: gachaCoinPrice, DiscountedPrice: gachaCoinPrice, FirstBuyPrice: gachaCoinPrice, RetryPrice: gachaCoinPrice,
-		BundleGachaEnabled: true, BundleGachaQuantity: gachaBundleSize, BundlePrice: gachaBundlePrice,
-		BundleDiscountedPrice: gachaBundlePrice, BundleGachaGuarantee: 1,
+		ItemCode: code, ItemID: int(g.ID), GachaID: int(g.ID), GachaName: g.Name,
+		GachaDesc: fmt.Sprintf("%d%% normal / %d%% RARE", 100-g.RarePercent, g.RarePercent), GachaType: "S",
+		Price: coin, DiscountedPrice: coin, FirstBuyPrice: coin, RetryPrice: coin,
+		BundleGachaEnabled: true, BundleGachaQuantity: g.BundleSize, BundlePrice: int(g.BundlePrice),
+		BundleDiscountedPrice: int(g.BundlePrice), BundleGachaGuarantee: 1,
 		Selling: true, Display: true,
 		GachaKindFlagNewTypes: []string{}, GachaKeywords: []string{},
 	}
 }
 
-// gachaCollectionFor lists the RARE tier, then a normal sample, up to gachaCollectionMax rows.
+// gachaCollectionFor lists the RARE tier, then a normal sample, up to collection_max rows.
 func gachaCollectionFor(p gachaPool) gachaCollection {
+	g := ActiveGacha()
 	items := []gachaCollectionItem{}
 	for _, e := range p.rare {
-		if len(items) < gachaCollectionMax {
+		if len(items) < g.CollectionMax {
 			items = append(items, gachaCollectionItem{ItemCode: e.code, Grade: "R"})
 		}
 	}
 	for _, e := range p.normal {
-		if len(items) < gachaCollectionMax {
+		if len(items) < g.CollectionMax {
 			items = append(items, gachaCollectionItem{ItemCode: e.code})
 		}
 	}
-	return gachaCollection{CollectionNo: gachaID, CollectionName: gachaName, TotalLikesCount: "0", CollectionItems: items}
+	return gachaCollection{CollectionNo: int(g.ID), CollectionName: g.Name, TotalLikesCount: "0", CollectionItems: items}
 }
 
 // ---- reply shapes (JSON key types as verified above) ----
@@ -310,7 +370,7 @@ func (o gachaOutcome) specialEffects() string {
 }
 
 func (o gachaOutcome) rewardLog(aid string, seq int64) gachaRewardLog {
-	return gachaRewardLog{RewardLogSeq: strconv.FormatInt(seq, 10), AvatarID: aid, GachaID: gachaID,
+	return gachaRewardLog{RewardLogSeq: strconv.FormatInt(seq, 10), AvatarID: aid, GachaID: int(ActiveGacha().ID),
 		ItemCode: o.entry.code, RewardedCoin: strconv.FormatInt(o.refund, 10), Rewarded: true,
 		ItemName: ItemName(o.entry.code), Grade: o.grade(), SpecialEffects: o.specialEffects()}
 }
@@ -357,7 +417,7 @@ func handleGachaDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	rep := gachaDetailReply{NextCursor: "0", PreviousCursor: "0", TotalCount: "0",
 		Items: []gachaDetailItem{}, NewUpgradeItems: []any{}, SimilarGachas: []any{}}
-	if strings.TrimPrefix(r.URL.Path, "/v4/shop/gacha/detail/target/") == strconv.Itoa(gachaID) {
+	if strings.TrimPrefix(r.URL.Path, "/v4/shop/gacha/detail/target/") == strconv.FormatInt(ActiveGacha().ID, 10) {
 		p := gachaPoolNow()
 		rep.TotalCount = "1"
 		rep.Items = []gachaDetailItem{{gachaRow: gachaRowFor(p), Collection: gachaCollectionFor(p)}}
@@ -367,6 +427,7 @@ func handleGachaDetail(w http.ResponseWriter, r *http.Request) {
 
 // gachaOddsHTML is the odds page the thumbnail button opens in a webview.
 func gachaOddsHTML(p gachaPool) string {
+	g := ActiveGacha()
 	share := func(n, pct int) string {
 		if n == 0 {
 			return "no items"
@@ -378,23 +439,23 @@ func gachaOddsHTML(p gachaPool) string {
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Cherry Gacha odds</title></head>
 <body>
 <h1>%s</h1>
-<p>Price: %d Gems per pull, or %d Gems for 10 pulls. The 10-pull always includes at least one RARE item.</p>
+<p>Price: %d Gems per pull, or %d Gems for %d pulls. The %d-pull always includes at least one RARE item.</p>
 <h2>Odds</h2>
 <ul>
 <li>Normal: %d%% in total, %s</li>
 <li>RARE (animated): %d%% in total, %s</li>
 </ul>
 <h2>Duplicates</h2>
-<p>An item you already own, or one that repeats within the same 10-pull, is not given again. You get %d%% of its price back in Gems (rounded up).</p>
+<p>An item you already own, or one that repeats within the same %d-pull, is not given again. You get %d%% of its price back in Gems (rounded up).</p>
 </body>
 </html>
-`, gachaName, gachaCoinPrice, gachaBundlePrice,
-		100-gachaRarePct, share(len(p.normal), 100-gachaRarePct),
-		gachaRarePct, share(len(p.rare), gachaRarePct), gachaRefundPct)
+`, g.Name, g.CoinPrice, g.BundlePrice, g.BundleSize, g.BundleSize,
+		100-g.RarePercent, share(len(p.normal), 100-g.RarePercent),
+		g.RarePercent, share(len(p.rare), g.RarePercent), g.BundleSize, g.RefundPercent)
 }
 
 func handleGachaOdds(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet || strings.TrimPrefix(r.URL.Path, "/web/probability/item/gacha/") != strconv.Itoa(gachaID) {
+	if r.Method != http.MethodGet || strings.TrimPrefix(r.URL.Path, "/web/probability/item/gacha/") != strconv.FormatInt(ActiveGacha().ID, 10) {
 		httpx.ServeNotFound(w)
 		return
 	}
@@ -426,11 +487,12 @@ func handleGachaPurchase(bundle bool) http.HandlerFunc {
 			httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 			return
 		}
-		cost, draws := int64(gachaCoinPrice), 1
+		g := ActiveGacha()
+		cost, draws := g.CoinPrice, 1
 		if bundle {
-			cost, draws = gachaBundlePrice, gachaBundleSize
+			cost, draws = g.BundlePrice, g.BundleSize
 		}
-		if id, ok := lenientInt(req.GachaID); !ok || id != gachaID {
+		if id, ok := lenientInt(req.GachaID); !ok || id != g.ID {
 			shopError(w, r, raw, errUpdated, "unknown gacha")
 			return
 		}
@@ -492,7 +554,7 @@ func handleGachaPurchase(bundle bool) http.HandlerFunc {
 		}
 
 		lines, err := store.SpendLocked(acc, store.LedgerDeltas{Gems: refund - cost},
-			"gacha:"+strconv.Itoa(gachaID)+":"+strings.Join(codes, ","))
+			"gacha:"+strconv.FormatInt(g.ID, 10)+":"+strings.Join(codes, ","))
 		if err != nil { // only the balance ceiling can refuse here; nothing changed
 			shopError(w, r, raw, errTooMany, "balance limit")
 			return

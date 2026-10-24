@@ -117,7 +117,7 @@ func TestDealPickRules(t *testing.T) {
 				t.Fatalf("day %d: %s deal price %d, want %d", day, code, price, dealPrice(table))
 			}
 		}
-		if clothing != dealsPerKind || furniture != dealsPerKind {
+		if clothing != ActivePrices().DealsPerKind || furniture != ActivePrices().DealsPerKind {
 			t.Fatalf("day %d: %d clothing and %d furniture deals, want 3 and 3", day, clothing, furniture)
 		}
 		sets[strings.Join(slices.Sorted(maps.Keys(deals)), ",")] = true
@@ -133,7 +133,7 @@ func TestDealsStableWithinGameDayAndRestart(t *testing.T) {
 	dealFixture(t)
 	a := dealsOn(dealAt(2026, time.October, 22, 6, 0))
 	b := dealsOn(dealAt(2026, time.October, 22, 23, 59))
-	if len(a) != 2*dealsPerKind || !maps.Equal(a, b) {
+	if len(a) != 2*ActivePrices().DealsPerKind || !maps.Equal(a, b) {
 		t.Fatalf("deals at 06:00 %v and 23:59 %v differ or are short", a, b)
 	}
 	catalogMu.Lock()

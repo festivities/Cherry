@@ -39,16 +39,7 @@ type calDay struct {
 // popup (SetItemDpImage) draws from the row's itemCd.
 const itemRewardType = "ITEM"
 
-// Amounts in one table so they are easy to tune.
-var attendCycle = [7]calDay{
-	{Type: "GEM", Gems: 90},
-	{Type: "GEM", Gems: 120},
-	{Type: "GEM", Gems: 150},
-	{Type: "GEM", Gems: 180},
-	{Type: "GEM", Gems: 240},
-	{Type: "GEM", Gems: 300},
-	{Type: "VOUCH", Gems: 450, Cash: 15, Tickets: 3},
-}
+// The reward amounts of the normal cycle are in calendars.json (ActiveCalendars).
 
 const (
 	attendBoundaryShift = 3 * 3600 // day boundary 06:00 JST = 21:00 UTC

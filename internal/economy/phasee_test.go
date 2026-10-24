@@ -85,7 +85,7 @@ func phaseEJSON(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 
 func phaseEAddItemMail(t *testing.T, acc *store.Account, code string) int64 {
 	t.Helper()
-	if !addMailLocked(acc, store.MailRow{Type: store.MailTypeItem, Item: code, Message: "gift", Sender: MailSender}, mailDefaultDays, NowFunc()) {
+	if !addMailLocked(acc, store.MailRow{Type: store.MailTypeItem, Item: code, Message: "gift", Sender: MailSender()}, ActiveRewards().Mail.DefaultDays, NowFunc()) {
 		t.Fatal("mailbox full")
 	}
 	return acc.NextMailSeq
@@ -145,7 +145,7 @@ func TestMailItemRowShape(t *testing.T) {
 	if !ok {
 		t.Fatalf("senderAvatar must be an object, got %T", row["senderAvatar"])
 	}
-	if sender["avatarId"] != "0" || sender["name"] != MailSender {
+	if sender["avatarId"] != "0" || sender["name"] != MailSender() {
 		t.Errorf("senderAvatar = %v", sender)
 	}
 	if _, ok := sender["items"].([]any); !ok {
@@ -344,7 +344,7 @@ func TestSeasonByGameDay(t *testing.T) {
 // TestSeasonScheduleIDsDistinct: every calendar's skin version differs from the others.
 func TestSeasonScheduleIDsDistinct(t *testing.T) {
 	seen := map[int]string{normalSchedule().ID: "normal"}
-	for _, s := range seasonTable {
+	for _, s := range seasons() {
 		id := s.withID().ID
 		if id < 100 || id > 999 {
 			t.Errorf("%s id %d out of range", s.Name, id)
@@ -523,7 +523,7 @@ func TestSeasonNewYearHasNoItemDays(t *testing.T) {
 		t.Fatalf("calendar %q, want newyear", sched.Name)
 	}
 	for i, d := range sched.Cycle {
-		if d.Item != "" || d != attendCycle[i] {
+		if d.Item != "" || d != normalSchedule().Cycle[i] {
 			t.Errorf("day %d = %+v, want the normal reward", i+1, d)
 		}
 	}

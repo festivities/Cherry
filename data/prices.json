@@ -1,0 +1,27 @@
+{
+  "clothing_prices": {"HA": 200, "ON": 250, "TO": 150, "PA": 150, "SH": 120, "AH": 120, "FE": 120, "AE": 100},
+  "interior_price": 150,
+  "interior_prices": {"WA": 100, "TI": 100},
+  "pet_price": 1200,
+  "animated_percent": 250,
+  "animated_pet_cash": 25,
+  "sell_back_percent": 100,
+  "face_ticket_cost": 1,
+  "deal_paid_percent": 70,
+  "deals_per_kind": 3,
+  "clothing_names": {
+    "HA": "Hair", "ON": "Outfit", "TO": "Top", "PA": "Bottoms", "SH": "Shoes",
+    "AH": "Accessory", "AE": "Accessory", "FE": "Accessory", "HE": "Face", "EB": "Eyebrows",
+    "EY": "Eyes", "NO": "Nose", "MO": "Mouth"
+  },
+  "room_names": {
+    "UWLPP": "Wallpaper", "UFLOR": "Flooring", "UTABL": "Table", "UCHAIR": "Chair", "UDRES": "Dresser",
+    "UBAD": "Bed", "UKICH": "Kitchen Item", "UBATH": "Bath Item", "UMEDIA": "Electronics", "UPLANT": "Plant",
+    "UFOOD": "Food", "UALBM": "Album", "UWNDW": "Window", "UDOOR": "Door", "UWLDC": "Wall Decor",
+    "UFLDC": "Floor Decor"
+  },
+  "face_tickets": [
+    {"code": "FSV1", "tickets": 1, "standard": 150, "price": 150, "name": "1 Face Shop ticket"},
+    {"code": "FSV5", "tickets": 5, "standard": 750, "price": 650, "name": "5 Face Shop tickets"}
+  ]
+}

@@ -38,8 +38,6 @@ const tx543UpdateIniBody = `[start=1,end=1,size=454656,/arts_strings.ast:version
 
 const skinFileIniBody = `[empty]`
 
-const popupIsExistsBody = `{"result":false}`
-
 const eventFlagListBody = `{"result":[]}`
 
 const snsTermsBody = `{"result":true}`
@@ -278,7 +276,9 @@ func NewMux() *http.ServeMux {
 	mux.HandleFunc("/v4/setInitConf", handleSetInitConf)
 	mux.HandleFunc("/v4/resource/splash/", handleSplash)
 	mux.HandleFunc("/notice/adr/checkresource2.json", handleCheckResource2)
-	mux.HandleFunc("/v4/popup/isExists", httpx.HandleJSONBody(popupIsExistsBody))
+	mux.HandleFunc("/v4/popup/isExists", economy.HandlePopupIsExists)
+	mux.HandleFunc("/v4/popup/list", economy.HandlePopupList)
+	mux.HandleFunc("/cherry/event/", economy.HandleEventPopupImage)
 	mux.HandleFunc("/v4/eventFlag/flagList", httpx.HandleJSONBody(eventFlagListBody))
 	mux.HandleFunc("/v4/social/terms/sns", handleSnsTerms)
 	mux.HandleFunc("/v4/setting/term/all", httpx.HandleJSONBody(termAllBody))
@@ -831,17 +831,6 @@ func isSkinItemCode(code string) bool {
 	return len(code) == 6 && strings.HasPrefix(code, "SKN") && httpx.IsAllDigits(code[3:])
 }
 
-// tutorialAvatarTypes maps the four avatar IDs requested by
-// NaCreateLayer::InitCloneAvatars to a synthesized appearance. The sex
-// assignment is a deterministic stand-in; the authentic per-ID appearances are
-// not in the archives.
-var tutorialAvatarTypes = map[string]string{
-	"1151262555912366100": "MALE",
-	"1151262590612422506": "FEMALE",
-	"1151262602112441105": "ANIMAL",
-	"1151262571612391402": "MALE",
-}
-
 func handleAvatarInfo(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		httpx.ServeNotFound(w)
@@ -866,8 +855,10 @@ func handleAvatarInfo(w http.ResponseWriter, r *http.Request) {
 	} else if id == store.FriendAID {
 		info.Name = store.FriendName
 		info.Items = store.AvatarItemsFromCodes(workableLook("FEMALE"))
-	} else if sex, ok := tutorialAvatarTypes[id]; ok {
-		info.Name = "cherry"
+	} else if sex, ok := economy.ActiveProfiles().CloneAvatars[id]; ok {
+		// The four clone avatars the create flow asks for (NaCreateLayer::InitCloneAvatars); their
+		// synthesized appearance is operator data (profiles.json). The authentic ones are not in the archives.
+		info.Name = economy.ActiveProfiles().CloneName
 		info.Gender = sex
 		info.Items = store.AvatarItemsFromCodes(workableLook(sex))
 	}

@@ -494,8 +494,6 @@ func TestProfile(t *testing.T) {
 
 func TestFapiStubs(t *testing.T) {
 	cases := []struct{ path, body string }{
-		{"/v4/popup/isExists", popupIsExistsBody},
-		{"/v4/popup/isExists?officialAvatarId=12345", popupIsExistsBody},
 		{"/v4/eventFlag/flagList?deviceType=Android", eventFlagListBody},
 	}
 	for _, c := range cases {

@@ -19,8 +19,8 @@ func TestChooseFishWithBonusRaisesRare(t *testing.T) {
 	if got := ChooseFishWithBonus(rolls(10, 0), 0); got.Rare {
 		t.Fatalf("roll 10 without gear = %+v, want normal", got)
 	}
-	if got := ChooseFishWithBonus(rolls(10, 0), 1); !got.Rare || got.ID != fishRare[0].ID {
-		t.Fatalf("roll 10 with +1 = %+v, want rare %d", got, fishRare[0].ID)
+	if got := ChooseFishWithBonus(rolls(10, 0), 1); !got.Rare || got.ID != ActiveFishing().rare[0].ID {
+		t.Fatalf("roll 10 with +1 = %+v, want rare %d", got, ActiveFishing().rare[0].ID)
 	}
 }
 

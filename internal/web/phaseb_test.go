@@ -50,7 +50,7 @@ func TestAttendTodayInfoShapes(t *testing.T) {
 	}
 	_, info := ecoGet(t, "GET", "/v4/dailybonus/info", "")
 	res = obj(t, info, "result")
-	if res["bonusCount"] != 7.0 || res["todayCount"] != 1.0 || res["attendable"] != true || res["lastDay"] != false || res["scheduleId"] != float64(economy.AttendScheduleID) {
+	if res["bonusCount"] != 7.0 || res["todayCount"] != 1.0 || res["attendable"] != true || res["lastDay"] != false || res["scheduleId"] != float64(economy.NormalScheduleID()) {
 		t.Fatalf("info %v", res)
 	}
 	// ResData: hour/min are asString.
@@ -313,7 +313,7 @@ func TestMailboxLifecycle(t *testing.T) {
 				t.Fatalf("row %d %s not bool", i, k)
 			}
 		}
-		if obj(t, row, "senderAvatar")["name"] != economy.MailSender {
+		if obj(t, row, "senderAvatar")["name"] != economy.MailSender() {
 			t.Fatal("sender")
 		}
 	}
@@ -433,10 +433,10 @@ func TestAdminMailRulesAndAll(t *testing.T) {
 		t.Fatalf("all %d %s", rec.Code, rec.Body)
 	}
 	// The mailbox is capped.
-	for i := 0; i < economy.MailMaxRows; i++ {
+	for i := 0; i < economy.MailMaxRows(); i++ {
 		adminMail(t, "127.0.0.1:1", good)
 	}
-	if rec := adminMail(t, "[::1]:1", good); rec.Code != 400 || len(acc.Mail) != economy.MailMaxRows {
+	if rec := adminMail(t, "[::1]:1", good); rec.Code != 400 || len(acc.Mail) != economy.MailMaxRows() {
 		t.Fatalf("cap %d len %d", rec.Code, len(acc.Mail))
 	}
 	var m store.MailRow

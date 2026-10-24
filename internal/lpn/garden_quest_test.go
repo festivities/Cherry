@@ -43,8 +43,8 @@ func TestGardenQuestListEncoding(t *testing.T) {
 	if v, ok := vars[1]; !ok || v != 0 {
 		t.Fatalf("error_code = %d present=%v, want present 0", v, ok)
 	}
-	if len(msgs[2]) != len(economy.QuestCatalog) {
-		t.Fatalf("regular quests = %d, want %d", len(msgs[2]), len(economy.QuestCatalog))
+	if len(msgs[2]) != len(economy.QuestCatalog(now)) {
+		t.Fatalf("regular quests = %d, want %d", len(msgs[2]), len(economy.QuestCatalog(now)))
 	}
 	if vars[10] != 2 || vars[11] != 5 || vars[13] != 1 {
 		t.Fatalf("today/max/tutorial = %d/%d/%d, want 2/5/1", vars[10], vars[11], vars[13])
@@ -57,9 +57,9 @@ func TestGardenQuestListEncoding(t *testing.T) {
 		9002: {1, 0, 1}, // in progress
 		9003: {2, 1, 1}, // claimed
 		9004: {1, 0, 1},
-		9005: {1, 2, economy.HeartBase}, // hearts: 2 of 5 sent
+		9005: {1, 2, uint64(economy.HeartBase())}, // hearts: 2 of 5 sent
 	}
-	for i, def := range economy.QuestCatalog {
+	for i, def := range economy.QuestCatalog(now) {
 		qv, qm := pbFields(t, msgs[2][i])
 		if qv[1] != uint64(def.ID) || string(getBytes(t, qm[2])) != def.Name {
 			t.Fatalf("row %d id/name = %d/%q, want %d/%q", i, qv[1], getBytes(t, qm[2]), def.ID, def.Name)
@@ -131,20 +131,20 @@ func TestGardenQuestCompleteAndInfoReplies(t *testing.T) {
 
 	// The hearts row is display-only: five hearts show it claimed (status 2, 5 of 5), and a claim
 	// is refused with no reward row, because HeartSend already paid the 30 Gems.
-	for range economy.HeartBase {
+	for range uint64(economy.HeartBase()) {
 		economy.HeartSend("9711", store.FriendAID, now)
 	}
-	msgid, body = gardenQuestReply(16, 9711, pbVar(nil, 1, economy.QuestHeartID), now, logger)
+	msgid, body = gardenQuestReply(16, 9711, pbVar(nil, 1, uint64(economy.HeartQuest().ID)), now, logger)
 	vars, msgs = pbFields(t, body)
 	if msgid != 22 || vars[2] != 0 || len(msgs[3]) != 1 {
 		t.Fatalf("hearts info reply = msgid %d vars %v", msgid, vars)
 	}
 	iv, im := pbFields(t, getBytes(t, msgs[3]))
 	dv, _ := pbFields(t, getBytes(t, im[5]))
-	if iv[7] != 2 || dv[3] != economy.HeartBase || dv[4] != economy.HeartBase {
+	if iv[7] != 2 || dv[3] != uint64(economy.HeartBase()) || dv[4] != uint64(economy.HeartBase()) {
 		t.Fatalf("hearts row status/current/complete = %d/%d/%d, want 2/5/5", iv[7], dv[3], dv[4])
 	}
-	msgid, body = gardenQuestReply(18, 9711, pbVar(nil, 1, economy.QuestHeartID), now, logger)
+	msgid, body = gardenQuestReply(18, 9711, pbVar(nil, 1, uint64(economy.HeartQuest().ID)), now, logger)
 	vars, msgs = pbFields(t, body)
 	if msgid != 25 || vars[2] != 1 || len(msgs[4]) != 0 {
 		t.Fatalf("hearts claim reply = msgid %d vars %v rewards %d, want refused", msgid, vars, len(msgs[4]))
@@ -152,8 +152,8 @@ func TestGardenQuestCompleteAndInfoReplies(t *testing.T) {
 	store.AccountsMu.Lock()
 	gems := store.AccountByAidLocked("9711").Gems
 	store.AccountsMu.Unlock()
-	if gems != economy.HeartRewardGems {
-		t.Fatalf("gems after hearts claim = %d, want %d (credited once by HeartSend)", gems, economy.HeartRewardGems)
+	if gems != economy.HeartRewardGems() {
+		t.Fatalf("gems after hearts claim = %d, want %d (credited once by HeartSend)", gems, economy.HeartRewardGems())
 	}
 }
 

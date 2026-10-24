@@ -1,0 +1,20 @@
+{
+  "welcome_gems": 300,
+  "quests": [
+    {"id": 9001, "key": "garden-own", "name": "Visit your Garden", "desc": "Enter your own Garden today.", "gems": 30},
+    {"id": 9002, "key": "garden-visit", "name": "Visit a friend's Garden", "desc": "Enter a friend's Garden today.", "gems": 40},
+    {"id": 9003, "key": "square", "name": "Hang out in Square", "desc": "Enter Square today.", "gems": 40},
+    {"id": 9004, "key": "diary", "name": "Write in your Diary", "desc": "Post a diary entry today.", "gems": 40},
+    {"id": 9005, "key": "", "name": "Send 5 hearts", "desc": "Send 5 hearts today.", "display": true}
+  ],
+  "event_quests": [
+    {"id": 9101, "key": "gather3", "season": "halloween", "name": "Halloween: Gather 3 Garden materials", "desc": "Gather 3 materials in any Garden today.", "gems": 15},
+    {"id": 9102, "key": "atelier-craft", "season": "halloween", "name": "Halloween: Craft in the Atelier", "desc": "Make one item in the Atelier today.", "gems": 15},
+    {"id": 9103, "key": "square-fish", "season": "halloween", "name": "Halloween: Catch a fish in Square", "desc": "Land one fish in Square fishing today.", "gems": 15},
+    {"id": 9201, "key": "gather3", "season": "winter", "name": "Winter: Gather 3 Garden materials", "desc": "Gather 3 materials in any Garden today.", "gems": 15},
+    {"id": 9202, "key": "atelier-craft", "season": "winter", "name": "Winter: Craft in the Atelier", "desc": "Make one item in the Atelier today.", "gems": 15},
+    {"id": 9203, "key": "square-fish", "season": "winter", "name": "Winter: Catch a fish in Square", "desc": "Land one fish in Square fishing today.", "gems": 15}
+  ],
+  "hearts": {"base": 5, "reward_gems": 30, "from_limit": 50},
+  "mail": {"sender": "Cherry Staff", "default_days": 30, "max_amount": 1000000, "max_rows": 100}
+}

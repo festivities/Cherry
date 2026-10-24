@@ -15,7 +15,7 @@ import (
 // Square fish shop (Economy Phase D slice 3). The shop sells fishing rods and bait for EARNED Gems
 // only: the client's PriceType 1 is Gem, and no billing code is ever sent. Each item is bought
 // once and kept in accounts.json (store.FishingGear). One rod and one bait can be in use; they add
-// rare-catch chance points. The daily Gem cap (FishingDailyCap) is not changed by gear.
+// rare-catch chance points. The daily Gem cap (daily_cap) is not changed by gear.
 // Wire notes: %TEMP%\opencode\cherry\phaseD-20261011\gathering.txt, "Resolution (shop, book, bag, boss)".
 
 // Fish gear kinds. They are the client's BagType (cr 88 / cr 91 / cr 90) and InvenItem.ItemType
@@ -25,22 +25,15 @@ const (
 	FishKindRod  = 2
 )
 
-// FishingItem is one shop item. Price is in Gems. RareBonus adds percentage points to the rare
-// catch chance while the item is in use.
+// FishingItem is one shop item (fishing.json shop[]). Price is in Gems. RareBonus adds percentage
+// points to the rare catch chance while the item is in use. IDs are Cherry's own (not from the archive).
 type FishingItem struct {
-	ID        int64
-	Name      string
-	Kind      int64
-	Price     int64
-	RareBonus int64
-}
-
-// fishingItems is the shop, in display order. IDs are Cherry's own (not from the archive).
-var fishingItems = []FishingItem{
-	{9001, "Square Rod", FishKindRod, 150, 3},
-	{9002, "Pro Rod", FishKindRod, 450, 6},
-	{9101, "Worm Bait", FishKindBait, 40, 1},
-	{9102, "Golden Bait", FishKindBait, 120, 2},
+	ID        int64  `json:"id"`
+	Name      string `json:"name"`
+	KindName  string `json:"kind"`
+	Kind      int64  `json:"-"` // FishKindRod or FishKindBait, from KindName at load
+	Price     int64  `json:"price"`
+	RareBonus int64  `json:"rare_bonus"`
 }
 
 // FishBuyStatus is the outcome of a shop purchase or an equip; the caller maps it to a reply.
@@ -55,11 +48,11 @@ const (
 )
 
 // FishingShopItems lists the shop rows in display order.
-func FishingShopItems() []FishingItem { return slices.Clone(fishingItems) }
+func FishingShopItems() []FishingItem { return slices.Clone(ActiveFishing().Shop) }
 
 // FishingItemByID returns the shop item with id.
 func FishingItemByID(id int64) (FishingItem, bool) {
-	for _, it := range fishingItems {
+	for _, it := range ActiveFishing().Shop {
 		if it.ID == id {
 			return it, true
 		}

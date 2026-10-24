@@ -254,7 +254,7 @@ func HandleFaceShopPurchase(w http.ResponseWriter, r *http.Request) {
 	var lines []store.LedgerLine
 	if changed {
 		var err error
-		if lines, err = store.SpendLocked(acc, store.LedgerDeltas{FaceTickets: -1}, "faceshop purchase"); err != nil {
+		if lines, err = store.SpendLocked(acc, store.LedgerDeltas{FaceTickets: -ActivePrices().FaceTicketCost}, "faceshop purchase"); err != nil {
 			store.AccountsMu.Unlock()
 			httpx.WriteJSON(w, http.StatusBadRequest, errNotEnoughBody)
 			return

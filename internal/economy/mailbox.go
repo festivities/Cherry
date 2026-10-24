@@ -33,13 +33,9 @@ import (
 // NaPostBoxPopup::MsgProc: 62102 "already expired", 62107 "You can only receive this item once".
 
 const (
-	MailMaxRows        = 100
-	mailDefaultDays    = 30
-	MailSender         = "Cherry Staff"
 	errMailExpired     = `{"errorCode":"62102","errorMessage":"cherry: mail expired"}`
 	errMailNotThere    = `{"errorCode":"62107","errorMessage":"cherry: mail already received"}`
 	errMailItemMissing = `{"errorCode":"62110","errorMessage":"cherry: mail item unavailable"}`
-	maxMailAmountCap   = 1_000_000
 )
 
 func validMailType(t string) bool {
@@ -77,7 +73,7 @@ func validMailPayload(typ string, amount int64, item string) bool {
 	if typ == store.MailTypeItem {
 		return itemAvailable(item)
 	}
-	return amount >= 1 && amount <= maxMailAmountCap
+	return amount >= 1 && amount <= ActiveRewards().Mail.MaxAmount
 }
 
 // liveMail returns the unexpired rows.
@@ -95,7 +91,7 @@ func liveMail(acc *store.Account, now time.Time) []store.MailRow {
 // and drops expired rows. It returns false when the mailbox is full.
 func addMailLocked(acc *store.Account, row store.MailRow, days int, now time.Time) bool {
 	rows := liveMail(acc, now)
-	if len(rows) >= MailMaxRows {
+	if len(rows) >= MailMaxRows() {
 		return false
 	}
 	acc.NextMailSeq++
@@ -279,7 +275,7 @@ func handleAdminMail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.ExpiresDays == 0 {
-		req.ExpiresDays = mailDefaultDays
+		req.ExpiresDays = ActiveRewards().Mail.DefaultDays
 	}
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
@@ -303,7 +299,7 @@ func handleAdminMail(w http.ResponseWriter, r *http.Request) {
 	sent := 0
 	for i, a := range targets {
 		prevs[i] = *a
-		row := store.MailRow{Type: req.Type, Amount: req.Amount, Item: req.Item, Message: req.Message, Sender: MailSender}
+		row := store.MailRow{Type: req.Type, Amount: req.Amount, Item: req.Item, Message: req.Message, Sender: MailSender()}
 		if addMailLocked(a, row, req.ExpiresDays, NowFunc()) {
 			sent++
 		}
@@ -321,3 +317,9 @@ func handleAdminMail(w http.ResponseWriter, r *http.Request) {
 	}
 	httpx.WriteObj(w, map[string]any{"mailed": sent, "accounts": len(targets)})
 }
+
+// MailSender is the sender name on staff mail (rewards.json mail.sender).
+func MailSender() string { return ActiveRewards().Mail.Sender }
+
+// MailMaxRows is the mailbox size (rewards.json mail.max_rows).
+func MailMaxRows() int { return ActiveRewards().Mail.MaxRows }

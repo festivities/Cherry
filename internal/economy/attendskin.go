@@ -37,16 +37,15 @@ import (
 // <ver>UIImage_hd/<name> for each listed name, then saves the key.
 //
 // Cherry serves a generated skin: the stock plist with every IMG_DAYnn_OFF re-pointed at a
-// Cherry tile (cherry_dayNN.png) built from attendCycle (stock white tile + the game's own
+// Cherry tile (cherry_dayNN.png) built from the normal cycle (stock white tile + the game's own
 // gem/cash/ticket icons + a bitmap-digit amount), the stock frame images, and the background
-// with its baked-in "4" painted out. The version key is derived from attendCycle, so changing
+// with its baked-in "4" painted out. The version key is derived from the cycle, so changing
 // an amount changes scheduleId and every client re-downloads once.
 
-// attendSkinRev: bump when the generated art changes without attendCycle changing.
+// attendSkinRev: bump when the generated art changes without the cycle changing.
 const attendSkinRev = "2" // 2: "DAY n" header on every tile
 
-// AttendScheduleID is the skin version (3 digits, see above), derived from the reward table.
-var AttendScheduleID = attendVersion(attendCycle)
+// NormalScheduleID (season.go) is the normal skin version (3 digits, see above), derived from the reward table.
 
 func attendVersion(c [7]calDay) int {
 	return 100 + int(crc32.ChecksumIEEE([]byte(fmt.Sprint(c, attendSkinRev)))%900)
@@ -280,15 +279,15 @@ func glyph5x7(ch rune) [7]string {
 	return letter5x7[ch]
 }
 
-var attendInk = color.NRGBA{96, 96, 148, 255}
-
 // textSize is the pixel size of n drawn at digit scale sc (1px gap = sc).
 func textSize(n int64, sc int) (w, h int) { return strSize(strconv.FormatInt(n, 10), sc) }
 
 func strSize(t string, sc int) (w, h int) { return len(t)*6*sc - sc, 7 * sc }
 
 // drawText draws t (digits, D, A, Y, space) in the stock ink with its top-left at (x, y).
-func drawText(dst *image.NRGBA, t string, x, y, sc int) { drawTextInk(dst, t, x, y, sc, attendInk) }
+func drawText(dst *image.NRGBA, t string, x, y, sc int) {
+	drawTextInk(dst, t, x, y, sc, normalSchedule().Ink)
+}
 
 // drawTextInk is drawText in the given ink (a season's colour).
 func drawTextInk(dst *image.NRGBA, t string, x, y, sc int, ink color.NRGBA) {

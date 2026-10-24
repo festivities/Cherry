@@ -58,7 +58,7 @@ func TestGatherDropTables(t *testing.T) {
 	}
 	for kind, ids := range want {
 		total := 0
-		for i, d := range gatherDrops[kind] {
+		for i, d := range ActiveGathering().Drops[gatherKindNames[kind]] {
 			if d.Item != ids[i] || d.Name == "" || d.Weight <= 0 {
 				t.Fatalf("kind %d drop %d = %+v, want item %d", kind, i, d, ids[i])
 			}
@@ -107,12 +107,12 @@ func TestGatherCapsOwnAndFriendGardens(t *testing.T) {
 	gatherAccount(t, "9901", 0, nil)
 	now := jstAt(11, 12, 0)
 	kinds := []GatherKind{GatherEssence, GatherOre, GatherFish}
-	for i := range GatherOwnCap {
+	for i := range ActiveGathering().OwnCap {
 		if _, _, ok := GatherCredit("9901", "9901", kinds[i%3], 210000, now); !ok {
 			t.Fatalf("own gather %d refused", i+1)
 		}
 	}
-	if lim, _, ok := GatherCredit("9901", "9901", GatherOre, 310000, now); ok || lim.Rest != 0 || lim.Max != GatherOwnCap {
+	if lim, _, ok := GatherCredit("9901", "9901", GatherOre, 310000, now); ok || lim.Rest != 0 || lim.Max != ActiveGathering().OwnCap {
 		t.Fatalf("own gather past cap = %+v, ok %v", lim, ok)
 	}
 	if lim := GatherStatus("9901", "9901", now); lim.Rest != 0 {
@@ -120,7 +120,7 @@ func TestGatherCapsOwnAndFriendGardens(t *testing.T) {
 	}
 
 	for _, owner := range []string{"7001", "7002", "7003"} {
-		for range GatherFriendCap {
+		for range ActiveGathering().FriendCap {
 			if _, _, ok := GatherCredit("9901", owner, GatherOre, 310000, now); !ok {
 				t.Fatalf("friend %s gather refused", owner)
 			}
@@ -130,7 +130,7 @@ func TestGatherCapsOwnAndFriendGardens(t *testing.T) {
 		}
 	}
 	// A fourth friend Garden is refused outright, and the three used stay at their cap.
-	if lim := GatherStatus("9901", "7004", now); lim.Rest != 0 || lim.Max != GatherFriendCap {
+	if lim := GatherStatus("9901", "7004", now); lim.Rest != 0 || lim.Max != ActiveGathering().FriendCap {
 		t.Fatalf("fourth friend garden = %+v, want refused", lim)
 	}
 	if lim := GatherStatus("9901", "7002", now); lim.Rest != 0 {
@@ -139,10 +139,10 @@ func TestGatherCapsOwnAndFriendGardens(t *testing.T) {
 
 	// The next game day starts at 06:00 JST: the own Garden and friend Gardens are open again.
 	next := jstAt(12, 6, 0)
-	if lim := GatherStatus("9901", "9901", next); lim.Rest != GatherOwnCap {
+	if lim := GatherStatus("9901", "9901", next); lim.Rest != ActiveGathering().OwnCap {
 		t.Fatalf("own after reset = %+v", lim)
 	}
-	if lim := GatherStatus("9901", "7004", next); lim.Rest != GatherFriendCap {
+	if lim := GatherStatus("9901", "7004", next); lim.Rest != ActiveGathering().FriendCap {
 		t.Fatalf("friend garden after reset = %+v", lim)
 	}
 }
@@ -153,11 +153,11 @@ func TestGatherCreditRewardsAndLedger(t *testing.T) {
 	dir := gatherAccount(t, "9902", 100, nil)
 	now := jstAt(11, 12, 0)
 	lim, gems, ok := GatherCredit("9902", "9902", GatherEssence, 210000, now)
-	if !ok || gems != 2 || lim.Rest != GatherOwnCap-1 {
+	if !ok || gems != 2 || lim.Rest != ActiveGathering().OwnCap-1 {
 		t.Fatalf("credit = %+v gems %d ok %v", lim, gems, ok)
 	}
 	g, s, bag, rec := gatherState(t, "9902")
-	if g != 102 || s != GatherSmiles || len(bag) != 1 || bag[0].Item != 210000 || bag[0].Count != 1 || bag[0].Updated == 0 {
+	if g != 102 || s != ActiveGathering().Smiles || len(bag) != 1 || bag[0].Item != 210000 || bag[0].Count != 1 || bag[0].Updated == 0 {
 		t.Fatalf("gems %d smiles %d bag %+v", g, s, bag)
 	}
 	if rec == nil || rec.Own != 1 || rec.Gems != 2 || rec.Day != AttendDayKey(now) {
@@ -200,13 +200,13 @@ func TestGatherCreditRewardsAndLedger(t *testing.T) {
 func TestGatherGemCapThirtyPerDay(t *testing.T) {
 	gatherAccount(t, "9903", 0, nil)
 	now := jstAt(11, 12, 0)
-	for i := range GatherOwnCap {
+	for i := range ActiveGathering().OwnCap {
 		_, gems, ok := GatherCredit("9903", "9903", GatherFish, 110000, now)
 		if !ok {
 			t.Fatalf("gather %d refused", i+1)
 		}
-		want := int64(GatherGems)
-		if i >= GatherGemsCap/GatherGems {
+		want := int64(ActiveGathering().Gems)
+		if i >= ActiveGathering().GemsCap/ActiveGathering().Gems {
 			want = 0
 		}
 		if gems != want {
@@ -214,13 +214,13 @@ func TestGatherGemCapThirtyPerDay(t *testing.T) {
 		}
 	}
 	g, s, bag, rec := gatherState(t, "9903")
-	if g != GatherGemsCap || s != GatherOwnCap*GatherSmiles || bag[0].Count != GatherOwnCap {
+	if g != ActiveGathering().GemsCap || s != ActiveGathering().OwnCap*ActiveGathering().Smiles || bag[0].Count != ActiveGathering().OwnCap {
 		t.Fatalf("gems %d smiles %d bag %+v", g, s, bag)
 	}
-	if rec == nil || rec.Gems != GatherGemsCap {
+	if rec == nil || rec.Gems != ActiveGathering().GemsCap {
 		t.Fatalf("record = %+v", rec)
 	}
-	if _, gems, ok := GatherCredit("9903", "9903", GatherFish, 110000, jstAt(12, 6, 0)); !ok || gems != GatherGems {
+	if _, gems, ok := GatherCredit("9903", "9903", GatherFish, 110000, jstAt(12, 6, 0)); !ok || gems != ActiveGathering().Gems {
 		t.Fatalf("next day gems = %d ok %v", gems, ok)
 	}
 }

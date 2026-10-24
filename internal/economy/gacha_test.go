@@ -301,11 +301,11 @@ func TestGachaTenPullGuarantee(t *testing.T) {
 	p := gachaFixture(t)
 	// Ten normal pulls (index 0 = CUHA00001); the guarantee re-rolls the last from RARE index 1.
 	var vals []int
-	for range gachaBundleSize {
+	for range ActiveGacha().BundleSize {
 		vals = append(vals, 50, 0)
 	}
 	gachaScript(t, append(vals, 1)...)
-	got := rollGacha(p, gachaBundleSize, true)
+	got := rollGacha(p, ActiveGacha().BundleSize, true)
 	for i, e := range got[:9] {
 		if e.rare {
 			t.Errorf("pull %d RARE, want normal", i)
@@ -325,7 +325,7 @@ func TestGachaTenPullGuarantee(t *testing.T) {
 	t.Cleanup(func() { gachaRoll = old })
 	gachaRoll = func(n int) int { return rng.IntN(n) }
 	for range 3000 {
-		if !slices.ContainsFunc(rollGacha(p, gachaBundleSize, true), func(e gachaEntry) bool { return e.rare }) {
+		if !slices.ContainsFunc(rollGacha(p, ActiveGacha().BundleSize, true), func(e gachaEntry) bool { return e.rare }) {
 			t.Fatal("a 10-pull came up with no RARE")
 		}
 	}
@@ -407,7 +407,7 @@ func TestGachaSinglePullFurnitureAndLedger(t *testing.T) {
 	}
 	r := env.Result
 	if !r.Purchasable || r.Balance != 400 || r.ItemCode != "RUGO00002" || !r.Rewarded || r.RewardedCoin != "0" ||
-		r.Grade != "R" || r.SpecialEffects != "ANIMATION" || r.AvatarID != "9601" || r.GachaID != gachaID ||
+		r.Grade != "R" || r.SpecialEffects != "ANIMATION" || r.AvatarID != "9601" || r.GachaID != int(ActiveGacha().ID) ||
 		r.ItemName != ItemName("RUGO00002") || r.RewardLogSeq == "" {
 		t.Errorf("reply = %+v", r)
 	}
@@ -558,7 +558,7 @@ func TestGachaCatalogShapes(t *testing.T) {
 	gachaShape(t, "row", row, gachaRowShape)
 	if row["itemCode"] != "CUON004TV" || row["gachaName"] != "Cherry Gacha" || row["gachaDesc"] != "90% normal / 10% RARE" ||
 		row["price"] != 100.0 || row["bundlePrice"] != 900.0 || row["bundleGachaQuantity"] != 10.0 || row["bundleGachaGuarantee"] != 1.0 ||
-		row["itemId"] != float64(gachaID) || row["gachaType"] != "S" || row["bundleGachaEnabled"] != true ||
+		row["itemId"] != float64(ActiveGacha().ID) || row["gachaType"] != "S" || row["bundleGachaEnabled"] != true ||
 		row["firstBuyPrice"] != 100.0 || row["discountedPrice"] != 100.0 || row["buyCountForFree"] != 0.0 || row["vipPrice"] != 0.0 {
 		t.Errorf("row values = %v (gachaType S = Gem price; firstBuyPrice = price = no first-buy offer)", row)
 	}
@@ -607,7 +607,7 @@ func TestGachaCatalogShapes(t *testing.T) {
 	gachaShape(t, "detail item", di, gachaDetailItemShape)
 	coll := di["collection"].(map[string]any)
 	gachaShape(t, "collection", coll, gachaCollectionShape)
-	if coll["collectionNo"] != float64(gachaID) || coll["gatheringCount"] != 0.0 {
+	if coll["collectionNo"] != float64(ActiveGacha().ID) || coll["gatheringCount"] != 0.0 {
 		t.Errorf("collection = %v", coll)
 	}
 	cis := coll["collectionItems"].([]any)

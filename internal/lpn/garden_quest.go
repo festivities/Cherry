@@ -23,16 +23,16 @@ const (
 func gardenQuestMsg(msgid uint16) bool { return msgid >= 15 && msgid <= 19 }
 
 // gardenQuestRow returns def's status and counts on the Garden list at now. Status 1 is in
-// progress, 3 claimable, 2 claimed. The hearts row counts hearts sent today out of HeartBase and
+// progress, 3 claimable, 2 claimed. The hearts row counts hearts sent today out of the base and
 // shows claimed once none are left: HeartSend already paid it, so it is never claimable.
 func gardenQuestRow(def economy.QuestDef, rec store.QuestDay, sid string, now time.Time) (status, current, complete uint64) {
-	if def.ID == economy.QuestHeartID {
+	if def.Display {
 		left, ok := economy.HeartsLeft(sid, now)
 		if !ok {
-			left = economy.HeartBase
+			left = economy.HeartBase()
 		}
-		complete = economy.HeartBase
-		current = uint64(economy.HeartBase - left)
+		complete = uint64(economy.HeartBase())
+		current = uint64(economy.HeartBase() - left)
 		if left == 0 {
 			return 2, complete, complete
 		}
@@ -63,12 +63,14 @@ func gardenQuestInfo(def economy.QuestDef, status, current, complete uint64) []b
 	return pbLen(info, 12, []byte(def.Desc))
 }
 
-// gardenQuestList is hc_quest_list_res (21): every catalog quest in RegularQuestInfo.
+// gardenQuestList is hc_quest_list_res (21): every quest of the catalog at now (daily rows, then the
+// season's event quests) in RegularQuestInfo.
 func gardenQuestList(sid string, now time.Time) []byte {
 	rec := economy.QuestProgress(sid, now)
 	body := pbVar(nil, 1, 0) // error_code, required
 	claimed := uint64(0)
-	for _, def := range economy.QuestCatalog {
+	catalog := economy.QuestCatalog(now)
+	for _, def := range catalog {
 		status, current, complete := gardenQuestRow(def, rec, sid, now)
 		if status == 2 {
 			claimed++
@@ -76,7 +78,7 @@ func gardenQuestList(sid string, now time.Time) []byte {
 		body = pbLen(body, 2, gardenQuestInfo(def, status, current, complete))
 	}
 	body = pbVar(body, 10, claimed)                               // TodayQuestAmount
-	body = pbVar(body, 11, uint64(len(economy.QuestCatalog)))     // MaxTodayQuestAmount
+	body = pbVar(body, 11, uint64(len(catalog)))                  // MaxTodayQuestAmount
 	body = pbVar(body, 12, uint64(economy.QuestResetMillis(now))) // ResetTimestamp, ms
 	return pbVar(body, 13, 1)                                     // TutorialCleared
 }
@@ -101,7 +103,7 @@ func gardenQuestReply(msgid uint16, aid uint64, data []byte, now time.Time, logg
 		logger.Printf("garden-quest list aid=%d id=- result=0", aid)
 		return 21, body
 	case 16:
-		def, ok := economy.QuestByID(int64(id))
+		def, ok := economy.QuestByID(int64(id), now)
 		body := pbVar(nil, 1, id)
 		if !ok {
 			body = pbVar(body, 2, 1)
@@ -147,8 +149,9 @@ var questNotices = struct {
 	m map[uint64][]economy.QuestDef
 }{m: map[uint64][]economy.QuestDef{}}
 
-// MarkQuest records one progress key for aid (Garden visit, Square enter, diary post) and
-// queues a completion notice when it completed the quest.
+// MarkQuest records one progress key for aid (Garden visit, Square enter, diary post, gathering,
+// Atelier make, Square catch: the economy.questTriggers keys) and queues a completion notice when it
+// completed the quest.
 func MarkQuest(aid uint64, key string) {
 	def, done := economy.MarkQuest(strconv.FormatUint(aid, 10), key, economy.NowFunc())
 	if done {
@@ -169,7 +172,7 @@ func queueQuestNotice(aid uint64, def economy.QuestDef) {
 // twice. Exact fix: have HeartSend return the completion flag.
 func heartQuestNotice(aid uint64, now time.Time) {
 	left, ok := economy.HeartsLeft(strconv.FormatUint(aid, 10), now)
-	if def, found := economy.QuestByID(economy.QuestHeartID); ok && found && left == 0 {
+	if def := economy.HeartQuest(); ok && left == 0 {
 		queueQuestNotice(aid, def)
 	}
 }

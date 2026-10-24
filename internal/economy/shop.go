@@ -2,8 +2,10 @@ package economy
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,7 +17,9 @@ import (
 	"sync"
 	"time"
 
+	"cherry/data"
 	"cherry/internal/httpx"
+	"cherry/internal/opdata"
 	"cherry/internal/room"
 	"cherry/internal/store"
 	"cherry/internal/thumbs"
@@ -28,7 +32,115 @@ import (
 
 // ---- price table ----
 
-var clothingPrice = map[string]int64{"HA": 200, "ON": 250, "TO": 150, "PA": 150, "SH": 120, "AH": 120, "FE": 120, "AE": 100}
+// Prices is data/prices.json: the shops' price rules, sell-back and daily deals, the Face Shop ticket
+// packs and the item names Cherry shows. Keys are the category letters of an item code (code[2:4])
+// or a room category code, as the client sends them.
+//
+//	clothing_prices    {letters: Gems}: base price of clothing (CU and CA codes)
+//	interior_price     Gems for furniture; interior_prices {letters: Gems} overrides it per category
+//	pet_price          Gems for a pet; animated_pet_cash is the Cash price of an animated pet
+//	animated_percent   animated (RARE) clothing and furniture cost this percent of base, halves up
+//	sell_back_percent  an owned item pays back this percent of what it cost (0 to 100); a deal item
+//	                   counts what it was bought for
+//	face_ticket_cost   Face Shop tickets one face change costs (0 or more)
+//	deal_paid_percent  a daily deal charges this percent of the table price (1 to 100; 70 = 30% off)
+//	deals_per_kind     daily deals per shop kind (clothing, furniture)
+//	clothing_names     {letters: name}, room_names {category code: name}: the names Cherry shows
+//	face_tickets[]     {code, tickets, standard, price, name}: Face Shop ticket packs sold for Gems
+//	                   (price 0 to standard; standard at least 1)
+type Prices struct {
+	ClothingPrices  map[string]int64  `json:"clothing_prices"`
+	InteriorPrice   int64             `json:"interior_price"`
+	InteriorPrices  map[string]int64  `json:"interior_prices"`
+	PetPrice        int64             `json:"pet_price"`
+	AnimatedPercent int64             `json:"animated_percent"`
+	AnimatedPetCash int64             `json:"animated_pet_cash"`
+	SellBackPercent int64             `json:"sell_back_percent"`
+	FaceTicketCost  int64             `json:"face_ticket_cost"`
+	DealPaidPercent int64             `json:"deal_paid_percent"`
+	DealsPerKind    int               `json:"deals_per_kind"`
+	ClothingNames   map[string]string `json:"clothing_names"`
+	RoomNames       map[string]string `json:"room_names"`
+	FaceTickets     []FaceTicket      `json:"face_tickets"`
+}
+
+// FaceTicket is one Face Shop ticket pack, bought with Gems (the client never sends a price).
+type FaceTicket struct {
+	Code     string `json:"code"`
+	Tickets  int    `json:"tickets"`
+	Standard int64  `json:"standard"` // list price, Gems
+	Price    int64  `json:"price"`    // charged, Gems
+	Name     string `json:"name"`
+}
+
+var pricesFile = opdata.New("prices.json", data.PricesJSON, checkPrices, nil)
+
+// ActivePrices is the price file in use.
+func ActivePrices() *Prices { return pricesFile.Get() }
+
+func checkPrices(p *Prices) error {
+	if err := checkCategoryMap("clothing_prices", p.ClothingPrices); err != nil {
+		return err
+	}
+	if err := checkCategoryMap("interior_prices", p.InteriorPrices); err != nil {
+		return err
+	}
+	for _, v := range []struct {
+		key string
+		val int64
+	}{{"interior_price", p.InteriorPrice}, {"pet_price", p.PetPrice}, {"animated_percent", p.AnimatedPercent}, {"animated_pet_cash", p.AnimatedPetCash}} {
+		if v.val < 0 {
+			return fmt.Errorf("%s must not be negative", v.key)
+		}
+	}
+	if p.SellBackPercent < 0 || p.SellBackPercent > 100 {
+		return errors.New("sell_back_percent must be 0 to 100")
+	}
+	if p.DealPaidPercent < 1 || p.DealPaidPercent > 100 {
+		return errors.New("deal_paid_percent must be 1 to 100")
+	}
+	if p.FaceTicketCost < 0 {
+		return errors.New("face_ticket_cost must not be negative")
+	}
+	if p.DealsPerKind < 0 {
+		return errors.New("deals_per_kind must not be negative")
+	}
+	for _, names := range []map[string]string{p.ClothingNames, p.RoomNames} {
+		for _, code := range slices.Sorted(maps.Keys(names)) {
+			if names[code] == "" {
+				return fmt.Errorf("name for %s must not be empty", code)
+			}
+		}
+	}
+	seen := map[string]bool{}
+	for _, t := range p.FaceTickets {
+		switch {
+		case t.Code == "" || seen[t.Code]:
+			return fmt.Errorf("face ticket %q: code must be unique and not empty", t.Code)
+		case t.Tickets < 1:
+			return fmt.Errorf("face ticket %s: tickets must be at least 1", t.Code)
+		case t.Standard < 1 || t.Price < 0 || t.Price > t.Standard:
+			return fmt.Errorf("face ticket %s: price must be from 0 to standard, and standard at least 1", t.Code)
+		case t.Name == "":
+			return fmt.Errorf("face ticket %s: name must not be empty", t.Code)
+		}
+		seen[t.Code] = true
+	}
+	return nil
+}
+
+// checkCategoryMap checks a {letters: Gems} table: two capital letters per key, no negative price.
+func checkCategoryMap(key string, m map[string]int64) error {
+	for _, k := range slices.Sorted(maps.Keys(m)) {
+		if len(k) != 2 || k != strings.ToUpper(k) {
+			return fmt.Errorf("%s: key %q must be two capital letters", key, k)
+		}
+		if m[k] < 0 {
+			return fmt.Errorf("%s: %s must not be negative", key, k)
+		}
+	}
+	return nil
+}
 
 const (
 	kindFashion  = 'F'
@@ -42,27 +154,28 @@ func classify(code string) (base int64, kind byte) {
 	if len(code) != 9 {
 		return 0, 0
 	}
+	p := ActivePrices()
 	switch code[:2] {
 	case "CU", "CA":
-		if p, ok := clothingPrice[code[2:4]]; ok {
-			return p, kindFashion
+		if v, ok := p.ClothingPrices[code[2:4]]; ok {
+			return v, kindFashion
 		}
 	case "RU":
-		if code[2:4] == "WA" || code[2:4] == "TI" {
-			return 100, kindInterior
+		if v, ok := p.InteriorPrices[code[2:4]]; ok {
+			return v, kindInterior
 		}
-		return 150, kindInterior
+		return p.InteriorPrice, kindInterior
 	case "PU":
 		if code[2:4] == "PE" {
-			return 1200, kindPet
+			return p.PetPrice, kindPet
 		}
 	}
 	return 0, 0
 }
 
 // ItemPrice is the one server price table (catalog, buy, inventory rows, recycle).
-// Animated items (an .aniproj in the item dir) are premium: grade "R", 2.5x Gems for
-// clothing and furniture, 25 Cash for pets. Unsellable codes return ok=false, price 0.
+// Animated items (an .aniproj in the item dir) are premium: grade "R", animated_percent of the base
+// price for clothing and furniture, animated_pet_cash for pets. Unsellable codes return ok=false, price 0.
 // Items without art keep their price here so that owned ones still sell back; the catalog
 // (scanCatalog) is what keeps them out of shops, gacha, mail and season rewards.
 func ItemPrice(code string) (price int64, cash bool, grade string, ok bool) {
@@ -72,9 +185,9 @@ func ItemPrice(code string) (price int64, cash bool, grade string, ok bool) {
 	}
 	if loadCatalog().animated[code] {
 		if kind == kindPet {
-			return 25, true, "R", true
+			return ActivePrices().AnimatedPetCash, true, "R", true
 		}
-		return (base*5 + 1) / 2, false, "R", true
+		return (base*ActivePrices().AnimatedPercent + 50) / 100, false, "R", true
 	}
 	return base, false, "N", true
 }
@@ -566,17 +679,18 @@ func handleShopBuy(kind byte) http.HandlerFunc {
 
 // ---- sell-back ----
 
-var recycleCfgBody = func() string {
+// recycleCfgBody is the sell-back table: every grade of every kind at the sell-back rate (prices.json).
+func recycleCfgBody() string {
 	var rows []map[string]any
 	for _, typ := range []string{"DRESS", "ROOM", "GARDEN"} {
 		for _, g := range []string{"NORMAL", "RARE", "SUPER_RARE", "ULTRA_RARE", "EPIC", "SUPER_EPIC", "ULTRA_EPIC"} {
-			rows = append(rows, map[string]any{"itemType": typ, "grade": g, "rate": 100})
+			rows = append(rows, map[string]any{"itemType": typ, "grade": g, "rate": ActivePrices().SellBackPercent})
 		}
 	}
 	b, _ := json.Marshal(map[string]any{"result": map[string]any{
 		"recycleMultiple": 1.0, "multipledRecycleLimit": 0, "vipGrade": "NONE", "config": rows}})
 	return string(b)
-}()
+}
 
 // handleRecycle serves inven/recycle/closet/v2 and inven/recycle/interior. Payout is 100% of the
 // table price per item (the client's exepectedPrice is ignored). The reply must never carry
@@ -740,7 +854,7 @@ func registerShopRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/v4/purchase/dress/buy", handleShopBuy(kindFashion))
 	mux.HandleFunc("/v4/purchase/interior/buy", handleShopBuy(kindInterior))
 	mux.HandleFunc("/v4/purchase/pet/buy", handleShopBuy(kindPet))
-	mux.HandleFunc("/v4/inven/recycle/cfg", httpx.HandleJSONBody(recycleCfgBody))
+	mux.HandleFunc("/v4/inven/recycle/cfg", httpx.HandleJSONBody(recycleCfgBody()))
 	mux.HandleFunc("/v4/inven/recycle/closet/v2", handleRecycle(false))
 	mux.HandleFunc("/v4/inven/recycle/interior", handleRecycle(true))
 	registerGachaRoutes(mux)
@@ -748,17 +862,11 @@ func registerShopRoutes(mux *http.ServeMux) {
 
 // ---- item names ----
 
-var clothingName = map[string]string{"HA": "Hair", "ON": "Outfit", "TO": "Top", "PA": "Bottoms", "SH": "Shoes",
-	"AH": "Accessory", "AE": "Accessory", "FE": "Accessory", "HE": "Face", "EB": "Eyebrows", "EY": "Eyes", "NO": "Nose", "MO": "Mouth"}
-
-var roomName = map[string]string{"UWLPP": "Wallpaper", "UFLOR": "Flooring", "UTABL": "Table", "UCHAIR": "Chair", "UDRES": "Dresser",
-	"UBAD": "Bed", "UKICH": "Kitchen Item", "UBATH": "Bath Item", "UMEDIA": "Electronics", "UPLANT": "Plant", "UFOOD": "Food",
-	"UALBM": "Album", "UWNDW": "Window", "UDOOR": "Door", "UWLDC": "Wall Decor", "UFLDC": "Floor Decor"}
-
 // ItemName is a synthetic display name ("Top 00001"): the stock client shows the placeholder
 // "Item Name" on every cell that resolves a name through items/<dress|room>/some, and the
 // archive has no code-to-name table (itemName.txt in the 2014 item.zip holds resource names such
-// as top_mk1207_0001642, and arts_strings.ast has only UI strings).
+// as top_mk1207_0001642, and arts_strings.ast has only UI strings). The category names are
+// Cherry-made (prices.json).
 func ItemName(code string) string {
 	if len(code) != 9 {
 		return "Item"
@@ -766,12 +874,12 @@ func ItemName(code string) string {
 	label := "Item"
 	switch code[:2] {
 	case "CU", "CA":
-		if n, ok := clothingName[code[2:4]]; ok {
+		if n, ok := ActivePrices().ClothingNames[code[2:4]]; ok {
 			label = n
 		}
 	case "RU":
 		label = "Room Item"
-		if n, ok := roomName[room.RoomCategoryCode(code)]; ok {
+		if n, ok := ActivePrices().RoomNames[room.RoomCategoryCode(code)]; ok {
 			label = n
 		}
 	case "PU":

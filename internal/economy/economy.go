@@ -25,7 +25,6 @@ import (
 // admob/*, quest/video/* all stay 404).
 
 const (
-	welcomeGems   = 300
 	billingEndURL = "/v4/setting/goodbye/cherry"
 )
 
@@ -127,7 +126,7 @@ func HandleWelcomeGift(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	prev := *acc
-	lines, err := store.SpendLocked(acc, store.LedgerDeltas{Gems: welcomeGems}, "welcome gift")
+	lines, err := store.SpendLocked(acc, store.LedgerDeltas{Gems: ActiveRewards().WelcomeGems}, "welcome gift")
 	acc.Welcomed = true
 	if err == nil {
 		err = store.SaveAccountsLocked()
@@ -140,7 +139,7 @@ func HandleWelcomeGift(w http.ResponseWriter, r *http.Request) {
 	}
 	store.FlushLedgerLocked(lines)
 	store.AccountsMu.Unlock()
-	httpx.WriteJSON(w, http.StatusOK, fmt.Sprintf(`{"result":{"status":true,"rewardCoin":%d}}`, welcomeGems))
+	httpx.WriteJSON(w, http.StatusOK, fmt.Sprintf(`{"result":{"status":true,"rewardCoin":%d}}`, ActiveRewards().WelcomeGems))
 }
 
 // ResFaceShopOwnVoucherCount @0x1b2c6a4 reads result.voucherCount via asInt.
@@ -163,18 +162,6 @@ func handleVoucherCount(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, fmt.Sprintf(`{"result":{"voucherCount":%d}}`, n))
 }
 
-// Server price table for Face Shop tickets, in Gems (client price is never trusted).
-var faceVoucherProducts = []struct {
-	Code     string
-	Tickets  int
-	Standard int64 // list price
-	Price    int64 // charged
-	Name     string
-}{
-	{"FSV1", 1, 150, 150, "1 Face Shop ticket"},
-	{"FSV5", 5, 750, 650, "5 Face Shop tickets"},
-}
-
 // ResFaceShopProductVoucherList @0x1b506fc: array of rows; productCode,productName,
 // productImagePath,voucherCode,voucherUsePlace,paymentType,sellType,cpId,discountStart,
 // discountEnd asString; voucherGiveCount,baseDiscountPercentage,standardPrice,finalPrice
@@ -184,8 +171,9 @@ func handleVoucherProductList(w http.ResponseWriter, r *http.Request) {
 		httpx.ServeNotFound(w)
 		return
 	}
-	rows := make([]map[string]any, 0, len(faceVoucherProducts))
-	for _, p := range faceVoucherProducts {
+	products := ActivePrices().FaceTickets
+	rows := make([]map[string]any, 0, len(products))
+	for _, p := range products {
 		rows = append(rows, map[string]any{
 			"productCode": p.Code, "productName": p.Name, "productImagePath": "",
 			"voucherCode": "FACESHOP_TICKET", "voucherUsePlace": "FACESHOP",
@@ -229,16 +217,16 @@ func handleVoucherPurchase(w http.ResponseWriter, r *http.Request) {
 	}
 	price, priceOK := lenientInt(req.Price)
 	idx := -1
-	for i, p := range faceVoucherProducts {
+	for i, p := range ActivePrices().FaceTickets {
 		if p.Code == req.ProductCode {
 			idx = i
 		}
 	}
-	if idx < 0 || !priceOK || req.CoinUnit != "GEM" || price != faceVoucherProducts[idx].Price {
+	if idx < 0 || !priceOK || req.CoinUnit != "GEM" || price != ActivePrices().FaceTickets[idx].Price {
 		httpx.WriteJSON(w, http.StatusBadRequest, errBadProductBody)
 		return
 	}
-	p := faceVoucherProducts[idx]
+	p := ActivePrices().FaceTickets[idx]
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
 	acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]
