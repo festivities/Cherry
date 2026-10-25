@@ -3,6 +3,7 @@
 //
 //	cherry-assets plan     counts and bytes per category and item kind (no network)
 //	cherry-assets upload   upload what is missing (HEAD, then PUT), then the manifests and the D1 mirror
+//	cherry-assets upload -packs-only   upload only the map packs and manifest/packs.json (no bulk manifests, no D1)
 //	cherry-assets verify   list the bucket and compare it with the plan
 //
 // Credentials come from %LOCALAPPDATA%\Cherry\cloudflare.json and are never printed or logged. Logs go to
@@ -42,11 +43,12 @@ var bulkSources = []bulkSource{
 
 // object is one R2 object to upload. Bulk objects also feed their category's manifest.
 type object struct {
-	key  string // static/<cat>/<rel> or static/item/<kind>/<id>/<rel>
+	key  string // static/<cat>/<rel>, static/item/<kind>/<id>/<rel> or static/<dir>/<name> (map pack)
 	path string // local file
 	size int64
-	cat  string // bulk category; "" for item files
-	rel  string // path within the category (bulk only)
+	cat  string // bulk category; "" for item and pack files
+	pack string // map pack directory (garden or world); "" otherwise
+	rel  string // path within the category or pack directory (bulk and packs only)
 	md5  string // uppercase hex, set when the file is read by upload
 }
 
@@ -75,6 +77,28 @@ func buildObjects(dataset string) ([]*object, error) {
 		})
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", src.dir, err)
+		}
+	}
+	// Map packs: the top-level <digits>.mworldpack files of garden and world. The extracted folders beside them
+	// are not served.
+	for _, dir := range assets.PackDirs {
+		root := filepath.Join(dataset, dir)
+		ents, err := os.ReadDir(root)
+		if err != nil {
+			return nil, err
+		}
+		for _, ent := range ents {
+			if ent.IsDir() || !ent.Type().IsRegular() || !strings.HasSuffix(ent.Name(), ".mworldpack") {
+				continue
+			}
+			if !assets.ValidPack(dir, ent.Name()) {
+				return nil, fmt.Errorf("%s: not a map pack name", filepath.Join(dir, ent.Name()))
+			}
+			info, err := ent.Info()
+			if err != nil {
+				return nil, err
+			}
+			objs = append(objs, &object{key: "static/" + dir + "/" + ent.Name(), path: filepath.Join(root, ent.Name()), size: info.Size(), pack: dir, rel: ent.Name()})
 		}
 	}
 	for _, kind := range assets.ItemKinds {
@@ -119,6 +143,17 @@ func buildObjects(dataset string) ([]*object, error) {
 	return objs, nil
 }
 
+// onlyPacks keeps the map pack objects.
+func onlyPacks(objs []*object) []*object {
+	var out []*object
+	for _, o := range objs {
+		if o.pack != "" {
+			out = append(out, o)
+		}
+	}
+	return out
+}
+
 func mustRel(base, p string) string {
 	rel, err := filepath.Rel(base, p)
 	if err != nil {
@@ -139,7 +174,7 @@ func isDigits(s string) bool {
 	return true
 }
 
-// totals summarises the objects per category ("bulk:<cat>", "item:<kind>").
+// totals summarises the objects per group ("bulk:<cat>", "pack:<dir>", "item:<kind>").
 type totals struct {
 	count map[string]int
 	bytes map[string]int64
@@ -149,8 +184,11 @@ func summarize(objs []*object) totals {
 	t := totals{count: map[string]int{}, bytes: map[string]int64{}}
 	for _, o := range objs {
 		group := "item:" + strings.Split(o.key, "/")[2]
-		if o.cat != "" {
+		switch {
+		case o.cat != "":
 			group = "bulk:" + o.cat
+		case o.pack != "":
+			group = "pack:" + o.pack
 		}
 		t.count[group]++
 		t.bytes[group] += o.size
@@ -165,21 +203,26 @@ func printPlan(objs []*object) {
 		groups = append(groups, g)
 	}
 	sort.Strings(groups)
-	var bulkN, itemN int
-	var bulkB, itemB int64
+	var bulkN, packN, itemN int
+	var bulkB, packB, itemB int64
 	for _, g := range groups {
 		fmt.Printf("%-16s %8d objects %14d bytes\n", g, t.count[g], t.bytes[g])
-		if strings.HasPrefix(g, "bulk:") {
+		switch {
+		case strings.HasPrefix(g, "bulk:"):
 			bulkN += t.count[g]
 			bulkB += t.bytes[g]
-		} else {
+		case strings.HasPrefix(g, "pack:"):
+			packN += t.count[g]
+			packB += t.bytes[g]
+		default:
 			itemN += t.count[g]
 			itemB += t.bytes[g]
 		}
 	}
 	fmt.Printf("%-16s %8d objects %14d bytes\n", "bulk total", bulkN, bulkB)
+	fmt.Printf("%-16s %8d objects %14d bytes\n", "pack total", packN, packB)
 	fmt.Printf("%-16s %8d objects %14d bytes\n", "item total", itemN, itemB)
-	fmt.Printf("%-16s %8d objects %14d bytes\n", "all", bulkN+itemN, bulkB+itemB)
+	fmt.Printf("%-16s %8d objects %14d bytes\n", "all", bulkN+packN+itemN, bulkB+packB+itemB)
 }
 
 func main() {
@@ -192,6 +235,7 @@ func main() {
 	dataset := flags.String("dataset", defaultDataset, "dataset files folder (read only)")
 	concurrency := flags.Int("concurrency", 8, "parallel R2 requests (upload)")
 	forceD1 := flags.Bool("force-d1", false, "rewrite the D1 manifest rows even when they look current (upload)")
+	packsOnly := flags.Bool("packs-only", false, "upload only the map packs and manifest/packs.json (upload)")
 	_ = flags.Parse(args)
 
 	objs, err := buildObjects(*dataset)
@@ -202,7 +246,10 @@ func main() {
 	case "plan":
 		printPlan(objs)
 	case "upload":
-		if err := runUpload(context.Background(), objs, *concurrency, *forceD1); err != nil {
+		if *packsOnly {
+			objs = onlyPacks(objs)
+		}
+		if err := runUpload(context.Background(), objs, *concurrency, *forceD1, *packsOnly); err != nil {
 			fail("upload: %v", err)
 		}
 	case "verify":

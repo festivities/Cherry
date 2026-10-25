@@ -52,10 +52,12 @@ type Store struct {
 	missing  sync.Map // R2 key -> time.Time until which the key counts as absent
 }
 
-// state is what the manifests produce: the checkresource2 body and one update list per category.
+// state is what the manifests produce: the checkresource2 body, one update list per category, and the map
+// packs the update lists name ("<dir>/<name>").
 type state struct {
 	check string
 	ini   map[string]string
+	packs map[string]bool
 }
 
 // New returns a store that reads cfg's bucket and keeps local copies under cacheDir.
@@ -104,10 +106,11 @@ func (s *Store) WriteCheckResource2(w http.ResponseWriter) {
 	_, _ = io.WriteString(w, st.check)
 }
 
-// ServeRoute answers the streamed GETs: the update lists (/arts_<cat>_ini_<v>/update_<lang>.ini) and the
-// files (/arts_<cat>_<lang>_<v>/<path>, /arts_item_<kind>_<id>/<file>, and the /img/read dp.png form). It
-// reports whether it wrote the response. A file that R2 does not have returns false, so the caller's own
-// handling (generated thumbnails, the local string table, 404) still applies.
+// ServeRoute answers the streamed GETs: the update lists (/arts_<cat>_ini_<v>/update_<lang>.ini), the
+// files (/arts_<cat>_<lang>_<v>/<path>, /arts_item_<kind>_<id>/<file>, and the /img/read dp.png form) and the
+// listed map packs (/<dir>/<name>, or /arts_animation_<lang>_<v>/../<dir>/<name>). It reports whether it wrote
+// the response. A file that R2 does not have returns false, so the caller's own handling (generated
+// thumbnails, the local string table, 404) still applies.
 func (s *Store) ServeRoute(w http.ResponseWriter, r *http.Request) bool {
 	if s == nil || r.Method != http.MethodGet {
 		return false
@@ -123,6 +126,9 @@ func (s *Store) ServeRoute(w http.ResponseWriter, r *http.Request) bool {
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, st.ini[cat])
 		return true
+	}
+	if rel, ok := packRel(r.URL.Path); ok {
+		return s.servePack(w, r, rel)
 	}
 	if key, ok := fileKey(r.URL.Path); ok {
 		return s.serve(w, r, key)
@@ -152,18 +158,64 @@ func (s *Store) load() (*state, error) {
 		}()
 	}
 	wg.Wait()
-	st := &state{ini: make(map[string]string, len(Categories))}
+	pm, err := s.fetchPacks()
+	if err != nil {
+		return nil, err
+	}
+	st := &state{ini: make(map[string]string, len(Categories)), packs: make(map[string]bool, len(pm.Entries))}
+	for _, p := range pm.Entries {
+		st.packs[p.Dir+"/"+p.Name] = true
+	}
 	versions := make(map[string]int, len(Categories))
 	for i, cat := range Categories {
 		if errs[i] != nil {
 			return nil, errs[i]
 		}
+		var packs []PackEntry
 		versions[cat] = mans[i].Version
-		st.ini[cat] = mans[i].IniBody()
+		if cat == "animation" { // the map packs are listed with the animation category only
+			packs = pm.Entries
+			versions[cat] = AnimationVersion(mans[i].Entries, packs)
+		}
+		st.ini[cat] = mans[i].IniBody(packs)
 	}
 	st.check = checkResource2Body(versions)
 	s.state.Store(st)
 	return st, nil
+}
+
+// fetchPacks reads manifest/packs.json. A bucket without it has no map packs, and the animation list keeps
+// only its own records.
+func (s *Store) fetchPacks() (*PackManifest, error) {
+	resp, err := s.client.Get(context.Background(), "manifest/packs.json")
+	if errors.Is(err, ErrNotFound) {
+		log.Printf("cherry: the bucket has no manifest/packs.json; no map packs")
+		return &PackManifest{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("manifest packs: %w", err)
+	}
+	defer resp.Body.Close()
+	var pm PackManifest
+	if err := json.NewDecoder(resp.Body).Decode(&pm); err != nil {
+		return nil, fmt.Errorf("manifest packs: %w", err)
+	}
+	if err := pm.check(); err != nil {
+		return nil, err
+	}
+	return &pm, nil
+}
+
+// servePack answers a map pack request for rel ("<dir>/<name>") when the pack manifest lists it. Any other name
+// is not handled, so the caller's 404 applies.
+func (s *Store) servePack(w http.ResponseWriter, r *http.Request, rel string) bool {
+	st, err := s.load()
+	if err != nil {
+		log.Printf("cherry: map pack %s: %v", rel, err)
+		w.WriteHeader(http.StatusServiceUnavailable)
+		return true
+	}
+	return st.packs[rel] && s.serve(w, r, "static/"+rel)
 }
 
 func (s *Store) fetchManifest(cat string) (*Manifest, error) {
@@ -283,6 +335,38 @@ func iniRoute(p string) (string, bool) {
 		return "", false
 	}
 	return cat, true
+}
+
+// packRel maps a map pack request to its manifest name "<dir>/<name>". The client asks for
+// /arts_animation_<lang>_<v>/../<dir>/<name> and libcurl removes the dot segments, so the request reaches the
+// server as /<dir>/<name>; the un-normalised form is accepted too. Any other path is not a pack.
+func packRel(p string) (string, bool) {
+	if i := strings.Index(p, "/../"); i >= 0 {
+		if !animationDir(p[:i]) {
+			return "", false
+		}
+		p = p[i+3:]
+	}
+	rest, ok := strings.CutPrefix(p, "/")
+	if !ok {
+		return "", false
+	}
+	dir, name, ok := strings.Cut(rest, "/")
+	if !ok || !ValidPack(dir, name) {
+		return "", false
+	}
+	return dir + "/" + name, true
+}
+
+// animationDir reports whether head is /arts_animation_<lang>_<v>, the directory the animation files are
+// requested from.
+func animationDir(head string) bool {
+	rest, ok := strings.CutPrefix(head, "/arts_animation_")
+	if !ok {
+		return false
+	}
+	lang, ver, ok := strings.Cut(rest, "_")
+	return ok && slices.Contains(langs, lang) && isDigits(ver)
 }
 
 // fileKey maps a streamed file route to its R2 key. /arts_<cat>_<lang>_<v>/<path> is static/<cat>/<path>;

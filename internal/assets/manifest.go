@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -35,17 +36,81 @@ func Version(entries []Entry) int {
 	return int(binary.BigEndian.Uint32(h.Sum(nil)[:4])%99999) + 1
 }
 
+// PackDirs are the map pack directories. The client keeps a pack in files/<dir>/.
+var PackDirs = []string{"garden", "world"}
+
+// PackEntry is one map pack, stored at R2 key static/<dir>/<name>. Name is "<digits>.mworldpack" (ValidPack).
+type PackEntry struct {
+	Dir  string `json:"dir"`
+	Name string `json:"name"`
+	Size int64  `json:"size"`
+	MD5  string `json:"md5"`
+}
+
+// PackManifest is manifest/packs.json.
+type PackManifest struct {
+	Entries []PackEntry `json:"entries"`
+}
+
+// ValidPack reports whether dir/name is a map pack name: a PackDirs directory and a "<digits>.mworldpack" file
+// name, so no name can carry a path.
+func ValidPack(dir, name string) bool {
+	base, ok := strings.CutSuffix(name, ".mworldpack")
+	return ok && slices.Contains(PackDirs, dir) && isDigits(base)
+}
+
+// AnimationVersion is the checkresource2 version of the animation category: its entries plus every map pack, so
+// adding, removing or changing a pack changes it. Without packs it is Version(anim).
+func AnimationVersion(anim []Entry, packs []PackEntry) int {
+	all := slices.Clone(anim)
+	for _, p := range packs {
+		all = append(all, Entry{Path: p.Dir + "/" + p.Name, Size: p.Size, MD5: p.MD5})
+	}
+	return Version(all)
+}
+
 // IniBody renders the update list in the client's grammar: one "[start=1,end=1,size=N,/path:version=MD5]"
-// record per file (the client splits records on "]"). An empty category is "[]", never an empty body.
-func (m *Manifest) IniBody() string {
+// record per file (the client splits records on "]"). An empty category is "[]", never an empty body. The map
+// packs follow the category's own records as "/../<dir>/<name>" records: the client writes them through
+// files/animation/.., which exists only after one of its own records, so with no records there are no pack
+// records either.
+func (m *Manifest) IniBody(packs []PackEntry) string {
 	if len(m.Entries) == 0 {
 		return "[]"
 	}
-	lines := make([]string, len(m.Entries))
-	for i, e := range m.Entries {
-		lines[i] = fmt.Sprintf("[start=1,end=1,size=%d,/%s:version=%s]", e.Size, e.Path, strings.ToUpper(e.MD5))
+	lines := make([]string, 0, len(m.Entries)+len(packs))
+	for _, e := range m.Entries {
+		lines = append(lines, iniRecord(e.Size, e.Path, e.MD5))
+	}
+	for _, p := range packs {
+		lines = append(lines, iniRecord(p.Size, "../"+p.Dir+"/"+p.Name, p.MD5))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func iniRecord(size int64, path, md5 string) string {
+	return fmt.Sprintf("[start=1,end=1,size=%d,/%s:version=%s]", size, path, strings.ToUpper(md5))
+}
+
+// check refuses a pack manifest the routes must not serve: unsafe or duplicate names, sizes the client would
+// drop, or bad digests.
+func (p *PackManifest) check() error {
+	seen := make(map[string]bool, len(p.Entries))
+	for _, e := range p.Entries {
+		key := e.Dir + "/" + e.Name
+		switch {
+		case !ValidPack(e.Dir, e.Name):
+			return fmt.Errorf("pack manifest: unsafe pack %q", key)
+		case seen[key]:
+			return fmt.Errorf("pack manifest: duplicate pack %q", key)
+		case e.Size <= 0:
+			return fmt.Errorf("pack manifest: %s has size %d", key, e.Size)
+		case !isMD5(e.MD5):
+			return fmt.Errorf("pack manifest: %s has no MD5", key)
+		}
+		seen[key] = true
+	}
+	return nil
 }
 
 // check refuses a manifest the routes must not serve: wrong category, unsafe or duplicate paths, sizes the

@@ -341,7 +341,9 @@ var loadArtsStrings = sync.OnceValue(func() []byte {
 	return b
 })
 
-func NewMux() *http.ServeMux {
+// NewMux returns the routes. ServeMux redirects a path with a ".." segment to its cleaned form before any route
+// runs, so a streamed map pack request in the un-normalised form is answered first.
+func NewMux() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v4/account/guest/generate", handleGuestGenerate)
 	mux.HandleFunc("/v4/createSession", handleCreateSession)
@@ -433,7 +435,12 @@ func NewMux() *http.ServeMux {
 	mux.HandleFunc("/v4/profile/", handleProfile)
 	mux.HandleFunc("/v4/avatar/", handleAvatarInfo)
 	mux.HandleFunc("/", handleRoot)
-	return mux
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/../") && streaming.ServeRoute(w, r) {
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
 }
 
 // handleBadgeReset acknowledges POST /v4/r/badge/reset/<BADGE> (e.g. CSET, FACE after a

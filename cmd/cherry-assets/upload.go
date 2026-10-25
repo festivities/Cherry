@@ -22,8 +22,9 @@ import (
 
 // runUpload stores every object that is missing or different in R2 (HEAD, then PUT), then writes the
 // manifests and the D1 mirror. The manifests are written only when every object is in place, so Cherry
-// never lists a file R2 does not have.
-func runUpload(ctx context.Context, objs []*object, concurrency int, forceD1 bool) error {
+// never lists a file R2 does not have. packsOnly skips the bulk manifests and the D1 mirror (objs must then
+// be the map packs only, since the bulk manifests list every bulk object given).
+func runUpload(ctx context.Context, objs []*object, concurrency int, forceD1, packsOnly bool) error {
 	cfg, err := loadR2()
 	if err != nil {
 		return err
@@ -80,19 +81,21 @@ func runUpload(ctx context.Context, objs []*object, concurrency int, forceD1 boo
 		return fmt.Errorf("%d objects failed (run stopped after %d); manifests not written, rerun to resume", n, maxFailures)
 	}
 
-	manifests, err := writeManifests(ctx, r.client, objs)
-	if err != nil {
-		return err
-	}
-	logger.Printf("manifests written: %d categories", len(manifests))
-	fmt.Printf("manifests: %d categories written to R2\n", len(manifests))
+	if !packsOnly {
+		manifests, err := writeManifests(ctx, r.client, objs)
+		if err != nil {
+			return err
+		}
+		logger.Printf("manifests written: %d categories", len(manifests))
+		fmt.Printf("manifests: %d categories written to R2\n", len(manifests))
 
-	d1 := &d1Client{creds: creds, hc: &http.Client{Timeout: 60 * time.Second}}
-	if err := syncD1(ctx, d1, manifests, r.putCats(), forceD1, logger); err != nil {
-		return fmt.Errorf("d1: %w", err)
+		d1 := &d1Client{creds: creds, hc: &http.Client{Timeout: 60 * time.Second}}
+		if err := syncD1(ctx, d1, manifests, r.putCats(), forceD1, logger); err != nil {
+			return fmt.Errorf("d1: %w", err)
+		}
+		fmt.Println("d1: manifest mirror current")
 	}
-	fmt.Println("d1: manifest mirror current")
-	return nil
+	return writePacks(ctx, r.client, objs)
 }
 
 // uploader counts what each object did; the counters are read after the workers finish.
@@ -242,6 +245,29 @@ func writeManifests(ctx context.Context, client *assets.Client, objs []*object) 
 	return byCat, nil
 }
 
+// writePacks writes manifest/packs.json from the uploaded map packs, sorted by directory and name. The packs
+// are not mirrored to D1.
+func writePacks(ctx context.Context, client *assets.Client, objs []*object) error {
+	var entries []assets.PackEntry
+	for _, o := range objs {
+		if o.pack != "" {
+			entries = append(entries, assets.PackEntry{Dir: o.pack, Name: o.rel, Size: o.size, MD5: o.md5})
+		}
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Dir+"/"+entries[i].Name < entries[j].Dir+"/"+entries[j].Name
+	})
+	body, err := json.Marshal(assets.PackManifest{Entries: entries})
+	if err != nil {
+		return err
+	}
+	if err := retry(ctx, func() error { return client.Put(ctx, "manifest/packs.json", body, "application/json") }); err != nil {
+		return fmt.Errorf("manifest packs: %w", err)
+	}
+	fmt.Printf("manifest packs: %d entries written\n", len(entries))
+	return nil
+}
+
 // runVerify lists the static/ and manifest/ prefixes and compares them with the plan.
 func runVerify(ctx context.Context, objs []*object) error {
 	cfg, err := loadR2()
@@ -263,9 +289,13 @@ func runVerify(ctx context.Context, objs []*object) error {
 				group := "manifest"
 				if prefix == "static/" {
 					parts := strings.Split(o.Key, "/")
-					group = "bulk:" + parts[1]
-					if parts[1] == "item" {
+					switch parts[1] {
+					case "item":
 						group = "item:" + parts[2]
+					case "garden", "world":
+						group = "pack:" + parts[1]
+					default:
+						group = "bulk:" + parts[1]
 					}
 				}
 				got[group]++
@@ -285,7 +315,7 @@ func runVerify(ctx context.Context, objs []*object) error {
 		fmt.Printf("%-16s plan %8d / %14d   bucket %8d / %14d\n", g, want.count[g], want.bytes[g], got[g], gotBytes[g])
 	}
 	fmt.Printf("%-16s bucket %d objects\n", "manifest", got["manifest"])
-	if got["manifest"] != len(assets.Categories) {
+	if got["manifest"] != len(assets.Categories)+1 { // the categories and manifest/packs.json
 		bad++
 	}
 	if bad > 0 {

@@ -30,6 +30,8 @@ func TestBuildObjectsMapsCategories(t *testing.T) {
 		"UIResource/UIImage_hd/c.png",
 		"stringtable/arts_strings.ast",
 		"stringtable/other.ast",
+		"garden/README", // the pack folders must exist; a loose file that is not a pack is ignored
+		"world/README",
 		"item/dress/README", // every kind folder must exist; a loose file is not an item
 		"item/interior/README",
 		"item/tile/README",
@@ -69,14 +71,56 @@ func TestBuildObjectsMapsCategories(t *testing.T) {
 	}
 }
 
+// Only the top-level <digits>.mworldpack files of garden and world are map packs; the extracted folders and
+// other files beside them are not served, and a pack-looking name that is not a pack name stops the plan.
+func TestBuildObjectsMapsPacks(t *testing.T) {
+	files := []string{
+		"animation/a.png", "sound/BGM.ogg", "UIResource/MarbleChallengePopup.plist", "stringtable/arts_strings.ast",
+		"item/custom/README", "item/dress/README", "item/interior/README", "item/tile/README", "item/garden/README", "item/pet/README",
+		"garden/1908231803.mworldpack",
+		"garden/1908231803/iteminfo.artsitem",
+		"garden/notes.txt",
+		"world/2201202900.mworldpack",
+		"world/icon/x.png",
+	}
+	root := writeTree(t, files...)
+	objs, err := buildObjects(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, o := range objs {
+		if o.pack != "" {
+			got[o.key] = o.pack + "|" + o.rel
+		}
+	}
+	want := map[string]string{
+		"static/garden/1908231803.mworldpack": "garden|1908231803.mworldpack",
+		"static/world/2201202900.mworldpack":  "world|2201202900.mworldpack",
+	}
+	if len(got) != len(want) || got["static/garden/1908231803.mworldpack"] != want["static/garden/1908231803.mworldpack"] || got["static/world/2201202900.mworldpack"] != want["static/world/2201202900.mworldpack"] {
+		t.Fatalf("packs = %v, want %v", got, want)
+	}
+	if err := os.WriteFile(filepath.Join(root, "garden", "notes.mworldpack"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := buildObjects(root); err == nil {
+		t.Fatal("a non-numeric pack name was planned")
+	}
+}
+
 func TestSummarizeGroups(t *testing.T) {
 	objs := []*object{
 		{key: "static/tx/a", cat: "tx", size: 2},
 		{key: "static/item/custom/1/dp.png", size: 5},
 		{key: "static/item/custom/1/b.png", size: 7},
+		{key: "static/garden/1.mworldpack", pack: "garden", size: 3},
 	}
 	tot := summarize(objs)
 	if tot.count["bulk:tx"] != 1 || tot.count["item:custom"] != 2 || tot.bytes["item:custom"] != 12 {
 		t.Fatalf("totals = %+v", tot)
+	}
+	if tot.count["pack:garden"] != 1 || tot.bytes["pack:garden"] != 3 {
+		t.Fatalf("pack totals = %+v", tot)
 	}
 }

@@ -73,14 +73,14 @@ func TestIniBodyGrammar(t *testing.T) {
 	}}
 	want := "[start=1,end=1,size=6,/a.png:version=ABCDEF0123456789ABCDEF0123456789]\n" +
 		"[start=1,end=1,size=4,/world_icon/b.png:version=0123456789ABCDEF0123456789ABCDEF]"
-	if got := m.IniBody(); got != want {
+	if got := m.IniBody(nil); got != want {
 		t.Fatalf("body\n got %q\nwant %q", got, want)
 	}
 	tx := Manifest{Cat: "tx", Entries: []Entry{{Path: "arts_strings.ast", Size: 454656, MD5: "1492f278ec281078ac7f35479a85f197"}}}
-	if got := tx.IniBody(); got != tx543 {
+	if got := tx.IniBody(nil); got != tx543 {
 		t.Fatalf("tx body %q differs from the pre-streaming list %q", got, tx543)
 	}
-	if got := (&Manifest{Cat: "sound"}).IniBody(); got != "[]" {
+	if got := (&Manifest{Cat: "sound"}).IniBody(nil); got != "[]" {
 		t.Fatalf("empty body = %q, want []", got)
 	}
 }
@@ -186,7 +186,7 @@ func TestLanguageCoverage(t *testing.T) {
 	entries := fixture(t, f)
 	s, _ := webStore(t, f)
 	for _, cat := range Categories {
-		want := (&Manifest{Cat: cat, Entries: entries[cat]}).IniBody()
+		want := (&Manifest{Cat: cat, Entries: entries[cat]}).IniBody(nil)
 		for _, lang := range langs {
 			rec, ok := get(t, s, "/arts_"+cat+"_ini_00001/update_"+lang+".ini")
 			if !ok || rec.Code != http.StatusOK || rec.Body.String() != want || rec.Body.Len() == 0 {
