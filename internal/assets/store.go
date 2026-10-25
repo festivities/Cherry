@@ -393,6 +393,9 @@ func fileKey(p string) (string, bool) {
 		if !ok || !isDigits(id) || !safeRel(file) {
 			return "", false
 		}
+		if file == "lpitem.aniproj" { // the client asks for the item animation by this name and saves it as <id>.aniproj
+			file = id + ".aniproj"
+		}
 		return "static/item/" + kind + "/" + id + "/" + file, true
 	}
 	rest, ok := strings.CutPrefix(p, "/arts_")

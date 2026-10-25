@@ -161,6 +161,7 @@ func TestRouteParsing(t *testing.T) {
 		"/img/read/arts_item_pet_326400389/dp.png":                    "static/item/pet/326400389/dp.png",
 		"/arts_item_dress_225409162/1409_iteminfo.artsitem":           "static/item/dress/225409162/1409_iteminfo.artsitem",
 		"/img/read/arts_item_custom_224400004/1409_iteminfo.artsitem": "static/item/custom/224400004/1409_iteminfo.artsitem",
+		"/arts_item_interior_122013091/lpitem.aniproj":                "static/item/interior/122013091/122013091.aniproj",
 	}
 	for p, key := range files {
 		if got, ok := fileKey(p); !ok || got != key {
