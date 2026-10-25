@@ -1,3 +1,8 @@
 {
-  "name": "LINE City"
+  "squares": [
+    {"theme": 6, "name": "LINE City", "list_name": "LINE City", "map": "2401039000", "map_size": 160, "spawn": {"x": 93, "y": 80}, "index": 0, "visible": true},
+    {"theme": 32, "name": "LINE Café", "list_name": "LINE Café", "map": "2202250100", "map_size": 160, "spawn": {"x": 87, "y": 85}, "index": 1, "visible": true},
+    {"theme": 33, "name": "Runway Square", "list_name": "Runway Square", "map": "2310272600", "map_size": 180, "spawn": {"x": 85, "y": 81}, "index": 2, "visible": true},
+    {"theme": 34, "name": "Pet Theme Park", "list_name": "Pet Theme Park", "map": "2201202900", "map_size": 160, "spawn": {"x": 89, "y": 97}, "index": 3, "visible": true}
+  ]
 }

@@ -19,7 +19,14 @@ type sqClient struct {
 	sid  [8]byte
 }
 
+// newSqClient is a client in a registry where LINE City is room (other Squares are new rooms).
 func newSqClient(t *testing.T, room *squareRoom, sid byte) *sqClient {
+	t.Helper()
+	return newSqClientIn(t, &squareRooms{rooms: map[uint64]*squareRoom{squareThemeID: room}}, sid)
+}
+
+// newSqClientIn is a client of the shared registry rooms (several Squares in one test).
+func newSqClientIn(t *testing.T, rooms *squareRooms, sid byte) *sqClient {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -43,7 +50,7 @@ func newSqClient(t *testing.T, room *squareRoom, sid byte) *sqClient {
 	t.Cleanup(func() { peer.Close(); r.c.Close() })
 	c := &sqClient{t: t, peer: peer}
 	c.sid[7] = sid
-	c.sess = &squareSession{room: room, conn: &lockedConn{Conn: r.c}, logger: log.New(io.Discard, "", 0)}
+	c.sess = &squareSession{rooms: rooms, conn: &lockedConn{Conn: r.c}, logger: log.New(io.Discard, "", 0)}
 	return c
 }
 
@@ -98,27 +105,64 @@ func (c *sqClient) none() {
 
 func loginBody(aid uint64) []byte { return pbVar(pbLen(nil, 1, []byte("sk")), 2, aid) }
 
-func (c *sqClient) join(aid uint64) []byte {
+// squareTestMaps is the map each listed Square loads (data/squares.json).
+var squareTestMaps = map[uint64]string{6: "2401039000", 32: "2202250100", 33: "2310272600", 34: "2201202900"}
+
+func (c *sqClient) join(aid uint64) []byte { return c.joinTheme(aid, squareThemeID) }
+
+// joinTheme logs in, enters the Square theme and relays in. Only LINE City gets the fishing UI's rod
+// list request, and the boss icon (rc58) follows its reply.
+func (c *sqClient) joinTheme(aid, theme uint64) []byte {
 	c.t.Helper()
 	c.send(0, loginBody(aid))
 	c.expect(0, []byte{0x08, 0x81, 0x80, 0x08}) // 131073
-	c.send(2, pbVar(nil, 1, 1))
-	// rc_room_enter_res: result, then NpcList (the fishing spot, field 2), then the rest.
+	c.send(2, pbVar(nil, 1, theme))
 	id, enter := c.read()
-	tail := append(append([]byte{0x18, 1, 0x20, byte(squareThemeID), 0x28, 1, 0x32, 10}, squareMapFileName...), 0x38, 0)
-	if id != 6 || !bytes.HasPrefix(enter, []byte{0x08, 0x81, 0x80, 0x0c, 0x12}) || !bytes.HasSuffix(enter, tail) {
-		c.t.Fatalf("room enter = %d/%x", id, enter)
+	if id != 6 {
+		c.t.Fatalf("room enter msgid = %d", id)
+	}
+	if npc := c.checkEnter(enter, theme, squareTestMaps[theme]); npc != (theme == squareThemeID) {
+		c.t.Fatalf("theme %d NpcList present = %v", theme, npc)
 	}
 	c.send(5, nil)
 	id, body := c.read()
 	if id != 8 {
 		c.t.Fatalf("relaystart msgid = %d, want 8", id)
 	}
-	// The fishing UI asks for the rod list once it exists; the boss icon (rc58) follows that reply.
-	c.send(59, nil)
-	c.expect(78, nil)
-	c.expect(58, pbVar(nil, 1, 1))
+	if theme == squareThemeID {
+		c.send(59, nil)
+		c.expect(78, nil)
+		c.expect(58, pbVar(nil, 1, 1))
+	}
 	return body
+}
+
+// checkEnter decodes rc_room_enter_res (result, NpcList, SquareCode, ThemeId4, MapFileName6,
+// PlayerType) and fails unless it names theme and map; it reports whether an NpcList came along.
+func (c *sqClient) checkEnter(enter []byte, theme uint64, mapName string) (hasNpc bool) {
+	c.t.Helper()
+	var result, code, themeID, playerType uint64
+	var mapFile string
+	ok := pbScan(enter, func(f, v uint64, d []byte) {
+		switch f {
+		case 1:
+			result = v
+		case 2:
+			hasNpc = true
+		case 3:
+			code = v
+		case 4:
+			themeID = v
+		case 6:
+			mapFile = string(d)
+		case 7:
+			playerType = v
+		}
+	})
+	if !ok || result != squareEnterResult || code != 1 || themeID != theme || mapFile != mapName || playerType != 0 {
+		c.t.Fatalf("room enter = %x, want theme %d map %s", enter, theme, mapName)
+	}
+	return hasNpc
 }
 
 func relayResultBytes() []byte { return pbVar(nil, 1, squareRelayResult) }
@@ -141,20 +185,73 @@ func TestSquareOpenControl(t *testing.T) {
 	}
 }
 
+// themeInfo is the decoded theme_info fields the list test checks.
+type themeInfo struct {
+	id, index, group, count, visible, enabled uint64
+	name, listName                            string
+}
+
+// themeList decodes rc_themelist_res: the theme_info entries (field 1) and the result (field 3).
+func themeList(t *testing.T, body []byte) ([]themeInfo, uint64) {
+	t.Helper()
+	var infos []themeInfo
+	var result uint64
+	ok := pbScan(body, func(f, v uint64, d []byte) {
+		switch {
+		case f == 3:
+			result = v
+		case f == 1 && d != nil:
+			var ti themeInfo
+			pbScan(d, func(f, v uint64, d []byte) {
+				switch f {
+				case 1:
+					ti.id = v
+				case 8:
+					ti.index = v
+				case 9:
+					ti.name = string(d)
+				case 11:
+					ti.enabled = v
+				case 12:
+					ti.group = v
+				case 14:
+					ti.visible = v
+				case 16:
+					ti.count = v
+				case 17:
+					ti.listName = string(d)
+				}
+			})
+			infos = append(infos, ti)
+		}
+	})
+	if !ok {
+		t.Fatalf("themelist malformed: %x", body)
+	}
+	return infos, result
+}
+
 func TestSquareThemeList(t *testing.T) {
-	room := &squareRoom{}
-	a := newSqClient(t, room, 1)
+	a := newSqClient(t, &squareRoom{}, 1)
 	a.send(0, loginBody(11))
 	a.read()
 	a.send(1, pbVar(nil, 1, 0))
-	theme := []byte{0x08, squareThemeID, 0x10, 0, 0x3a, 0, 0x40, 0, 0x4a, 9}
-	theme = append(theme, "LINE City"...)
-	theme = append(theme, 0x52, 0, 0x58, 1, 0x60, 0, 0x70, 1, 0x80, 1, 0, 0x8a, 1, 9)
-	theme = append(theme, "LINE City"...)
-	// field 16 (userCount) is a two-byte key: 0x80 0x01.
-	want := append([]byte{0x0a, byte(len(theme))}, theme...)
-	want = append(want, 0x18, 0)
-	a.expect(1, want)
+	id, body := a.read()
+	infos, result := themeList(t, body)
+	if id != 1 || result != 0 || len(infos) != 4 {
+		t.Fatalf("themelist msgid=%d result=%d entries=%d", id, result, len(infos))
+	}
+	want := []themeInfo{
+		{id: 6, index: 0, group: 6, count: 0, visible: 1, enabled: 1, name: "LINE City", listName: "LINE City"},
+		{id: 32, index: 1, group: 32, count: 0, visible: 1, enabled: 1, name: "LINE Café", listName: "LINE Café"},
+		{id: 33, index: 2, group: 33, count: 0, visible: 1, enabled: 1, name: "Runway Square", listName: "Runway Square"},
+		{id: 34, index: 3, group: 34, count: 0, visible: 1, enabled: 1, name: "Pet Theme Park", listName: "Pet Theme Park"},
+	}
+	for i := range want {
+		if infos[i] != want[i] {
+			t.Fatalf("entry %d = %+v, want %+v", i, infos[i], want[i])
+		}
+	}
 }
 
 func TestSquareRosterAndBroadcasts(t *testing.T) {
@@ -444,6 +541,6 @@ func TestSquareReenterStandsUpSeat(t *testing.T) {
 	if id != 8 || bytes.Contains(roster, pbLen(nil, 4, sitInfo())) {
 		t.Fatalf("re-enter roster = %d/%x, want no own seat", id, roster)
 	}
-	b.expect(9, pbLen(pbVar(nil, 1, 11), 2, squarePositionInfo(squareSpawnX, squareSpawnY, 0)))
+	b.expect(9, pbLen(pbVar(nil, 1, 11), 2, squarePositionInfo(6920, 2920, 0)))
 	b.none()
 }

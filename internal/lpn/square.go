@@ -32,12 +32,9 @@ const (
 	squareDefaultCountry = "JP"
 )
 
-// Spawn on map 2401039000's own AVATAR_START tile (93,80) -> game px (6920,2920)
-// via X=40*(wx-wy+N), Y=20*(2N-1-wx-wy)+20, N=160. Square never reads that table
-// itself; each later player steps one tile along x (+40,-20), row y=80 is walkable.
+// Each Square's spawn tile (AVATAR_START, data/squares.json) is converted by Square.spawnPx. Square never
+// reads the map's table itself; each later player steps one tile along x (+40,-20).
 const (
-	squareSpawnX     = 6920
-	squareSpawnY     = 2920
 	squareSpawnStepX = 40
 	squareSpawnStepY = 20
 	squareMaxPlayers = 100
@@ -55,6 +52,23 @@ func squareRoomEnter(npcs []byte, theme uint64, mapFile string) []byte {
 	body = pbVar(body, 5, 1) // clientMapRevision
 	body = pbLen(body, 6, []byte(mapFile))
 	return pbVar(body, 7, 0) // playerType
+}
+
+// squareThemeInfo is one theme_info of rc_themelist_res: ThemeId, ThemeIndex, ThemeName, ThemeEnabled,
+// ThemeGroupId (the world type's own group: GetRepresentGroupType is the identity for these ids),
+// ThemeVisibled, UserCount and ThemeListName. The list picture is chosen by the client, not by the id.
+func squareThemeInfo(sq Square, count uint64) []byte {
+	theme := pbVar(nil, 1, sq.Theme)
+	theme = pbVar(theme, 2, 0)
+	theme = pbLen(theme, 7, nil)
+	theme = pbVar(theme, 8, sq.Index)
+	theme = pbLen(theme, 9, []byte(sq.Name))
+	theme = pbLen(theme, 10, nil)
+	theme = pbVar(theme, 11, 1)
+	theme = pbVar(theme, 12, sq.Theme)
+	theme = pbVar(theme, 14, 1)
+	theme = pbVar(theme, 16, count)
+	return pbLen(theme, 17, []byte(sq.ListName))
 }
 
 // squareItemPrefix maps an item code's category (code[2:4]) to its numeric
@@ -119,7 +133,28 @@ type squareRoom struct {
 	chatSerial uint64
 }
 
-var defaultSquare = &squareRoom{}
+// squareRooms holds one room per Square (world type): players in different Squares do not see each
+// other. A room is created on first use and kept.
+type squareRooms struct {
+	mu    sync.Mutex
+	rooms map[uint64]*squareRoom
+}
+
+var defaultSquares = &squareRooms{}
+
+func (rs *squareRooms) room(theme uint64) *squareRoom {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	if rs.rooms == nil {
+		rs.rooms = map[uint64]*squareRoom{}
+	}
+	r := rs.rooms[theme]
+	if r == nil {
+		r = &squareRoom{}
+		rs.rooms[theme] = r
+	}
+	return r
+}
 
 func squareFrame(b1 byte, sid []byte, msgid uint16, body []byte) []byte {
 	f := make([]byte, 16+len(body))
@@ -328,7 +363,7 @@ func squareDelUser(aid uint64) []byte { return pbVar(pbVar(nil, 1, aid), 2, 0) }
 // the avatar there, and a deluser+adduser pair would lose it because the
 // client deletes departed avatars after a delay (_WaitDeleteWorldAvatar_2_0). A re-entered
 // client starts standing, so the old seat is dropped (wasSeated) and the caller tells the others.
-func (r *squareRoom) join(p *squarePlayer) (roster []byte, rejoined, wasSeated bool) {
+func (r *squareRoom) join(p *squarePlayer, spawnX, spawnY uint64) (roster []byte, rejoined, wasSeated bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	index := -1
@@ -341,9 +376,9 @@ func (r *squareRoom) join(p *squarePlayer) (roster []byte, rejoined, wasSeated b
 		}
 	}
 	if index < 0 {
-		n := uint64(len(r.players) % 30) // ponytail: wraps after 30 to stay on row y=80
-		p.x = squareSpawnX + n*squareSpawnStepX
-		p.y = squareSpawnY - n*squareSpawnStepY
+		n := uint64(len(r.players) % 30) // ponytail: wraps after 30 so the steps stay on the spawn row
+		p.x = spawnX + n*squareSpawnStepX
+		p.y = spawnY - n*squareSpawnStepY
 	}
 	roster = pbLen(nil, 2, p.info())
 	for i, o := range r.players {
@@ -380,7 +415,9 @@ func (r *squareRoom) leave(logger *log.Logger, p *squarePlayer) {
 // squareSession is the per-connection agent-7 state, used from the single
 // handler goroutine of that connection.
 type squareSession struct {
-	room     *squareRoom
+	rooms    *squareRooms
+	room     *squareRoom // the room of the Square entered last (nil before the first enter)
+	square   Square      // the Square entered last: its spawn and map
 	conn     *lockedConn
 	logger   *log.Logger
 	aid      uint64
@@ -448,31 +485,35 @@ func (s *squareSession) handleData(frame []byte) error {
 		return nil
 	}
 	switch msgid {
-	case 1: // cr_themelist_req -> rc_themelist_res
-		s.room.mu.Lock()
-		count := uint64(len(s.room.players))
-		s.room.mu.Unlock()
-		theme := pbVar(nil, 1, squareThemeID)
-		theme = pbVar(theme, 2, 0)
-		theme = pbLen(theme, 7, nil)
-		theme = pbVar(theme, 8, 0)
-		theme = pbLen(theme, 9, []byte(squaresFile.Get().Name))
-		theme = pbLen(theme, 10, nil)
-		theme = pbVar(theme, 11, 1)
-		theme = pbVar(theme, 12, 0)
-		theme = pbVar(theme, 14, 1)
-		theme = pbVar(theme, 16, count)
-		theme = pbLen(theme, 17, []byte(squaresFile.Get().Name))
-		body := pbVar(pbLen(nil, 1, theme), 3, 0) // result=0 [I]
-		s.logger.Printf("SQUARE themelist userCount=%d", count)
+	case 1: // cr_themelist_req -> rc_themelist_res: every visible Square with its user count
+		var body []byte
+		for _, sq := range squaresFile.Get().listed() {
+			room := s.rooms.room(sq.Theme)
+			room.mu.Lock()
+			count := uint64(len(room.players))
+			room.mu.Unlock()
+			body = pbLen(body, 1, squareThemeInfo(sq, count))
+		}
+		body = pbVar(body, 3, 0) // result=0 [I]
+		s.logger.Printf("SQUARE themelist squares=%d", len(squaresFile.Get().listed()))
 		return s.reply(frame, 1, body)
-	case 2: // cr_room_enter_req -> rc_room_enter_res (idx6)
+	case 2: // cr_room_enter_req -> rc_room_enter_res (idx6): the Square the client asked for (Theme)
+		theme, _ := protobufUintField(data, 1)
+		sq := squaresFile.Get().entry(theme)
+		room := s.rooms.room(sq.Theme)
 		s.boss = nil // back from the boss room: the Square is entered again
 		s.stopRacing()
-		s.entered = true
-		s.logger.Printf("SQUARE enter aid=%d map=%s", s.aid, squareMapFileName)
+		if s.player != nil && room != s.room { // another Square: leave the one we were in
+			s.close()
+		}
+		s.room, s.square, s.entered = room, sq, true
+		s.logger.Printf("SQUARE enter aid=%d theme=%d map=%s", s.aid, sq.Theme, sq.Map)
 		MarkQuest(s.aid, "square")
-		return s.reply(frame, 6, squareRoomEnter(squareFishingSpotList(), squareThemeID, squareMapFileName))
+		var npcs []byte // the minigame NPCs are placed on LINE City's map only
+		if sq.Theme == squareThemeID {
+			npcs = squareFishingSpotList()
+		}
+		return s.reply(frame, 6, squareRoomEnter(npcs, sq.Theme, sq.Map))
 	case 5: // cr_room_relaystart_req -> rc_room_relaystart_res + adduser_all
 		if !s.entered {
 			s.logger.Printf("SQUARE relaystart before enter ignored")
@@ -480,7 +521,8 @@ func (s *squareSession) handleData(frame []byte) error {
 		}
 		p := &squarePlayer{aid: s.aid, conn: s.conn, b1: frame[1], avatar: squareAvatarInfo(s.aid)}
 		copy(p.sid[:], frame[2:10])
-		roster, rejoined, wasSeated := s.room.join(p)
+		spawnX, spawnY := s.square.spawnPx()
+		roster, rejoined, wasSeated := s.room.join(p, spawnX, spawnY)
 		s.player = p
 		s.room.mu.Lock()
 		n := len(s.room.players)
