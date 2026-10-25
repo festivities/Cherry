@@ -155,11 +155,12 @@ func TestRouteParsing(t *testing.T) {
 		}
 	}
 	files := map[string]string{
-		"/arts_animation_tw_00531/world_icon/b.png":         "static/animation/world_icon/b.png",
-		"/arts_tx_en_00543/arts_strings.ast":                "static/tx/arts_strings.ast",
-		"/arts_item_custom_123/dp.png":                      "static/item/custom/123/dp.png",
-		"/img/read/arts_item_pet_326400389/dp.png":          "static/item/pet/326400389/dp.png",
-		"/arts_item_dress_225409162/1409_iteminfo.artsitem": "static/item/dress/225409162/1409_iteminfo.artsitem",
+		"/arts_animation_tw_00531/world_icon/b.png":                   "static/animation/world_icon/b.png",
+		"/arts_tx_en_00543/arts_strings.ast":                          "static/tx/arts_strings.ast",
+		"/arts_item_custom_123/dp.png":                                "static/item/custom/123/dp.png",
+		"/img/read/arts_item_pet_326400389/dp.png":                    "static/item/pet/326400389/dp.png",
+		"/arts_item_dress_225409162/1409_iteminfo.artsitem":           "static/item/dress/225409162/1409_iteminfo.artsitem",
+		"/img/read/arts_item_custom_224400004/1409_iteminfo.artsitem": "static/item/custom/224400004/1409_iteminfo.artsitem",
 	}
 	for p, key := range files {
 		if got, ok := fileKey(p); !ok || got != key {
@@ -167,12 +168,12 @@ func TestRouteParsing(t *testing.T) {
 		}
 	}
 	for _, p := range []string{
-		"/arts_he_en_00001/x.png",            // not a streamed category
-		"/arts_animation_xx_00531/x.png",     // unknown language
-		"/arts_animation_en_00531/../x",      // traversal
-		"/arts_item_set_123/dp.png",          // item kind not streamed
-		"/arts_item_custom_12a/dp.png",       // id not numeric
-		"/img/read/arts_item_custom_1/a.png", // thumbnail form is dp.png only
+		"/arts_he_en_00001/x.png",                     // not a streamed category
+		"/arts_animation_xx_00531/x.png",              // unknown language
+		"/arts_animation_en_00531/../x",               // traversal
+		"/arts_item_set_123/dp.png",                   // item kind not streamed
+		"/arts_item_custom_12a/dp.png",                // id not numeric
+		"/img/read/arts_tx_en_00543/arts_strings.ast", // /img/read carries item files only
 		"/arts_strings.ast",
 	} {
 		if key, ok := fileKey(p); ok {

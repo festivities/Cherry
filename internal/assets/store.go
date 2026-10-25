@@ -370,11 +370,11 @@ func animationDir(head string) bool {
 }
 
 // fileKey maps a streamed file route to its R2 key. /arts_<cat>_<lang>_<v>/<path> is static/<cat>/<path>;
-// /arts_item_<kind>_<id>/<file> is static/item/<kind>/<id>/<file>; the thumbnail form
-// /img/read/arts_item_<kind>_<id>/dp.png is the same dp.png.
+// /arts_item_<kind>_<id>/<file> is static/item/<kind>/<id>/<file>; the item loader also asks for every item
+// file under /img/read/ (device 2026-10-26: /img/read/arts_item_custom_<id>/1409_iteminfo.artsitem).
 func fileKey(p string) (string, bool) {
 	if rest, ok := strings.CutPrefix(p, "/img/read"); ok {
-		if !strings.HasSuffix(rest, "/dp.png") {
+		if !strings.HasPrefix(rest, "/arts_item_") {
 			return "", false
 		}
 		p = rest
