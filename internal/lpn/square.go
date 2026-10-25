@@ -607,6 +607,8 @@ func (s *squareSession) handleData(frame []byte) error {
 		return s.handleBoss(frame, msgid, data)
 	case 52, 53: // Boss Coin exchange office: list, buy (square_exchange.go)
 		return s.handleExchange(frame, msgid, data)
+	case 61, 62: // Ride Point exchange shop: list, buy (square_racing_exchange.go)
+		return s.handleRideShop(frame, msgid, data)
 	case 63, 64, 65, 66, 68, 71, 72, 76, 79, 82, 86, 94: // Riding Pet race: entry, create, ready, start, positions (square_racing.go)
 		return s.handleRacing(frame, msgid, data)
 	case 10: // cr_trunk_call_req: whisper-state notification, no reply needed

@@ -258,8 +258,9 @@ const adminAddr = "127.0.0.1:8099"
 //
 //	curl -X POST http://127.0.0.1:8099/admin/grant -d "{\"aid\":\"1002\",\"gems\":500,\"cash\":10,\"faceTickets\":3,\"reason\":\"test\"}"
 //
-// smiles, bossCoins (Square boss fishing, spent at the exchange office) and materials (Garden Bag item
-// id -> count delta, gathering drops or Atelier goods) work the same way:
+// smiles, bossCoins (Square boss fishing, spent at the exchange office), ridePoints (racing store points,
+// spent at the Ride Point shop) and materials (Garden Bag item id -> count delta, gathering drops or
+// Atelier goods) work the same way:
 //
 //	curl -X POST http://127.0.0.1:8099/admin/grant -d "{\"aid\":\"1001\",\"smiles\":50,\"materials\":{\"110000\":6}}"
 func NewAdminMux() *http.ServeMux {
@@ -285,6 +286,7 @@ func handleAdminGrant(w http.ResponseWriter, r *http.Request) {
 		FaceTickets int64           `json:"faceTickets"`
 		Smiles      int64           `json:"smiles"`
 		BossCoins   int64           `json:"bossCoins"`
+		RidePoints  int64           `json:"ridePoints"`
 		Materials   map[int64]int64 `json:"materials"` // Garden Bag item id -> count delta
 		Reason      string          `json:"reason"`
 	}
@@ -309,14 +311,17 @@ func handleAdminGrant(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
 		return
 	}
-	prevBag, prevCoins, now := acc.GardenBag, acc.BossCoins, time.Now()
+	prevBag, prevCoins, prevRacing, now := acc.GardenBag, acc.BossCoins, acc.Racing, time.Now()
 	acc.BossCoins = max(acc.BossCoins+req.BossCoins, 0) // saved with the deltas below
+	if req.RidePoints != 0 {
+		setRidePointsLocked(acc, max(ridePointsLocked(acc)+req.RidePoints, 0))
+	}
 	for item, n := range req.Materials {
 		acc.GardenBag = gardenBagChange(acc.GardenBag, item, n, now)
 	}
 	err = store.ApplyDeltasLocked(acc, store.LedgerDeltas{Gems: req.Gems, Cash: req.Cash, FaceTickets: req.FaceTickets, Smiles: req.Smiles}, reason)
 	if err != nil {
-		acc.GardenBag, acc.BossCoins = prevBag, prevCoins
+		acc.GardenBag, acc.BossCoins, acc.Racing = prevBag, prevCoins, prevRacing
 	}
 	if _, ok := err.(*store.BalanceError); ok {
 		httpx.WriteJSON(w, http.StatusBadRequest, errNotEnoughBody)
@@ -326,7 +331,7 @@ func handleAdminGrant(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
 		return
 	}
-	body, _ := json.Marshal(map[string]any{"aid": acc.Aid, "gems": acc.Gems, "cash": acc.Cash, "faceTickets": acc.FaceTickets, "smiles": acc.Smiles, "bossCoins": acc.BossCoins, "bag": acc.GardenBag})
+	body, _ := json.Marshal(map[string]any{"aid": acc.Aid, "gems": acc.Gems, "cash": acc.Cash, "faceTickets": acc.FaceTickets, "smiles": acc.Smiles, "bossCoins": acc.BossCoins, "ridePoints": ridePointsLocked(acc), "bag": acc.GardenBag})
 	httpx.WriteJSON(w, http.StatusOK, string(body))
 }
 

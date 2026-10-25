@@ -185,10 +185,16 @@ func ExchangeItemID(code string) int64 {
 	return 0
 }
 
-// ExchangeItemImageURL is the item's dp picture as an absolute URL on the static host (the reward
-// and detail popups load it verbatim). "" when the item has no folder.
+// ExchangeItemImageURL is the item's dp picture as a path RELATIVE to the client's static base: the
+// Square shop cells prefix that base (device 2026-10-26: an absolute URL was fetched as
+// "/https://play-static.../dp.png" and 404ed), as with the fish-shop pictures. "" when the item has
+// no folder.
 func ExchangeItemImageURL(code string) string {
-	return itemImageURL(code, "play-static.line-scdn.net")
+	kind, id, ok := itemThumbRef(code)
+	if !ok {
+		return ""
+	}
+	return "arts_item_" + kind + "_" + id + "/dp.png"
 }
 
 // BossCoinBalance is aid's Boss Coins (0 for an unknown account).

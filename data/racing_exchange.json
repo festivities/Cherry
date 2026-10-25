@@ -1,0 +1,9 @@
+{
+  "rows": [
+    {"id": 1, "item_code": "CUTO0018W", "price": 20},
+    {"id": 2, "item_code": "CUON000GT", "price": 30},
+    {"id": 3, "item_code": "RUWA000MV", "price": 25},
+    {"id": 4, "item_code": "CUON00111", "price": 40},
+    {"id": 5, "item_code": "CUON0050V", "price": 50}
+  ]
+}

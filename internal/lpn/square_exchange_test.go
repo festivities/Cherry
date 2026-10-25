@@ -72,8 +72,8 @@ func TestSquareExchangeNpcEncoding(t *testing.T) {
 	if squareUint(t, npc, 1) != squareExchangeSerial || squareUint(t, npc, 10) != squareExchangePX || squareUint(t, npc, 11) != squareExchangePY {
 		t.Fatalf("serial/Px/Py = %d/%d/%d", squareUint(t, npc, 1), squareUint(t, npc, 10), squareUint(t, npc, 11))
 	}
-	if n := len(squareRepeated(t, list, 1)); n != 4 {
-		t.Fatalf("NPC list has %d entries, want the spot, the shop, the office and the race entrance", n)
+	if n := len(squareRepeated(t, list, 1)); n != 5 {
+		t.Fatalf("NPC list has %d entries, want the spot, the shop, the office, the race entrance and the Ride Point shop", n)
 	}
 }
 
@@ -110,7 +110,7 @@ func TestSquareExchangeListShape(t *testing.T) {
 	if code, _, _ := pbBytesField(item, 3); string(code) != "CUON00059" {
 		t.Fatalf("item_code = %q", code)
 	}
-	if url, _, _ := pbBytesField(item, 10); string(url) != "https://play-static.line-scdn.net/arts_item_dress_225100189/dp.png" {
+	if url, _, _ := pbBytesField(item, 10); string(url) != "arts_item_dress_225100189/dp.png" {
 		t.Fatalf("img_url = %q", url)
 	}
 	costs := squareRepeated(t, body, 2) // Boss Coins, then Cash for the header

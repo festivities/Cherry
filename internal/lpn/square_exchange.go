@@ -42,7 +42,7 @@ func squareExchangeNpcEntry() []byte {
 
 // squareExchangeRow is a GachaData row (rc68 gacha_group_list[].gacha_list): the row id is the gacha id
 // the client sends back, the price is Boss Coins, and one GachaItemData gives the item. The item picture
-// is the absolute URL the popup loads (no base URL is added on the client); discount dates stay unset.
+// is a path relative to the client static base (ExchangeItemImageURL; device 2026-10-26 on the Ride Point shop [I] here); discount dates stay unset.
 func squareExchangeRow(r economy.ExchangeRow) []byte {
 	item := pbVar(nil, 1, uint64(economy.ExchangeItemID(r.ItemCode))) // item_id: the numeric id
 	item = pbLen(item, 3, []byte(r.ItemCode))                         // item_code: the client's icon (SetItemDp)

@@ -404,6 +404,27 @@ func TestAdminGrantLoopbackOnly(t *testing.T) {
 	}
 }
 
+// TestAdminGrantRidePoints: ridePoints is a delta on the racing store points, clamped at 0, echoed in the
+// reply, and the other racing fields stay. A refused grant (a negative Gem balance) changes no points.
+func TestAdminGrantRidePoints(t *testing.T) {
+	acc, _ := ecoSetup(t, 0, 0, 0)
+	acc.Racing = &store.RacingRecord{Points: 10, Exp: 40, Mmr: 7}
+	if rec := adminReq(t, "127.0.0.1:5000", "POST", `{"aid":"9401","ridePoints":15,"reason":"qa"}`); rec.Code != 200 ||
+		acc.Racing.Points != 25 || acc.Racing.Exp != 40 || acc.Racing.Mmr != 7 || !strings.Contains(rec.Body.String(), `"ridePoints":25`) {
+		t.Fatalf("grant +15: %d %s points %d", rec.Code, rec.Body, acc.Racing.Points)
+	}
+	if rec := adminReq(t, "127.0.0.1:5000", "POST", `{"aid":"9401","ridePoints":-100}`); rec.Code != 200 || acc.Racing.Points != 0 ||
+		!strings.Contains(rec.Body.String(), `"ridePoints":0`) {
+		t.Fatalf("grant -100: %d %s points %d", rec.Code, rec.Body, acc.Racing.Points)
+	}
+	if rec := adminReq(t, "127.0.0.1:5000", "POST", `{"aid":"9401","gems":-1,"ridePoints":50}`); rec.Code < 400 || acc.Racing.Points != 0 {
+		t.Fatalf("refused grant: %d points %d", rec.Code, acc.Racing.Points)
+	}
+	if rec := adminReq(t, "127.0.0.1:5000", "POST", `{"aid":"9401","gems":5}`); rec.Code != 200 || acc.Racing.Points != 0 {
+		t.Fatalf("grant without ridePoints: %d points %d", rec.Code, acc.Racing.Points)
+	}
+}
+
 func TestFaceShopResaveCurrentFaceIsFree(t *testing.T) {
 	acc, _ := ecoSetup(t, 0, 0, 0)
 	acc.ItemCodes, acc.InventoryCodes = []string{"CUEY00002"}, []string{"CUEY00002"}

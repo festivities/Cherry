@@ -18,6 +18,11 @@ var FaceCodes string
 //go:embed racing.json
 var RacingJSON []byte
 
+// RacingExchangeJSON is the Square Ride Point exchange shop: rows and the sale period (economy/racing_exchange.go).
+//
+//go:embed racing_exchange.json
+var RacingExchangeJSON []byte
+
 // AtelierJSON is the Garden Atelier recipe file (economy/atelier.go).
 //
 //go:embed atelier.json
