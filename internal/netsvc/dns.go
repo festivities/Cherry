@@ -16,8 +16,6 @@ const (
 	dnsListenAddr   = ":53"
 	dnsUpstreamAddr = "1.1.1.1:53"
 	dnsSinkAddr     = "10.0.2.2"
-	// ponytail: lab LAN IP; update alongside scripts/start-emulator-*.bat if DHCP changes.
-	dnsGatewayAddr  = "192.168.1.11"
 	dnsRelayTimeout = 4 * time.Second
 )
 
@@ -32,8 +30,20 @@ var (
 		"lan3rd.line.me":    true,
 	}
 	dnsSinkA    = net.ParseIP(dnsSinkAddr).To4()
-	dnsGatewayA = net.ParseIP(dnsGatewayAddr).To4()
+	dnsGatewayA = lanIP()
 )
+
+// lanIP is this host's address on the outbound (default-route) interface, read once at start: the
+// gateway address handed to LAN devices and for gws. A UDP "dial" sends nothing. DHCP moving the
+// address needs a Cherry restart.
+func lanIP() net.IP {
+	c, err := net.Dial("udp4", dnsUpstreamAddr)
+	if err != nil {
+		return nil
+	}
+	defer c.Close()
+	return c.LocalAddr().(*net.UDPAddr).IP.To4()
+}
 
 // hostOwnIPs snapshots this machine's interface addresses once. Queries
 // arriving from any other address come from a physical LAN device, which
@@ -60,7 +70,7 @@ func ListenDNS(logger *log.Logger) (*net.UDPConn, error) {
 		return nil, err
 	}
 	go serveDNS(conn, logger)
-	logger.Printf("cherry: dns listening addr=%s upstream=%s sink=%s", dnsListenAddr, dnsUpstreamAddr, dnsSinkAddr)
+	logger.Printf("cherry: dns listening addr=%s upstream=%s sink=%s lan=%s", dnsListenAddr, dnsUpstreamAddr, dnsSinkAddr, dnsGatewayA)
 	return conn, nil
 }
 

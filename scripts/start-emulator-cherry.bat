@@ -4,5 +4,5 @@ if not exist "%EMULATOR%" (
   echo emulator.exe not found: "%EMULATOR%"
   exit /b 1
 )
-echo Starting AVD Cherry. Requires cherry.exe running; host DNS 192.168.1.11 must be this machine.
-start "Cherry AVD" "%EMULATOR%" -avd Cherry -netdelay none -netspeed full -gpu swiftshader_indirect -no-snapshot-load -dns-server 192.168.1.11
+echo Starting AVD Cherry. Requires cherry.exe running; Cherry answers DNS on this machine (loopback).
+start "Cherry AVD" "%EMULATOR%" -avd Cherry -netdelay none -netspeed full -gpu swiftshader_indirect -no-snapshot-load -dns-server 127.0.0.1

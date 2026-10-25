@@ -178,8 +178,8 @@ func TestGatherBeginDoEndCredits(t *testing.T) {
 	}
 }
 
-// TestGatherEndWithoutTouchPaysNothing checks that a begin followed by an end with no do request
-// pays nothing, and that a begin with no spot armed refuses its end.
+// TestGatherEndWithoutTouchPaysNothing checks that a fish begin followed by an end with no do
+// request pays nothing; the fish end still gets result 0 (non-zero shows a client error popup).
 func TestGatherEndWithoutTouchPaysNothing(t *testing.T) {
 	gatherAccount(t, "9922", nil)
 	now := time.Date(2026, time.October, 11, 12, 0, 0, 0, time.UTC)
@@ -187,7 +187,7 @@ func TestGatherEndWithoutTouchPaysNothing(t *testing.T) {
 	g := &gardenGather{}
 	gardenGatherReply(12, 9922, 9922, gatherTouch(3, 103, 40, true), g, now, logger)
 	msgs := gardenGatherReply(13, 9922, 9922, gatherTouch(0, 0, 40, false), g, now, logger)
-	if len(msgs) != 1 || msgs[0].id != 18 || pbFieldsOf(t, msgs[0].body).vars[1] != gatherRefused {
+	if len(msgs) != 1 || msgs[0].id != 18 || pbFieldsOf(t, msgs[0].body).vars[1] != 0 {
 		t.Fatalf("touchless end = %+v", msgs)
 	}
 	if gems, smiles, stacks := gatherGems(t, "9922"); gems != 0 || smiles != 0 || stacks != 0 {
@@ -420,7 +420,8 @@ func TestGatherEndNeedsTheWinningTouches(t *testing.T) {
 	}
 }
 
-// TestGatherFishIsOneHit: a fish begins at grade 0 (one HIT) and pays on that single touch.
+// TestGatherFishIsOneHit: a fish begins at grade 0 (one HIT) and pays on that single touch: the do
+// reply carries the reward push (the client's popup OK sends the end), and the end pays nothing more.
 func TestGatherFishIsOneHit(t *testing.T) {
 	gatherAccount(t, "9926", nil)
 	now := time.Date(2026, time.October, 11, 12, 0, 0, 0, time.UTC)
@@ -430,8 +431,22 @@ func TestGatherFishIsOneHit(t *testing.T) {
 	if item := pbFieldsOf(t, begin.msgs[3][0]); begin.vars[1] != 0 || item.vars[2] != 0 {
 		t.Fatalf("fish begin = %v item %v, want result 0 and grade 0", begin.vars, item.vars)
 	}
-	gardenGatherReply(11, 9926, 9926, gatherTouch(3, 103, 40, true), g, now, logger)
-	if msgs := gardenGatherReply(13, 9926, 9926, nil, g, now, logger); len(msgs) != 3 {
-		t.Fatalf("one-hit fish end = %+v, want a paid end", msgs)
+	do := gardenGatherReply(11, 9926, 9926, gatherTouch(3, 103, 40, true), g, now, logger)
+	if len(do) != 3 || do[0].id != 16 || do[1].id != 41 || do[2].id != 28 {
+		t.Fatalf("winning HIT = %+v, want do reply, reward push, coin sync", do)
+	}
+	if push := pbFieldsOf(t, do[1].body); push.vars[1] != 1 {
+		t.Fatalf("reward push gathering_type = %d, want 1 (fishing popup)", push.vars[1])
+	}
+	gems, _, stacks := gatherGems(t, "9926")
+	if gems != 2 || stacks != 1 {
+		t.Fatalf("after HIT: gems %d stacks %d", gems, stacks)
+	}
+	end := gardenGatherReply(13, 9926, 9926, nil, g, now, logger)
+	if len(end) != 1 || end[0].id != 18 || pbFieldsOf(t, end[0].body).vars[1] != 0 {
+		t.Fatalf("fish end = %+v, want one result-0 reply", end)
+	}
+	if g2, _, s2 := gatherGems(t, "9926"); g2 != gems || s2 != stacks {
+		t.Fatalf("end paid again: gems %d stacks %d", g2, s2)
 	}
 }

@@ -128,6 +128,7 @@ type gardenGather struct {
 	pick    economy.GatherPick
 	action  []byte // the begin's ActionInfo, echoed by the replies
 	touches int
+	paid    bool // a fish paid at its winning HIT; its end pays nothing more
 }
 
 // gardenMsg is one frame for the Garden tunnel.
@@ -155,7 +156,7 @@ func gatherBegin(viewer, owner uint64, data []byte, g *gardenGather, now time.Ti
 	info, _, _ := pbBytesField(data, 2)
 	action, _, _ := pbBytesField(info, 3)
 	actionType, _ := protobufUintField(action, 1)
-	g.armed, g.touches = false, 0
+	g.armed, g.touches, g.paid = false, 0, false
 	viewerAid, ownerAid := strconv.FormatUint(viewer, 10), strconv.FormatUint(owner, 10)
 	spot, known := gardenSpotBySerial(serial)
 	if typ != 3 || !known || spot.action != actionType {
@@ -181,8 +182,10 @@ func gatherBegin(viewer, owner uint64, data []byte, g *gardenGather, now time.Ti
 }
 
 // gatherDo answers ch 11, one per touch. The server counts touches only; the client decides
-// success and sends end.
-func gatherDo(viewer uint64, data []byte, g *gardenGather, logger *log.Logger) []gardenMsg {
+// success and sends end. A fish pays on its winning HIT instead of at the end: the client opens its
+// reward popup only from hc 41 and sends ch 13 only after that popup's OK; without hc 41 it shows
+// string 3039 "Network Error" (EndFishingProcess 0x1f89878, garden-fish-fix.md).
+func gatherDo(viewer uint64, data []byte, g *gardenGather, now time.Time, logger *log.Logger) []gardenMsg {
 	key, _, _ := pbBytesField(data, 1)
 	typ, _ := protobufUintField(key, 1)
 	serial, _ := protobufUintField(key, 2)
@@ -196,7 +199,14 @@ func gatherDo(viewer uint64, data []byte, g *gardenGather, logger *log.Logger) [
 	body := gatherEcho(pbVar(nil, 1, result), g.action)
 	body = pbVar(body, 5, serial) // serial
 	body = pbVar(body, 6, 1)      // is_visible
-	return []gardenMsg{{16, body}}
+	msgs := []gardenMsg{{16, body}}
+	if result == 0 && g.spot.kind == economy.GatherFish && !g.paid && g.touches == gatherTouchesToWin[economy.GatherFish] {
+		if _, push, ok := gatherPay(viewer, g, now, logger); ok {
+			g.paid = true
+			msgs = append(msgs, push...)
+		}
+	}
+	return msgs
 }
 
 // gatherTouchesToWin is how many do requests a successful grade-1 game sends (spec 15-17): essence
@@ -218,28 +228,45 @@ func gatherBeginGrade(kind economy.GatherKind) uint64 {
 // end on success, miss and timeout with the same body, so the server pays only an end with the full
 // winning touch count behind it (gatherTouchesToWin).
 // A paid end sends the reward push (hc 41) after the reply, then coin refresh (hc 28): the Gems
-// show without a scene change.
+// show without a scene change. A fish was paid at its HIT (gatherDo), and its end always gets
+// result 0: a non-zero result shows the client's "unexpected error" popup (10077, hc18 0x1f869a0).
 func gatherEnd(viewer uint64, g *gardenGather, now time.Time, logger *log.Logger) []gardenMsg {
-	armed, touches := g.armed, g.touches
-	spot, pick, owner, action := g.spot, g.pick, g.owner, g.action
-	g.armed, g.touches = false, 0
+	armed, touches, paid := g.armed, g.touches, g.paid
+	spot, owner, action := g.spot, g.owner, g.action
+	g.armed, g.touches, g.paid = false, 0, false
+	if armed && spot.kind == economy.GatherFish {
+		lim := economy.GatherStatus(strconv.FormatUint(viewer, 10), strconv.FormatUint(owner, 10), now)
+		logger.Printf("GARDEN gather end aid=%d kind=%d paid=%v result=0", viewer, spot.kind, paid)
+		return []gardenMsg{{18, pbLen(gatherEcho(pbVar(nil, 1, 0), action), 10, gardenGatherInfo(spot.kind, lim, now))}}
+	}
 	if !armed || touches < gatherTouchesToWin[spot.kind] {
 		logger.Printf("GARDEN gather end aid=%d result=%d", viewer, gatherRefused)
 		return []gardenMsg{{18, pbVar(nil, 1, gatherRefused)}}
 	}
-	lim, gems, ok := economy.GatherCredit(strconv.FormatUint(viewer, 10), strconv.FormatUint(owner, 10), spot.kind, pick.Drop.Item, now)
+	lim, push, ok := gatherPay(viewer, g, now, logger)
 	if !ok {
-		logger.Printf("GARDEN gather end aid=%d kind=%d result=%d", viewer, spot.kind, gatherRefused)
 		body := pbVar(nil, 1, gatherRefused)
 		return []gardenMsg{{18, pbLen(body, 10, gardenGatherInfo(spot.kind, lim, now))}}
+	}
+	body := gatherEcho(pbVar(nil, 1, 0), action)
+	body = pbLen(body, 10, gardenGatherInfo(spot.kind, lim, now))
+	return append([]gardenMsg{{18, body}}, push...)
+}
+
+// gatherPay credits the armed gather and returns the viewer's new limit and the reward push (hc 41)
+// plus coin refresh (hc 28); ok is false when the cap ran out since the begin.
+func gatherPay(viewer uint64, g *gardenGather, now time.Time, logger *log.Logger) (economy.GatherLimit, []gardenMsg, bool) {
+	spot, pick, owner := g.spot, g.pick, g.owner
+	lim, gems, ok := economy.GatherCredit(strconv.FormatUint(viewer, 10), strconv.FormatUint(owner, 10), spot.kind, pick.Drop.Item, now)
+	if !ok {
+		logger.Printf("GARDEN gather pay aid=%d kind=%d result=%d", viewer, spot.kind, gatherRefused)
+		return lim, nil, false
 	}
 	// gather3 (event quest) completes on the third successful gather of the game day; later gathers
 	// retry it, and MarkQuest does nothing once it is credited.
 	if economy.GatherCount(strconv.FormatUint(viewer, 10), now) >= 3 {
 		MarkQuest(viewer, "gather3")
 	}
-	body := gatherEcho(pbVar(nil, 1, 0), action)
-	body = pbLen(body, 10, gardenGatherInfo(spot.kind, lim, now))
 	reward := pbVar(nil, 1, uint64(pick.Drop.Item)) // GatheringRewardItem.item_id
 	reward = pbVar(reward, 2, 1)                    // grade
 	reward = pbVar(reward, 3, uint64(pick.Length))  // length (fish)
@@ -248,8 +275,8 @@ func gatherEnd(viewer uint64, g *gardenGather, now time.Time, logger *log.Logger
 	reward = pbVar(reward, 10, 1) // count
 	push := pbVar(nil, 1, uint64(spot.kind))
 	push = pbLen(push, 2, reward)
-	logger.Printf("GARDEN gather end aid=%d owner=%d kind=%d item=%d gems=%d result=0", viewer, owner, spot.kind, pick.Drop.Item, gems)
-	return []gardenMsg{{18, body}, {41, push}, {28, pbVar(nil, 2, 0)}}
+	logger.Printf("GARDEN gather pay aid=%d owner=%d kind=%d item=%d gems=%d result=0", viewer, owner, spot.kind, pick.Drop.Item, gems)
+	return lim, []gardenMsg{{41, push}, {28, pbVar(nil, 2, 0)}}, true
 }
 
 // gardenBagHolds reports whether a bag type lists the materials: 0 (the first request) and 1 (the
@@ -357,7 +384,7 @@ func gardenGatherMsg(msgid uint16) bool {
 func gardenGatherReply(msgid uint16, viewer, owner uint64, data []byte, g *gardenGather, now time.Time, logger *log.Logger) []gardenMsg {
 	switch msgid {
 	case 11:
-		return gatherDo(viewer, data, g, logger)
+		return gatherDo(viewer, data, g, now, logger)
 	case 12:
 		return gatherBegin(viewer, owner, data, g, now, logger)
 	case 13:

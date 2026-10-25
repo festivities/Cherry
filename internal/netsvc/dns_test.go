@@ -143,8 +143,8 @@ func TestDNSGatewayRoute(t *testing.T) {
 		t.Fatal("invalid gateway LAN IP")
 	}
 	for name, want := range map[string][]byte{
-		"gws.play.naver.jp":         {192, 168, 1, 11},
-		"GWS.PLAY.NAVER.JP.":        {192, 168, 1, 11},
+		"gws.play.naver.jp":         dnsGatewayA,
+		"GWS.PLAY.NAVER.JP.":        dnsGatewayA,
 		"fapi.play.naver.jp":        {10, 0, 2, 2},
 		"session.play.naver.jp":     {10, 0, 2, 2},
 		"play-static.line-scdn.net": {10, 0, 2, 2},
