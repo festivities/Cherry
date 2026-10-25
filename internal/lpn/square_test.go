@@ -114,6 +114,10 @@ func (c *sqClient) join(aid uint64) []byte {
 	if id != 8 {
 		c.t.Fatalf("relaystart msgid = %d, want 8", id)
 	}
+	// The fishing UI asks for the rod list once it exists; the boss icon (rc58) follows that reply.
+	c.send(59, nil)
+	c.expect(78, nil)
+	c.expect(58, pbVar(nil, 1, 1))
 	return body
 }
 

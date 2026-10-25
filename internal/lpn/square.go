@@ -43,6 +43,20 @@ const (
 	squareMaxPlayers = 100
 )
 
+// squareRoomEnter is rc_room_enter_res (idx 6): npcs is the NpcList field (nil = none), theme the world
+// type the client switches to.
+func squareRoomEnter(npcs []byte, theme uint64, mapFile string) []byte {
+	body := pbVar(nil, 1, squareEnterResult)
+	if npcs != nil {
+		body = pbLen(body, 2, npcs)
+	}
+	body = pbVar(body, 3, 1) // squareCode
+	body = pbVar(body, 4, theme)
+	body = pbVar(body, 5, 1) // clientMapRevision
+	body = pbLen(body, 6, []byte(mapFile))
+	return pbVar(body, 7, 0) // playerType
+}
+
 // squareItemPrefix maps an item code's category (code[2:4]) to its numeric
 // resource-id prefix, from the restored item/{custom,dress}/<id> directories.
 // The numeric id is prefix*100000 + base36(code[4:9]); this reproduces all four
@@ -374,8 +388,9 @@ type squareSession struct {
 	entered  bool
 	player   *squarePlayer
 	moves    int
-	fish     *squareFish // catch chosen at the last fishing start, paid once by its finish
-	fishing  bool        // busy status 20 was broadcast and no end followed yet
+	fish     *squareFish       // catch chosen at the last fishing start, paid once by its finish
+	fishing  bool              // busy status 20 was broadcast and no end followed yet
+	boss     *squareBossBattle // boss try in progress (square_boss.go); nil outside the boss room
 }
 
 // handleOpen answers an agent-7 tunnel open with the same type-1 control shape
@@ -397,6 +412,7 @@ func (s *squareSession) reply(frame []byte, msgid uint16, body []byte) error {
 
 // close unregisters this connection's membership (exit/EOF/error).
 func (s *squareSession) close() {
+	s.boss = nil
 	if s.player != nil {
 		if s.fishing { // left mid-cast: clear the bobber/busy state on the others
 			s.room.broadcast(s.logger, s.player, squareRcPlayerStatus, squareBusyStatus(s.aid, squareStatusIdle))
@@ -448,17 +464,11 @@ func (s *squareSession) handleData(frame []byte) error {
 		s.logger.Printf("SQUARE themelist userCount=%d", count)
 		return s.reply(frame, 1, body)
 	case 2: // cr_room_enter_req -> rc_room_enter_res (idx6)
-		body := pbVar(nil, 1, squareEnterResult)
-		body = pbLen(body, 2, squareFishingSpotList()) // NpcList: one fishing spot
-		body = pbVar(body, 3, 1)                       // squareCode
-		body = pbVar(body, 4, squareThemeID)
-		body = pbVar(body, 5, 1) // clientMapRevision
-		body = pbLen(body, 6, []byte(squareMapFileName))
-		body = pbVar(body, 7, 0) // playerType
+		s.boss = nil // back from the boss room: the Square is entered again
 		s.entered = true
 		s.logger.Printf("SQUARE enter aid=%d map=%s", s.aid, squareMapFileName)
 		MarkQuest(s.aid, "square")
-		return s.reply(frame, 6, body)
+		return s.reply(frame, 6, squareRoomEnter(squareFishingSpotList(), squareThemeID, squareMapFileName))
 	case 5: // cr_room_relaystart_req -> rc_room_relaystart_res + adduser_all
 		if !s.entered {
 			s.logger.Printf("SQUARE relaystart before enter ignored")
@@ -587,8 +597,12 @@ func (s *squareSession) handleData(frame []byte) error {
 		}
 		s.logger.Printf("SQUARE playerlist aid=%d count=%d", s.aid, len(members))
 		return s.reply(frame, 24, body)
-	case 25, 26, 27, 28, 29, 30, 45, 56, 59, 87, 88, 89, 90, 91: // fishing: cast, book, boss refusal, shop, bag, gear (square_fishing.go)
+	case 25, 26, 27, 28, 29, 30, 56, 59, 87, 88, 89, 90, 91: // fishing: cast, book, shop, bag, gear (square_fishing.go)
 		return s.handleFishing(frame, msgid, data)
+	case 45, 46, 47, 48, 49, 50, 54, 55, 58: // solo boss fishing: try, lobby, start, play, reset, finish (square_boss.go)
+		return s.handleBoss(frame, msgid, data)
+	case 52, 53: // Boss Coin exchange office: list, buy (square_exchange.go)
+		return s.handleExchange(frame, msgid, data)
 	case 10: // cr_trunk_call_req: whisper-state notification, no reply needed
 	default:
 		s.logger.Printf("SQUARE unknown msgid=%d bytes=%d fields=%s", msgid, len(data), pbSummary(data))

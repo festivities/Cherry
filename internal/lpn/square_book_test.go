@@ -87,10 +87,13 @@ func TestSquareFishingBookAndScreens(t *testing.T) {
 		t.Fatalf("complete = %d/%x, want 29 Success=false", id, body)
 	}
 
-	// Boss start: refused as {IsStartBossBattle false, Result 0}.
+	// Boss try: started with the day's first try, then rc6 enters the boss world (theme 28).
 	c.send(45, pbVar(nil, 1, 1))
-	if id, body := c.read(); id != 57 || !bytes.Equal(body, []byte{0x08, 0, 0x10, 0}) {
-		t.Fatalf("boss try = %d/%x, want 57 refused", id, body)
+	if id, body := c.read(); id != 57 || squareUint(t, body, 2) != 1 {
+		t.Fatalf("boss try = %d/%x, want 57 started", id, body)
+	}
+	if id, body := c.read(); id != 6 || squareUint(t, body, 4) != squareBossThemeID {
+		t.Fatalf("boss room enter = %d/%x, want rc6 theme %d", id, body, squareBossThemeID)
 	}
 
 	// Bag: empty, BagType echoed.

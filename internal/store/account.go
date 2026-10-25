@@ -102,6 +102,9 @@ type Account struct {
 	Fishing        *FishingDay      // Square fishing Gems for one game day, economy/fishing.go; replaced, never edited in place
 	FishCaught     map[int64]int64  // Square catches per fish id (the fishing book); replaced, never edited in place
 	Gear           *FishingGear     // Square fish shop: bought gear and what is in use, economy/fishing_shop.go; replaced, never edited in place
+	BossCoins      int64            // Square boss Boss Coins (economy/fishboss.go); not in the ledger, an exchange will spend it
+	BossTries      *BossDay         // Square boss tries used on one game day, economy/fishboss.go; replaced, never edited in place
+	BossCaught     map[int64]int64  // Square boss catches per boss id (economy/fishboss.go); replaced, never edited in place
 	Hearts         *Hearts          // heart quest state, economy/hearts.go; replaced, never edited in place
 	PaidPrices     map[string]int64 // clothing codes bought at a daily deal: Gems paid (economy/deals.go); replaced, never edited in place
 	Smiles         int64            // earned Smiles (Garden gathering, economy/gathering.go); ledger-backed like Gems
@@ -139,6 +142,13 @@ type QuestDay struct {
 type FishingDay struct {
 	Day  int64 `json:"day"`
 	Gems int64 `json:"gems,omitempty"`
+}
+
+// BossDay is the Square boss tries an account spent on one game day (06:00 JST boundary). A record
+// whose Day is not today counts as none spent.
+type BossDay struct {
+	Day  int64 `json:"day"`
+	Used int64 `json:"used,omitempty"`
 }
 
 // Hearts is one account's heart state (economy/hearts.go). Sent and From belong to game

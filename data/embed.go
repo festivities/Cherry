@@ -38,10 +38,20 @@ var GatheringJSON []byte
 //go:embed fishing.json
 var FishingJSON []byte
 
+// FishbossJSON is the Square boss fishing: tries, reset cost, chart, boss and rewards (economy/fishboss.go).
+//
+//go:embed fishboss.json
+var FishbossJSON []byte
+
 // CalendarsJSON is the normal 7-day login calendar and the seasonal calendars.
 //
 //go:embed calendars.json
 var CalendarsJSON []byte
+
+// ExchangeJSON is the Square Boss Coin exchange office: standing rows and seasonal event rows (economy/exchange.go).
+//
+//go:embed exchange.json
+var ExchangeJSON []byte
 
 // RewardsJSON is the welcome gift, daily quests, hearts reward and mailbox rules.
 //

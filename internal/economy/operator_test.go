@@ -16,7 +16,9 @@ func resetOperatorData() {
 	gachaFile.Reset()
 	gatheringFile.Reset()
 	fishingFile.Reset()
+	fishbossFile.Reset()
 	calendarsFile.Reset()
+	exchangeFile.Reset()
 	rewardsFile.Reset()
 	atelierFile.Reset()
 }

@@ -1,0 +1,23 @@
+{
+  "title": "Boss Coin Exchange",
+  "title_desc": "Trade Boss Coins from Square boss fishing for items.",
+  "rows": [
+    {"id": 1001, "item_code": "CUON00059", "price": 30},
+    {"id": 1002, "item_code": "CUON000DL", "price": 40},
+    {"id": 1003, "item_code": "CUTO0007B", "price": 20},
+    {"id": 1004, "item_code": "CUPA0004W", "price": 20},
+    {"id": 1005, "item_code": "RUTA0004S", "price": 25},
+    {"id": 1006, "item_code": "RUTA00068", "price": 25}
+  ],
+  "events": [
+    {
+      "season": "halloween",
+      "rows": [
+        {"id": 2001, "item_code": "CUAE00A66", "price": 40},
+        {"id": 2002, "item_code": "CUAE00AMI", "price": 50},
+        {"id": 2003, "item_code": "CUAH0075G", "price": 60},
+        {"id": 2004, "item_code": "CUAE00A8A", "price": 45}
+      ]
+    }
+  ]
+}

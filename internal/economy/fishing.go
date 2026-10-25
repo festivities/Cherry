@@ -208,17 +208,21 @@ func FishImageURL(id int64) string {
 	return "https://play-static.line-scdn.net/cherry/fish/" + strconv.FormatInt(id, 10) + ".png"
 }
 
-// HandleFishImage serves GET /cherry/fish/<id>.png: the silhouette scaled 2x, tinted with the
-// fish's colour, with a white eye.
-func HandleFishImage(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/cherry/fish/"), ".png"), 10, 64)
-	var tint color.NRGBA
-	found := false
+// fishPictureTint is the colour of the picture with id: a fish of the book, or the boss.
+func fishPictureTint(id int64) (color.NRGBA, bool) {
 	for _, fd := range ActiveFishing().Fish {
 		if fd.ID == id {
-			tint, found = fd.tint, true
+			return fd.tint, true
 		}
 	}
+	return fishBossTint(id)
+}
+
+// HandleFishImage serves GET /cherry/fish/<id>.png: the silhouette scaled 2x, tinted with the
+// fish's colour (or the boss's, fishboss.go), with a white eye.
+func HandleFishImage(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/cherry/fish/"), ".png"), 10, 64)
+	tint, found := fishPictureTint(id)
 	if err != nil || !found || r.Method != http.MethodGet {
 		http.NotFound(w, r)
 		return

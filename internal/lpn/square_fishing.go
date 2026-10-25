@@ -81,11 +81,12 @@ func squareInteriorNpc(serial, npcIndex, interiorID, px, py uint64) []byte {
 }
 
 // squareFishingSpotList is rc_room_enter_res.NpcList (field 2): NPCEnumList{NpcList: [NPCEnum{
-// InteriorNpc: _SQInteriorNpc}, ...]}, the fishing spot and the fish shop. Every IsInitialized on
-// this path returns true (no required fields).
+// InteriorNpc: _SQInteriorNpc}, ...]}, the fishing spot, the fish shop and the Boss Coin exchange office
+// (square_exchange.go). Every IsInitialized on this path returns true (no required fields).
 func squareFishingSpotList() []byte {
 	list := pbLen(nil, 1, pbLen(nil, 2, squareInteriorNpc(squareSpotSerial, squareSpotNpcIndex, squareSpotInteriorID, squareSpotPX, squareSpotPY)))
-	return append(list, pbLen(nil, 1, pbLen(nil, 2, squareInteriorNpc(squareShopSerial, squareShopNpcIndex, squareShopInteriorID, squareShopPX, squareShopPY)))...)
+	list = append(list, pbLen(nil, 1, pbLen(nil, 2, squareInteriorNpc(squareShopSerial, squareShopNpcIndex, squareShopInteriorID, squareShopPX, squareShopPY)))...)
+	return append(list, squareExchangeNpcEntry()...)
 }
 
 // squareLang is a client Lang message (en = 1, ja = 3); the client picks its language. Cherry's
@@ -245,14 +246,17 @@ func (s *squareSession) handleFishing(frame []byte, msgid uint16, data []byte) e
 	case 26: // cr_complete_collection_req -> rc_complete_collection_res (29): no page rewards yet
 		s.logger.Printf("SQUARE fishing book reward refused aid=%d", aid)
 		return s.reply(frame, 29, pbVar(nil, 1, 0))
-	case 45: // cr_start_fishing_boss_try_req -> rc_start_fishing_boss_try_res (57): boss rooms are not served
-		s.logger.Printf("SQUARE fishing boss refused aid=%d", aid)
-		return s.reply(frame, 57, pbVar(pbVar(nil, 1, 0), 2, 0))
 	case 56: // cr_fish_boss_collection_req {PageNo} -> rc_fish_boss_collection_res (75): empty boss book (no boss catches)
 		s.logger.Printf("SQUARE fishing boss book aid=%d empty", aid)
 		return s.reply(frame, 75, nil)
 	case 59: // cr_inven_item_list_req -> rc_inven_item_list_res (78): RodList stays empty (rods live in the bag)
-		return s.reply(frame, 78, nil)
+		if err := s.reply(frame, 78, nil); err != nil {
+			return err
+		}
+		// The boss icon (rc58) goes out only now: the client asks for the rod list once its fishing UI
+		// exists, and rc58 sets that UI's icon visible. Pushed with the room-enter roster, during the
+		// scene load, it crashed the client (GLThread SIGSEGV, device 2026-10-25).
+		return s.reply(frame, squareRcBossRooms, pbVar(nil, 1, squareBossRoomsReady))
 	case 87: // cr_open_shop_req -> rc_open_shop_res (115): Gem-priced rods and bait, real Gem and Cash balances
 		gems, cash, _ := economy.Balances(aidText)
 		body := pbVar(pbVar(nil, 1, squareFishOK), 2, 1) // ShopId
