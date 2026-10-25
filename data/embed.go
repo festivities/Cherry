@@ -87,3 +87,8 @@ var DressupJSON []byte
 //
 //go:embed menu.json
 var MenuJSON []byte
+
+// SquaresJSON is the Square shown in the Square list: its name (lpn/square.go).
+//
+//go:embed squares.json
+var SquaresJSON []byte

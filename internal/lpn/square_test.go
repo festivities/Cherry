@@ -147,10 +147,10 @@ func TestSquareThemeList(t *testing.T) {
 	a.send(0, loginBody(11))
 	a.read()
 	a.send(1, pbVar(nil, 1, 0))
-	theme := []byte{0x08, squareThemeID, 0x10, 0, 0x3a, 0, 0x40, 0, 0x4a, 6}
-	theme = append(theme, "Square"...)
-	theme = append(theme, 0x52, 0, 0x58, 1, 0x60, 0, 0x70, 1, 0x80, 1, 0, 0x8a, 1, 6)
-	theme = append(theme, "Square"...)
+	theme := []byte{0x08, squareThemeID, 0x10, 0, 0x3a, 0, 0x40, 0, 0x4a, 9}
+	theme = append(theme, "LINE City"...)
+	theme = append(theme, 0x52, 0, 0x58, 1, 0x60, 0, 0x70, 1, 0x80, 1, 0, 0x8a, 1, 9)
+	theme = append(theme, "LINE City"...)
 	// field 16 (userCount) is a two-byte key: 0x80 0x01.
 	want := append([]byte{0x0a, byte(len(theme))}, theme...)
 	want = append(want, 0x18, 0)
