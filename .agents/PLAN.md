@@ -75,6 +75,10 @@ Only M0–M4 are numbered. Later work is tracked as features:
 | Economy Phase D/E: Boss Coin exchange office | Device-verified 2026-10-25 (AVD Jerry: list, Boss Coin confirm, buy CUPA0004W 52→32, list refresh) | `6f05c51` |
 | Economy Phase D: Riding Pet race (solo) | Device-verified 2026-10-25 (AVD Cherry: Square bubble → Choose Race → lobby → room → ready → start → finish rank 1, +10 Gems, ticket 4→3) | `e9d61e9` |
 | Economy Phase D/E: Ride Point exchange shop (racing store) | Device-verified 2026-10-26 (AVD Cherry: P bubble → Ride Exchange, icons drawn, owned rows SOLD OUT, buy RUWA000MV 55→30, reveal, refresh) | `0beef13` |
+| Square list: LINE City + LINE Café, Runway Square, Pet Theme Park (own rooms) | Device-verified 2026-10-26 (both emulators) | `8a0e0c7`, `6603f9d` |
+| Home menu icons (Tabler Icons, MIT) | Device-verified 2026-10-26 (all pages) | `caada11` |
+| Race course along the north fence from the start arch | Device-verified 2026-10-26 | `ea26d72` |
+| On-demand asset streaming (Cloudflare R2 + D1) incl. map packs | Device-verified 2026-10-26 on AVD Fresh (APK-only): 348 MB patch, 27 packs, guest creation, Garden, daily calendar, LINE City (194 item files, all 200) | `7293ef4`…`c310238` |
 
 Older commit-by-commit evidence (M3 entry errors, keepalives, preload fixtures) is summarized in AGENTS "Architecture" and detailed in HISTORY.md.
 
