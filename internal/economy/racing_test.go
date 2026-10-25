@@ -43,7 +43,7 @@ func TestRacingOperatorFile(t *testing.T) {
 	refuse(`"roster_delay_ms": 3000`, `"roster_delay_ms": 999`, "roster_delay_ms")
 	refuse(`"countdown_sec": 3`, `"countdown_sec": 0`, "countdown_sec")
 	refuse(`"pos_key_count": 1024`, `"pos_key_count": 10`, "pos_key_count")
-	refuse(`"begin_x": 118`, `"begin_x": 130`, "track finish")
+	refuse(`"begin_x": 112`, `"begin_x": 130`, "track finish")
 	refuse(`{"name": "Rookie", "mmr_min": 0}`, `{"name": "Rookie", "mmr_min": 5}`, "first mmr_min")
 	refuse(`"mmr_min": 50}`, `"mmr_min": 150}`, "grades[3]")
 	refuse(`"gems": 10`, `"gems": -1`, "reward")

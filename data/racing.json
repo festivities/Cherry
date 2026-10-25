@@ -8,8 +8,8 @@
   "pos_key_count": 1024,
   "pet_stat": {"power": 25, "speed": 25, "stamina": 25, "item_slot": 0},
   "track": {
-    "start": {"begin_x": 76, "begin_y": 77, "end_x": 76, "end_y": 77},
-    "finish": {"begin_x": 118, "begin_y": 77, "end_x": 118, "end_y": 77}
+    "start": {"begin_x": 75, "begin_y": 69, "end_x": 75, "end_y": 69},
+    "finish": {"begin_x": 112, "begin_y": 69, "end_x": 112, "end_y": 69}
   },
   "exp_per_level": 100,
   "grades": [{"name": "Rookie", "mmr_min": 0}, {"name": "Silver", "mmr_min": 50}, {"name": "Gold", "mmr_min": 150}],
