@@ -98,3 +98,9 @@ var SquaresJSON []byte
 //
 //go:embed menuicons/*.png
 var MenuIcons embed.FS
+
+// StreamingJSON is the on-demand asset streaming switch (internal/assets). Streaming also needs
+// %LOCALAPPDATA%\Cherry\cloudflare.json; both are off by default.
+//
+//go:embed streaming.json
+var StreamingJSON []byte

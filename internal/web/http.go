@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"cherry/data"
+	"cherry/internal/assets"
 	"cherry/internal/economy"
 	"cherry/internal/httpx"
 	"cherry/internal/lpn"
@@ -210,13 +211,22 @@ type Menu struct {
 
 var menuFile = opdata.New("menu.json", data.MenuJSON, checkMenu, nil)
 
-// LoadOperatorData loads the web layer's operator data files (menu.json, dressup.json) at startup.
+// streaming serves the game assets from R2 (internal/assets); nil while streaming is off.
+var streaming *assets.Store
+
+// LoadOperatorData loads the web layer's operator data files (menu.json, dressup.json) at startup, and
+// opens the asset stream when streaming.json enables it.
 func LoadOperatorData() error {
 	for _, load := range []func() error{menuFile.Load, dressupFile.Load} {
 		if err := load(); err != nil {
 			return err
 		}
 	}
+	s, err := assets.Open()
+	if err != nil {
+		return err
+	}
+	streaming = s
 	return nil
 }
 
@@ -560,6 +570,10 @@ func handleSetInitConf(w http.ResponseWriter, r *http.Request) {
 func handleCheckResource2(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		httpx.ServeNotFound(w)
+		return
+	}
+	if streaming != nil {
+		streaming.WriteCheckResource2(w)
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, checkResource2Body)
@@ -953,6 +967,10 @@ func handleAvatarInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleRoot(w http.ResponseWriter, r *http.Request) {
+	// A streamed file (or dp.png) wins; a miss falls through to the generated thumbnail below.
+	if streaming.ServeRoute(w, r) {
+		return
+	}
 	if r.Method == http.MethodGet {
 		if kind, id, ok := thumbs.ParseDpPath(r.URL.Path); ok {
 			thumbs.ServeDpPNG(w, kind, id)
