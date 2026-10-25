@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"cherry/internal/economy"
 	"cherry/internal/httpx"
@@ -422,6 +423,19 @@ func TestAdminGrantRidePoints(t *testing.T) {
 	}
 	if rec := adminReq(t, "127.0.0.1:5000", "POST", `{"aid":"9401","gems":5}`); rec.Code != 200 || acc.Racing.Points != 0 {
 		t.Fatalf("grant without ridePoints: %d points %d", rec.Code, acc.Racing.Points)
+	}
+}
+
+// TestAdminGrantRaceTickets: raceTickets gives back today's spent tickets, never above the daily maximum.
+func TestAdminGrantRaceTickets(t *testing.T) {
+	acc, _ := ecoSetup(t, 0, 0, 0)
+	acc.Racing = &store.RacingRecord{Day: economy.AttendDayKey(time.Now()), Used: 5, Points: 9}
+	if rec := adminReq(t, "127.0.0.1:5000", "POST", `{"aid":"9401","raceTickets":2}`); rec.Code != 200 ||
+		acc.Racing.Used != 3 || acc.Racing.Points != 9 || !strings.Contains(rec.Body.String(), `"raceTickets":2`) {
+		t.Fatalf("grant 2: %d %s used %d", rec.Code, rec.Body, acc.Racing.Used)
+	}
+	if rec := adminReq(t, "127.0.0.1:5000", "POST", `{"aid":"9401","raceTickets":50}`); rec.Code != 200 || acc.Racing.Used != 0 {
+		t.Fatalf("grant 50: %d %s used %d", rec.Code, rec.Body, acc.Racing.Used)
 	}
 }
 

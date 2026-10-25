@@ -934,9 +934,9 @@ func TestIsBasicFaceItemCode(t *testing.T) {
 func TestHomeListExt(t *testing.T) {
 	rows := homeIconRows()
 	wantFirst := []homeIconRow{
-		{"Closet", "goSomewhere(closet)"},
-		{"Friends", "goSomewhere(myfriends)"},
-		{"Diary", "goSomewhere(diary)"},
+		{"Closet", "goSomewhere(closet)", "cherry/menu/shirt.png"},
+		{"Friends", "goSomewhere(myfriends)", "cherry/menu/users.png"},
+		{"Diary", "goSomewhere(diary)", "cherry/menu/notebook.png"},
 	}
 	for i, want := range wantFirst {
 		if rows[i] != want {
@@ -998,6 +998,56 @@ func TestHomeListExt(t *testing.T) {
 		if linkType == "start" || linkType == "goSomewhere(profile)" {
 			t.Fatalf("row %d has excluded linkType %q", i, linkType)
 		}
+	}
+}
+
+// TestHomeMenuPicturesReachTheClient: each row with a picture carries the relative path the client fetches
+// from its static base, and the route serves that file as PNG. Only embedded PNGs are served.
+func TestHomeMenuPicturesReachTheClient(t *testing.T) {
+	webOperatorDir(t)
+	if err := LoadOperatorData(); err != nil {
+		t.Fatal(err)
+	}
+	home := serve(t, http.MethodGet, "/v4/home/list/ext/10.1.0.0/Android")
+	var body struct {
+		Result struct {
+			HomeIconList []struct {
+				Image    string `json:"image"`
+				LinkType string `json:"linkType"`
+			} `json:"homeIconList"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(home.Body.Bytes(), &body); err != nil {
+		t.Fatalf("home list is not JSON: %v", err)
+	}
+	icons := menuFile.Get().Icons
+	pictured := 0
+	for _, row := range body.Result.HomeIconList {
+		file, ok := icons[row.LinkType]
+		if !ok {
+			if row.Image != "" {
+				t.Fatalf("%s has no icon but image = %q", row.LinkType, row.Image)
+			}
+			continue
+		}
+		pictured++
+		want := "cherry/menu/" + file
+		if row.Image != want {
+			t.Fatalf("%s image = %q, want %q", row.LinkType, row.Image, want)
+		}
+		pic := serve(t, http.MethodGet, "/"+want)
+		if pic.Code != http.StatusOK || pic.Header().Get("Content-Type") != "image/png" || !bytes.HasPrefix(pic.Body.Bytes(), []byte("\x89PNG\r\n\x1a\n")) {
+			t.Fatalf("GET /%s: status %d, type %q, want a PNG", want, pic.Code, pic.Header().Get("Content-Type"))
+		}
+	}
+	if pictured != len(homeLinks) {
+		t.Fatalf("%d rows have a picture, want all %d", pictured, len(homeLinks))
+	}
+	if rec := serve(t, http.MethodPost, "/cherry/menu/home.png"); rec.Code != http.StatusNotFound {
+		t.Fatalf("POST menu picture: status = %d, want 404", rec.Code)
+	}
+	if rec := serve(t, http.MethodGet, "/cherry/menu/LICENSE-tabler-icons.txt"); rec.Code != http.StatusNotFound {
+		t.Fatalf("GET license text: status = %d, want 404", rec.Code)
 	}
 }
 

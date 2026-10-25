@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"maps"
 	"net/http"
@@ -193,11 +194,18 @@ var homeLinks = []string{
 	"goSomewhere(squarewebview)",
 }
 
-// Menu is data/menu.json: the home menu labels, keyed by the link type of each row in homeLinks.
+// homeMenuIconPrefix is the picture path of a home menu row. It is RELATIVE on purpose: the client's
+// ReqDownloadImage (NaDispatcherDownload 0x1b81360) fetches any URL without http(s):// from the static
+// base (staticResourceURLWithPath), like the fishing pictures.
+const homeMenuIconPrefix = "cherry/menu/"
+
+// Menu is data/menu.json: the home menu labels and pictures, keyed by the link type of each row in homeLinks.
 //
 //	labels  {link type: name}: one non-empty name per home menu row; a key that no row uses is refused
+//	icons   {link type: file}: optional; a file name in data/menuicons (a row without one keeps the placeholder)
 type Menu struct {
 	Labels map[string]string `json:"labels"`
+	Icons  map[string]string `json:"icons"`
 }
 
 var menuFile = opdata.New("menu.json", data.MenuJSON, checkMenu, nil)
@@ -227,20 +235,32 @@ func checkMenu(m *Menu) error {
 			return fmt.Errorf("label for %s must not be empty", link)
 		}
 	}
+	for _, link := range slices.Sorted(maps.Keys(m.Icons)) {
+		if !slices.Contains(homeLinks, link) {
+			return fmt.Errorf("icon %q: no home menu row has that link type", link)
+		}
+		if _, err := fs.ReadFile(data.MenuIcons, "menuicons/"+m.Icons[link]); err != nil {
+			return fmt.Errorf("icon for %s: %q is not a picture in data/menuicons", link, m.Icons[link])
+		}
+	}
 	return nil
 }
 
 type homeIconRow struct {
 	Name     string
 	LinkType string
+	Image    string // the picture path, "" when the row has none
 }
 
-// homeIconRows pairs each row with its label in the menu file in use.
+// homeIconRows pairs each row with its label and picture in the menu file in use.
 func homeIconRows() []homeIconRow {
-	labels := menuFile.Get().Labels
+	menu := menuFile.Get()
 	rows := make([]homeIconRow, len(homeLinks))
 	for i, link := range homeLinks {
-		rows[i] = homeIconRow{Name: labels[link], LinkType: link}
+		rows[i] = homeIconRow{Name: menu.Labels[link], LinkType: link}
+		if file, ok := menu.Icons[link]; ok {
+			rows[i].Image = homeMenuIconPrefix + file
+		}
 	}
 	return rows
 }
@@ -267,7 +287,7 @@ func buildHomeListExtBody() string {
 	rows := homeIconRows()
 	icons := make([]homeIconEntry, len(rows))
 	for i, row := range rows {
-		icons[i] = homeIconEntry{ID: i + 1, Name: row.Name, LinkType: row.LinkType}
+		icons[i] = homeIconEntry{ID: i + 1, Name: row.Name, Image: row.Image, LinkType: row.LinkType}
 	}
 	payload, _ := json.Marshal(struct {
 		Result homeListExtResult `json:"result"`
@@ -324,6 +344,7 @@ func NewMux() *http.ServeMux {
 	mux.HandleFunc("/arts_session/sckey.enc", lpn.HandleSckeyEnc)
 	mux.HandleFunc("/cherry/fish/", economy.HandleFishImage)
 	mux.HandleFunc("/cherry/fishing/", economy.HandleFishingItemImage)
+	mux.HandleFunc("/cherry/menu/", handleMenuIcon)
 	mux.HandleFunc("/cherry/garden/items/", economy.HandleGatherImage)
 	mux.HandleFunc("/v4/setInitConf", handleSetInitConf)
 	mux.HandleFunc("/v4/resource/splash/", handleSplash)
@@ -414,6 +435,17 @@ func handleBadgeReset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, `{"result":{}}`)
+}
+
+// handleMenuIcon serves GET /cherry/menu/<file>: a home menu picture embedded from data/menuicons.
+func handleMenuIcon(w http.ResponseWriter, r *http.Request) {
+	b, err := fs.ReadFile(data.MenuIcons, "menuicons/"+strings.TrimPrefix(r.URL.Path, "/cherry/menu/"))
+	if err != nil || r.Method != http.MethodGet {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	w.Write(b)
 }
 
 func handleHomeListExt(w http.ResponseWriter, r *http.Request) {

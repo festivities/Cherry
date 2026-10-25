@@ -2,7 +2,7 @@
 // outside the package directory, so the embedding lives next to the data).
 package data
 
-import _ "embed"
+import "embed"
 
 // FaceCodes is the Face Shop catalog: whitespace-separated face item codes.
 //
@@ -88,7 +88,13 @@ var DressupJSON []byte
 //go:embed menu.json
 var MenuJSON []byte
 
-// SquaresJSON is the Square shown in the Square list: its name (lpn/square.go).
+// SquaresJSON is the Square list: each Square's theme, names, map and spawn (lpn/squares.go).
 //
 //go:embed squares.json
 var SquaresJSON []byte
+
+// MenuIcons is the home menu picture set: one PNG per icon, named by the "icons" map of menu.json and
+// served at /cherry/menu/ (web/http.go). Rendered by scripts/render-menu-icons.py.
+//
+//go:embed menuicons/*.png
+var MenuIcons embed.FS

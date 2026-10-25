@@ -466,6 +466,8 @@ func (s *squareSession) handleRacing(frame []byte, msgid uint16, data []byte) er
 			return nil
 		}
 		x, _ := protobufUintField(tile, 1)
+		y, _ := protobufUintField(tile, 2)
+		s.logger.Printf("SQUARE racing pos aid=%d tile=%d,%d", s.aid, x, y)
 		// The hero walks +X to the finish tile; the client's tile read-back truncates, so the last report
 		// may be one tile short of it (racing-spec "Track geometry").
 		finish := racing.Track.Finish

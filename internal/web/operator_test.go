@@ -75,6 +75,9 @@ func TestMenuFileRefusals(t *testing.T) {
 		{mutateWeb(t, raw, `"goSomewhere(closet)": "Closet",`, ``), "no label for the home menu row goSomewhere(closet)"},
 		{mutateWeb(t, raw, `"goSomewhere(closet)": "Closet",`, `"goSomewhere(closet)": "Closet", "goSomewhere(nope)": "Nope",`), `label "goSomewhere(nope)": no home menu row has that link type`},
 		{mutateWeb(t, raw, `"Closet"`, `"  "`), "label for goSomewhere(closet) must not be empty"},
+		{mutateWeb(t, raw, `"goSomewhere(closet)": "shirt.png",`, `"goSomewhere(closet)": "shirt.png", "goSomewhere(nope)": "shirt.png",`), `icon "goSomewhere(nope)": no home menu row has that link type`},
+		{mutateWeb(t, raw, `"goSomewhere(closet)": "shirt.png"`, `"goSomewhere(closet)": "nope.png"`), `icon for goSomewhere(closet): "nope.png" is not a picture in data/menuicons`},
+		{mutateWeb(t, raw, `"goSomewhere(closet)": "shirt.png"`, `"goSomewhere(closet)": "../menu.json"`), `icon for goSomewhere(closet): "../menu.json" is not a picture in data/menuicons`},
 	}
 	for _, c := range cases {
 		refuseWeb(t, menuFile.LoadFrom, "menu.json", c.text, c.want)

@@ -259,7 +259,7 @@ const adminAddr = "127.0.0.1:8099"
 //	curl -X POST http://127.0.0.1:8099/admin/grant -d "{\"aid\":\"1002\",\"gems\":500,\"cash\":10,\"faceTickets\":3,\"reason\":\"test\"}"
 //
 // smiles, bossCoins (Square boss fishing, spent at the exchange office), ridePoints (racing store points,
-// spent at the Ride Point shop) and materials (Garden Bag item id -> count delta, gathering drops or
+// spent at the Ride Point shop), raceTickets (today's race tickets back, up to the daily maximum) and materials (Garden Bag item id -> count delta, gathering drops or
 // Atelier goods) work the same way:
 //
 //	curl -X POST http://127.0.0.1:8099/admin/grant -d "{\"aid\":\"1001\",\"smiles\":50,\"materials\":{\"110000\":6}}"
@@ -287,7 +287,8 @@ func handleAdminGrant(w http.ResponseWriter, r *http.Request) {
 		Smiles      int64           `json:"smiles"`
 		BossCoins   int64           `json:"bossCoins"`
 		RidePoints  int64           `json:"ridePoints"`
-		Materials   map[int64]int64 `json:"materials"` // Garden Bag item id -> count delta
+		RaceTickets int64           `json:"raceTickets"` // tickets back for today (a delta on the tickets left)
+		Materials   map[int64]int64 `json:"materials"`   // Garden Bag item id -> count delta
 		Reason      string          `json:"reason"`
 	}
 	if err != nil || json.Unmarshal(raw, &req) != nil || req.Aid == "" {
@@ -316,6 +317,11 @@ func handleAdminGrant(w http.ResponseWriter, r *http.Request) {
 	if req.RidePoints != 0 {
 		setRidePointsLocked(acc, max(ridePointsLocked(acc)+req.RidePoints, 0))
 	}
+	if req.RaceTickets != 0 {
+		rec := raceDay(acc, AttendDayKey(now))
+		rec.Used = min(max(rec.Used-req.RaceTickets, 0), ActiveRacing().MaxTickets)
+		acc.Racing = &rec
+	}
 	for item, n := range req.Materials {
 		acc.GardenBag = gardenBagChange(acc.GardenBag, item, n, now)
 	}
@@ -331,7 +337,7 @@ func handleAdminGrant(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
 		return
 	}
-	body, _ := json.Marshal(map[string]any{"aid": acc.Aid, "gems": acc.Gems, "cash": acc.Cash, "faceTickets": acc.FaceTickets, "smiles": acc.Smiles, "bossCoins": acc.BossCoins, "ridePoints": ridePointsLocked(acc), "bag": acc.GardenBag})
+	body, _ := json.Marshal(map[string]any{"aid": acc.Aid, "gems": acc.Gems, "cash": acc.Cash, "faceTickets": acc.FaceTickets, "smiles": acc.Smiles, "bossCoins": acc.BossCoins, "ridePoints": ridePointsLocked(acc), "raceTickets": raceStatus(acc, now).Tickets, "bag": acc.GardenBag})
 	httpx.WriteJSON(w, http.StatusOK, string(body))
 }
 
