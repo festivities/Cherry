@@ -391,6 +391,8 @@ type squareSession struct {
 	fish     *squareFish       // catch chosen at the last fishing start, paid once by its finish
 	fishing  bool              // busy status 20 was broadcast and no end followed yet
 	boss     *squareBossBattle // boss try in progress (square_boss.go); nil outside the boss room
+	racing   *squareRace       // Riding Pet race in progress (square_racing.go); nil outside the race
+	racePet  string            // the Riding Pet code the racer picked last (kept for the next race)
 }
 
 // handleOpen answers an agent-7 tunnel open with the same type-1 control shape
@@ -413,6 +415,7 @@ func (s *squareSession) reply(frame []byte, msgid uint16, body []byte) error {
 // close unregisters this connection's membership (exit/EOF/error).
 func (s *squareSession) close() {
 	s.boss = nil
+	s.stopRacing()
 	if s.player != nil {
 		if s.fishing { // left mid-cast: clear the bobber/busy state on the others
 			s.room.broadcast(s.logger, s.player, squareRcPlayerStatus, squareBusyStatus(s.aid, squareStatusIdle))
@@ -465,6 +468,7 @@ func (s *squareSession) handleData(frame []byte) error {
 		return s.reply(frame, 1, body)
 	case 2: // cr_room_enter_req -> rc_room_enter_res (idx6)
 		s.boss = nil // back from the boss room: the Square is entered again
+		s.stopRacing()
 		s.entered = true
 		s.logger.Printf("SQUARE enter aid=%d map=%s", s.aid, squareMapFileName)
 		MarkQuest(s.aid, "square")
@@ -603,6 +607,8 @@ func (s *squareSession) handleData(frame []byte) error {
 		return s.handleBoss(frame, msgid, data)
 	case 52, 53: // Boss Coin exchange office: list, buy (square_exchange.go)
 		return s.handleExchange(frame, msgid, data)
+	case 63, 64, 65, 66, 68, 71, 72, 76, 79, 82, 86, 94: // Riding Pet race: entry, create, ready, start, positions (square_racing.go)
+		return s.handleRacing(frame, msgid, data)
 	case 10: // cr_trunk_call_req: whisper-state notification, no reply needed
 	default:
 		s.logger.Printf("SQUARE unknown msgid=%d bytes=%d fields=%s", msgid, len(data), pbSummary(data))

@@ -137,3 +137,15 @@ type AtelierState struct {
 	StaminaAt  int64   `json:"staminaAt,omitempty"`
 	Blueprints []int64 `json:"blueprints,omitempty"`
 }
+
+// RacingRecord is one account's Riding Pet Race state (economy/racing.go). Day, Used (tickets spent)
+// and GemsDay (Gems paid) belong to one game day; Exp, Mmr and Points are career totals that a new day
+// keeps. Replaced, never edited in place.
+type RacingRecord struct {
+	Day     int64 `json:"day"`
+	Used    int64 `json:"used,omitempty"`
+	GemsDay int64 `json:"gemsDay,omitempty"`
+	Exp     int64 `json:"exp,omitempty"`
+	Mmr     int64 `json:"mmr,omitempty"`
+	Points  int64 `json:"points,omitempty"` // racing store points (for a later exchange)
+}

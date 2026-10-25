@@ -81,12 +81,13 @@ func squareInteriorNpc(serial, npcIndex, interiorID, px, py uint64) []byte {
 }
 
 // squareFishingSpotList is rc_room_enter_res.NpcList (field 2): NPCEnumList{NpcList: [NPCEnum{
-// InteriorNpc: _SQInteriorNpc}, ...]}, the fishing spot, the fish shop and the Boss Coin exchange office
-// (square_exchange.go). Every IsInitialized on this path returns true (no required fields).
+// InteriorNpc: _SQInteriorNpc}, ...]}, the fishing spot, the fish shop, the Boss Coin exchange office
+// (square_exchange.go) and the Riding Pet race entrance (square_racing.go). Every IsInitialized on this path returns true (no required fields).
 func squareFishingSpotList() []byte {
 	list := pbLen(nil, 1, pbLen(nil, 2, squareInteriorNpc(squareSpotSerial, squareSpotNpcIndex, squareSpotInteriorID, squareSpotPX, squareSpotPY)))
 	list = append(list, pbLen(nil, 1, pbLen(nil, 2, squareInteriorNpc(squareShopSerial, squareShopNpcIndex, squareShopInteriorID, squareShopPX, squareShopPY)))...)
-	return append(list, squareExchangeNpcEntry()...)
+	list = append(list, squareExchangeNpcEntry()...)
+	return append(list, squareRacingNpcEntry()...)
 }
 
 // squareLang is a client Lang message (en = 1, ja = 3); the client picks its language. Cherry's

@@ -13,6 +13,11 @@ var FaceCodes string
 // the economy package (or, for profiles, the web package) through internal/opdata. An operator file
 // with the same name in %LOCALAPPDATA%\Cherry\config replaces the default entirely.
 
+// RacingJSON is the Square Riding Pet Race: tickets, timings, track, grades and rewards (economy/racing.go).
+//
+//go:embed racing.json
+var RacingJSON []byte
+
 // AtelierJSON is the Garden Atelier recipe file (economy/atelier.go).
 //
 //go:embed atelier.json

@@ -1,0 +1,17 @@
+{
+  "title": "Riding Pet Race",
+  "max_tickets": 5,
+  "roster_delay_ms": 3000,
+  "countdown_sec": 3,
+  "max_race_sec": 90,
+  "finish_countdown_sec": 10,
+  "pos_key_count": 1024,
+  "pet_stat": {"power": 25, "speed": 25, "stamina": 25, "item_slot": 0},
+  "track": {
+    "start": {"begin_x": 60, "begin_y": 59, "end_x": 60, "end_y": 59},
+    "finish": {"begin_x": 118, "begin_y": 59, "end_x": 118, "end_y": 59}
+  },
+  "exp_per_level": 100,
+  "grades": [{"name": "Rookie", "mmr_min": 0}, {"name": "Silver", "mmr_min": 50}, {"name": "Gold", "mmr_min": 150}],
+  "reward": {"gems": 10, "gems_daily_cap": 30, "store_points": 5, "exp": 20, "mmr": 10}
+}

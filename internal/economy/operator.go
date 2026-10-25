@@ -14,7 +14,7 @@ import (
 func LoadOperatorData() error {
 	for _, load := range []func() error{
 		pricesFile.Load, gachaFile.Load, gatheringFile.Load, fishingFile.Load, fishbossFile.Load,
-		calendarsFile.Load, exchangeFile.Load, rewardsFile.Load, atelierFile.Load,
+		calendarsFile.Load, exchangeFile.Load, rewardsFile.Load, atelierFile.Load, racingFile.Load,
 	} {
 		if err := load(); err != nil {
 			return err
