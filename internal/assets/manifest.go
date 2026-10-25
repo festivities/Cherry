@@ -1,6 +1,7 @@
 package assets
 
 import (
+	"crypto/md5"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -78,7 +79,11 @@ func (m *Manifest) IniBody(packs []PackEntry) string {
 	if len(m.Entries) == 0 {
 		return "[]"
 	}
-	lines := make([]string, 0, len(m.Entries)+len(packs))
+	lines := make([]string, 0, len(m.Entries)+len(packs)+1)
+	if len(packs) > 0 {
+		sum := md5.Sum([]byte(DirProbeBody))
+		lines = append(lines, iniRecord(int64(len(DirProbeBody)), DirProbePath, hex.EncodeToString(sum[:])))
+	}
 	for _, e := range m.Entries {
 		lines = append(lines, iniRecord(e.Size, e.Path, e.MD5))
 	}
@@ -87,6 +92,16 @@ func (m *Manifest) IniBody(packs []PackEntry) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// DirProbePath is the first animation record whenever packs are listed. The client downloads the list in
+// path order and opens each file under files/animation/ without creating that folder for "/../" records,
+// so on a fresh install the first pack failed with a local Network Error (patchfail-spec.md). "-" sorts
+// before "." and the subfolder makes the client create files/animation/-cherry/ (and files/animation/)
+// before any pack. DirProbeBody is what the route serves for it.
+const (
+	DirProbePath = "-cherry/dir"
+	DirProbeBody = "cherry"
+)
 
 func iniRecord(size int64, path, md5 string) string {
 	return fmt.Sprintf("[start=1,end=1,size=%d,/%s:version=%s]", size, path, strings.ToUpper(md5))

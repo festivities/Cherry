@@ -127,6 +127,11 @@ func (s *Store) ServeRoute(w http.ResponseWriter, r *http.Request) bool {
 		_, _ = io.WriteString(w, st.ini[cat])
 		return true
 	}
+	if head, rest, ok := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), "/"); ok && rest == DirProbePath && animationDir("/"+head) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = io.WriteString(w, DirProbeBody)
+		return true
+	}
 	if rel, ok := packRel(r.URL.Path); ok {
 		return s.servePack(w, r, rel)
 	}

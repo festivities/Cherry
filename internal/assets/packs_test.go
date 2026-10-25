@@ -87,7 +87,8 @@ func TestPackRecordsNeedAnOwnRecord(t *testing.T) {
 	}
 }
 
-// The animation list is the category's own records, then one "/../<dir>/<name>" record per pack, in manifest order.
+// The animation list is the folder probe, the category's own records, then one "/../<dir>/<name>" record per
+// pack, in manifest order.
 func TestAnimationListCarriesPackRecordsAfterOwnRecords(t *testing.T) {
 	f := newFakeR2(t)
 	entries := fixture(t, f)
@@ -101,10 +102,14 @@ func TestAnimationListCarriesPackRecordsAfterOwnRecords(t *testing.T) {
 		t.Fatalf("animation list: handled=%v code=%d", ok, rec.Code)
 	}
 	own := (&Manifest{Cat: "animation", Entries: entries["animation"]}).IniBody(nil)
-	if !strings.HasPrefix(rec.Body.String(), own+"\n") {
-		t.Fatalf("own records are not first: %q", rec.Body.String())
+	probe, body, _ := strings.Cut(rec.Body.String(), "\n")
+	if probe != "[start=1,end=1,size=6,/-cherry/dir:version=C7A4476FC64B75EAD800DA9EA2B7D072]" || !strings.HasPrefix(body, own+"\n") {
+		t.Fatalf("the probe and own records are not first: %q", rec.Body.String())
 	}
-	lines := strings.Split(rec.Body.String(), "\n")
+	if rec, ok := get(t, s, "/arts_animation_en_00001/-cherry/dir"); !ok || rec.Body.String() != DirProbeBody {
+		t.Fatalf("probe route: handled=%v body=%q", ok, rec.Body.String())
+	}
+	lines := strings.Split(body, "\n")
 	if len(lines) != len(entries["animation"])+len(packs) {
 		t.Fatalf("records = %d, want %d", len(lines), len(entries["animation"])+len(packs))
 	}
