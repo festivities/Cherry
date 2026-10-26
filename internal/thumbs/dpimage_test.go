@@ -393,7 +393,9 @@ func TestDpConcurrentRequestsNoCorruption(t *testing.T) {
 	decodePNG(t, cached)
 }
 
-func TestDpZipPreviewServedAndCached(t *testing.T) {
+// TestDpZipPreviewServedNotCached: an original 2014 preview is served unchanged and never copied into dp-cache,
+// which holds only Cherry-made composites.
+func TestDpZipPreviewServedNotCached(t *testing.T) {
 	_, cacheDir := setDpFixture(t)
 	want := solidPNG(t, 7, 5, color.RGBA{R: 9, A: 0xff})
 	zp := filepath.Join(t.TempDir(), "item.zip")
@@ -419,8 +421,8 @@ func TestDpZipPreviewServedAndCached(t *testing.T) {
 	if rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), want) {
 		t.Fatalf("zip preview not served unchanged: %d", rec.Code)
 	}
-	if b, err := os.ReadFile(filepath.Join(cacheDir, "v2_custom_224400001.png")); err != nil || !bytes.Equal(b, want) {
-		t.Fatalf("zip preview not cached: %v", err)
+	if _, err := os.Stat(filepath.Join(cacheDir, "v2_custom_224400001.png")); !os.IsNotExist(err) {
+		t.Fatalf("original zip preview was copied into dp-cache: %v", err)
 	}
 	if rec := serveDp(t, http.MethodGet, "/arts_item_custom_224400002/dp.png"); rec.Code != http.StatusNotFound {
 		t.Fatalf("missing id status = %d", rec.Code)

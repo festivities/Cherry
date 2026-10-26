@@ -276,6 +276,9 @@ func (s *Store) serve(w http.ResponseWriter, r *http.Request, key string) bool {
 	if err != nil {
 		return false
 	}
+	// The servers' 30 s WriteTimeout cut a 101 MB animation file off for a slow emulator (AVD Jerry, 2026-10-26:
+	// "Network Error" at 92 MB). An asset copy has no deadline; a stalled client still closes on its own.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 	http.ServeContent(w, r, path.Base(key), fi.ModTime(), f)
 	return true
 }

@@ -93,6 +93,9 @@ func (rec *statusRecorder) WriteHeader(code int) {
 	rec.ResponseWriter.WriteHeader(code)
 }
 
+// Unwrap lets http.ResponseController reach the connection (the asset stream lifts its write deadline).
+func (rec *statusRecorder) Unwrap() http.ResponseWriter { return rec.ResponseWriter }
+
 func (rec *statusRecorder) Write(b []byte) (int, error) {
 	if rec.status == 0 {
 		rec.status = http.StatusOK

@@ -602,27 +602,30 @@ func ServeDpPNG(w http.ResponseWriter, kind, id string) {
 		dpWritePNG(w, b)
 		return
 	}
-	b, ok := dpZipPreview(kind, id)
-	if !ok {
-		img, ok := composeItemDP(dir, kind)
-		if !ok || dpAlphaBBox(img).Empty() {
-			// The archive has no drawable art for this item (its part PNGs and animations are
-			// absent). The item still exists, so answer with a neutral stand-in. It is not cached:
-			// a later archive or generator fix must be picked up without deleting cache files.
-			if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
-				httpx.ServeNotFound(w)
-				return
-			}
-			dpWritePNG(w, dpPlaceholderPNG(kind))
-			return
-		}
-		var buf bytes.Buffer
-		if err := png.Encode(&buf, img); err != nil {
+	if b, ok := dpZipPreview(kind, id); ok {
+		// An original 2014 preview: served as is and never copied into dp-cache, which holds only Cherry-made
+		// composites (generated and original bytes stay apart, AGENTS "Policies").
+		dpWritePNG(w, b)
+		return
+	}
+	img, ok := composeItemDP(dir, kind)
+	if !ok || dpAlphaBBox(img).Empty() {
+		// The archive has no drawable art for this item (its part PNGs and animations are
+		// absent). The item still exists, so answer with a neutral stand-in. It is not cached:
+		// a later archive or generator fix must be picked up without deleting cache files.
+		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 			httpx.ServeNotFound(w)
 			return
 		}
-		b = buf.Bytes()
+		dpWritePNG(w, dpPlaceholderPNG(kind))
+		return
 	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		httpx.ServeNotFound(w)
+		return
+	}
+	b := buf.Bytes()
 	if DpCacheDir != "" {
 		if err := os.MkdirAll(DpCacheDir, 0o755); err == nil {
 			dpAtomicWrite(cachePath, b)

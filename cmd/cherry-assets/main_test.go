@@ -242,6 +242,8 @@ func TestOriginsStayInArchive(t *testing.T) {
 		"original under cherry/":       {&object{key: "cherry/garden/1900000000.mworldpack", path: filepath.Join(root, "garden", "1908231803.mworldpack"), size: 1, pack: "garden", rel: "1900000000.mworldpack"}, false},
 		"Cherry-made item in a backup": {&object{key: "static/item/garden/428499999/dp.png", path: filepath.Join(root, "item", "custom", "123", "dp.png"), size: 1}, false},
 		"original landscape item":      {&object{key: "static/item/garden/428400003/dp.png", path: filepath.Join(root, "item", "custom", "123", "dp.png"), size: 1}, true},
+		"-cherry probe in a backup":    {&object{key: "static/animation/-cherry/dir", path: filepath.Join(root, "animation", "a.png"), size: 1}, false},
+		"cherry_day tile in a backup":  {&object{key: "static/ui/UIImage_hd/cherry_day01.png", path: filepath.Join(root, "animation", "a.png"), size: 1}, false},
 	}
 	for name, c := range cases {
 		err := checkOrigins(append(objs[:len(objs):len(objs)], c.obj), roots)
