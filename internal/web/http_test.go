@@ -1622,3 +1622,15 @@ func TestPlayDetailLPRmchatBody(t *testing.T) {
 		t.Fatalf("gameInfo = %+v", g)
 	}
 }
+
+// TestPrefixedAbsoluteURLServed: a picture URL the client prefixed with its static base is served from its
+// own path, not redirected (the boss result popup hung on the 307 → 404).
+func TestPrefixedAbsoluteURLServed(t *testing.T) {
+	for _, target := range []string{"/https://play-static.line-scdn.net/cherry/fish/4901.png", "/cherry/fish/4901.png"} {
+		rec := httptest.NewRecorder()
+		NewMux().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
+		if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" {
+			t.Errorf("%s = %d %q, want 200 image/png", target, rec.Code, rec.Header().Get("Content-Type"))
+		}
+	}
+}

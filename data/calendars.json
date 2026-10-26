@@ -17,7 +17,19 @@
       "title": "New Year Login",
       "start": "01-01",
       "end": "01-14",
-      "ink": "#aa2828"
+      "ink": "#aa2828",
+      "cycle": [
+        {"gems": 90},
+        {"gems": 120},
+        {"gems": 150, "item": "CUSH003E1"},
+        {"gems": 180},
+        {"gems": 240},
+        {"gems": 300},
+        {"gems": 450, "cash": 15, "tickets": 3, "item": "CAAE00AJ5"}
+      ],
+      "limited": ["CAAE00AJ5", "CUAE009LU", "CUAE00BDD", "CUSH003E1"],
+      "popup": {"no": 9301, "title": "Happy New Year!", "sub": "Login calendar, limited shop items and event quests until Jan 14",
+        "link": "goSomewhere(fashionShop)", "cookie_hours": 24, "background": "#5e1c1c", "text": "#ffffff", "button_skin": 4}
     },
     {
       "name": "winter",
@@ -35,7 +47,7 @@
         {"gems": 450, "cash": 15, "tickets": 3, "item": "RUCH004RC"}
       ],
       "limited": ["CAAE008Z2", "CUAE0072Z", "CUAE00737", "CUAE0076K", "CUAE0085C", "CUAE0093S", "CUAE009EA",
-        "CUAE009RR", "CUAE009T6", "CUAE009W5", "CUSH002Z1", "CUSH003E1", "RUCH004RC"],
+        "CUAE009RR", "CUAE009T6", "CUAE009W5", "CUSH002Z1", "RUCH004RC"],
       "popup": {"no": 9201, "title": "Winter is here!", "sub": "Login calendar, limited shop items and event quests until Jan 5",
         "link": "goSomewhere(fashionShop)", "cookie_hours": 24, "background": "#1c3a5e", "text": "#ffffff", "button_skin": 4}
     },

@@ -273,6 +273,12 @@ func TestSetGardenMap(t *testing.T) {
 // archive template's bytes and dp.png is a 130x100 PNG. Original landscapes, other kinds and other
 // files fall through or 404 here, and a POST is never answered.
 func TestServeLandscapeFiles(t *testing.T) {
+	if !thumbs.LandscapeArchived("1908231804") {
+		t.Skip("no map pack in the archive: the dp.png renders from it")
+	}
+	oldCache := thumbs.DpCacheDir
+	thumbs.DpCacheDir = t.TempDir()
+	t.Cleanup(func() { thumbs.DpCacheDir = oldCache })
 	root := t.TempDir()
 	const template = "1409 artsitem template bytes"
 	if err := os.MkdirAll(filepath.Join(root, "garden", "428400149"), 0o755); err != nil {

@@ -1,6 +1,7 @@
 {
   "max_tries": 3,
   "reset_gems": 0,
+  "max_players": 5,
   "damage_per_hit": 50,
   "note_arrive_ms": 10000,
   "max_playtime_ms": 45000,
@@ -8,5 +9,6 @@
   "play_note": "111111111111111111111111111111",
   "note_detail": [{"note_type": 1, "touch_max": 3}],
   "boss": {"id": 4901, "name": "Square Leviathan", "max_hp": 1000, "tint": "#3c5aa0", "explain": "A huge fish circles the Square pier. Reel it in before the time runs out."},
-  "reward": {"gems_participation": 5, "gems_catch": 25, "coins_participation": 1, "coins_catch": 5}
+  "reward": {"gems_participation": 5, "gems_catch": 25, "coins_participation": 1, "coins_catch": 5},
+  "book_reward": {"gems": 50, "boss_coins": 5}
 }

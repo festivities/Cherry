@@ -96,3 +96,25 @@ func TestAdminGarden(t *testing.T) {
 		t.Fatalf("reload: %v, map %s", err, GardenMap("9501"))
 	}
 }
+
+// TestGardenSkyRejectsBadColour: a sky colour must be #rrggbb, the error names the map, and a generated
+// landscape needs a sky. A good sky is accepted.
+func TestGardenSkyRejectsBadColour(t *testing.T) {
+	for _, bad := range []string{"78c8ec", "#78c8e", "#78c8eg", "#+8c8ec", "#78c8ec0", ""} {
+		e := GardenEntry{Map: "1908231804", Label: "x", Landscape: "GULS0255R", Name: "B", Generated: true,
+			Sky: &GardenSky{Top: "#141a44", Bottom: bad}}
+		err := checkGardens(&Gardens{Default: "1908231803", Gardens: []GardenEntry{{Map: "1908231803"}, e}})
+		if err == nil || !strings.Contains(err.Error(), "1908231804") {
+			t.Errorf("bottom %q: checkGardens = %v, want an error naming the map", bad, err)
+		}
+	}
+	noSky := GardenEntry{Map: "1908231804", Label: "x", Landscape: "GULS0255R", Name: "B", Generated: true}
+	if err := checkGardens(&Gardens{Default: "1908231803", Gardens: []GardenEntry{{Map: "1908231803"}, noSky}}); err == nil {
+		t.Error("a generated landscape without a sky was accepted")
+	}
+	ok := GardenEntry{Map: "1908231804", Label: "x", Landscape: "GULS0255R", Name: "B", Generated: true,
+		Sky: &GardenSky{Top: "#141A44", Bottom: "#344680", Stars: true}}
+	if err := checkGardens(&Gardens{Default: "1908231803", Gardens: []GardenEntry{{Map: "1908231803"}, ok}}); err != nil {
+		t.Errorf("valid sky refused: %v", err)
+	}
+}

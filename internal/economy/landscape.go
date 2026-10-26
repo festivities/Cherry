@@ -186,7 +186,10 @@ func ServeLandscapeFile(w http.ResponseWriter, r *http.Request) bool {
 		body, err = os.ReadFile(filepath.Join(thumbs.DpItemRoot, "garden", strconv.Itoa(landscapeTemplateID), file))
 	case "dp.png":
 		contentType = "image/png"
-		body, err = thumbs.LandscapeDP(stem)
+		var sky thumbs.Sky
+		if sky, err = gardenSky(stem); err == nil {
+			body, err = thumbs.LandscapeDP(stem, sky)
+		}
 	default:
 		httpx.ServeNotFound(w)
 		return true

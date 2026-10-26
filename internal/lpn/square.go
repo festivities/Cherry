@@ -131,6 +131,7 @@ type squareRoom struct {
 	mu         sync.Mutex
 	players    []*squarePlayer // join order
 	chatSerial uint64
+	bosses     []*squareBossRoom // boss lobbies and battles of this Square, oldest first (square_boss_room.go); guarded by mu
 }
 
 // squareRooms holds one room per Square (world type): players in different Squares do not see each
@@ -425,11 +426,11 @@ type squareSession struct {
 	entered  bool
 	player   *squarePlayer
 	moves    int
-	fish     *squareFish       // catch chosen at the last fishing start, paid once by its finish
-	fishing  bool              // busy status 20 was broadcast and no end followed yet
-	boss     *squareBossBattle // boss try in progress (square_boss.go); nil outside the boss room
-	racing   *squareRace       // Riding Pet race in progress (square_racing.go); nil outside the race
-	racePet  string            // the Riding Pet code the racer picked last (kept for the next race)
+	fish     *squareFish     // catch chosen at the last fishing start, paid once by its finish
+	fishing  bool            // busy status 20 was broadcast and no end followed yet
+	boss     *squareBossSeat // this session's seat in a boss lobby or battle (square_boss_room.go); nil outside one
+	racing   *squareRace     // Riding Pet race in progress (square_racing.go); nil outside the race
+	racePet  string          // the Riding Pet code the racer picked last (kept for the next race)
 }
 
 // handleOpen answers an agent-7 tunnel open with the same type-1 control shape
@@ -451,7 +452,7 @@ func (s *squareSession) reply(frame []byte, msgid uint16, body []byte) error {
 
 // close unregisters this connection's membership (exit/EOF/error).
 func (s *squareSession) close() {
-	s.boss = nil
+	s.bossLeave()
 	s.stopRacing()
 	if s.player != nil {
 		if s.fishing { // left mid-cast: clear the bobber/busy state on the others
@@ -501,7 +502,7 @@ func (s *squareSession) handleData(frame []byte) error {
 		theme, _ := protobufUintField(data, 1)
 		sq := squaresFile.Get().entry(theme)
 		room := s.rooms.room(sq.Theme)
-		s.boss = nil // back from the boss room: the Square is entered again
+		s.bossLeave() // back from a boss lobby or battle: the Square is entered again
 		s.stopRacing()
 		if s.player != nil && room != s.room { // another Square: leave the one we were in
 			s.close()
@@ -643,9 +644,9 @@ func (s *squareSession) handleData(frame []byte) error {
 		}
 		s.logger.Printf("SQUARE playerlist aid=%d count=%d", s.aid, len(members))
 		return s.reply(frame, 24, body)
-	case 25, 26, 27, 28, 29, 30, 56, 59, 87, 88, 89, 90, 91: // fishing: cast, book, shop, bag, gear (square_fishing.go)
+	case 25, 26, 27, 28, 29, 30, 59, 87, 88, 89, 90, 91: // fishing: cast, book, shop, bag, gear (square_fishing.go)
 		return s.handleFishing(frame, msgid, data)
-	case 45, 46, 47, 48, 49, 50, 54, 55, 58: // solo boss fishing: try, lobby, start, play, reset, finish (square_boss.go)
+	case 35, 36, 45, 46, 47, 48, 49, 50, 54, 55, 56, 57, 58, 60: // boss fishing rooms and boss book: invite, accept, try, lobby, ready/start, kick, play, reset, finish, sticker, book (square_boss.go, square_boss_room*.go)
 		return s.handleBoss(frame, msgid, data)
 	case 52, 53: // Boss Coin exchange office: list, buy (square_exchange.go)
 		return s.handleExchange(frame, msgid, data)

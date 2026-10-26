@@ -105,6 +105,7 @@ type Account struct {
 	BossCoins      int64            // Square boss Boss Coins (economy/fishboss.go); not in the ledger, an exchange will spend it
 	BossTries      *BossDay         // Square boss tries used on one game day, economy/fishboss.go; replaced, never edited in place
 	BossCaught     map[int64]int64  // Square boss catches per boss id (economy/fishboss.go); replaced, never edited in place
+	BossBook       map[int64]bool   // Square boss book reward claimed per boss id (economy/fishboss.go); replaced, never edited in place
 	Hearts         *Hearts          // heart quest state, economy/hearts.go; replaced, never edited in place
 	PaidPrices     map[string]int64 // clothing codes bought at a daily deal: Gems paid (economy/deals.go); replaced, never edited in place
 	Smiles         int64            // earned Smiles (Garden gathering, economy/gathering.go); ledger-backed like Gems

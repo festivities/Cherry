@@ -2,6 +2,7 @@ package economy
 
 import (
 	"fmt"
+	"image/color"
 	"net/http"
 	"slices"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 	"cherry/internal/httpx"
 	"cherry/internal/opdata"
 	"cherry/internal/store"
+	"cherry/internal/thumbs"
 )
 
 // Garden maps (data/gardens.json). A Garden shows the map of its owner: the room-enter reply names it
@@ -27,6 +29,9 @@ import (
 //	             in the file. A landscape needs a name, its shop and editor name.
 //	             generated marks a landscape with no archive folder: Cherry serves its item files.
 //	             fish is the map's fishing spot, optional: a map without it has no fish spot.
+//	             sky is the backdrop of the map's generated landscape thumbnail: two colours ("#rrggbb") and whether
+//	             the walls carry stars. Required for generated; optional otherwise. Cherry-made: the archive holds no
+//	             sky, so these are hand-set colours (landscape-gen-20261026, v6 palettes).
 //
 // The default must be one of gardens[]. An owner's override is set with /admin/garden; an override that
 // is no longer listed falls back to the default.
@@ -43,6 +48,40 @@ type GardenEntry struct {
 	Landscape string      `json:"landscape,omitempty"`
 	Generated bool        `json:"generated,omitempty"`
 	Fish      *GardenFish `json:"fish,omitempty"`
+	Sky       *GardenSky  `json:"sky,omitempty"`
+}
+
+// GardenSky is a map's backdrop (thumbs.Sky): the wall colour at the top and at the bottom edge, and whether the
+// walls carry the map's star sprites (only the night, dusk and moonblue skies do in the v6 pictures).
+type GardenSky struct {
+	Top    string `json:"top"`
+	Bottom string `json:"bottom"`
+	Stars  bool   `json:"stars,omitempty"`
+}
+
+// thumbSky parses the two colours of s; the error names the value that is not "#rrggbb".
+func (s GardenSky) thumbSky() (thumbs.Sky, error) {
+	top, err := parseSkyColour(s.Top)
+	if err != nil {
+		return thumbs.Sky{}, err
+	}
+	bottom, err := parseSkyColour(s.Bottom)
+	if err != nil {
+		return thumbs.Sky{}, err
+	}
+	return thumbs.Sky{Top: top, Bottom: bottom, Stars: s.Stars}, nil
+}
+
+// parseSkyColour reads "#rrggbb" (six hex digits, either case) as an opaque colour.
+func parseSkyColour(s string) (color.NRGBA, error) {
+	if len(s) != 7 || s[0] != '#' {
+		return color.NRGBA{}, fmt.Errorf("colour %q must be #rrggbb", s)
+	}
+	v, err := strconv.ParseUint(s[1:], 16, 32)
+	if err != nil {
+		return color.NRGBA{}, fmt.Errorf("colour %q must be #rrggbb", s)
+	}
+	return color.NRGBA{R: uint8(v >> 16), G: uint8(v >> 8), B: uint8(v), A: 0xff}, nil
 }
 
 // GardenFish is a map's fish spot: the map object the fish spot links to (host, its item code), by
@@ -86,6 +125,14 @@ func checkGardens(g *Gardens) error {
 		if e.Generated && e.Landscape == "" {
 			return fmt.Errorf("gardens[%d]: generated needs a landscape", i+1)
 		}
+		if e.Generated && e.Sky == nil {
+			return fmt.Errorf("gardens[%d]: map %s: generated needs a sky", i+1, e.Map)
+		}
+		if e.Sky != nil {
+			if _, err := e.Sky.thumbSky(); err != nil {
+				return fmt.Errorf("gardens[%d]: map %s: sky %v", i+1, e.Map, err)
+			}
+		}
 		// A Cherry-made landscape takes an id from Cherry's own block and an original never does, so the two
 		// can never be confused (assets.IsCherryItem; the asset uploader keeps that block out of static/).
 		if id, _ := landscapeItemID(e.Landscape); e.Landscape != "" && e.Generated != assets.IsCherryItem(id) {
@@ -99,6 +146,16 @@ func checkGardens(g *Gardens) error {
 		return fmt.Errorf("default %q is not in gardens", g.Default)
 	}
 	return nil
+}
+
+// gardenSky is the backdrop of map stem for its generated landscape thumbnail; an error when the map has none.
+func gardenSky(stem string) (thumbs.Sky, error) {
+	g := gardensFile.Get()
+	i := slices.IndexFunc(g.Gardens, func(e GardenEntry) bool { return e.Map == stem })
+	if i < 0 || g.Gardens[i].Sky == nil {
+		return thumbs.Sky{}, fmt.Errorf("garden map %s has no sky", stem)
+	}
+	return g.Gardens[i].Sky.thumbSky()
 }
 
 // GardenFishSpot is the fish spot of map stem; ok is false when the map has none (or is not listed).

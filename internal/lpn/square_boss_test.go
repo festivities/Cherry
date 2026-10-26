@@ -1,6 +1,7 @@
 package lpn
 
 import (
+	"bytes"
 	"testing"
 
 	"cherry/internal/economy"
@@ -169,9 +170,11 @@ func TestSquareBossCatchPaysOnce(t *testing.T) {
 		t.Fatalf("record after the catch = coins %d caught %v", got, caught)
 	}
 
-	// A second finish of the same battle pays nothing and answers nothing.
+	// A second finish of the same battle pays nothing and answers the same rc65 (spec 5.5: idempotent).
 	c.send(58, nil)
-	c.none()
+	if again, body := c.read(); again != 65 || !bytes.Equal(body, end) {
+		t.Fatalf("repeated finish = %d/%x, want the first rc65 %x", again, body, end)
+	}
 	if got := fishingBalance(t, aidText); got != base+gems {
 		t.Fatalf("Gems after a repeated finish = %d, want %d", got, base+gems)
 	}
@@ -258,4 +261,105 @@ func TestSquareBossLeavingClearsTry(t *testing.T) {
 	c.none()
 	c.send(46, nil)
 	c.none()
+}
+
+// TestSquareBossBookPage: the book has one page, for the one boss in the data. The boss shows before any
+// catch (count 0), a catch is counted, and a missing, zero or past-the-end page is answered as page 1.
+func TestSquareBossBookPage(t *testing.T) {
+	const aidText = "9830"
+	c := fishingRoomAccount(t, aidText, 0)
+	boss := economy.ActiveFishBoss()
+	page := func(req []byte) []byte {
+		t.Helper()
+		c.send(56, req)
+		id, body := c.read()
+		if id != 75 {
+			t.Fatalf("book page = %d/%x, want 75", id, body)
+		}
+		return body
+	}
+	body := page(pbVar(nil, 1, 1))
+	if squareUint(t, body, 1) != squareFishOK || squareUint(t, body, 2) != squareBossBookPages ||
+		squareUint(t, body, 3) != 1 || squareUint(t, body, 6) != 0 {
+		t.Fatalf("book header = %x, want result %d, max page %d, page 1, not claimed", body, squareFishOK, squareBossBookPages)
+	}
+	info := squareNested(t, body, 7)
+	if squareUint(t, info, 1) != squareBossBookSeason || squareUint(t, info, 2) != 0 {
+		t.Fatalf("uncaught boss = %x, want season %d and count 0", info, squareBossBookSeason)
+	}
+	if img, _, _ := pbBytesField(info, 3); string(img) != economy.FishImageURL(boss.Boss.ID) {
+		t.Fatalf("boss picture = %q", img)
+	}
+	if name, _, _ := pbBytesField(info, 4); string(name) != boss.Boss.Name {
+		t.Fatalf("boss name = %q", name)
+	}
+	if text, _, _ := pbBytesField(info, 5); string(text) != boss.Boss.Explain {
+		t.Fatalf("boss description = %q", text)
+	}
+	if _, found, _ := pbBytesField(info, 6); found { // photos are not sent
+		t.Fatalf("photos sent in %x", info)
+	}
+	if text, _, _ := pbBytesField(body, 9); string(text) != economy.BossBookRewardText(boss) {
+		t.Fatalf("reward line = %q", text)
+	}
+
+	if _, _, _, ok := economy.BossFinish(aidText, true, economy.NowFunc()); !ok {
+		t.Fatal("catch failed")
+	}
+	for _, req := range [][]byte{nil, pbVar(nil, 1, 0), pbVar(nil, 1, 2), pbVar(nil, 1, 1<<40)} {
+		body := page(req)
+		if squareUint(t, body, 3) != 1 {
+			t.Fatalf("request %x: current page = %d, want 1", req, squareUint(t, body, 3))
+		}
+		if info := squareNested(t, body, 7); squareUint(t, info, 2) != 1 {
+			t.Fatalf("request %x: catch count = %d, want 1", req, squareUint(t, info, 2))
+		}
+	}
+}
+
+// TestSquareBossBookClaim: a claim before any catch is refused. After a catch, a page other than 1 is
+// refused without a payment, the first claim pays and answers true, and a repeat answers false. rc75 then
+// shows the page claimed (CompleteAlready6).
+func TestSquareBossBookClaim(t *testing.T) {
+	const aidText = "9831"
+	c := fishingRoomAccount(t, aidText, 0)
+	boss := economy.ActiveFishBoss()
+	claim := func(page []byte) uint64 {
+		t.Helper()
+		c.send(57, page)
+		id, body := c.read()
+		if id != 76 {
+			t.Fatalf("claim reply = %d/%x, want 76", id, body)
+		}
+		return squareUint(t, body, 1)
+	}
+	if claim(pbVar(nil, 1, 1)) != 0 {
+		t.Fatal("claim before a catch paid")
+	}
+	if _, _, _, ok := economy.BossFinish(aidText, true, economy.NowFunc()); !ok {
+		t.Fatal("catch failed")
+	}
+	gems := fishingBalance(t, aidText)
+	coins, _ := bossRecord(t, aidText)
+	if claim(nil) != 0 || claim(pbVar(nil, 1, 2)) != 0 {
+		t.Fatal("a page other than 1 was paid")
+	}
+	if claim(pbVar(nil, 1, 1)) != 1 {
+		t.Fatal("first claim after a catch refused")
+	}
+	if claim(pbVar(nil, 1, 1)) != 0 {
+		t.Fatal("repeat claim paid")
+	}
+	c.none()
+	if got := fishingBalance(t, aidText); got != gems+boss.BookReward.Gems {
+		t.Fatalf("Gems after the claim = %d, want %d", got, gems+boss.BookReward.Gems)
+	}
+	if got, _ := bossRecord(t, aidText); got != coins+boss.BookReward.BossCoins {
+		t.Fatalf("Boss Coins after the claim = %d, want %d", got, coins+boss.BookReward.BossCoins)
+	}
+
+	c.send(56, pbVar(nil, 1, 1))
+	if id, body := c.read(); id != 75 || squareUint(t, body, 6) != 1 {
+		t.Fatalf("book page after the claim = %d/%x, want CompleteAlready 1", id, body)
+	}
 }

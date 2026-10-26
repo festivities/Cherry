@@ -249,9 +249,6 @@ func (s *squareSession) handleFishing(frame []byte, msgid uint16, data []byte) e
 	case 26: // cr_complete_collection_req -> rc_complete_collection_res (29): no page rewards yet
 		s.logger.Printf("SQUARE fishing book reward refused aid=%d", aid)
 		return s.reply(frame, 29, pbVar(nil, 1, 0))
-	case 56: // cr_fish_boss_collection_req {PageNo} -> rc_fish_boss_collection_res (75): empty boss book (no boss catches)
-		s.logger.Printf("SQUARE fishing boss book aid=%d empty", aid)
-		return s.reply(frame, 75, nil)
 	case 59: // cr_inven_item_list_req -> rc_inven_item_list_res (78): RodList stays empty (rods live in the bag)
 		if err := s.reply(frame, 78, nil); err != nil {
 			return err

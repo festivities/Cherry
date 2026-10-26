@@ -46,6 +46,7 @@ type StoredAccount struct {
 	BossCoins      int64                 `json:"bossCoins,omitempty"`
 	BossTries      *BossDay              `json:"bossTries,omitempty"`
 	BossCaught     map[int64]int64       `json:"bossCaught,omitempty"`
+	BossBook       map[int64]bool        `json:"bossBook,omitempty"`
 	Hearts         *Hearts               `json:"hearts,omitempty"`
 	PaidPrices     map[string]int64      `json:"paidPrices,omitempty"`
 	Smiles         int64                 `json:"smiles,omitempty"`
@@ -110,7 +111,7 @@ func LoadAccountsFrom(path string) error {
 				AttendDay: saved.AttendDay, AttendKey: saved.AttendKey, Mail: saved.Mail, NextMailSeq: saved.NextMailSeq,
 				ProfileImage: derefProfile(saved.ProfileImage), Quests: saved.Quests, Fishing: saved.Fishing,
 				FishCaught: saved.FishCaught, Gear: saved.Gear, BossCoins: max(saved.BossCoins, 0), BossTries: saved.BossTries,
-				BossCaught: saved.BossCaught, Hearts: saved.Hearts, PaidPrices: saved.PaidPrices,
+				BossCaught: saved.BossCaught, BossBook: saved.BossBook, Hearts: saved.Hearts, PaidPrices: saved.PaidPrices,
 				Smiles: max(saved.Smiles, 0), GardenBag: saved.GardenBag, Gather: saved.Gather,
 				Atelier: saved.Atelier,
 				Racing:  saved.Racing, GardenMap: saved.GardenMap, Landscapes: saved.Landscapes,
@@ -201,7 +202,7 @@ func StoredFrom(acc *Account) StoredAccount {
 		Gems: acc.Gems, Cash: acc.Cash, FaceTickets: acc.FaceTickets, Welcomed: acc.Welcomed,
 		AttendDay: acc.AttendDay, AttendKey: acc.AttendKey, Mail: acc.Mail, NextMailSeq: acc.NextMailSeq,
 		ProfileImage: pi, Quests: acc.Quests, Fishing: acc.Fishing, FishCaught: acc.FishCaught, Gear: acc.Gear,
-		BossCoins: acc.BossCoins, BossTries: acc.BossTries, BossCaught: acc.BossCaught,
+		BossCoins: acc.BossCoins, BossTries: acc.BossTries, BossCaught: acc.BossCaught, BossBook: acc.BossBook,
 		Hearts: acc.Hearts, PaidPrices: acc.PaidPrices,
 		Smiles: acc.Smiles, GardenBag: acc.GardenBag, Gather: acc.Gather, Atelier: acc.Atelier,
 		Racing: acc.Racing, GardenMap: acc.GardenMap, Landscapes: acc.Landscapes,

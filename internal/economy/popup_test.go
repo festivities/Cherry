@@ -118,7 +118,7 @@ func TestPopupImageServesPNG(t *testing.T) {
 	if err != nil || img.Bounds().Dx() != 640 || img.Bounds().Dy() != 320 {
 		t.Fatalf("halloween image decode = %v %v", img, err)
 	}
-	for _, path := range []string{"/cherry/event/newyear.png", "/cherry/event/nope.png"} {
+	for _, path := range []string{"/cherry/event/nope.png"} {
 		rec := httptest.NewRecorder()
 		HandleEventPopupImage(rec, httptest.NewRequest(http.MethodGet, path, nil))
 		if rec.Code != http.StatusNotFound {

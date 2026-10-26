@@ -25,6 +25,8 @@ import (
 //
 //	max_tries        boss tries per account per game day
 //	reset_gems       Gems that refill the tries once none are left; 0 = no reset is offered
+//	max_players      members one boss lobby holds, the master included (1 to 5: the client's lobby has five
+//	                 seats, spec 12 [I]); the banner joins the oldest lobby with room, else opens a new one
 //	damage_per_hit   HP one correct note takes off the boss
 //	note_arrive_ms   a note's travel time to the hit line, at least 1000 (the client reads whole
 //	                 seconds); it also spaces the notes, so 1000 sends 30 notes in about 3 s
@@ -38,11 +40,13 @@ import (
 //	boss             {id, name, max_hp, tint, explain}: id is the FishId the client shows (it must not be
 //	                 a fish id: the boss picture shares the fish picture route); tint is the picture colour
 //	reward           gems_participation, gems_catch (Gems) and coins_participation, coins_catch (Boss Coins)
+//	book_reward      gems (Gems, ledger) and boss_coins the boss book pays once per account after a catch
 //
 // The chart must be able to deal max_hp: len(play_note) * damage_per_hit >= max_hp.
 type FishBoss struct {
 	MaxTries      int64      `json:"max_tries"`
 	ResetGems     int64      `json:"reset_gems"`
+	MaxPlayers    int64      `json:"max_players"`
 	DamagePerHit  int64      `json:"damage_per_hit"`
 	NoteArriveMs  int64      `json:"note_arrive_ms"`
 	MaxPlaytimeMs int64      `json:"max_playtime_ms"`
@@ -51,6 +55,13 @@ type FishBoss struct {
 	NoteDetail    []BossNote `json:"note_detail"`
 	Boss          BossDef    `json:"boss"`
 	Reward        BossReward `json:"reward"`
+	BookReward    BookReward `json:"book_reward"`
+}
+
+// BookReward is what the boss book pays once per account for a catch of the boss (rc76).
+type BookReward struct {
+	Gems      int64 `json:"gems"`
+	BossCoins int64 `json:"boss_coins"`
 }
 
 // BossNote is one NoteDetailInfo row (rc71 GameData6).
@@ -88,6 +99,9 @@ type BossReward struct {
 	CoinsCatch         int64 `json:"coins_catch"`
 }
 
+// BossMaxSeats is the most members a lobby can take: the client's lobby has five seats (spec 12 [I]).
+const BossMaxSeats = 5
+
 var fishbossFile = opdata.New("fishboss.json", data.FishbossJSON, checkFishBoss, verifyFishBoss)
 
 // ActiveFishBoss is the boss file in use.
@@ -99,6 +113,9 @@ func checkFishBoss(f *FishBoss) error {
 	}
 	if f.ResetGems < 0 {
 		return errors.New("reset_gems must not be negative (0 = no reset)")
+	}
+	if f.MaxPlayers < 1 || f.MaxPlayers > BossMaxSeats {
+		return fmt.Errorf("max_players must be 1 to %d", BossMaxSeats)
 	}
 	if f.DamagePerHit < 1 {
 		return errors.New("damage_per_hit must be at least 1")
@@ -144,7 +161,28 @@ func checkFishBoss(f *FishBoss) error {
 	if f.Reward.GemsParticipation < 0 || f.Reward.GemsCatch < 0 || f.Reward.CoinsParticipation < 0 || f.Reward.CoinsCatch < 0 {
 		return errors.New("reward amounts must not be negative")
 	}
+	if f.BookReward.Gems < 0 || f.BookReward.BossCoins < 0 {
+		return errors.New("book_reward amounts must not be negative")
+	}
 	return nil
+}
+
+// BossBookRewardText is the reward line under the boss book's claim button.
+func BossBookRewardText(f *FishBoss) string {
+	return fmt.Sprintf("Book reward: %d Gems, %d Boss Coins", f.BookReward.Gems, f.BookReward.BossCoins)
+}
+
+// BossBookState is the boss book page for aid: how many times aid caught the boss, and whether its book
+// reward is claimed.
+func BossBookState(aid string) (caught int64, claimed bool) {
+	store.AccountsMu.Lock()
+	defer store.AccountsMu.Unlock()
+	acc := store.AccountByAidLocked(aid)
+	if acc == nil {
+		return 0, false
+	}
+	id := ActiveFishBoss().Boss.ID
+	return acc.BossCaught[id], acc.BossBook[id]
 }
 
 // verifyFishBoss runs at startup, after the fish file: the boss picture is served by the fish
@@ -279,4 +317,46 @@ func BossFinish(aid string, caught bool, now time.Time) (gems, coins, balance in
 	}
 	store.FlushLedgerLocked(lines)
 	return gems, coins, acc.BossCoins, true
+}
+
+// BossBookClaim pays aid the boss book reward once: the account needs a catch of the boss and no earlier
+// claim. Gems go through the ledger (reason fishboss:book:<bossId>), Boss Coins go on the account, and the
+// claim is saved with them. ok is false when refused, or when the save failed (nothing changed).
+func BossBookClaim(aid string) (ok bool) {
+	store.AccountsMu.Lock()
+	defer store.AccountsMu.Unlock()
+	acc := store.AccountByAidLocked(aid)
+	if acc == nil {
+		return false
+	}
+	boss := ActiveFishBoss()
+	id := boss.Boss.ID
+	if acc.BossCaught[id] < 1 || acc.BossBook[id] {
+		return false
+	}
+	prev := *acc
+	var lines []store.LedgerLine
+	if gems := boss.BookReward.Gems; gems > 0 {
+		var err error
+		lines, err = store.SpendLocked(acc, store.LedgerDeltas{Gems: gems}, "fishboss:book:"+strconv.FormatInt(id, 10))
+		if err != nil {
+			*acc = prev
+			log.Printf("cherry: square boss book reward failed aid=%s err=%v", aid, err)
+			return false
+		}
+	}
+	acc.BossCoins = prev.BossCoins + boss.BookReward.BossCoins
+	claimed := maps.Clone(acc.BossBook) // a copy, so the rollback in *acc = prev restores the old record
+	if claimed == nil {
+		claimed = map[int64]bool{}
+	}
+	claimed[id] = true
+	acc.BossBook = claimed
+	if err := store.SaveAccountsLocked(); err != nil {
+		*acc = prev
+		log.Printf("cherry: square boss book claim save failed aid=%s err=%v", aid, err)
+		return false
+	}
+	store.FlushLedgerLocked(lines)
+	return true
 }

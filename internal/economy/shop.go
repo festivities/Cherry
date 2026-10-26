@@ -19,6 +19,7 @@ import (
 
 	"cherry/data"
 	"cherry/internal/httpx"
+	"cherry/internal/itemcode"
 	"cherry/internal/opdata"
 	"cherry/internal/room"
 	"cherry/internal/store"
@@ -235,40 +236,8 @@ func loadCatalog() *shopCatalog {
 	return catalog
 }
 
-const roomLetters = "TA CH CL DR BE KI TB BA EL PR BG WA TI WD TD DO WI GO PL FD LA AB GC FU SL PT PI ZA BW BT ZB MP VO" // catIdx 3..35
-
-var clothLetters = map[int64]string{38: "HE", 40: "EB", 41: "EY", 42: "NO", 43: "MO", 44: "HA", 50: "TO", 51: "ON", 52: "PA", 53: "SH", 54: "AH", 55: "AE", 56: "FE"}
-
-// itemCodeFromID inverts SbItemTable::GetIntIdx: id = attr*1e8 + type*1e7 + catIdx*1e5 +
-// base36(code[4:9]), attr in "?RCPG", type in "MFUA".
-func itemCodeFromID(n int64) (string, bool) {
-	attr, typ, cat, base := n/1e8, n/1e7%10, n/1e5%100, n%1e5
-	if attr < 1 || attr > 4 || typ > 3 {
-		return "", false
-	}
-	letters := ""
-	switch attr {
-	case 1:
-		if f := strings.Fields(roomLetters); cat >= 3 && int(cat-3) < len(f) {
-			letters = f[cat-3]
-		}
-	case 2:
-		letters = clothLetters[cat]
-	case 3:
-		if cat == 64 {
-			letters = "PE"
-		}
-	case 4:
-		if cat == 84 {
-			letters = "LS" // Garden landscapes (landscape.go)
-		}
-	}
-	if letters == "" {
-		return "", false
-	}
-	b := strings.ToUpper(strconv.FormatInt(base, 36))
-	return string("?RCPG"[attr]) + string("MFUA"[typ]) + letters + strings.Repeat("0", 5-len(b)) + b, true
-}
+// itemCodeFromID is the item code of numeric id n (itemcode.Code: SbItemTable::GetIntIdx inverted).
+func itemCodeFromID(n int64) (string, bool) { return itemcode.Code(n) }
 
 func hasFile(dir, name string) bool {
 	_, err := os.Stat(filepath.Join(dir, name))

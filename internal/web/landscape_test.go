@@ -6,12 +6,20 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"cherry/internal/thumbs"
 )
 
 // TestGeneratedLandscapeFilesSkipTheStream: with streaming on, a generated landscape's item files are
 // Cherry's own (the template artsitem, a generated dp.png), even when the bucket holds objects under the
 // same keys. An original landscape keeps its streamed file.
 func TestGeneratedLandscapeFilesSkipTheStream(t *testing.T) {
+	if !thumbs.LandscapeArchived("1908231804") {
+		t.Skip("no map pack in the archive: the dp.png renders from it")
+	}
+	oldCache := thumbs.DpCacheDir
+	thumbs.DpCacheDir = t.TempDir()
+	t.Cleanup(func() { thumbs.DpCacheDir = oldCache })
 	webOperatorDir(t)
 	objs, _ := streamBucket(t)
 	objs["static/item/garden/428499999/dp.png"] = []byte("R2THUMB")

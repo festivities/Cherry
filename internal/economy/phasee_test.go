@@ -516,16 +516,14 @@ func TestSeasonMissingItemFallsBack(t *testing.T) {
 	}
 }
 
-// TestSeasonNewYearHasNoItemDays: New Year pays the normal calendar until its codes are chosen.
-func TestSeasonNewYearHasNoItemDays(t *testing.T) {
+// TestSeasonNewYearItemDays: New Year gives the 2024 New Year boots on day 3 and the Dragon effect on day 7.
+func TestSeasonNewYearItemDays(t *testing.T) {
 	sched := scheduleAt(time.Date(2027, time.January, 3, 12, 0, 0, 0, jst))
 	if sched.Name != "newyear" {
 		t.Fatalf("calendar %q, want newyear", sched.Name)
 	}
-	for i, d := range sched.Cycle {
-		if d.Item != "" || d != normalSchedule().Cycle[i] {
-			t.Errorf("day %d = %+v, want the normal reward", i+1, d)
-		}
+	if sched.Cycle[2].Item != "CUSH003E1" || sched.Cycle[6].Item != "CAAE00AJ5" {
+		t.Errorf("item days = %q, %q, want CUSH003E1, CAAE00AJ5", sched.Cycle[2].Item, sched.Cycle[6].Item)
 	}
 }
 

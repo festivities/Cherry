@@ -13,7 +13,10 @@
     {"id": 9103, "key": "square-fish", "season": "halloween", "name": "Halloween: Catch a fish in Square", "desc": "Land one fish in Square fishing today.", "gems": 15},
     {"id": 9201, "key": "gather3", "season": "winter", "name": "Winter: Gather 3 Garden materials", "desc": "Gather 3 materials in any Garden today.", "gems": 15},
     {"id": 9202, "key": "atelier-craft", "season": "winter", "name": "Winter: Craft in the Atelier", "desc": "Make one item in the Atelier today.", "gems": 15},
-    {"id": 9203, "key": "square-fish", "season": "winter", "name": "Winter: Catch a fish in Square", "desc": "Land one fish in Square fishing today.", "gems": 15}
+    {"id": 9203, "key": "square-fish", "season": "winter", "name": "Winter: Catch a fish in Square", "desc": "Land one fish in Square fishing today.", "gems": 15},
+    {"id": 9301, "key": "gather3", "season": "newyear", "name": "New Year: Gather 3 Garden materials", "desc": "Gather 3 materials in any Garden today.", "gems": 15},
+    {"id": 9302, "key": "atelier-craft", "season": "newyear", "name": "New Year: Craft in the Atelier", "desc": "Make one item in the Atelier today.", "gems": 15},
+    {"id": 9303, "key": "square-fish", "season": "newyear", "name": "New Year: Catch a fish in Square", "desc": "Land one fish in Square fishing today.", "gems": 15}
   ],
   "hearts": {"base": 5, "reward_gems": 30, "from_limit": 50},
   "mail": {"sender": "Cherry Staff", "default_days": 30, "max_amount": 1000000, "max_rows": 100}

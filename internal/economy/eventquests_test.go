@@ -29,6 +29,7 @@ func TestEventQuestWindows(t *testing.T) {
 	daily := []int64{9001, 9002, 9003, 9004, 9005}
 	halloween := []int64{9101, 9102, 9103}
 	winter := []int64{9201, 9202, 9203}
+	newyear := []int64{9301, 9302, 9303}
 	cases := []struct {
 		at   time.Time
 		want []int64
@@ -40,8 +41,9 @@ func TestEventQuestWindows(t *testing.T) {
 		{time.Date(2026, time.November, 8, 5, 59, 0, 0, jst), slices.Concat(daily, halloween)}, // game day 11-07
 		{time.Date(2026, time.November, 8, 6, 0, 0, 0, jst), daily},
 		{time.Date(2026, time.December, 20, 12, 0, 0, 0, jst), slices.Concat(daily, winter)},
-		{time.Date(2027, time.January, 3, 12, 0, 0, 0, jst), daily}, // New Year, no event quests
-		{time.Date(2027, time.January, 8, 12, 0, 0, 0, jst), daily},
+		{time.Date(2027, time.January, 3, 12, 0, 0, 0, jst), slices.Concat(daily, newyear)},
+		{time.Date(2027, time.January, 8, 12, 0, 0, 0, jst), slices.Concat(daily, newyear)},
+		{time.Date(2027, time.January, 15, 12, 0, 0, 0, jst), daily},
 	}
 	for _, c := range cases {
 		if got := questIDs(c.at); !slices.Equal(got, c.want) {

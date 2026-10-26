@@ -439,6 +439,15 @@ func NewMux() http.Handler {
 	mux.HandleFunc("/v4/avatar/", handleAvatarInfo)
 	mux.HandleFunc("/", handleRoot)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Some screens put their static base in front of an absolute picture URL (the boss result asked
+		// "/https://play-static.line-scdn.net/cherry/fish/4901.png" and hung): serve the URL's own path.
+		for _, scheme := range []string{"/https://", "/http://"} {
+			if rest, ok := strings.CutPrefix(r.URL.Path, scheme); ok {
+				if _, p, ok := strings.Cut(rest, "/"); ok {
+					r.URL.Path, r.URL.RawPath = "/"+p, ""
+				}
+			}
+		}
 		if strings.Contains(r.URL.Path, "/../") && streaming.ServeRoute(w, r) {
 			return
 		}
