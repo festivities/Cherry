@@ -393,3 +393,45 @@ func TestRacingPickPet(t *testing.T) {
 		t.Fatalf("pick the Riding Pet = %d/%x", id, body)
 	}
 }
+
+// TestRaceArrivedAlongEitherAxis: arrival is measured along the course's main axis and direction, one tile
+// short counts (the client truncates its tile read-back), and the start tile never counts.
+func TestRaceArrivedAlongEitherAxis(t *testing.T) {
+	area := func(x, y int64) economy.RacingArea { return economy.RacingArea{BeginX: x, BeginY: y, EndX: x, EndY: y} }
+	cases := []struct {
+		start, finish economy.RacingArea
+		x, y          int64
+		want          bool
+	}{
+		{area(75, 69), area(112, 69), 75, 69, false},
+		{area(75, 69), area(112, 69), 111, 69, true},
+		{area(73, 67), area(73, 122), 73, 67, false}, // the north-south course: the start x equals the finish x
+		{area(73, 67), area(73, 120), 73, 119, true},
+		{area(73, 122), area(73, 67), 73, 121, false}, // reversed
+		{area(73, 122), area(73, 67), 73, 68, true},
+	}
+	for _, c := range cases {
+		if got := reachedFinish(c.start, c.finish, c.x, c.y); got != c.want {
+			t.Errorf("start %v finish %v at (%d,%d) = %v, want %v", c.start, c.finish, c.x, c.y, got, c.want)
+		}
+	}
+}
+
+// TestRacingRosterResentAfterRelayStart: the racing world's relay start (cr5) after the timed roster gets the
+// roster again a moment later, for a client whose world load outlasted the first push (it showed no READY).
+func TestRacingRosterResentAfterRelayStart(t *testing.T) {
+	cfg := racingConfig(t)
+	cfg.RosterDelayMs = 300
+	c := racingAccount(t, "9909", []store.PetItem{racingRidePet})
+	racingToRoster(t, c, 9909)
+	c.send(5, nil)
+	if id, _ := c.read(); id != 8 {
+		t.Fatalf("relaystart reply = %d, want rc8", id)
+	}
+	id, roster := c.read()
+	if id != 110 {
+		t.Fatalf("after relaystart = %d/%x, want the roster again", id, roster)
+	}
+	racingCheckRoster(t, roster, 1, false, 9909)
+	c.none()
+}

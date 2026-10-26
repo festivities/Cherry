@@ -272,6 +272,21 @@ func (r *squareRace) racingLoading() []byte {
 	return pbVar(body, 7, uint64(racing.MaxRaceSec))
 }
 
+// reachedFinish reports whether tile (x, y) reached the finish: along the axis where start and finish lie
+// furthest apart, in the direction of the finish, up to one tile short.
+func reachedFinish(start, finish economy.RacingArea, x, y int64) bool {
+	dx := finish.BeginX + finish.EndX - start.BeginX - start.EndX // twice the centre distance, per axis
+	dy := finish.BeginY + finish.EndY - start.BeginY - start.EndY
+	pos, goal, d := x, (finish.BeginX+finish.EndX)/2, dx
+	if max(dy, -dy) > max(dx, -dx) {
+		pos, goal, d = y, (finish.BeginY+finish.EndY)/2, dy
+	}
+	if d < 0 {
+		return pos-1 <= goal
+	}
+	return pos+1 >= goal
+}
+
 // racingResult is rc_rpr_racing_result (102): the race (rank 1 arrived, 0 unranked), the level and grade,
 // the tickets left and the store points. The Gems are paid by the ledger and have no field here.
 func racingResult(aid, rank uint64, o economy.RaceOutcome) []byte {
@@ -339,6 +354,25 @@ func (s *squareSession) stopRacing() {
 	phase := s.racing.stop()
 	s.racing = nil
 	s.logger.Printf("SQUARE racing exit aid=%d phase=%d", s.aid, phase)
+}
+
+// racingRelayStarted re-sends the roster a moment after the racing world's relay start: the timed roster can reach
+// the client before its world load ends, and then the waiting room never opens (no READY; device 2026-10-27).
+// ReqType 1 replaces the whole roster, so a second copy is harmless.
+func (s *squareSession) racingRelayStarted() {
+	r := s.racing
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.after(time.Second, func() {
+		if r.phase != raceWaiting {
+			return
+		}
+		r.logger.Printf("SQUARE racing roster aid=%d reqtype=1 resent", r.aid)
+		r.pushLogged(110, r.racingRoster(1, economy.NowFunc()))
+	})
 }
 
 // handleRacing answers the racing requests of a session in the Square room (dispatched from handleData).
@@ -468,10 +502,9 @@ func (s *squareSession) handleRacing(frame []byte, msgid uint16, data []byte) er
 		x, _ := protobufUintField(tile, 1)
 		y, _ := protobufUintField(tile, 2)
 		s.logger.Printf("SQUARE racing pos aid=%d tile=%d,%d", s.aid, x, y)
-		// The hero walks +X to the finish tile; the client's tile read-back truncates, so the last report
-		// may be one tile short of it (racing-spec "Track geometry").
-		finish := racing.Track.Finish
-		if int64(x)+1 < (finish.BeginX+finish.EndX)/2 {
+		// The hero runs from the start to the finish along the course's main axis (X or Y, either way); the
+		// client's tile read-back truncates, so the last report may be one tile short (racing-spec "Track geometry").
+		if !reachedFinish(racing.Track.Start, racing.Track.Finish, int64(x), int64(y)) {
 			return nil
 		}
 		out, paid := economy.RaceFinish(aid, true, now)

@@ -76,7 +76,7 @@ func TestDpPetComposedAndCached(t *testing.T) {
 	if c := at(int(dpPetOX)-40, int(dpPetOY)); c.A != 0 {
 		t.Fatalf("effect slot was drawn: %v", c)
 	}
-	if _, err := os.Stat(filepath.Join(cacheDir, "v2_pet_326400017.png")); err != nil {
+	if _, err := os.Stat(filepath.Join(cacheDir, "v3_pet_326400017.png")); err != nil {
 		t.Fatalf("cache file missing: %v", err)
 	}
 }

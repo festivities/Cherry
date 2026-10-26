@@ -220,7 +220,7 @@ var streaming *assets.Store
 // LoadOperatorData loads the web layer's operator data files (menu.json, dressup.json) at startup, and
 // opens the asset stream when streaming.json enables it.
 func LoadOperatorData() error {
-	for _, load := range []func() error{menuFile.Load, dressupFile.Load} {
+	for _, load := range []func() error{menuFile.Load, dressupFile.Load, assets.LoadItemConv} {
 		if err := load(); err != nil {
 			return err
 		}
@@ -230,6 +230,9 @@ func LoadOperatorData() error {
 		return err
 	}
 	streaming = s
+	if err := s.FetchItemIndex(); err != nil {
+		log.Printf("cherry: converted items index: %v", err)
+	}
 	return nil
 }
 
@@ -992,6 +995,10 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 	}
 	// A streamed file (or dp.png) wins; a miss falls through to the generated thumbnail below.
 	if streaming.ServeRoute(w, r) {
+		return
+	}
+	// A converted iOS-only item (cmd/cherry-assets convert) answers from the local generated tree when R2 did not.
+	if assets.ServeGeneratedItem(w, r) {
 		return
 	}
 	if r.Method == http.MethodGet {

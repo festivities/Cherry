@@ -411,11 +411,11 @@ func dpSkeletonCompose(dir, text string, loaded []dpLoaded, cat dpCat) *dpNat {
 			placeholders = true
 			continue
 		}
-		x, y, ok := rig.place(lp.anchor, lp.x, lp.y, lp.img)
+		img, x, y, ok := rig.place(lp.anchor, lp.x, lp.y, lp.img)
 		if !ok {
 			continue
 		}
-		layers = append(layers, dpLayer{z: lp.z, seq: i, img: lp.img, x: x, y: y})
+		layers = append(layers, dpLayer{z: lp.z, seq: i, img: img, x: x, y: y})
 	}
 	if placeholders {
 		layers = append(layers, dpAnimLayers(rig, dir, text, len(loaded))...)
@@ -468,8 +468,15 @@ func dpAnimLayers(rig *dpRig, dir, text string, seq int) []dpLayer {
 		// @0x29b6b10): origin at the part centre + (DX, DY), y up. Measured
 		// against body-node-relative and flipped-DY alternatives on authentic
 		// previews: this one scored best (0.43 vs 0.41/0.42 mean IoU).
-		cx, cy := ll[0]+ap.X+float64(ap.DX), ll[1]+ap.Y+float64(ap.DY)
 		seq++
+		if theta := rig.rot[ap.Anchor]; theta != 0 {
+			// The node is turned in its idle pose, and so is the animation: it turns about its origin.
+			cx, cy := rig.point(ap.Anchor, ap.X+float64(ap.DX), ap.Y+float64(ap.DY))
+			turned, x, y := dpTurn(img, theta, [2]float64{float64(origin.X), float64(img.Bounds().Dy() - origin.Y)}, [2]float64{cx, cy})
+			out = append(out, dpLayer{z: ap.Z, seq: seq, img: turned, x: x, y: y})
+			continue
+		}
+		cx, cy := ll[0]+ap.X+float64(ap.DX), ll[1]+ap.Y+float64(ap.DY)
 		out = append(out, dpLayer{z: ap.Z, seq: seq, img: img,
 			x: cx - float64(origin.X), y: cy - float64(img.Bounds().Dy()-origin.Y)})
 	}
@@ -489,6 +496,21 @@ func composeItemDP(dir, kind string) (*image.RGBA, bool) {
 		return nil, false
 	}
 	return dpFrame(img, cat), true
+}
+
+// RenderDP renders the 10.1-format item folder dir (kind custom or dress) to its dp.png bytes, the same composite
+// ServeDpPNG generates. ok is false when the folder has no drawable art. cmd/cherry-assets convert calls it for the
+// Cherry-made item thumbnails it uploads, so those are rendered once, not per request.
+func RenderDP(dir, kind string) ([]byte, bool) {
+	img, ok := composeItemDP(dir, kind)
+	if !ok || dpAlphaBBox(img).Empty() {
+		return nil, false
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return nil, false
+	}
+	return buf.Bytes(), true
 }
 
 // dpFlights serializes composite generation per item so concurrent requests
@@ -511,7 +533,7 @@ func dpFlight(key string) *sync.Mutex {
 
 // dpCacheVersion prefixes cache files so thumbnails from older compositors are
 // never served after an upgrade.
-const dpCacheVersion = "v2_"
+const dpCacheVersion = "v3_"
 
 func dpCachePath(kind, id string) string {
 	return filepath.Join(DpCacheDir, dpCacheVersion+kind+"_"+id+".png")

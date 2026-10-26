@@ -109,3 +109,8 @@ var MenuIcons embed.FS
 //
 //go:embed streaming.json
 var StreamingJSON []byte
+
+// ItemconvJSON is the operator switch for the converted iOS-only items (assets/items.go); default on.
+//
+//go:embed itemconv.json
+var ItemconvJSON []byte

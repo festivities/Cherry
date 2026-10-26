@@ -34,6 +34,8 @@ var dpBodyZ = [...]int{145, 163, 2, 183, 1, 109, 115, 229, 238, 125, 131, 149, 1
 
 const (
 	dpTagChest   = 2
+	dpTagLArm0   = 8
+	dpTagRArm0   = 6
 	dpTagNoneChe = 3
 	dpTagHead    = 4
 	dpTagNoneHd  = 5
@@ -47,17 +49,22 @@ const (
 
 type dpSkelNode struct {
 	px, py, ax, ay float64
+	key0           float64 // rotation keyframe at t=0 (degrees, Cocos clockwise): the idle pose
+	hasKey         bool
+	parent         string
 }
 
 // dpRig is one body type's idle-pose frames and body sprites.
 type dpRig struct {
-	ll     map[int][2]float64 // node tag -> lower-left corner, y up
+	ll     map[int][2]float64 // node tag -> lower-left corner of the unrotated sprite, y up
 	size   map[int][2]int     // node tag -> sprite size
 	sprite map[int]image.Image
+	rot    map[int]float64    // node tag -> idle rotation in degrees (Cocos clockwise, world)
+	anc    map[int][2]float64 // node tag -> anchor point (the node's pivot) in sprite px from lower-left
 }
 
-// parseAvb reads node name -> idle position/anchor out of an .avb file,
-// skipping the animation key lists (layout verified against the shipped files).
+// parseAvb reads node name -> idle position, anchor, parent and t=0 rotation out of
+// an .avb file, skipping the other key lists (layout verified against the shipped files).
 func parseAvb(d []byte) map[string]dpSkelNode {
 	out := map[string]dpSkelNode{}
 	if len(d) < 12 {
@@ -74,6 +81,21 @@ func parseAvb(d []byte) map[string]dpSkelNode {
 		o += 2 + c*sz
 		return o <= len(d)
 	}
+	// rotList skips the rotation keys (time, degrees) and keeps the first value.
+	var key0 float64
+	var hasKey bool
+	rotList := func() bool {
+		if o+2 > len(d) {
+			return false
+		}
+		c := int(binary.LittleEndian.Uint16(d[o:]))
+		if c > 0 && o+2+8 <= len(d) {
+			key0 = float64(math.Float32frombits(binary.LittleEndian.Uint32(d[o+6:])))
+			hasKey = true
+		}
+		o += 2 + c*8
+		return o <= len(d)
+	}
 	cstr := func(b []byte) string {
 		if i := bytes.IndexByte(b, 0); i >= 0 {
 			b = b[:i]
@@ -85,13 +107,15 @@ func parseAvb(d []byte) map[string]dpSkelNode {
 			break
 		}
 		name := cstr(d[o : o+16])
+		parent := cstr(d[o+16 : o+32])
 		o += 33
 		var f [5]float64
 		for k := range f {
 			f[k] = float64(math.Float32frombits(binary.LittleEndian.Uint32(d[o+4*k:])))
 		}
 		o += 20
-		ok := list(8)
+		key0, hasKey = 0, false
+		ok := rotList()
 		if ok && (name == "none_body" || f348) {
 			ok = list(12)
 		}
@@ -104,7 +128,8 @@ func parseAvb(d []byte) map[string]dpSkelNode {
 		if ok && f347 {
 			ok = list(12)
 		}
-		out[name] = dpSkelNode{f[0], f[1], f[3], f[4]}
+		out[name] = dpSkelNode{px: f[0], py: f[1], ax: f[3], ay: f[4],
+			key0: key0, hasKey: hasKey, parent: parent}
 		if !ok {
 			break
 		}
@@ -129,13 +154,45 @@ func dpLoadRig(set string) *dpRig {
 	return r
 }
 
+// dpIdleRotations returns each node's idle rotation in degrees (Cocos clockwise,
+// world): its t=0 rotation key plus its parent's, so a forearm turns with its upper
+// arm. A node without a rotation key (the ear) stays upright with its parent.
+func dpIdleRotations(nodes map[string]dpSkelNode) map[string]float64 {
+	out := map[string]float64{}
+	var rot func(name string, depth int) float64
+	rot = func(name string, depth int) float64 {
+		if v, ok := out[name]; ok {
+			return v
+		}
+		nd, ok := nodes[name]
+		if !ok || depth > 32 {
+			return 0
+		}
+		v := 0.0
+		if nd.hasKey {
+			v = nd.key0
+		}
+		if _, ok := nodes[nd.parent]; ok {
+			v += rot(nd.parent, depth+1)
+		}
+		out[name] = v
+		return v
+	}
+	for name := range nodes {
+		rot(name, 0)
+	}
+	return out
+}
+
 func buildRig(set string) *dpRig {
 	avb, err := os.ReadFile(filepath.Join(dpAvatarDataRoot, "ani", set+"_f_idle.avb"))
 	if err != nil {
 		return nil
 	}
 	nodes := parseAvb(avb)
-	r := &dpRig{ll: map[int][2]float64{}, size: map[int][2]int{}, sprite: map[int]image.Image{}}
+	rots := dpIdleRotations(nodes)
+	r := &dpRig{ll: map[int][2]float64{}, size: map[int][2]int{}, sprite: map[int]image.Image{},
+		rot: map[int]float64{}, anc: map[int][2]float64{}}
 	for tag, name := range dpNodeNames {
 		nd, ok := nodes[name]
 		if !ok {
@@ -152,6 +209,8 @@ func buildRig(set string) *dpRig {
 			}
 		}
 		r.size[tag] = [2]int{w, h}
+		r.rot[tag] = rots[name]
+		r.anc[tag] = [2]float64{nd.ax * float64(w), nd.ay * float64(h)}
 		r.ll[tag] = [2]float64{nd.px - nd.ax*float64(w), nd.py - nd.ay*float64(h)}
 	}
 	if hd, ok := nodes["head"]; ok {
@@ -184,15 +243,83 @@ type dpLayer struct {
 	x, y   float64
 }
 
-// dpPlace puts a part sprite (anchor tag, record x/y, sprite) on its node.
-// ok is false when the node has no frame in the rig.
-func (r *dpRig) place(anchor int, px, py float64, img image.Image) (x, y float64, ok bool) {
-	ll, ok := r.ll[anchor]
-	if !ok {
-		return 0, 0, false
+// point maps (px, py), a point in node-sprite space (origin lower-left, y up), to
+// avatar space through the node's idle rotation about its anchor point.
+func (r *dpRig) point(tag int, px, py float64) (x, y float64) {
+	ll, a, theta := r.ll[tag], r.anc[tag], r.rot[tag]
+	if theta == 0 {
+		return ll[0] + px, ll[1] + py
+	}
+	c, s := math.Cos(theta*math.Pi/180), math.Sin(theta*math.Pi/180)
+	dx, dy := px-a[0], py-a[1]
+	return ll[0] + a[0] + c*dx + s*dy, ll[1] + a[1] - s*dx + c*dy
+}
+
+// place puts a part sprite on its node. The record's (px, py) is the part's centre
+// in node space; the part is a child of the node sprite, so it turns with the node's
+// idle rotation. It returns the sprite to draw (turned when the node is), its
+// avatar-space lower-left corner, and ok=false when the node has no frame in the rig.
+func (r *dpRig) place(anchor int, px, py float64, img image.Image) (image.Image, float64, float64, bool) {
+	if _, found := r.ll[anchor]; !found {
+		return nil, 0, 0, false
 	}
 	b := img.Bounds()
-	return ll[0] + px - float64(b.Dx())/2, ll[1] + py - float64(b.Dy())/2, true
+	cx, cy := r.point(anchor, px, py)
+	if r.rot[anchor] == 0 {
+		return img, cx - float64(b.Dx())/2, cy - float64(b.Dy())/2, true
+	}
+	turned, x, y := dpTurn(img, r.rot[anchor], [2]float64{float64(b.Dx()) / 2, float64(b.Dy()) / 2}, [2]float64{cx, cy})
+	return turned, x, y, true
+}
+
+// dpTurn turns img by deg (Cocos clockwise, y up) about the image point pin (px,
+// origin lower-left) and puts that point at avatar position at. It returns the turned
+// image and the avatar-space lower-left corner of its canvas (nearest-neighbour).
+func dpTurn(img image.Image, deg float64, pin, at [2]float64) (*image.RGBA, float64, float64) {
+	src := dpToRGBA(img)
+	w, h := float64(src.Rect.Dx()), float64(src.Rect.Dy())
+	th := deg * math.Pi / 180
+	c, s := math.Cos(th), math.Sin(th)
+	minX, minY := math.Inf(1), math.Inf(1)
+	maxX, maxY := math.Inf(-1), math.Inf(-1)
+	for _, q := range [4][2]float64{{0, 0}, {w, 0}, {0, h}, {w, h}} {
+		dx, dy := q[0]-pin[0], q[1]-pin[1]
+		x, y := at[0]+c*dx+s*dy, at[1]-s*dx+c*dy
+		minX, minY = math.Min(minX, x), math.Min(minY, y)
+		maxX, maxY = math.Max(maxX, x), math.Max(maxY, y)
+	}
+	cw, ch := int(math.Ceil(maxX-minX))+2, int(math.Ceil(maxY-minY))+2
+	ox, oy := minX-1, minY-1
+	out := image.NewRGBA(image.Rect(0, 0, cw, ch))
+	for Y := 0; Y < ch; Y++ {
+		ay := oy + float64(ch-Y) - 0.5
+		for X := 0; X < cw; X++ {
+			ax := ox + float64(X) + 0.5
+			dx, dy := ax-at[0], ay-at[1]
+			// inverse map: the source point is pin + R(theta)^T (avatar - at)
+			qx := pin[0] + c*dx - s*dy
+			qy := pin[1] + s*dx + c*dy
+			u, v := int(math.Floor(qx)), int(math.Floor(h-qy))
+			if u < 0 || v < 0 || u >= int(w) || v >= int(h) {
+				continue
+			}
+			so := v*src.Stride + u*4
+			do := Y*out.Stride + X*4
+			copy(out.Pix[do:do+4], src.Pix[so:so+4])
+		}
+	}
+	return out, ox, oy
+}
+
+// dpToRGBA returns img as *image.RGBA with its own origin at (0,0).
+func dpToRGBA(img image.Image) *image.RGBA {
+	if r, ok := img.(*image.RGBA); ok {
+		return &image.RGBA{Pix: r.Pix, Stride: r.Stride, Rect: image.Rect(0, 0, r.Rect.Dx(), r.Rect.Dy())}
+	}
+	b := img.Bounds()
+	out := image.NewRGBA(image.Rect(0, 0, b.Dx(), b.Dy()))
+	draw.Draw(out, out.Bounds(), img, b.Min, draw.Src)
+	return out
 }
 
 // bodyLayers returns the default bald head (+ear) at the table z order.

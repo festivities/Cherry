@@ -171,7 +171,7 @@ func TestDpCompositeGeneratedAndCached(t *testing.T) {
 	if b := img.Bounds(); b.Dx() != 130 || b.Dy() != 100 {
 		t.Fatalf("composite is %v, want 130x100", b)
 	}
-	cached, err := os.ReadFile(filepath.Join(cacheDir, "v2_dress_225000263.png"))
+	cached, err := os.ReadFile(filepath.Join(cacheDir, "v3_dress_225000263.png"))
 	if err != nil {
 		t.Fatalf("cache file missing: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestDpSecondRequestServesCacheWithoutRewrite(t *testing.T) {
 	if rec := serveDp(t, http.MethodGet, "/arts_item_custom_223800021/dp.png"); rec.Code != http.StatusOK {
 		t.Fatalf("first request status = %d", rec.Code)
 	}
-	cachePath := filepath.Join(cacheDir, "v2_custom_223800021.png")
+	cachePath := filepath.Join(cacheDir, "v3_custom_223800021.png")
 	replacement := solidPNG(t, 4, 4, color.RGBA{B: 0xff, A: 0xff})
 	if err := os.WriteFile(cachePath, replacement, 0o644); err != nil {
 		t.Fatal(err)
@@ -386,7 +386,7 @@ func TestDpConcurrentRequestsNoCorruption(t *testing.T) {
 			t.Fatalf("request %d produced %v, want %v", i, img.Bounds(), want)
 		}
 	}
-	cached, err := os.ReadFile(filepath.Join(cacheDir, "v2_dress_9.png"))
+	cached, err := os.ReadFile(filepath.Join(cacheDir, "v3_dress_9.png"))
 	if err != nil {
 		t.Fatalf("cache missing: %v", err)
 	}
@@ -421,7 +421,7 @@ func TestDpZipPreviewServedNotCached(t *testing.T) {
 	if rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), want) {
 		t.Fatalf("zip preview not served unchanged: %d", rec.Code)
 	}
-	if _, err := os.Stat(filepath.Join(cacheDir, "v2_custom_224400001.png")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(cacheDir, "v3_custom_224400001.png")); !os.IsNotExist(err) {
 		t.Fatalf("original zip preview was copied into dp-cache: %v", err)
 	}
 	if rec := serveDp(t, http.MethodGet, "/arts_item_custom_224400002/dp.png"); rec.Code != http.StatusNotFound {
@@ -470,7 +470,7 @@ func TestDpRigPlacementMath(t *testing.T) {
 	// part centre = node lower-left + (x, y); lower-left of sprite = centre - size/2.
 	ll := rig.ll[dpTagHead]
 	img := image.NewRGBA(image.Rect(0, 0, 10, 6))
-	x, y, ok := rig.place(dpTagHead, 20, 30, img)
+	_, x, y, ok := rig.place(dpTagHead, 20, 30, img)
 	if !ok || x != ll[0]+20-5 || y != ll[1]+30-3 {
 		t.Fatalf("place = (%v,%v,%v), want (%v,%v)", x, y, ok, ll[0]+15, ll[1]+27)
 	}

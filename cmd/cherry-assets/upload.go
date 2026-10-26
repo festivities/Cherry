@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -101,7 +102,39 @@ func runUpload(ctx context.Context, objs []*object, concurrency int, forceD1, pa
 	if err := syncGenerated(ctx, d1, objs, time.Now(), logger); err != nil {
 		return fmt.Errorf("d1 generated: %w", err)
 	}
-	return writePacks(ctx, r.client, objs)
+	if err := writePacks(ctx, r.client, objs); err != nil {
+		return err
+	}
+	return writeItems(ctx, r.client, objs)
+}
+
+// writeItems uploads cherry/manifest/items.json: one entry per converted item file, with the md5 this run uploaded.
+// Without converted items it writes nothing.
+func writeItems(ctx context.Context, client *assets.Client, objs []*object) error {
+	m := &assets.ItemManifest{}
+	for _, o := range objs {
+		if !o.generated || itemRef(o.key) == "" {
+			continue
+		}
+		parts := strings.Split(o.key, "/")
+		id, err := strconv.ParseInt(parts[3], 10, 64)
+		if err != nil {
+			return fmt.Errorf("%s: %w", o.key, err)
+		}
+		m.Entries = append(m.Entries, assets.ItemEntry{Kind: parts[2], ID: id, Name: parts[4], Size: o.size, MD5: o.md5, Origin: assets.OriginCherry})
+	}
+	if len(m.Entries) == 0 {
+		return nil
+	}
+	body, err := assets.EncodeItemManifest(m)
+	if err != nil {
+		return err
+	}
+	if err := retry(ctx, func() error { return client.Put(ctx, assets.ItemManifestKey, body, "application/json") }); err != nil {
+		return fmt.Errorf("manifest items: %w", err)
+	}
+	fmt.Printf("manifest items: %d entries written\n", len(m.Entries))
+	return nil
 }
 
 // uploader counts what each object did; the counters are read after the workers finish.
@@ -329,10 +362,14 @@ func runVerify(ctx context.Context, objs []*object) error {
 		}
 		fmt.Printf("%-16s plan %8d / %14d   bucket %8d / %14d\n", g, want.count[g], want.bytes[g], got[g], gotBytes[g])
 	}
-	if indexes != len(assets.ManifestFiles()) { // one index per category and the pack index
+	wantIndexes := len(assets.ManifestFiles()) // one index per category and the pack index
+	if hasItemIndex(objs) {
+		wantIndexes++ // cherry/manifest/items.json lists the converted items
+	}
+	if indexes != wantIndexes {
 		bad++
 	}
-	fmt.Printf("%-16s bucket %d objects, want %d\n", "indexes", indexes, len(assets.ManifestFiles()))
+	fmt.Printf("%-16s bucket %d objects, want %d\n", "indexes", indexes, wantIndexes)
 	if legacy > 0 {
 		bad++
 		fmt.Printf("%-16s bucket %d objects: run migrate-manifests\n", "legacy manifest/", legacy)

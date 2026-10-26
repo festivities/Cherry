@@ -532,6 +532,7 @@ func (s *squareSession) handleData(frame []byte) error {
 		if err := s.reply(frame, 8, append(pbVar(nil, 1, squareRelayResult), roster...)); err != nil {
 			return err
 		}
+		s.racingRelayStarted()
 		if rejoined {
 			if wasSeated { // others still show the old seat: stand the avatar up at its stored position
 				s.room.mu.Lock()

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"cherry/data"
+	"cherry/internal/assets"
 	"cherry/internal/httpx"
 	"cherry/internal/itemcode"
 	"cherry/internal/opdata"
@@ -215,6 +216,7 @@ type shopItem struct {
 
 type shopCatalog struct {
 	root                   string
+	generated              *assets.ItemIndex    // the converted items the catalog was scanned with (nil: switched off)
 	fashion, interior, pet []shopItem           // sellable: art, so listed, pooled and granted
 	landscape              []shopItem           // Garden landscapes gardens.json lists (no archive folder; landscape.go)
 	byCode                 map[string]*shopItem // the same items by code
@@ -230,7 +232,7 @@ var (
 func loadCatalog() *shopCatalog {
 	catalogMu.Lock()
 	defer catalogMu.Unlock()
-	if root := thumbs.DpItemRoot; catalog == nil || catalog.root != root {
+	if root := thumbs.DpItemRoot; catalog == nil || catalog.root != root || catalog.generated != assets.GeneratedItems() {
 		catalog = scanCatalog(root)
 	}
 	return catalog
@@ -270,49 +272,17 @@ func petCategory(dir string, ride bool) string {
 }
 
 func scanCatalog(root string) *shopCatalog {
-	c := &shopCatalog{root: root, byCode: map[string]*shopItem{}, animated: map[string]bool{}}
+	c := &shopCatalog{root: root, generated: assets.GeneratedItems(), byCode: map[string]*shopItem{}, animated: map[string]bool{}}
 	for _, sub := range []string{"custom", "dress", "interior", "tile", "pet"} {
-		entries, err := os.ReadDir(filepath.Join(root, sub))
-		if err != nil {
-			continue // missing root or kind: empty catalog
-		}
+		entries, _ := os.ReadDir(filepath.Join(root, sub)) // a missing root or kind is an empty folder list
 		for _, e := range entries {
-			n, err := strconv.ParseInt(e.Name(), 10, 64)
-			if err != nil || !e.IsDir() {
-				continue
+			if n, err := strconv.ParseInt(e.Name(), 10, 64); err == nil && e.IsDir() {
+				c.add(sub, n, filepath.Join(root, sub, e.Name()))
 			}
-			code, ok := itemCodeFromID(n)
-			if !ok {
-				continue
-			}
-			_, kind := classify(code)
-			dir := filepath.Join(root, sub, e.Name())
-			if kind == 0 || c.byCode[code] != nil || kind == kindPet && !hasFile(dir, "skeleton.xml") {
-				continue // faces, unclassifiable, duplicate, or a pet with no render assets
-			}
-			it := shopItem{Code: code, ID: n}
-			if files, err := os.ReadDir(dir); err == nil {
-				it.Animated = slices.ContainsFunc(files, func(f os.DirEntry) bool {
-					return strings.HasSuffix(strings.ToLower(f.Name()), ".aniproj")
-				})
-			}
-			if kind == kindPet {
-				it.Catg = petCategory(dir, it.Animated)
-			}
-			// Priced whether or not it has art, so an owned copy sells back at its real price.
-			c.animated[code] = it.Animated
-			if !thumbs.HasArt(sub, n) {
-				// No art: the client would show the grey placeholder, so it is not listed, pooled or granted.
-				continue
-			}
-			switch kind {
-			case kindFashion:
-				c.fashion = append(c.fashion, it)
-			case kindInterior:
-				c.interior = append(c.interior, it)
-			default:
-				c.pet = append(c.pet, it)
-			}
+		}
+		// Converted iOS-only items (assets.GeneratedItems): Cherry-made, with art by construction, and no folder in root.
+		for _, n := range c.generated.IDs(sub) {
+			c.add(sub, n, "")
 		}
 	}
 	c.landscape = landscapeCatalog()
@@ -323,6 +293,44 @@ func scanCatalog(root string) *shopCatalog {
 		}
 	}
 	return c
+}
+
+// add lists one item: the folder dir, or a converted item when dir is "". Faces, unclassifiable ids, duplicates
+// and pets without render assets are not listed; a folder without art is priced but not listed.
+func (c *shopCatalog) add(sub string, n int64, dir string) {
+	code, ok := itemCodeFromID(n)
+	if !ok {
+		return
+	}
+	_, kind := classify(code)
+	if kind == 0 || c.byCode[code] != nil || kind == kindPet && !hasFile(dir, "skeleton.xml") {
+		return // faces, unclassifiable, duplicate, or a pet with no render assets
+	}
+	it := shopItem{Code: code, ID: n}
+	if dir != "" {
+		if files, err := os.ReadDir(dir); err == nil {
+			it.Animated = slices.ContainsFunc(files, func(f os.DirEntry) bool {
+				return strings.HasSuffix(strings.ToLower(f.Name()), ".aniproj")
+			})
+		}
+	}
+	if kind == kindPet {
+		it.Catg = petCategory(dir, it.Animated)
+	}
+	// Priced whether or not it has art, so an owned copy sells back at its real price.
+	c.animated[code] = it.Animated
+	if dir != "" && !thumbs.HasArt(sub, n) {
+		// No art: the client would show the grey placeholder, so it is not listed, pooled or granted.
+		return
+	}
+	switch kind {
+	case kindFashion:
+		c.fashion = append(c.fashion, it)
+	case kindInterior:
+		c.interior = append(c.interior, it)
+	default:
+		c.pet = append(c.pet, it)
+	}
 }
 
 // ---- catalog routes ----

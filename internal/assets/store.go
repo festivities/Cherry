@@ -137,6 +137,9 @@ func (s *Store) ServeRoute(w http.ResponseWriter, r *http.Request) bool {
 	if rel, ok := packRel(r.URL.Path); ok {
 		return s.servePack(w, r, rel)
 	}
+	if key, ok := generatedItemKey(r.URL.Path); ok { // a converted item is Cherry-made: cherry/item/, never static/
+		return s.serve(w, r, key)
+	}
 	if key, ok := fileKey(r.URL.Path); ok {
 		return s.serve(w, r, key)
 	}

@@ -31,6 +31,7 @@ import (
 	"strings"
 
 	"cherry/internal/assets"
+	"cherry/internal/thumbs"
 )
 
 // defaultDataset is the santi backup, the first root: the bulk categories come from it alone.
@@ -121,6 +122,21 @@ func checkOrigins(objs []*object, roots []string) error {
 			return fmt.Errorf("%s (%s): %w", o.key, o.path, err)
 		}
 	}
+	// A converted item is never a device-backup original: an original under static/item/ with the same kind and id
+	// is refused (the converter skips every id a backup has, so this only trips on a stale tree).
+	converted := map[string]bool{}
+	for _, o := range objs {
+		if o.generated {
+			if ref := itemRef(o.key); ref != "" {
+				converted[ref] = true
+			}
+		}
+	}
+	for _, o := range objs {
+		if !o.generated && strings.HasPrefix(o.key, "static/item/") && converted[itemRef(o.key)] {
+			return fmt.Errorf("%s (%s): a converted item is not an original", o.key, o.path)
+		}
+	}
 	return nil
 }
 
@@ -143,6 +159,10 @@ func checkObject(o *object, roots []string) error {
 		return errors.New("generated object has no recipe")
 	case underAny(o.path, roots):
 		return errors.New("generated object reads an archive file")
+	case strings.HasPrefix(o.key, assets.CherryPrefix+"item/"):
+		if len(strings.Split(o.key, "/")) != 5 || itemRef(o.key) == "" {
+			return errors.New("generated item must be cherry/item/<kind>/<id>/<file>")
+		}
 	case o.pack != "":
 		if o.pack != "garden" || o.key != assets.GeneratedPackKey(o.rel) {
 			return fmt.Errorf("generated pack must be %s", assets.GeneratedPackKey(o.rel))
@@ -397,6 +417,8 @@ func main() {
 	concurrency := flags.Int("concurrency", 8, "parallel R2 requests (upload)")
 	forceD1 := flags.Bool("force-d1", false, "rewrite the D1 manifest rows even when they look current (upload)")
 	packsOnly := flags.Bool("packs-only", false, "upload only the map packs and cherry/manifest/packs.json (upload)")
+	zipFlag := flags.String("zip", thumbs.DpZipPath, "the 2014 iOS item.zip to convert (convert)")
+	outFlag := flags.String("out", assets.GeneratedItemRoot, "the generated item tree: convert writes it, plan/upload read it")
 	_ = flags.Parse(args)
 
 	if cmd == "migrate-manifests" { // R2 only: it moves the existing indexes and never reads the dataset
@@ -405,9 +427,19 @@ func main() {
 		}
 		return
 	}
+	if cmd == "convert" { // local only: the iOS-only items into the generated tree (no R2, no archive writes)
+		if err := runConvert(*zipFlag, *outFlag); err != nil {
+			fail("convert: %v", err)
+		}
+		return
+	}
 	objs, err := buildObjects(archiveRoots)
 	if err != nil {
 		fail("dataset: %v", err)
+	}
+	objs, err = withGenerated(objs, archiveRoots, *outFlag)
+	if err != nil {
+		fail("generated items: %v", err)
 	}
 	switch cmd {
 	case "plan":

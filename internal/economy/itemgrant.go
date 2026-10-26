@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 
+	"cherry/internal/assets"
 	"cherry/internal/room"
 	"cherry/internal/store"
 	"cherry/internal/thumbs"
@@ -124,7 +125,7 @@ func itemThumbRef(code string) (kind, id string, ok bool) {
 	}
 	id = strconv.FormatInt(it.ID, 10)
 	for _, k := range []string{"custom", "dress", "interior", "tile", "pet"} {
-		if _, err := os.Stat(filepath.Join(thumbs.DpItemRoot, k, id)); err == nil {
+		if _, err := os.Stat(filepath.Join(thumbs.DpItemRoot, k, id)); err == nil || assets.GeneratedItems().Has(k, it.ID) {
 			return k, id, true
 		}
 	}
