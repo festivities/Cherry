@@ -3,7 +3,10 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"cherry/internal/assets"
 )
 
 // writeTree creates the files of a miniature dataset (paths relative to the dataset root).
@@ -196,5 +199,54 @@ func TestSummarizeGroups(t *testing.T) {
 	}
 	if tot.count["chat:action"] != 1 || tot.bytes["chat:action"] != 4 || tot.count["item:action_hd"] != 0 {
 		t.Fatalf("chat totals = %+v", tot)
+	}
+}
+
+// The planner keeps originals (static/) to the archive roots. A generated object (cherry/) must not read an archive
+// file, must name its recipe, and must sit where its kind allows: a pack at its generated key, and nothing else in
+// cherry/manifest/. An item in Cherry's own id block (a generated landscape a device downloaded) is never an original.
+func TestOriginsStayInArchive(t *testing.T) {
+	root := writeTree(t,
+		"animation/a.png", "sound/BGM.ogg", "UIResource/MarbleChallengePopup.plist", "stringtable/arts_strings.ast",
+		"garden/1908231803.mworldpack", "world/README",
+		"item/custom/123/dp.png", "item/dress/README", "item/interior/README", "item/tile/README", "item/pet/README", "item/garden/README",
+		"cache/action/00005_chatting_deco_action_hello.png",
+	)
+	other := writeTree(t, "garden/1900000000.mworldpack")
+	roots := []string{root}
+	objs, err := buildObjects(roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkOrigins(objs, roots); err != nil {
+		t.Fatalf("archive originals refused: %v", err)
+	}
+	outside := filepath.Join(other, "garden", "1900000000.mworldpack")
+	sum := strings.Repeat("A", 32)
+	genPack := func(mut func(*object)) *object {
+		o := &object{key: assets.GeneratedPackKey("1999999999.mworldpack"), path: outside, size: 1, md5: sum, pack: "garden", rel: "1999999999.mworldpack", generated: true, recipe: "test: fixture"}
+		mut(o)
+		return o
+	}
+	cases := map[string]struct {
+		obj *object
+		ok  bool
+	}{
+		"generated pack":               {genPack(func(*object) {}), true},
+		"no recipe":                    {genPack(func(o *object) { o.recipe = "" }), false},
+		"reads an archive file":        {genPack(func(o *object) { o.path = filepath.Join(root, "garden", "1908231803.mworldpack") }), false},
+		"pack not at its key":          {genPack(func(o *object) { o.key = "static/garden/1999999999.mworldpack" }), false},
+		"generated in cherry/manifest": {&object{key: "cherry/manifest/x.json", path: outside, size: 1, md5: sum, generated: true, recipe: "test"}, false},
+		"generated outside cherry":     {&object{key: "static/misc/x.bin", path: outside, size: 1, md5: sum, generated: true, recipe: "test"}, false},
+		"original outside the archive": {&object{key: "static/garden/1900000000.mworldpack", path: outside, size: 1, pack: "garden", rel: "1900000000.mworldpack"}, false},
+		"original under cherry/":       {&object{key: "cherry/garden/1900000000.mworldpack", path: filepath.Join(root, "garden", "1908231803.mworldpack"), size: 1, pack: "garden", rel: "1900000000.mworldpack"}, false},
+		"Cherry-made item in a backup": {&object{key: "static/item/garden/428499999/dp.png", path: filepath.Join(root, "item", "custom", "123", "dp.png"), size: 1}, false},
+		"original landscape item":      {&object{key: "static/item/garden/428400003/dp.png", path: filepath.Join(root, "item", "custom", "123", "dp.png"), size: 1}, true},
+	}
+	for name, c := range cases {
+		err := checkOrigins(append(objs[:len(objs):len(objs)], c.obj), roots)
+		if (err == nil) != c.ok {
+			t.Errorf("%s: err = %v, want ok=%v", name, err, c.ok)
+		}
 	}
 }

@@ -93,6 +93,11 @@ var MenuJSON []byte
 //go:embed squares.json
 var SquaresJSON []byte
 
+// GardensJSON is the Garden map list: the default map and the maps an owner may choose (economy/gardens.go).
+//
+//go:embed gardens.json
+var GardensJSON []byte
+
 // MenuIcons is the home menu picture set: one PNG per icon, named by the "icons" map of menu.json and
 // served at /cherry/menu/ (web/http.go). Rendered by scripts/render-menu-icons.py.
 //

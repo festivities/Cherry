@@ -1,0 +1,29 @@
+{
+  "default": "1908231803",
+  "gardens": [
+    {"map": "1908231803", "label": "2019-08-23 18:03", "name": "Classic meadow", "landscape": "GULS00003", "fish": {"host": "RUPL0018L", "idx": 21, "x": 33, "y": 54}},
+    {"map": "1908231804", "label": "2019-08-23 18:04", "name": "Classic meadow night", "landscape": "GULS0255R", "generated": true},
+    {"map": "1908261114", "label": "2019-08-26 11:14", "name": "Classic meadow sunset", "landscape": "GULS0255Q", "generated": true},
+    {"map": "1909101739", "label": "2019-09-10 17:39", "name": "Lilac cloud garden", "landscape": "GULS0255P", "generated": true},
+    {"map": "2002201201", "label": "2020-02-20 12:01", "name": "Cherry-blossom night", "landscape": "GULS0000Y"},
+    {"map": "2004231123", "label": "2020-04-23 11:23", "name": "Spring forest", "landscape": "GULS0255O", "generated": true},
+    {"map": "2005131714", "label": "2020-05-13 17:14", "name": "Dark rose forest", "landscape": "GULS0001B"},
+    {"map": "2005211111", "label": "2020-05-21 11:11", "name": "Moonlit lawn", "landscape": "GULS0255N", "generated": true},
+    {"map": "2006231324", "label": "2020-06-23 13:24", "name": "Poolside deck", "landscape": "GULS0255M", "generated": true},
+    {"map": "2006231633", "label": "2020-06-23 16:33", "name": "Frosty lavender", "landscape": "GULS0255L", "generated": true},
+    {"map": "2006241149", "label": "2020-06-24 11:49", "name": "Flower garden", "landscape": "GULS00031"},
+    {"map": "2009101706", "label": "2020-09-10 17:06", "name": "Gothic night", "landscape": "GULS0255K", "generated": true},
+    {"map": "2011251745", "label": "2020-11-25 17:45", "name": "Winter castle", "landscape": "GULS0002E"},
+    {"map": "2101261128", "label": "2021-01-26 11:28", "name": "White winter", "landscape": "GULS0255J", "generated": true},
+    {"map": "2105030736", "label": "2021-05-03 07:36", "name": "Under the sea", "landscape": "GULS0255I", "generated": true},
+    {"map": "2107061752", "label": "2021-07-06 17:52", "name": "Red lantern court", "landscape": "GULS0255H", "generated": true},
+    {"map": "2108121145", "label": "2021-08-12 11:45", "name": "Enchanted forest", "landscape": "GULS0255G", "generated": true},
+    {"map": "2112231733", "label": "2021-12-23 17:33", "name": "City plaza at night", "landscape": "GULS00045"},
+    {"map": "2202281202", "label": "2022-02-28 12:02", "name": "Celebration lawn", "landscape": "GULS0004C"},
+    {"map": "2203281049", "label": "2022-03-28 10:49", "name": "Starry music", "landscape": "GULS0004E"},
+    {"map": "2206280841", "label": "2022-06-28 08:41", "name": "Wedding sunset", "landscape": "GULS0255F", "generated": true},
+    {"map": "2210271148", "label": "2022-10-27 11:48", "name": "European town", "landscape": "GULS0004U"},
+    {"map": "2303271138", "label": "2023-03-27 11:38", "name": "Golden palace", "landscape": "GULS0255E", "generated": true},
+    {"map": "2401290846", "label": "2024-01-29 08:46", "name": "Strawberry cake", "landscape": "GULS0005U", "fish": {"host": "RUGO00B05", "idx": 131, "x": 33, "y": 57}}
+  ]
+}

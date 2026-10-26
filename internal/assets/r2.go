@@ -1,7 +1,14 @@
 // Package assets streams Cherry's game assets from a Cloudflare R2 bucket (S3 API, SigV4, region
-// "auto"). The bulk categories (animation, sound, ui, subui, tx) are listed by per-category manifests
-// (manifest/<cat>.json) and the per-item files (item/<kind>/<id>/<file>) are fetched on demand. Local
-// copies live in %LOCALAPPDATA%\Cherry\static (see Store).
+// "auto"). The bulk categories (animation, sound, ui, subui, tx) are listed by per-category indexes
+// (cherry/manifest/<cat>.json) and the per-item files (static/item/<kind>/<id>/<file>) are fetched on
+// demand. Local copies live in %LOCALAPPDATA%\Cherry\static (see Store).
+//
+// The bucket keeps two key trees apart. static/ holds only the original device-backup files, the ground
+// truth: cmd/cherry-assets writes them, and only from its archive roots, and nothing Cherry makes is ever
+// written there. cherry/ holds everything Cherry makes: the indexes (cherry/manifest/, read here, with the
+// legacy manifest/ keys as a fallback until migrate-manifests has run) and Cherry-generated Garden packs
+// (cherry/garden/<name>, GeneratedPackKey). In D1, table manifest mirrors the original bulk files only and
+// table generated records the cherry/ objects.
 //
 // Streaming is on only when streaming.json enables it AND %LOCALAPPDATA%\Cherry\cloudflare.json exists
 // (Open). The checkresource2 versions then come from the manifests, so the patcher fetches every category
@@ -76,7 +83,7 @@ func LoadConfig(path string) (Config, error) {
 	return cfg, nil
 }
 
-// Client is the R2 S3 API subset Cherry needs: HEAD, GET, PUT and ListObjectsV2.
+// Client is the R2 S3 API subset Cherry needs: HEAD, GET, PUT, DELETE and ListObjectsV2.
 type Client struct {
 	cfg Config
 	hc  *http.Client
@@ -142,6 +149,19 @@ func (c *Client) Put(ctx context.Context, key string, body []byte, contentType s
 	}
 	defer resp.Body.Close()
 	return statusErr(resp)
+}
+
+// Delete removes key. R2 answers 204 for an absent key too, so a missing key is not an error.
+func (c *Client) Delete(ctx context.Context, key string) error {
+	resp, err := c.do(ctx, http.MethodDelete, c.objectPath(key), "", nil, nil)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if err := statusErr(resp); err != nil && !errors.Is(err, ErrNotFound) {
+		return err
+	}
+	return nil
 }
 
 // ListPage returns one ListObjectsV2 page of keys under prefix and the token for the next page

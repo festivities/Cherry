@@ -977,6 +977,10 @@ func handleAvatarInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleRoot(w http.ResponseWriter, r *http.Request) {
+	// A generated landscape has no archive folder, so its item files are answered before the stream could look.
+	if economy.ServeLandscapeFile(w, r) {
+		return
+	}
 	// A streamed file (or dp.png) wins; a miss falls through to the generated thumbnail below.
 	if streaming.ServeRoute(w, r) {
 		return

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"cherry/internal/assets"
 )
@@ -43,9 +44,13 @@ func loadD1Creds() (d1Creds, error) {
 	return d1Creds{accountID: f.AccountID, token: f.Token, database: f.Database}, nil
 }
 
+// d1API is the Cloudflare API root of the D1 REST calls.
+const d1API = "https://api.cloudflare.com/client/v4"
+
 // d1Client runs SQL through the D1 REST API.
 type d1Client struct {
 	creds d1Creds
+	api   string // d1API; a field so a test can point the client at a fake
 	hc    *http.Client
 }
 
@@ -55,7 +60,7 @@ func (d *d1Client) query(ctx context.Context, sql string) ([]map[string]any, err
 	if err != nil {
 		return nil, err
 	}
-	url := "https://api.cloudflare.com/client/v4/accounts/" + d.creds.accountID + "/d1/database/" + d.creds.database + "/query"
+	url := d.api + "/accounts/" + d.creds.accountID + "/d1/database/" + d.creds.database + "/query"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -93,12 +98,65 @@ func (d *d1Client) query(ctx context.Context, sql string) ([]map[string]any, err
 // d1Batch is the rows per INSERT. Each statement stays far below D1's statement size limit.
 const d1Batch = 100
 
-// syncD1 mirrors the bulk manifests into the D1 table manifest(cat, path, size, md5). A category is
+// The D1 tables. manifest mirrors the ORIGINAL bulk files only (the static/ objects, one row per file of a
+// category). generated records the Cherry-generated objects (cherry/ keys) with the recipe that made each one.
+// Neither is read by Cherry; R2 stays the source of truth.
+const (
+	createManifest  = `CREATE TABLE IF NOT EXISTS manifest (cat TEXT NOT NULL, path TEXT NOT NULL, size INTEGER NOT NULL, md5 TEXT NOT NULL, PRIMARY KEY (cat, path))`
+	createGenerated = `CREATE TABLE IF NOT EXISTS generated (key TEXT PRIMARY KEY, size INTEGER NOT NULL, md5 TEXT NOT NULL, recipe TEXT NOT NULL, created TEXT NOT NULL)`
+)
+
+// d1Init creates both tables when they are missing. Every D1 write starts with it.
+func d1Init(ctx context.Context, d *d1Client) error {
+	for _, stmt := range []string{createManifest, createGenerated} {
+		if _, err := d.query(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// syncGenerated upserts one generated row per Cherry-generated object in objs (key, size, md5, recipe, and the
+// time of this run). Originals are not recorded here. With no generated objects it writes nothing.
+func syncGenerated(ctx context.Context, d *d1Client, objs []*object, now time.Time, logger *log.Logger) error {
+	var gen []*object
+	for _, o := range objs {
+		if o.generated {
+			gen = append(gen, o)
+		}
+	}
+	if len(gen) == 0 {
+		return nil
+	}
+	if err := d1Init(ctx, d); err != nil {
+		return err
+	}
+	stamp := now.UTC().Format(time.RFC3339)
+	for i := 0; i < len(gen); i += d1Batch {
+		end := min(i+d1Batch, len(gen))
+		var b strings.Builder
+		b.WriteString("INSERT OR REPLACE INTO generated (key, size, md5, recipe, created) VALUES ")
+		for j, o := range gen[i:end] {
+			if j > 0 {
+				b.WriteString(", ")
+			}
+			fmt.Fprintf(&b, "(%s, %d, %s, %s, %s)", sqlStr(o.key), o.size, sqlStr(o.md5), sqlStr(o.recipe), sqlStr(stamp))
+		}
+		if _, err := d.query(ctx, b.String()); err != nil {
+			return fmt.Errorf("generated rows %d-%d: %w", i, end, err)
+		}
+	}
+	fmt.Printf("d1 generated: %d rows written\n", len(gen))
+	logger.Printf("d1 generated: %d rows", len(gen))
+	return nil
+}
+
+// syncD1 mirrors the bulk indexes into the D1 table manifest(cat, path, size, md5). A category is
 // rewritten only when its row count or size total differs, or when this run PUT one of its objects (or
 // force is set), so a re-run writes no rows. R2 stays the source of truth; Cherry does not read D1.
 // ponytail: the skip test compares row count and size sum only; -force-d1 rewrites when a same-size edit is suspected.
 func syncD1(ctx context.Context, d *d1Client, manifests map[string][]assets.Entry, put map[string]bool, force bool, logger *log.Logger) error {
-	if _, err := d.query(ctx, `CREATE TABLE IF NOT EXISTS manifest (cat TEXT NOT NULL, path TEXT NOT NULL, size INTEGER NOT NULL, md5 TEXT NOT NULL, PRIMARY KEY (cat, path))`); err != nil {
+	if err := d1Init(ctx, d); err != nil {
 		return err
 	}
 	for _, cat := range assets.Categories {

@@ -1,17 +1,60 @@
 package assets
 
 import (
+	"bytes"
+	"context"
 	"crypto/md5"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 )
 
+// CherryPrefix is the key tree of everything Cherry makes (the package doc says what stays out of it).
+const CherryPrefix = "cherry/"
+
+// Cherry-made item ids: the block Cherry allocates its generated landscape items from (economy/landscape.go,
+// gardens.json "generated"). No original item uses it. A device that downloaded one keeps it under
+// files/item/garden/<id>/, so a later device backup can hold Cherry-made files that look like the client's
+// own; they are never ground truth and never belong under static/ (cmd/cherry-assets refuses them there).
+const (
+	CherryItemFirst = 428499000
+	CherryItemLast  = 428499999
+)
+
+// IsCherryItem reports whether a numeric item id is in Cherry's own block.
+func IsCherryItem(id int64) bool { return id >= CherryItemFirst && id <= CherryItemLast }
+
+// Origins of a map pack. A pack entry without an origin is an original.
+const (
+	OriginOriginal = "original"
+	OriginCherry   = "cherry"
+)
+
+// ManifestPrefix is the key tree of the indexes.
+const ManifestPrefix = CherryPrefix + "manifest/"
+
+// ManifestKey is the R2 key of an index file: ManifestKey("animation.json") is cherry/manifest/animation.json.
+func ManifestKey(file string) string { return ManifestPrefix + file }
+
+// legacyManifestKey is where the indexes were written before the cherry/ prefix (manifest/<file>).
+func legacyManifestKey(file string) string { return "manifest/" + file }
+
+// ManifestFiles are the index files of a bucket: one per bulk category, then the map pack index.
+func ManifestFiles() []string {
+	files := make([]string, 0, len(Categories)+1)
+	for _, cat := range Categories {
+		files = append(files, cat+".json")
+	}
+	return append(files, "packs.json")
+}
+
 // Manifest lists one bulk category as the client's update list needs it. The upload tool writes it to
-// R2 as manifest/<cat>.json; Cherry reads it once per process.
+// R2 as cherry/manifest/<cat>.json; Cherry reads it once per process.
 type Manifest struct {
 	Cat     string  `json:"cat"`
 	Version int     `json:"version"`
@@ -40,15 +83,28 @@ func Version(entries []Entry) int {
 // PackDirs are the map pack directories. The client keeps a pack in files/<dir>/.
 var PackDirs = []string{"garden", "world"}
 
-// PackEntry is one map pack, stored at R2 key static/<dir>/<name>. Name is "<digits>.mworldpack" (ValidPack).
+// PackEntry is one map pack. An original is stored at static/<dir>/<name>; a Cherry-generated pack (origin
+// OriginCherry, Garden only) at GeneratedPackKey(name). Name is "<digits>.mworldpack" (ValidPack).
 type PackEntry struct {
-	Dir  string `json:"dir"`
-	Name string `json:"name"`
-	Size int64  `json:"size"`
-	MD5  string `json:"md5"`
+	Dir    string `json:"dir"`
+	Name   string `json:"name"`
+	Size   int64  `json:"size"`
+	MD5    string `json:"md5"`
+	Origin string `json:"origin,omitempty"` // OriginOriginal or OriginCherry; absent means original
 }
 
-// PackManifest is manifest/packs.json.
+// Key is the R2 key that holds the pack's bytes.
+func (p PackEntry) Key() string {
+	if p.Origin == OriginCherry {
+		return GeneratedPackKey(p.Name)
+	}
+	return "static/" + p.Dir + "/" + p.Name
+}
+
+// GeneratedPackKey is the key of a Cherry-generated Garden pack. Garden is the only reserved directory.
+func GeneratedPackKey(name string) string { return CherryPrefix + "garden/" + name }
+
+// PackManifest is cherry/manifest/packs.json.
 type PackManifest struct {
 	Entries []PackEntry `json:"entries"`
 }
@@ -116,6 +172,10 @@ func (p *PackManifest) check() error {
 		switch {
 		case !ValidPack(e.Dir, e.Name):
 			return fmt.Errorf("pack manifest: unsafe pack %q", key)
+		case e.Origin != "" && e.Origin != OriginOriginal && e.Origin != OriginCherry:
+			return fmt.Errorf("pack manifest: %s has origin %q", key, e.Origin)
+		case e.Origin == OriginCherry && e.Dir != "garden":
+			return fmt.Errorf("pack manifest: generated pack %s is outside garden/", key)
 		case seen[key]:
 			return fmt.Errorf("pack manifest: duplicate pack %q", key)
 		case e.Size <= 0:
@@ -183,6 +243,56 @@ func isMD5(s string) bool {
 	}
 	_, err := hex.DecodeString(s)
 	return err == nil
+}
+
+// MigrateManifests moves each index from its legacy manifest/ key to cherry/manifest/. A copy is read back and
+// must match before the legacy key is deleted. When the cherry/ copy already exists it is never overwritten: the
+// legacy key is deleted only if the two are identical, and a difference is an error. A name with neither key is
+// an error. Names are moved one at a time, so a failure leaves the earlier ones moved and the rest as they were.
+// ponytail: one-time migration; delete it with the legacy fallback once the live bucket has been moved.
+func MigrateManifests(ctx context.Context, c *Client, logf func(string)) error {
+	for _, file := range ManifestFiles() {
+		legacy, lerr := readObject(ctx, c, legacyManifestKey(file))
+		if lerr != nil && !errors.Is(lerr, ErrNotFound) {
+			return lerr
+		}
+		cur, cerr := readObject(ctx, c, ManifestKey(file))
+		if cerr != nil && !errors.Is(cerr, ErrNotFound) {
+			return cerr
+		}
+		switch {
+		case lerr != nil && cerr != nil:
+			return fmt.Errorf("%s: no copy under %s or %s", file, legacyManifestKey(file), ManifestKey(file))
+		case lerr != nil:
+			logf(file + ": already under " + ManifestKey(file))
+			continue
+		case cerr == nil && !bytes.Equal(cur, legacy):
+			return fmt.Errorf("%s: %s and %s differ; neither is touched", file, legacyManifestKey(file), ManifestKey(file))
+		case cerr != nil:
+			if err := c.Put(ctx, ManifestKey(file), legacy, "application/json"); err != nil {
+				return err
+			}
+			back, err := readObject(ctx, c, ManifestKey(file))
+			if err != nil || !bytes.Equal(back, legacy) {
+				return fmt.Errorf("%s: %s did not read back; %s kept", file, ManifestKey(file), legacyManifestKey(file))
+			}
+		}
+		if err := c.Delete(ctx, legacyManifestKey(file)); err != nil {
+			return err
+		}
+		logf(fmt.Sprintf("%s: moved %d bytes to %s", file, len(legacy), ManifestKey(file)))
+	}
+	return nil
+}
+
+// readObject returns the whole body of key; ErrNotFound when it is absent.
+func readObject(ctx context.Context, c *Client, key string) ([]byte, error) {
+	resp, err := c.Get(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	return io.ReadAll(resp.Body)
 }
 
 func isDigits(s string) bool {

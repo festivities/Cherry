@@ -35,6 +35,8 @@ func itemOwnedLocked(acc *store.Account, code string) bool {
 		return slices.ContainsFunc(acc.RoomItems, func(it store.RoomItem) bool { return it.Cd == code })
 	case kindPet:
 		return slices.ContainsFunc(acc.Pets, func(p store.PetItem) bool { return p.Cd == code })
+	case kindGarden:
+		return slices.ContainsFunc(ownedLandscapesLocked(acc), func(l Landscape) bool { return l.Code == code })
 	}
 	return false
 }

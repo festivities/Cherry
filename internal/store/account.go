@@ -112,6 +112,8 @@ type Account struct {
 	Gather         *GatherDay       // Garden gathering caps and Gem bonus for one game day (economy/gathering.go); replaced, never edited in place
 	Atelier        *AtelierState    // Garden Atelier stamina and blueprints (economy/atelier.go); replaced, never edited in place
 	Racing         *RacingRecord    // Riding Pet Race tickets, exp, MMR and store points (economy/racing.go); replaced, never edited in place
+	GardenMap      string           // Garden map this account's Garden shows (economy/gardens.go); "" = the default
+	Landscapes     []string         // bought Garden landscape item codes (economy/landscape.go); replaced, never edited in place
 }
 
 // FishingGear is the Square fishing gear an account bought (economy/fishing_shop.go): the item IDs

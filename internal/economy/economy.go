@@ -269,6 +269,7 @@ func NewAdminMux() *http.ServeMux {
 	mux.HandleFunc("/admin/mail", handleAdminMail)
 	mux.HandleFunc("/admin/attend", handleAdminAttend)
 	mux.HandleFunc("/admin/season", handleAdminSeason)
+	mux.HandleFunc("/admin/garden", handleAdminGarden)
 	return mux
 }
 

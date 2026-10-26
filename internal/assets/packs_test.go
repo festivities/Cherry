@@ -13,8 +13,8 @@ import (
 	"testing"
 )
 
-// packFixture publishes the 23 garden and 4 world packs (small bodies) and manifest/packs.json to f. It returns
-// the entries in manifest order.
+// packFixture publishes the 23 garden and 4 world packs (small bodies) and cherry/manifest/packs.json to f. It
+// returns the entries in manifest order.
 func packFixture(t *testing.T, f *fakeR2) []PackEntry {
 	t.Helper()
 	var packs []PackEntry
@@ -28,7 +28,7 @@ func packFixture(t *testing.T, f *fakeR2) []PackEntry {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.put("manifest/packs.json", b)
+	f.put("cherry/manifest/packs.json", b)
 	return packs
 }
 
@@ -184,7 +184,7 @@ func TestPackRoutesServeListedNamesOnly(t *testing.T) {
 	}
 }
 
-// A bucket without manifest/packs.json has no map packs: the list and the version are the category's own.
+// A bucket without the pack index has no map packs: the list and the version are the category's own.
 func TestBucketWithoutPackManifestHasNoPacks(t *testing.T) {
 	f := newFakeR2(t)
 	entries := fixture(t, f)

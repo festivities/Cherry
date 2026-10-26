@@ -5,6 +5,7 @@
   "pet_price": 1200,
   "animated_percent": 250,
   "animated_pet_cash": 25,
+  "landscape_cash": 30,
   "sell_back_percent": 100,
   "face_ticket_cost": 1,
   "deal_paid_percent": 70,

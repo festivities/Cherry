@@ -23,7 +23,7 @@ import (
 	"cherry/internal/opdata"
 )
 
-// Categories are the bulk categories the patcher downloads; each has a manifest in R2.
+// Categories are the bulk categories the patcher downloads; each has an index in R2 (cherry/manifest/<cat>.json).
 var Categories = []string{"animation", "sound", "ui", "tx", "subui"}
 
 // langs are the languages the patcher asks update lists and files for. The files are the same in every
@@ -45,19 +45,20 @@ var flagFile = opdata.New[streamingFlag]("streaming.json", data.StreamingJSON, n
 
 // Store answers the streamed asset routes. ServeRoute on a nil *Store answers nothing (streaming off).
 type Store struct {
-	client   *Client
-	cacheDir string
-	state    atomic.Pointer[state]
-	loadMu   sync.Mutex
-	missing  sync.Map // R2 key -> time.Time until which the key counts as absent
+	client       *Client
+	cacheDir     string
+	state        atomic.Pointer[state]
+	loadMu       sync.Mutex
+	missing      sync.Map // R2 key -> time.Time until which the key counts as absent
+	legacyLogged sync.Map // index file -> true once its legacy manifest/ fallback has been logged
 }
 
 // state is what the manifests produce: the checkresource2 body, one update list per category, and the map
-// packs the update lists name ("<dir>/<name>").
+// packs the update lists name ("<dir>/<name>", mapped to the R2 key that holds the pack).
 type state struct {
 	check string
 	ini   map[string]string
-	packs map[string]bool
+	packs map[string]string
 }
 
 // New returns a store that reads cfg's bucket and keeps local copies under cacheDir.
@@ -142,8 +143,8 @@ func (s *Store) ServeRoute(w http.ResponseWriter, r *http.Request) bool {
 	return false
 }
 
-// load fetches the five manifests once and keeps the result. Concurrent callers share one fetch; a failure
-// is not kept, so the next request tries again.
+// load fetches the five category indexes and the pack index once and keeps the result. Concurrent callers
+// share one fetch; a failure is not kept, so the next request tries again.
 func (s *Store) load() (*state, error) {
 	if st := s.state.Load(); st != nil {
 		return st, nil
@@ -168,9 +169,9 @@ func (s *Store) load() (*state, error) {
 	if err != nil {
 		return nil, err
 	}
-	st := &state{ini: make(map[string]string, len(Categories)), packs: make(map[string]bool, len(pm.Entries))}
+	st := &state{ini: make(map[string]string, len(Categories)), packs: make(map[string]string, len(pm.Entries))}
 	for _, p := range pm.Entries {
-		st.packs[p.Dir+"/"+p.Name] = true
+		st.packs[p.Dir+"/"+p.Name] = p.Key()
 	}
 	versions := make(map[string]int, len(Categories))
 	for i, cat := range Categories {
@@ -190,12 +191,12 @@ func (s *Store) load() (*state, error) {
 	return st, nil
 }
 
-// fetchPacks reads manifest/packs.json. A bucket without it has no map packs, and the animation list keeps
-// only its own records.
+// fetchPacks reads the pack index. A bucket without it has no map packs, and the animation list keeps only
+// its own records.
 func (s *Store) fetchPacks() (*PackManifest, error) {
-	resp, err := s.client.Get(context.Background(), "manifest/packs.json")
+	resp, err := s.getManifest("packs.json")
 	if errors.Is(err, ErrNotFound) {
-		log.Printf("cherry: the bucket has no manifest/packs.json; no map packs")
+		log.Printf("cherry: the bucket has no %s; no map packs", ManifestKey("packs.json"))
 		return &PackManifest{}, nil
 	}
 	if err != nil {
@@ -212,8 +213,9 @@ func (s *Store) fetchPacks() (*PackManifest, error) {
 	return &pm, nil
 }
 
-// servePack answers a map pack request for rel ("<dir>/<name>") when the pack manifest lists it. Any other name
-// is not handled, so the caller's 404 applies.
+// servePack answers a map pack request for rel ("<dir>/<name>") when the pack index lists it, from the key the
+// entry names (static/ for an original, cherry/ for a generated pack). Any other name is not handled, so the
+// caller's 404 applies.
 func (s *Store) servePack(w http.ResponseWriter, r *http.Request, rel string) bool {
 	st, err := s.load()
 	if err != nil {
@@ -221,11 +223,26 @@ func (s *Store) servePack(w http.ResponseWriter, r *http.Request, rel string) bo
 		w.WriteHeader(http.StatusServiceUnavailable)
 		return true
 	}
-	return st.packs[rel] && s.serve(w, r, "static/"+rel)
+	key, ok := st.packs[rel]
+	return ok && s.serve(w, r, key)
+}
+
+// getManifest opens the index file at its cherry/manifest/ key. While the migration has not moved it, the
+// legacy manifest/ key answers, and the fallback is logged once per file.
+// ponytail: legacy fallback; remove it with legacyManifestKey once migrate-manifests has run on the live bucket.
+func (s *Store) getManifest(file string) (*http.Response, error) {
+	resp, err := s.client.Get(context.Background(), ManifestKey(file))
+	if !errors.Is(err, ErrNotFound) {
+		return resp, err
+	}
+	if _, logged := s.legacyLogged.LoadOrStore(file, true); !logged {
+		log.Printf("cherry: %s is not at %s yet; reading the legacy key %s", file, ManifestKey(file), legacyManifestKey(file))
+	}
+	return s.client.Get(context.Background(), legacyManifestKey(file))
 }
 
 func (s *Store) fetchManifest(cat string) (*Manifest, error) {
-	resp, err := s.client.Get(context.Background(), "manifest/"+cat+".json")
+	resp, err := s.getManifest(cat + ".json")
 	if err != nil {
 		return nil, fmt.Errorf("manifest %s: %w", cat, err)
 	}

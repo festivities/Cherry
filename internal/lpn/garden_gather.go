@@ -4,6 +4,7 @@ import (
 	"log"
 	"math"
 	"math/rand/v2"
+	"slices"
 	"strconv"
 	"time"
 
@@ -28,17 +29,26 @@ type gardenSpot struct {
 	x, y     int    // host tile, game px through gardenPx
 }
 
-// gardenSpots is the one place that sets spot tiles and art. The client places its own copy of
-// the host item (f5) at the spot tile (PlacedInterior 0x1eddd74) and links to that copy, never to
-// a map object (spec 13), so spots sit on open ground near the spawn (30,39) with big map art;
-// each spot needs its OWN host item: the client tells spots apart by it (two RUGO00B0F spots both
-// began as ore). Cat tower = essence, moon fountain = ore. hostIdx (f2) has no effect.
+// gardenSpots is the one place that sets the essence and ore spot tiles and art, the same on every
+// map. The client places its own copy of the host item (f5) at the spot tile (PlacedInterior 0x1eddd74)
+// and links to that copy, never to a map object (spec 13), so spots sit on open ground near the spawn
+// (30,39) with big map art; each spot needs its OWN host item: the client tells spots apart by it (two
+// RUGO00B0F spots both began as ore). Cat tower = essence, moon fountain = ore. hostIdx (f2) has no effect.
 var gardenSpots = []gardenSpot{
 	{serial: 101, npcIndex: 0x302000B, kind: economy.GatherEssence, action: 41, host: "RUGO00B0F", hostIdx: 10, x: 27, y: 41},
 	{serial: 102, npcIndex: 0x302000C, kind: economy.GatherOre, action: 42, host: "RUGO00A3N", hostIdx: 0, x: 38, y: 42},
-	// The fish spot is never placed by the client (NaGardenInNpcFishAppearSpot::ParsingServerData
-	// 0x1eddab0): it links to the map's own teapot fountain, dword@0 131 at tile (33,57) (spec 16).
-	{serial: 103, npcIndex: 0x3020005, kind: economy.GatherFish, action: 40, host: "RUGO00B05", hostIdx: 131, x: 33, y: 57},
+}
+
+// gardenSpotsFor is the spots of the Garden on map stem: gardenSpots, then the fish spot (serial 103)
+// when gardens.json gives the map one. The client never places the fish spot (NaGardenInNpcFishAppearSpot
+// ParsingServerData 0x1eddab0): it links to a map object that already exists, the host the entry names
+// (spec 16), so a map without that object has no fish spot.
+func gardenSpotsFor(stem string) []gardenSpot {
+	spots := slices.Clone(gardenSpots)
+	if f, ok := economy.GardenFishSpot(stem); ok {
+		spots = append(spots, gardenSpot{serial: 103, npcIndex: 0x3020005, kind: economy.GatherFish, action: 40, host: f.Host, hostIdx: f.Idx, x: f.X, y: f.Y})
+	}
+	return spots
 }
 
 // gatherActionTimeout is GatheringInfo.action_timeout, the touch budget in seconds [?].
@@ -48,8 +58,8 @@ const gatherActionTimeout = 30
 // SbMsg 10989 popup (spec 3.9); its text per code is not decoded.
 const gatherRefused = 1
 
-func gardenSpotBySerial(serial uint64) (gardenSpot, bool) {
-	for _, s := range gardenSpots {
+func gardenSpotBySerial(stem string, serial uint64) (gardenSpot, bool) {
+	for _, s := range gardenSpotsFor(stem) {
 		if s.serial == serial {
 			return s, true
 		}
@@ -75,11 +85,11 @@ func gardenSpotNpc(s gardenSpot) []byte {
 	return npc
 }
 
-// gardenSpotList is MAP::NPCEnumList with one spot per gardenSpots entry. Room enter (f2) and relay
+// gardenSpotList is MAP::NPCEnumList with one entry per spot of map stem. Room enter (f2) and relay
 // start (f3) send the same list.
-func gardenSpotList() []byte {
+func gardenSpotList(stem string) []byte {
 	var list []byte
-	for _, s := range gardenSpots {
+	for _, s := range gardenSpotsFor(stem) {
 		list = pbLen(list, 1, pbLen(nil, 3, gardenSpotNpc(s)))
 	}
 	return list
@@ -112,7 +122,7 @@ func gardenGatherInfo(kind economy.GatherKind, lim economy.GatherLimit, now time
 // (f4) per gathering type, all with the viewer's limit in this Garden.
 func gardenGatherRelay(viewer, owner uint64, now time.Time) []byte {
 	lim := economy.GatherStatus(strconv.FormatUint(viewer, 10), strconv.FormatUint(owner, 10), now)
-	b := pbLen(nil, 3, gardenSpotList())
+	b := pbLen(nil, 3, gardenSpotList(economy.GardenMap(strconv.FormatUint(owner, 10))))
 	for _, kind := range []economy.GatherKind{economy.GatherFish, economy.GatherEssence, economy.GatherOre} {
 		b = pbLen(b, 4, gardenGatherInfo(kind, lim, now))
 	}
@@ -158,7 +168,7 @@ func gatherBegin(viewer, owner uint64, data []byte, g *gardenGather, now time.Ti
 	actionType, _ := protobufUintField(action, 1)
 	g.armed, g.touches, g.paid = false, 0, false
 	viewerAid, ownerAid := strconv.FormatUint(viewer, 10), strconv.FormatUint(owner, 10)
-	spot, known := gardenSpotBySerial(serial)
+	spot, known := gardenSpotBySerial(economy.GardenMap(ownerAid), serial)
 	if typ != 3 || !known || spot.action != actionType {
 		logger.Printf("GARDEN gather begin aid=%d owner=%d serial=%d result=%d", viewer, owner, serial, gatherRefused)
 		return []gardenMsg{{17, gatherEcho(pbVar(nil, 1, gatherRefused), action)}}

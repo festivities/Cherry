@@ -21,7 +21,6 @@ const (
 	observerMax        = 512
 	observerIdle       = time.Second
 	maxGatewayFrameLen = 1 << 20
-	gardenMapStem      = "2401290846"
 )
 
 func ListenObserver(addr string, logger *log.Logger) (net.Listener, error) {
@@ -102,7 +101,8 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 	gardenRelayStarted := false
 	var gardenLoginAid, gardenOwnerAid uint64
 	var gardenRoomTunnel [8]byte
-	gather := &gardenGather{} // this connection's touch state (garden_gather.go)
+	gather := &gardenGather{}       // this connection's touch state (garden_gather.go)
+	landscape := &gardenLandscape{} // this connection's editor preview (garden_landscape.go)
 	defer func() { gardenLeave(gardenLoginAid, logger) }()
 	var prefix [4]byte
 	for {
@@ -301,10 +301,11 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 					logger.Printf("OBS %s garden-room-enter remote=%s invalid owner aid", addr, remote)
 					continue
 				}
-				body := []byte{0x08, 0x81, 0x86, 0x0c, 0x22, byte(len(gardenMapStem))}
-				body = append(body, gardenMapStem...)
+				mapStem := economy.GardenMap(strconv.FormatUint(ownerAid, 10)) // the owner's map: visitors see it
+				body := []byte{0x08, 0x81, 0x86, 0x0c, 0x22, byte(len(mapStem))}
+				body = append(body, mapStem...)
 				body = binary.AppendUvarint(append(body, 0x28), ownerAid)
-				body = pbLen(body, 2, gardenSpotList()) // npc_info: the gathering spots (garden_gather.go)
+				body = pbLen(body, 2, gardenSpotList(mapStem)) // npc_info: the gathering spots of this map (garden_gather.go)
 				reply := make([]byte, 16+len(body))
 				binary.BigEndian.PutUint32(reply, uint32(12+len(body)))
 				reply[4], reply[5] = 'G', frame[1]
@@ -315,7 +316,7 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 					logger.Printf("OBS %s garden-room-enter remote=%s err=%v", addr, remote, err)
 					return
 				}
-				logger.Printf("OBS %s garden-room-enter remote=%s result=197377 map=%s", addr, remote, gardenMapStem)
+				logger.Printf("OBS %s garden-room-enter remote=%s result=197377 map=%s", addr, remote, mapStem)
 				gardenQuestVisit(gardenLoginAid, ownerAid)
 				gardenLeaveIfOtherOwner(gardenLoginAid, ownerAid, logger)
 				ClearRoomVisit(gardenLoginAid)
@@ -358,6 +359,12 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 			if agent == 10 && gardenQuestMsg(msgid) && gardenRelayStarted && length >= 12 && bytes.Equal(frame[2:10], gardenRoomTunnel[:]) {
 				if err := gardenQuestHandle(conn, frame, msgid, gardenLoginAid, logger); err != nil {
 					logger.Printf("OBS %s garden-quest remote=%s err=%v", addr, remote, err)
+					return
+				}
+			}
+			if agent == 10 && gardenLandscapeMsg(msgid) && gardenRelayStarted && length >= 12 && bytes.Equal(frame[2:10], gardenRoomTunnel[:]) {
+				if err := gardenLandscapeHandle(conn, frame, msgid, gardenLoginAid, gardenOwnerAid, landscape, logger); err != nil {
+					logger.Printf("OBS %s garden-landscape remote=%s err=%v", addr, remote, err)
 					return
 				}
 			}

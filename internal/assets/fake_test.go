@@ -59,6 +59,13 @@ func (f *fakeR2) getCount(key string) int {
 	return f.gets[key]
 }
 
+func (f *fakeR2) has(key string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	_, ok := f.objs[key]
+	return ok
+}
+
 func (f *fakeR2) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	if !strings.HasPrefix(r.Header.Get("Authorization"), "AWS4-HMAC-SHA256 Credential=AKTEST/") {
 		http.Error(w, "unsigned", http.StatusForbidden)
@@ -67,6 +74,13 @@ func (f *fakeR2) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	key, ok := strings.CutPrefix(r.URL.Path, "/cherry-assets/")
 	if !ok {
 		http.Error(w, "bad bucket", http.StatusBadRequest)
+		return
+	}
+	if r.Method == http.MethodDelete {
+		f.mu.Lock()
+		delete(f.objs, key)
+		f.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 	if r.Method == http.MethodPut {

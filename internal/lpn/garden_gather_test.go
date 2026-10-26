@@ -12,6 +12,12 @@ import (
 	"cherry/internal/testutil"
 )
 
+// fishMap has a fish spot in gardens.json; noFishMap is listed and has none.
+const (
+	fishMap   = "1908231803"
+	noFishMap = "1908231804"
+)
+
 // gatherTouch builds one touch request body: key#1 {type, serial} and, when action is nonzero,
 // interaction_info#2 {action_info#3 {action_type#1}}. Begin and do carry the key; end does not.
 func gatherTouch(typ, serial, action uint64, withKey bool) []byte {
@@ -46,7 +52,8 @@ func gatherGems(t *testing.T, aid string) (gems, smiles int64, bagStacks int) {
 // with the serial, the appearance (npc_index, interior_id, size, map_object_id), the tile in game px
 // and is_visible. Only the fish spot carries field 101.
 func TestGardenSpotNpcWireBytes(t *testing.T) {
-	for _, s := range gardenSpots {
+	spots := gardenSpotsFor(fishMap)
+	for _, s := range spots {
 		entry := pbFieldsOf(t, gardenSpotNpc(s))
 		px, py := gardenPx(s.x, s.y)
 		if entry.vars[1] != s.serial || entry.vars[6] != 1 {
@@ -76,14 +83,47 @@ func TestGardenSpotNpcWireBytes(t *testing.T) {
 	}
 
 	// Room enter (f2) and relay start (f3) both carry this list: one NPCEnum per spot.
-	list := pbFieldsOf(t, gardenSpotList())
-	if len(list.msgs[1]) != len(gardenSpots) {
-		t.Fatalf("npc list entries = %d, want %d", len(list.msgs[1]), len(gardenSpots))
+	list := pbFieldsOf(t, gardenSpotList(fishMap))
+	if len(list.msgs[1]) != len(spots) {
+		t.Fatalf("npc list entries = %d, want %d", len(list.msgs[1]), len(spots))
 	}
 	for i, enum := range list.msgs[1] {
-		if got := pbFieldsOf(t, enum).msgs[3]; len(got) != 1 || pbFieldsOf(t, got[0]).vars[1] != gardenSpots[i].serial {
-			t.Fatalf("entry %d is not spot %d", i, gardenSpots[i].serial)
+		if got := pbFieldsOf(t, enum).msgs[3]; len(got) != 1 || pbFieldsOf(t, got[0]).vars[1] != spots[i].serial {
+			t.Fatalf("entry %d is not spot %d", i, spots[i].serial)
 		}
+	}
+}
+
+// TestGardenSpotsPerMap: the fish spot (103) is on the maps gardens.json gives one, and only there.
+// Essence and ore (101, 102) are on every map. A map without a fish spot sends two entries, and a
+// begin on spot 103 there is refused.
+func TestGardenSpotsPerMap(t *testing.T) {
+	fish, ok := economy.GardenFishSpot(fishMap)
+	if !ok || fish.Host != "RUPL0018L" || fish.Idx != 21 || fish.X != 33 || fish.Y != 54 {
+		t.Fatalf("fish map %s spot = %+v, %v", fishMap, fish, ok)
+	}
+	if got := gardenSpotsFor(fishMap); len(got) != 3 || got[2].serial != 103 || got[2].host != "RUPL0018L" || got[2].hostIdx != 21 {
+		t.Fatalf("fish map spots = %+v", got)
+	}
+	if got := gardenSpotsFor(noFishMap); len(got) != 2 || got[0].serial != 101 || got[1].serial != 102 {
+		t.Fatalf("no-fish map spots = %+v, want essence and ore only", got)
+	}
+	if _, ok := gardenSpotBySerial(noFishMap, 103); ok {
+		t.Fatal("spot 103 found on a map without a fish spot")
+	}
+	if _, ok := gardenSpotBySerial(fishMap, 103); !ok {
+		t.Fatal("spot 103 missing on the fish map")
+	}
+	if got := pbFieldsOf(t, gardenSpotList(noFishMap)); len(got.msgs[1]) != 2 {
+		t.Fatalf("no-fish map npc list = %d entries, want 2", len(got.msgs[1]))
+	}
+
+	// The owner's Garden shows noFishMap, so a fish begin there is refused (result 1, no reward).
+	testutil.InstallAccounts(t, map[string]*store.Account{"gl-9931": {AccessToken: "gl-9931", SessionKey: "sk", Aid: "9931", GardenMap: noFishMap}})
+	g := &gardenGather{}
+	begin := pbFieldsOf(t, gardenGatherReply(12, 9931, 9931, gatherTouch(3, 103, 40, true), g, time.Now(), quietLogger())[0].body)
+	if begin.vars[1] != gatherRefused || g.armed {
+		t.Fatalf("fish begin on %s = %v armed %v, want refused", noFishMap, begin.vars, g.armed)
 	}
 }
 
@@ -93,7 +133,7 @@ func TestGardenSpotTableShape(t *testing.T) {
 	seen := map[uint64]bool{}
 	tiles := map[[2]int]bool{{30, 39}: true, {34, 36}: true}
 	wantAction := map[economy.GatherKind]uint64{economy.GatherFish: 40, economy.GatherEssence: 41, economy.GatherOre: 42}
-	for _, s := range gardenSpots {
+	for _, s := range gardenSpotsFor(fishMap) {
 		if s.serial == 0 || seen[s.serial] || s.action != wantAction[s.kind] || s.host == "" {
 			t.Fatalf("spot %+v breaks the table rules", s)
 		}
@@ -360,7 +400,7 @@ func TestGardenRelayGatherFields(t *testing.T) {
 	gatherAccount(t, "9926", &store.GatherDay{Day: economy.AttendDayKey(time.Date(2026, time.October, 11, 12, 0, 0, 0, time.UTC)), Own: 3})
 	now := time.Date(2026, time.October, 11, 12, 0, 0, 0, time.UTC)
 	fields := pbFieldsOf(t, gardenGatherRelay(9926, 9926, now))
-	if len(fields.msgs[3]) != 1 || len(pbFieldsOf(t, fields.msgs[3][0]).msgs[1]) != len(gardenSpots) {
+	if len(fields.msgs[3]) != 1 || len(pbFieldsOf(t, fields.msgs[3][0]).msgs[1]) != len(gardenSpotsFor(economy.DefaultGardenMap())) {
 		t.Fatalf("npc_info = %v", fields.msgs)
 	}
 	if len(fields.msgs[4]) != 3 {

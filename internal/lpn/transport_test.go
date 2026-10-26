@@ -9,6 +9,8 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"cherry/internal/economy"
 )
 
 const (
@@ -364,7 +366,7 @@ func TestGatewayObserverBannerHello(t *testing.T) {
 	wantRoomPrefix = append(wantRoomPrefix, 'G', 0x48)
 	wantRoomPrefix = append(wantRoomPrefix, gardenOpen[6:14]...)
 	wantRoomPrefix = append(wantRoomPrefix, 0, 1, 0x08, 0x81, 0x86, 0x0c, 0x22, 0x0a)
-	wantRoomPrefix = append(wantRoomPrefix, gardenMapStem...)
+	wantRoomPrefix = append(wantRoomPrefix, economy.DefaultGardenMap()...)
 	wantRoomPrefix = append(wantRoomPrefix, 0x28, 42)
 	roomBody := roomReply[16:]
 	if !bytes.Equal(roomReply[4:16], wantRoomPrefix[4:16]) || len(roomBody) < len(wantRoomPrefix)-16 ||
@@ -439,7 +441,7 @@ func TestGatewayObserverBannerHello(t *testing.T) {
 		!bytes.Contains(output.Bytes(), []byte("OBS :10000 hello ")) ||
 		!bytes.Contains(output.Bytes(), []byte("packetId=66")) ||
 		!bytes.Contains(output.Bytes(), []byte("OBS :10000 garden-login remote=pipe result=197121")) ||
-		!bytes.Contains(output.Bytes(), []byte("OBS :10000 garden-room-enter remote=pipe result=197377 map="+gardenMapStem)) ||
+		!bytes.Contains(output.Bytes(), []byte("OBS :10000 garden-room-enter remote=pipe result=197377 map="+economy.DefaultGardenMap())) ||
 		!bytes.Contains(output.Bytes(), []byte("OBS :10000 garden-relay-start remote=pipe result=0")) ||
 		!bytes.Contains(output.Bytes(), []byte("garden-quest list aid=")) ||
 		!bytes.Contains(output.Bytes(), []byte("garden-room-enter remote=pipe invalid owner aid")) ||

@@ -47,7 +47,7 @@ func fixture(t *testing.T, f *fakeR2) map[string][]Entry {
 		if err != nil {
 			t.Fatal(err)
 		}
-		f.put("manifest/"+cat+".json", b)
+		f.put("cherry/manifest/"+cat+".json", b)
 	}
 	return out
 }
@@ -223,7 +223,7 @@ func TestManifestUnavailableAnswers503(t *testing.T) {
 	f := newFakeR2(t)
 	fixture(t, f)
 	f.mu.Lock()
-	f.code["manifest/sound.json"] = http.StatusInternalServerError
+	f.code["cherry/manifest/sound.json"] = http.StatusInternalServerError
 	f.mu.Unlock()
 	s, _ := webStore(t, f)
 	rec := httptest.NewRecorder()

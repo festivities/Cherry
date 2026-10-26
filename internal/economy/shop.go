@@ -39,6 +39,7 @@ import (
 //	clothing_prices    {letters: Gems}: base price of clothing (CU and CA codes)
 //	interior_price     Gems for furniture; interior_prices {letters: Gems} overrides it per category
 //	pet_price          Gems for a pet; animated_pet_cash is the Cash price of an animated pet
+//	landscape_cash     Cash price of every Garden landscape (gardens.json, landscape.go)
 //	animated_percent   animated (RARE) clothing and furniture cost this percent of base, halves up
 //	sell_back_percent  an owned item pays back this percent of what it cost (0 to 100); a deal item
 //	                   counts what it was bought for
@@ -55,6 +56,7 @@ type Prices struct {
 	PetPrice        int64             `json:"pet_price"`
 	AnimatedPercent int64             `json:"animated_percent"`
 	AnimatedPetCash int64             `json:"animated_pet_cash"`
+	LandscapeCash   int64             `json:"landscape_cash"`
 	SellBackPercent int64             `json:"sell_back_percent"`
 	FaceTicketCost  int64             `json:"face_ticket_cost"`
 	DealPaidPercent int64             `json:"deal_paid_percent"`
@@ -88,7 +90,7 @@ func checkPrices(p *Prices) error {
 	for _, v := range []struct {
 		key string
 		val int64
-	}{{"interior_price", p.InteriorPrice}, {"pet_price", p.PetPrice}, {"animated_percent", p.AnimatedPercent}, {"animated_pet_cash", p.AnimatedPetCash}} {
+	}{{"interior_price", p.InteriorPrice}, {"pet_price", p.PetPrice}, {"animated_percent", p.AnimatedPercent}, {"animated_pet_cash", p.AnimatedPetCash}, {"landscape_cash", p.LandscapeCash}} {
 		if v.val < 0 {
 			return fmt.Errorf("%s must not be negative", v.key)
 		}
@@ -146,6 +148,7 @@ const (
 	kindFashion  = 'F'
 	kindInterior = 'I'
 	kindPet      = 'P'
+	kindGarden   = 'G' // Garden landscapes (landscape.go): Cash, bought through purchase/interior/buy
 )
 
 // classify returns the Gem base price and shop kind of a code (kind 0 = not sellable:
@@ -169,19 +172,27 @@ func classify(code string) (base int64, kind byte) {
 		if code[2:4] == "PE" {
 			return p.PetPrice, kindPet
 		}
+	case "GU": // only the landscapes gardens.json lists are sold; any other GULS code is unsellable
+		if _, ok := listedLandscape(code); ok {
+			return p.LandscapeCash, kindGarden
+		}
 	}
 	return 0, 0
 }
 
 // ItemPrice is the one server price table (catalog, buy, inventory rows, recycle).
 // Animated items (an .aniproj in the item dir) are premium: grade "R", animated_percent of the base
-// price for clothing and furniture, animated_pet_cash for pets. Unsellable codes return ok=false, price 0.
+// price for clothing and furniture, animated_pet_cash for pets. Landscapes cost landscape_cash Cash.
+// Unsellable codes return ok=false, price 0.
 // Items without art keep their price here so that owned ones still sell back; the catalog
 // (scanCatalog) is what keeps them out of shops, gacha, mail and season rewards.
 func ItemPrice(code string) (price int64, cash bool, grade string, ok bool) {
 	base, kind := classify(code)
 	if kind == 0 {
 		return 0, false, "N", false
+	}
+	if kind == kindGarden {
+		return base, true, "N", true
 	}
 	if loadCatalog().animated[code] {
 		if kind == kindPet {
@@ -204,6 +215,7 @@ type shopItem struct {
 type shopCatalog struct {
 	root                   string
 	fashion, interior, pet []shopItem           // sellable: art, so listed, pooled and granted
+	landscape              []shopItem           // Garden landscapes gardens.json lists (no archive folder; landscape.go)
 	byCode                 map[string]*shopItem // the same items by code
 	animated               map[string]bool      // every priced code, art or not (ItemPrice; sell-back needs it)
 }
@@ -245,6 +257,10 @@ func itemCodeFromID(n int64) (string, bool) {
 	case 3:
 		if cat == 64 {
 			letters = "PE"
+		}
+	case 4:
+		if cat == 84 {
+			letters = "LS" // Garden landscapes (landscape.go)
 		}
 	}
 	if letters == "" {
@@ -330,7 +346,8 @@ func scanCatalog(root string) *shopCatalog {
 			}
 		}
 	}
-	for _, list := range []*[]shopItem{&c.fashion, &c.interior, &c.pet} {
+	c.landscape = landscapeCatalog()
+	for _, list := range []*[]shopItem{&c.fashion, &c.interior, &c.pet, &c.landscape} {
 		sort.Slice(*list, func(i, j int) bool { return (*list)[i].Code < (*list)[j].Code })
 		for i := range *list {
 			c.byCode[(*list)[i].Code] = &(*list)[i]
@@ -396,9 +413,9 @@ func fashionSlots(cat string) (prefix string, slots []string) {
 	return "", nil // PTRN: animal category 57/58 letters are unverified
 }
 
-// requesterOwned returns the requester's room item codes and pet codes (empty if unknown).
-func requesterOwned(r *http.Request) (rooms, pets map[string]bool) {
-	rooms, pets = map[string]bool{}, map[string]bool{}
+// requesterOwned returns the requester's room item codes, pet codes and landscape codes (empty if unknown).
+func requesterOwned(r *http.Request) (rooms, pets, landscapes map[string]bool) {
+	rooms, pets, landscapes = map[string]bool{}, map[string]bool{}, map[string]bool{}
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
 	if acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]; acc != nil {
@@ -407,6 +424,9 @@ func requesterOwned(r *http.Request) (rooms, pets map[string]bool) {
 		}
 		for _, p := range acc.Pets {
 			pets[p.Cd] = true
+		}
+		for _, l := range ownedLandscapesLocked(acc) {
+			landscapes[l.Code] = true
 		}
 	}
 	return
@@ -434,7 +454,17 @@ func handleShopList(kind byte) http.HandlerFunc {
 				}
 			}
 		case kindInterior:
-			owned, _ := requesterOwned(r)
+			owned, _, landscapes := requesterOwned(r)
+			if cat == "URCMD" { // the stock client has no Garden tab: landscapes lead the default tab
+				for _, it := range c.landscape {
+					// The Interior Shop ignores soldout/purchased (furniture can be bought twice), so an owned
+					// landscape is left out; the editor lists it, and a stale buy is refused with 61009.
+					if landscapes[it.Code] || !onSale(it.Code, now) {
+						continue
+					}
+					rows = append(rows, interiorRow(it, false, deals, now))
+				}
+			}
 			for _, it := range c.interior {
 				if cat == "URCMD" && !slices.Contains(room.RoomShowcaseCodes, it.Code) || cat != "URCMD" && room.RoomCategoryCode(it.Code) != cat || !onSale(it.Code, now) {
 					continue
@@ -442,7 +472,7 @@ func handleShopList(kind byte) http.HandlerFunc {
 				rows = append(rows, interiorRow(it, owned[it.Code], deals, now))
 			}
 		default:
-			_, owned := requesterOwned(r)
+			_, owned, _ := requesterOwned(r)
 			for _, it := range c.pet {
 				// The client has three tabs (button ids 101/1/46 select UDOGINT/UCATINT/URIDEINT,
 				// @0x1cf5690); UPETINT is only reachable by a link argument and lists everything.
@@ -549,8 +579,8 @@ func handleShopBuy(kind byte) http.HandlerFunc {
 			return
 		}
 		kind := kind
-		if _, k := classify(firstCode(req)); kind == kindInterior && k == kindPet {
-			kind = kindPet // the stock pet shop buys through purchase/interior/buy (runtime 2026-10-07)
+		if _, k := classify(firstCode(req)); kind == kindInterior && (k == kindPet || k == kindGarden) {
+			kind = k // the stock pet shop (runtime 2026-10-07) and the landscapes buy through purchase/interior/buy
 		}
 		give := strings.Trim(strings.TrimSpace(string(req.GiveNo)), `"`)
 		if len(req.Items) == 0 || len(req.Items) > maxShopBatch || kind == kindPet && give != "" && give != "null" && give != "0" {
@@ -592,6 +622,8 @@ func handleShopBuy(kind byte) http.HandlerFunc {
 			noMoney, label = errNoGemsFas, "dress"
 		case kindPet:
 			label = "pet"
+		case kindGarden:
+			label = "landscape"
 		}
 
 		store.AccountsMu.Lock()
@@ -628,6 +660,13 @@ func handleShopBuy(kind byte) http.HandlerFunc {
 					return
 				}
 			}
+		case kindGarden:
+			for i, code := range codes {
+				if itemOwnedLocked(acc, code) || slices.Contains(codes[:i], code) {
+					shopError(w, r, raw, errOwned, "already owned")
+					return
+				}
+			}
 		}
 		deltas := store.LedgerDeltas{Gems: -total}
 		if cash {
@@ -653,7 +692,9 @@ func handleShopBuy(kind byte) http.HandlerFunc {
 				seq++
 			}
 			acc.RoomItems, acc.NextRoomSeq = items, seq
-		default:
+		case kindGarden:
+			acc.Landscapes = append(slices.Clone(acc.Landscapes), codes...)
+		case kindPet:
 			for _, code := range codes {
 				acc.Pets = append(slices.Clone(acc.Pets), room.NewPetLocked(acc, code))
 			}
@@ -870,6 +911,9 @@ func registerShopRoutes(mux *http.ServeMux) {
 func ItemName(code string) string {
 	if len(code) != 9 {
 		return "Item"
+	}
+	if l, ok := listedLandscape(code); ok {
+		return l.Name
 	}
 	label := "Item"
 	switch code[:2] {

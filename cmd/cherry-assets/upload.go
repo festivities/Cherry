@@ -8,9 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -21,9 +23,10 @@ import (
 )
 
 // runUpload stores every object that is missing or different in R2 (HEAD, then PUT), then writes the
-// manifests and the D1 mirror. The manifests are written only when every object is in place, so Cherry
-// never lists a file R2 does not have. packsOnly skips the bulk manifests and the D1 mirror (objs must then
-// be the map packs only, since the bulk manifests list every bulk object given).
+// indexes and the D1 mirror. The indexes are written only when every object is in place, so Cherry never
+// lists a file R2 does not have. packsOnly skips the bulk indexes and the D1 mirror (objs must then be the map
+// packs only, since the bulk indexes list every bulk object given). Generated objects get their D1 rows in
+// either mode.
 func runUpload(ctx context.Context, objs []*object, concurrency int, forceD1, packsOnly bool) error {
 	cfg, err := loadR2()
 	if err != nil {
@@ -33,6 +36,7 @@ func runUpload(ctx context.Context, objs []*object, concurrency int, forceD1, pa
 	if err != nil {
 		return err
 	}
+	d1 := &d1Client{creds: creds, api: d1API, hc: &http.Client{Timeout: 60 * time.Second}}
 	logPath := filepath.Join(os.TempDir(), "cherry-assets-"+time.Now().Format("20060102-150405")+".log")
 	lf, err := os.Create(logPath)
 	if err != nil {
@@ -89,11 +93,13 @@ func runUpload(ctx context.Context, objs []*object, concurrency int, forceD1, pa
 		logger.Printf("manifests written: %d categories", len(manifests))
 		fmt.Printf("manifests: %d categories written to R2\n", len(manifests))
 
-		d1 := &d1Client{creds: creds, hc: &http.Client{Timeout: 60 * time.Second}}
 		if err := syncD1(ctx, d1, manifests, r.putCats(), forceD1, logger); err != nil {
 			return fmt.Errorf("d1: %w", err)
 		}
 		fmt.Println("d1: manifest mirror current")
+	}
+	if err := syncGenerated(ctx, d1, objs, time.Now(), logger); err != nil {
+		return fmt.Errorf("d1 generated: %w", err)
 	}
 	return writePacks(ctx, r.client, objs)
 }
@@ -219,7 +225,7 @@ func retry(ctx context.Context, fn func() error) error {
 	return err
 }
 
-// writeManifests builds manifest/<cat>.json for each bulk category from the uploaded objects' MD5s and
+// writeManifests builds cherry/manifest/<cat>.json for each bulk category from the uploaded objects' MD5s and
 // PUTs it. It returns the entries per category (sorted by path), for the D1 mirror.
 func writeManifests(ctx context.Context, client *assets.Client, objs []*object) (map[string][]assets.Entry, error) {
 	byCat := map[string][]assets.Entry{}
@@ -237,7 +243,7 @@ func writeManifests(ctx context.Context, client *assets.Client, objs []*object) 
 		if err != nil {
 			return nil, err
 		}
-		if err := retry(ctx, func() error { return client.Put(ctx, "manifest/"+cat+".json", body, "application/json") }); err != nil {
+		if err := retry(ctx, func() error { return client.Put(ctx, assets.ManifestKey(cat+".json"), body, "application/json") }); err != nil {
 			return nil, fmt.Errorf("manifest %s: %w", cat, err)
 		}
 		fmt.Printf("manifest %-9s %5d entries, version %d\n", cat, len(entries), m.Version)
@@ -245,14 +251,19 @@ func writeManifests(ctx context.Context, client *assets.Client, objs []*object) 
 	return byCat, nil
 }
 
-// writePacks writes manifest/packs.json from the uploaded map packs, sorted by directory and name. The packs
-// are not mirrored to D1.
+// writePacks writes cherry/manifest/packs.json from the uploaded map packs, sorted by directory and name, each with
+// its origin (generated packs are cherry, the rest original). The packs are not mirrored to D1.
 func writePacks(ctx context.Context, client *assets.Client, objs []*object) error {
 	var entries []assets.PackEntry
 	for _, o := range objs {
-		if o.pack != "" {
-			entries = append(entries, assets.PackEntry{Dir: o.pack, Name: o.rel, Size: o.size, MD5: o.md5})
+		if o.pack == "" {
+			continue
 		}
+		origin := assets.OriginOriginal
+		if o.generated {
+			origin = assets.OriginCherry
+		}
+		entries = append(entries, assets.PackEntry{Dir: o.pack, Name: o.rel, Size: o.size, MD5: o.md5, Origin: origin})
 	}
 	sort.Slice(entries, func(i, j int) bool {
 		return entries[i].Dir+"/"+entries[i].Name < entries[j].Dir+"/"+entries[j].Name
@@ -261,14 +272,15 @@ func writePacks(ctx context.Context, client *assets.Client, objs []*object) erro
 	if err != nil {
 		return err
 	}
-	if err := retry(ctx, func() error { return client.Put(ctx, "manifest/packs.json", body, "application/json") }); err != nil {
+	if err := retry(ctx, func() error { return client.Put(ctx, assets.ManifestKey("packs.json"), body, "application/json") }); err != nil {
 		return fmt.Errorf("manifest packs: %w", err)
 	}
 	fmt.Printf("manifest packs: %d entries written\n", len(entries))
 	return nil
 }
 
-// runVerify lists the static/ and manifest/ prefixes and compares them with the plan.
+// runVerify lists static/, cherry/ and the legacy manifest/ keys and compares them with the plan. Any legacy
+// key fails the check: migrate-manifests has not run.
 func runVerify(ctx context.Context, objs []*object) error {
 	cfg, err := loadR2()
 	if err != nil {
@@ -278,7 +290,8 @@ func runVerify(ctx context.Context, objs []*object) error {
 	want := summarize(objs)
 	got := map[string]int{}
 	gotBytes := map[string]int64{}
-	for _, prefix := range []string{"static/", "manifest/"} {
+	var indexes, legacy int
+	for _, prefix := range []string{"static/", assets.CherryPrefix, "manifest/"} {
 		token := ""
 		for {
 			page, next, err := client.ListPage(ctx, prefix, token)
@@ -286,22 +299,15 @@ func runVerify(ctx context.Context, objs []*object) error {
 				return err
 			}
 			for _, o := range page {
-				group := "manifest"
-				if prefix == "static/" {
-					parts := strings.Split(o.Key, "/")
-					switch parts[1] {
-					case "item":
-						group = "item:" + parts[2]
-					case "garden", "world":
-						group = "pack:" + parts[1]
-					case "chatting":
-						group = "chat:action"
-					default:
-						group = "bulk:" + parts[1]
-					}
+				switch group := verifyGroup(o.Key); group {
+				case "manifest":
+					indexes++
+				case "legacy":
+					legacy++
+				default:
+					got[group]++
+					gotBytes[group] += o.Size
 				}
-				got[group]++
-				gotBytes[group] += o.Size
 			}
 			if next == "" {
 				break
@@ -309,20 +315,54 @@ func runVerify(ctx context.Context, objs []*object) error {
 			token = next
 		}
 	}
-	bad := 0
+	groups := map[string]bool{}
 	for g := range want.count {
+		groups[g] = true
+	}
+	for g := range got {
+		groups[g] = true
+	}
+	bad := 0
+	for _, g := range slices.Sorted(maps.Keys(groups)) {
 		if got[g] != want.count[g] || gotBytes[g] != want.bytes[g] {
 			bad++
 		}
 		fmt.Printf("%-16s plan %8d / %14d   bucket %8d / %14d\n", g, want.count[g], want.bytes[g], got[g], gotBytes[g])
 	}
-	fmt.Printf("%-16s bucket %d objects\n", "manifest", got["manifest"])
-	if got["manifest"] != len(assets.Categories)+1 { // the categories and manifest/packs.json
+	if indexes != len(assets.ManifestFiles()) { // one index per category and the pack index
 		bad++
+	}
+	fmt.Printf("%-16s bucket %d objects, want %d\n", "indexes", indexes, len(assets.ManifestFiles()))
+	if legacy > 0 {
+		bad++
+		fmt.Printf("%-16s bucket %d objects: run migrate-manifests\n", "legacy manifest/", legacy)
 	}
 	if bad > 0 {
 		return fmt.Errorf("%d groups differ from the plan", bad)
 	}
 	fmt.Println("verify: bucket matches the plan")
 	return nil
+}
+
+// verifyGroup names a bucket key for verify: the plan's groups, "generated" for other cherry/ objects,
+// "manifest" for the cherry/manifest/ indexes and "legacy" for the manifest/ keys migrate-manifests moves.
+func verifyGroup(key string) string {
+	switch {
+	case strings.HasPrefix(key, "manifest/"):
+		return "legacy"
+	case strings.HasPrefix(key, assets.ManifestPrefix):
+		return "manifest"
+	case strings.HasPrefix(key, assets.CherryPrefix):
+		return "generated"
+	}
+	parts := strings.Split(key, "/")
+	switch {
+	case len(parts) > 2 && parts[1] == "item":
+		return "item:" + parts[2]
+	case len(parts) > 2 && parts[1] == "chatting":
+		return "chat:action"
+	case len(parts) > 1 && (parts[1] == "garden" || parts[1] == "world"):
+		return "pack:" + parts[1]
+	}
+	return "bulk:" + parts[1]
 }

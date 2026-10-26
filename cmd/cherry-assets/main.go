@@ -1,10 +1,16 @@
 // Command cherry-assets uploads Cherry's game-asset dataset to the R2 bucket that streaming serves
 // (internal/assets). It only reads the dataset; the dataset is never written.
 //
-//	cherry-assets plan     counts and bytes per category and item kind (no network)
-//	cherry-assets upload   upload what is missing (HEAD, then PUT), then the manifests and the D1 mirror
-//	cherry-assets upload -packs-only   upload only the map packs and manifest/packs.json (no bulk manifests, no D1)
-//	cherry-assets verify   list the bucket and compare it with the plan
+// The bucket's key layout is an invariant: static/ holds only the original files, read from the archive roots
+// below, and every object Cherry makes lives under cherry/ (its indexes in cherry/manifest/, generated packs in
+// cherry/garden/). The planner refuses anything else (checkOrigins), so an original can never be replaced by a
+// generated file.
+//
+//	cherry-assets plan                 counts and bytes per category and item kind (no network)
+//	cherry-assets upload               upload what is missing (HEAD, then PUT), then the indexes and the D1 mirror
+//	cherry-assets upload -packs-only   upload only the map packs and cherry/manifest/packs.json (no bulk indexes, no D1 mirror)
+//	cherry-assets verify               list the bucket and compare it with the plan; fails while legacy manifest/ keys remain
+//	cherry-assets migrate-manifests    one-time: copy manifest/ to cherry/manifest/, then delete the legacy keys (no dataset)
 //
 // Credentials come from %LOCALAPPDATA%\Cherry\cloudflare.json and are never printed or logged. Logs go to
 // %TEMP% (keys and sizes only).
@@ -20,6 +26,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"cherry/internal/assets"
@@ -52,20 +59,25 @@ var bulkSources = []bulkSource{
 	{cat: "tx", dir: "stringtable", only: []string{"arts_strings.ast"}},
 }
 
-// object is one R2 object to upload. Bulk objects also feed their category's manifest.
+// object is one R2 object to upload. Bulk objects also feed their category's index.
 type object struct {
-	key  string // static/<cat>/<rel>, static/item/<kind>/<id>/<rel>, static/<dir>/<name> (map pack) or static/chatting/action_hd/<name>
+	key  string // static/<cat>/<rel>, static/item/<kind>/<id>/<rel>, static/<dir>/<name> (map pack), static/chatting/action_hd/<name>, or cherry/... when generated
 	path string // local file
 	size int64
 	cat  string // bulk category; "" for item and pack files
 	pack string // map pack directory (garden or world); "" otherwise
 	rel  string // path within the category or pack directory (bulk and packs only)
 	md5  string // uppercase hex, set when the file is read by upload
+	// generated marks a Cherry-made object: its key is under cherry/, its path is not an archive file, and recipe
+	// names the generator and its sources (the D1 table generated). No generator exists yet.
+	generated bool
+	recipe    string
 }
 
 // buildObjects lists every object the server streams, sorted by key. roots are dataset folders in priority order.
-// The bulk categories come from roots[0] alone, so the manifests describe that dataset. Items and map packs of a
+// The bulk categories come from roots[0] alone, so the indexes describe that dataset. Items and map packs of a
 // later root are added only where no earlier root has the same key; a duplicate within one root is an error.
+// The result is checked by checkOrigins before anything is uploaded.
 func buildObjects(roots []string) ([]*object, error) {
 	var objs []*object
 	have := map[string]bool{}
@@ -86,7 +98,72 @@ func buildObjects(roots []string) ([]*object, error) {
 		}
 	}
 	sort.Slice(objs, func(i, j int) bool { return objs[i].key < objs[j].key })
+	if err := checkOrigins(objs, roots); err != nil {
+		return nil, err
+	}
 	return objs, nil
+}
+
+// checkOrigins enforces the key layout. An original (not generated) must have a static/ key and come from one of
+// roots. A generated object must have a recipe, must not read an archive file, and must sit under cherry/ where
+// its kind allows: a generated pack is cherry/garden/<name> (assets.GeneratedPackKey) and any other generated
+// object stays out of cherry/manifest/, which holds the indexes.
+func checkOrigins(objs []*object, roots []string) error {
+	for _, o := range objs {
+		if err := checkObject(o, roots); err != nil {
+			return fmt.Errorf("%s (%s): %w", o.key, o.path, err)
+		}
+	}
+	return nil
+}
+
+func checkObject(o *object, roots []string) error {
+	if !o.generated {
+		switch {
+		case !strings.HasPrefix(o.key, "static/"):
+			return errors.New("original outside static/")
+		case !underAny(o.path, roots):
+			return errors.New("original is not under an archive root")
+		case cherryItemKey(o.key):
+			return errors.New("Cherry-made item in a device backup is not an original")
+		}
+		return nil
+	}
+	switch {
+	case o.recipe == "":
+		return errors.New("generated object has no recipe")
+	case underAny(o.path, roots):
+		return errors.New("generated object reads an archive file")
+	case o.pack != "":
+		if o.pack != "garden" || o.key != assets.GeneratedPackKey(o.rel) {
+			return fmt.Errorf("generated pack must be %s", assets.GeneratedPackKey(o.rel))
+		}
+	case !strings.HasPrefix(o.key, assets.CherryPrefix) || strings.HasPrefix(o.key, assets.ManifestPrefix):
+		return fmt.Errorf("generated object must be under %s, outside %s", assets.CherryPrefix, assets.ManifestPrefix)
+	}
+	return nil
+}
+
+// cherryItemKey reports whether key is a static/item/<kind>/<id>/… file whose id is in Cherry's own block
+// (assets.IsCherryItem): a generated item a device downloaded from Cherry, never ground truth.
+func cherryItemKey(key string) bool {
+	parts := strings.SplitN(strings.TrimPrefix(key, "static/item/"), "/", 3)
+	if len(parts) < 3 || !strings.HasPrefix(key, "static/item/") {
+		return false
+	}
+	id, err := strconv.ParseInt(parts[1], 10, 64)
+	return err == nil && assets.IsCherryItem(id)
+}
+
+// underAny reports whether p is inside one of roots.
+func underAny(p string, roots []string) bool {
+	for _, r := range roots {
+		rel, err := filepath.Rel(r, p)
+		if err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 // listRoot lists the objects of one dataset root. first marks the upload source: only it has bulk categories and
@@ -236,7 +313,7 @@ func isDigits(s string) bool {
 	return true
 }
 
-// totals summarises the objects per group ("bulk:<cat>", "pack:<dir>", "chat:action", "item:<kind>").
+// totals summarises the objects per group ("bulk:<cat>", "pack:<dir>", "chat:action", "item:<kind>", "generated").
 type totals struct {
 	count map[string]int
 	bytes map[string]int64
@@ -245,14 +322,18 @@ type totals struct {
 func summarize(objs []*object) totals {
 	t := totals{count: map[string]int{}, bytes: map[string]int64{}}
 	for _, o := range objs {
-		group := "item:" + strings.Split(o.key, "/")[2]
+		var group string
 		switch {
+		case o.generated:
+			group = "generated"
 		case o.cat != "":
 			group = "bulk:" + o.cat
 		case o.pack != "":
 			group = "pack:" + o.pack
 		case strings.HasPrefix(o.key, "static/chatting/"):
 			group = "chat:action"
+		default:
+			group = "item:" + strings.Split(o.key, "/")[2]
 		}
 		t.count[group]++
 		t.bytes[group] += o.size
@@ -267,8 +348,8 @@ func printPlan(objs []*object) {
 		groups = append(groups, g)
 	}
 	sort.Strings(groups)
-	var bulkN, packN, chatN, itemN int
-	var bulkB, packB, chatB, itemB int64
+	var bulkN, packN, chatN, itemN, genN int
+	var bulkB, packB, chatB, itemB, genB int64
 	for _, g := range groups {
 		fmt.Printf("%-16s %8d objects %14d bytes\n", g, t.count[g], t.bytes[g])
 		switch {
@@ -281,6 +362,9 @@ func printPlan(objs []*object) {
 		case strings.HasPrefix(g, "chat:"):
 			chatN += t.count[g]
 			chatB += t.bytes[g]
+		case g == "generated":
+			genN += t.count[g]
+			genB += t.bytes[g]
 		default:
 			itemN += t.count[g]
 			itemB += t.bytes[g]
@@ -290,12 +374,13 @@ func printPlan(objs []*object) {
 	fmt.Printf("%-16s %8d objects %14d bytes\n", "pack total", packN, packB)
 	fmt.Printf("%-16s %8d objects %14d bytes\n", "chat total", chatN, chatB)
 	fmt.Printf("%-16s %8d objects %14d bytes\n", "item total", itemN, itemB)
-	fmt.Printf("%-16s %8d objects %14d bytes\n", "all", bulkN+packN+chatN+itemN, bulkB+packB+chatB+itemB)
+	fmt.Printf("%-16s %8d objects %14d bytes\n", "generated", genN, genB)
+	fmt.Printf("%-16s %8d objects %14d bytes\n", "all", bulkN+packN+chatN+itemN+genN, bulkB+packB+chatB+itemB+genB)
 }
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: cherry-assets plan|upload|verify [flags]")
+		fmt.Fprintln(os.Stderr, "usage: cherry-assets plan|upload|verify|migrate-manifests [flags]")
 		os.Exit(2)
 	}
 	cmd, args := os.Args[1], os.Args[2:]
@@ -303,9 +388,15 @@ func main() {
 	dataset := flags.String("dataset", defaultDataset, "first dataset files folder (read only; the bulk categories come from it)")
 	concurrency := flags.Int("concurrency", 8, "parallel R2 requests (upload)")
 	forceD1 := flags.Bool("force-d1", false, "rewrite the D1 manifest rows even when they look current (upload)")
-	packsOnly := flags.Bool("packs-only", false, "upload only the map packs and manifest/packs.json (upload)")
+	packsOnly := flags.Bool("packs-only", false, "upload only the map packs and cherry/manifest/packs.json (upload)")
 	_ = flags.Parse(args)
 
+	if cmd == "migrate-manifests" { // R2 only: it moves the existing indexes and never reads the dataset
+		if err := runMigrate(context.Background()); err != nil {
+			fail("migrate-manifests: %v", err)
+		}
+		return
+	}
 	objs, err := buildObjects([]string{*dataset, extraDataset})
 	if err != nil {
 		fail("dataset: %v", err)
@@ -332,6 +423,15 @@ func main() {
 func fail(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "cherry-assets: "+format+"\n", args...)
 	os.Exit(1)
+}
+
+// runMigrate moves the legacy manifest/ indexes to cherry/manifest/ (assets.MigrateManifests).
+func runMigrate(ctx context.Context) error {
+	cfg, err := loadR2()
+	if err != nil {
+		return err
+	}
+	return assets.MigrateManifests(ctx, assets.NewClient(cfg), func(msg string) { fmt.Println(msg) })
 }
 
 // credsPath is %LOCALAPPDATA%\Cherry\cloudflare.json.
