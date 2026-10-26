@@ -34,7 +34,10 @@ import (
 
 const setInitConfBody = `{"result":{"sessionServerInfo":"XPN:/p=XTCP;ip=session.play.naver.jp;port=10123","staticDomain":"https://play-static.line-scdn.net/","nationCode":"JP","isGdprNation":false,"snsLoginUIList":["LD_GUEST"],"snsSignUpUIList":["LD_GUEST"]}}`
 
-const checkResource2Body = `{"adr":{"10.1.0.0":"1"},"resource":{"1":{"animation":"531","he":"0","ch":"0","sound":"530","subui":"0","tx":"543","squareui":"0","ui":"540"}}}`
+// checkResource2Body is the checkresource2.json served when streaming is off. ch is the chat action icon version
+// (arts_chatting_<ch>/ and cache/action/<ch>_...), read raw by the client, not a patcher category: "00005" names
+// the santi icon files. Keep it a JSON string.
+const checkResource2Body = `{"adr":{"10.1.0.0":"1"},"resource":{"1":{"animation":"531","he":"0","ch":"00005","sound":"530","subui":"0","tx":"543","squareui":"0","ui":"540"}}}`
 
 const splashSkipBody = `{"result":{"update":false,"resourceID":-1,"resourceImageCount":0,"resourceImages":[]}}`
 

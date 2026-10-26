@@ -12,6 +12,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -24,7 +25,17 @@ import (
 	"cherry/internal/assets"
 )
 
+// defaultDataset is the santi backup, the first root: the bulk categories come from it alone.
 const defaultDataset = `D:\Dev\projects\Cherry\.opencode\line-play-artifacts\santi-backup-20260921\jp.naver.lineplay.android\files`
+
+// extraDataset is the lpbackup device backup. Only the items and map packs it has and santi lacks are added; its
+// bulk categories are never read.
+const extraDataset = `D:\Dev\projects\Cherry\.opencode\line-play-artifacts\lpbackup\jp.naver.lineplay.android\files`
+
+// chatActionPrefix is the version prefix of the chat action icons in the santi cache,
+// cache/action/00005_chatting_deco_action_<name>.png. The client reads them under checkresource2 ch 00005, and
+// Cherry serves them without the prefix.
+const chatActionPrefix = "00005_"
 
 // bulkSource maps a bulk category to its dataset folder. only, when set, limits the category to those
 // files (paths relative to dir); subui is the one plist of UIResource, tx the string table.
@@ -43,7 +54,7 @@ var bulkSources = []bulkSource{
 
 // object is one R2 object to upload. Bulk objects also feed their category's manifest.
 type object struct {
-	key  string // static/<cat>/<rel>, static/item/<kind>/<id>/<rel> or static/<dir>/<name> (map pack)
+	key  string // static/<cat>/<rel>, static/item/<kind>/<id>/<rel>, static/<dir>/<name> (map pack) or static/chatting/action_hd/<name>
 	path string // local file
 	size int64
 	cat  string // bulk category; "" for item and pack files
@@ -52,10 +63,42 @@ type object struct {
 	md5  string // uppercase hex, set when the file is read by upload
 }
 
-// buildObjects lists every object the server streams, sorted by key.
-func buildObjects(dataset string) ([]*object, error) {
+// buildObjects lists every object the server streams, sorted by key. roots are dataset folders in priority order.
+// The bulk categories come from roots[0] alone, so the manifests describe that dataset. Items and map packs of a
+// later root are added only where no earlier root has the same key; a duplicate within one root is an error.
+func buildObjects(roots []string) ([]*object, error) {
 	var objs []*object
-	for _, src := range bulkSources {
+	have := map[string]bool{}
+	for i, root := range roots {
+		got, err := listRoot(root, i == 0)
+		if err != nil {
+			return nil, err
+		}
+		sort.Slice(got, func(a, b int) bool { return got[a].key < got[b].key })
+		for j, o := range got {
+			if j > 0 && o.key == got[j-1].key {
+				return nil, fmt.Errorf("duplicate key %s", o.key)
+			}
+			if !have[o.key] {
+				have[o.key] = true
+				objs = append(objs, o)
+			}
+		}
+	}
+	sort.Slice(objs, func(i, j int) bool { return objs[i].key < objs[j].key })
+	return objs, nil
+}
+
+// listRoot lists the objects of one dataset root. first marks the upload source: only it has bulk categories and
+// chat icons, and it must have every folder. A later root without a folder (lpbackup has no world/) contributes
+// nothing for it.
+func listRoot(dataset string, first bool) ([]*object, error) {
+	var objs []*object
+	bulk := bulkSources
+	if !first {
+		bulk = nil
+	}
+	for _, src := range bulk {
 		root := filepath.Join(dataset, src.dir)
 		err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 			if err != nil {
@@ -85,6 +128,9 @@ func buildObjects(dataset string) ([]*object, error) {
 		root := filepath.Join(dataset, dir)
 		ents, err := os.ReadDir(root)
 		if err != nil {
+			if !first && errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
 			return nil, err
 		}
 		for _, ent := range ents {
@@ -101,10 +147,32 @@ func buildObjects(dataset string) ([]*object, error) {
 			objs = append(objs, &object{key: "static/" + dir + "/" + ent.Name(), path: filepath.Join(root, ent.Name()), size: info.Size(), pack: dir, rel: ent.Name()})
 		}
 	}
+	// Chat action icons come from the first root only and are not manifest entries (the client never lists them).
+	if first {
+		chatDir := filepath.Join(dataset, "cache", "action")
+		ents, err := os.ReadDir(chatDir)
+		if err != nil {
+			return nil, fmt.Errorf("cache/action: %w", err)
+		}
+		for _, ent := range ents {
+			name, ok := strings.CutPrefix(ent.Name(), chatActionPrefix)
+			if !ok || !assets.ChatActionFile(name) || !ent.Type().IsRegular() {
+				continue
+			}
+			info, err := ent.Info()
+			if err != nil {
+				return nil, err
+			}
+			objs = append(objs, &object{key: "static/chatting/action_hd/" + name, path: filepath.Join(chatDir, ent.Name()), size: info.Size()})
+		}
+	}
 	for _, kind := range assets.ItemKinds {
 		kindDir := filepath.Join(dataset, "item", kind)
 		ents, err := os.ReadDir(kindDir)
 		if err != nil {
+			if !first && errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
 			return nil, err
 		}
 		for _, ent := range ents {
@@ -132,12 +200,6 @@ func buildObjects(dataset string) ([]*object, error) {
 			if err != nil {
 				return nil, err
 			}
-		}
-	}
-	sort.Slice(objs, func(i, j int) bool { return objs[i].key < objs[j].key })
-	for i := 1; i < len(objs); i++ {
-		if objs[i].key == objs[i-1].key {
-			return nil, fmt.Errorf("duplicate key %s", objs[i].key)
 		}
 	}
 	return objs, nil
@@ -174,7 +236,7 @@ func isDigits(s string) bool {
 	return true
 }
 
-// totals summarises the objects per group ("bulk:<cat>", "pack:<dir>", "item:<kind>").
+// totals summarises the objects per group ("bulk:<cat>", "pack:<dir>", "chat:action", "item:<kind>").
 type totals struct {
 	count map[string]int
 	bytes map[string]int64
@@ -189,6 +251,8 @@ func summarize(objs []*object) totals {
 			group = "bulk:" + o.cat
 		case o.pack != "":
 			group = "pack:" + o.pack
+		case strings.HasPrefix(o.key, "static/chatting/"):
+			group = "chat:action"
 		}
 		t.count[group]++
 		t.bytes[group] += o.size
@@ -203,8 +267,8 @@ func printPlan(objs []*object) {
 		groups = append(groups, g)
 	}
 	sort.Strings(groups)
-	var bulkN, packN, itemN int
-	var bulkB, packB, itemB int64
+	var bulkN, packN, chatN, itemN int
+	var bulkB, packB, chatB, itemB int64
 	for _, g := range groups {
 		fmt.Printf("%-16s %8d objects %14d bytes\n", g, t.count[g], t.bytes[g])
 		switch {
@@ -214,6 +278,9 @@ func printPlan(objs []*object) {
 		case strings.HasPrefix(g, "pack:"):
 			packN += t.count[g]
 			packB += t.bytes[g]
+		case strings.HasPrefix(g, "chat:"):
+			chatN += t.count[g]
+			chatB += t.bytes[g]
 		default:
 			itemN += t.count[g]
 			itemB += t.bytes[g]
@@ -221,8 +288,9 @@ func printPlan(objs []*object) {
 	}
 	fmt.Printf("%-16s %8d objects %14d bytes\n", "bulk total", bulkN, bulkB)
 	fmt.Printf("%-16s %8d objects %14d bytes\n", "pack total", packN, packB)
+	fmt.Printf("%-16s %8d objects %14d bytes\n", "chat total", chatN, chatB)
 	fmt.Printf("%-16s %8d objects %14d bytes\n", "item total", itemN, itemB)
-	fmt.Printf("%-16s %8d objects %14d bytes\n", "all", bulkN+packN+itemN, bulkB+packB+itemB)
+	fmt.Printf("%-16s %8d objects %14d bytes\n", "all", bulkN+packN+chatN+itemN, bulkB+packB+chatB+itemB)
 }
 
 func main() {
@@ -232,13 +300,13 @@ func main() {
 	}
 	cmd, args := os.Args[1], os.Args[2:]
 	flags := flag.NewFlagSet(cmd, flag.ExitOnError)
-	dataset := flags.String("dataset", defaultDataset, "dataset files folder (read only)")
+	dataset := flags.String("dataset", defaultDataset, "first dataset files folder (read only; the bulk categories come from it)")
 	concurrency := flags.Int("concurrency", 8, "parallel R2 requests (upload)")
 	forceD1 := flags.Bool("force-d1", false, "rewrite the D1 manifest rows even when they look current (upload)")
 	packsOnly := flags.Bool("packs-only", false, "upload only the map packs and manifest/packs.json (upload)")
 	_ = flags.Parse(args)
 
-	objs, err := buildObjects(*dataset)
+	objs, err := buildObjects([]string{*dataset, extraDataset})
 	if err != nil {
 		fail("dataset: %v", err)
 	}

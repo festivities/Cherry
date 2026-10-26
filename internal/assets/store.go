@@ -107,7 +107,8 @@ func (s *Store) WriteCheckResource2(w http.ResponseWriter) {
 }
 
 // ServeRoute answers the streamed GETs: the update lists (/arts_<cat>_ini_<v>/update_<lang>.ini), the
-// files (/arts_<cat>_<lang>_<v>/<path>, /arts_item_<kind>_<id>/<file>, and the /img/read dp.png form) and the
+// files (/arts_<cat>_<lang>_<v>/<path>, /arts_item_<kind>_<id>/<file>, the chat action icons
+// /arts_chatting_<ch>/action_hd/<file>, and the /img/read dp.png form) and the
 // listed map packs (/<dir>/<name>, or /arts_animation_<lang>_<v>/../<dir>/<name>). It reports whether it wrote
 // the response. A file that R2 does not have returns false, so the caller's own handling (generated
 // thumbnails, the local string table, 404) still applies.
@@ -374,9 +375,18 @@ func animationDir(head string) bool {
 	return ok && slices.Contains(langs, lang) && isDigits(ver)
 }
 
+// ChatActionFile reports whether name is a chat action icon, chatting_deco_action_<name>.png, as one file name.
+// The route serves it and the uploader stores it under the same key.
+func ChatActionFile(name string) bool {
+	ok, _ := path.Match("chatting_deco_action_*.png", name)
+	return ok && safeRel(name)
+}
+
 // fileKey maps a streamed file route to its R2 key. /arts_<cat>_<lang>_<v>/<path> is static/<cat>/<path>;
-// /arts_item_<kind>_<id>/<file> is static/item/<kind>/<id>/<file>; the item loader also asks for every item
-// file under /img/read/ (device 2026-10-26: /img/read/arts_item_custom_<id>/1409_iteminfo.artsitem).
+// /arts_item_<kind>_<id>/<file> is static/item/<kind>/<id>/<file>; /arts_chatting_<ch>/action_hd/<file> is
+// static/chatting/action_hd/<file> whatever the ch digits (the client reads the icon version raw, and the
+// uploader stores them without it); the item loader also asks for every item file under /img/read/
+// (device 2026-10-26: /img/read/arts_item_custom_<id>/1409_iteminfo.artsitem).
 func fileKey(p string) (string, bool) {
 	if rest, ok := strings.CutPrefix(p, "/img/read"); ok {
 		if !strings.HasPrefix(rest, "/arts_item_") {
@@ -397,6 +407,17 @@ func fileKey(p string) (string, bool) {
 			file = id + ".aniproj"
 		}
 		return "static/item/" + kind + "/" + id + "/" + file, true
+	}
+	if rest, ok := strings.CutPrefix(p, "/arts_chatting_"); ok {
+		ver, tail, ok := strings.Cut(rest, "/")
+		if !ok || !isDigits(ver) {
+			return "", false
+		}
+		file, ok := strings.CutPrefix(tail, "action_hd/")
+		if !ok || !ChatActionFile(file) {
+			return "", false
+		}
+		return "static/chatting/action_hd/" + file, true
 	}
 	rest, ok := strings.CutPrefix(p, "/arts_")
 	if !ok {

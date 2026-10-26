@@ -154,10 +154,12 @@ func (m *Manifest) check(cat string) error {
 	return nil
 }
 
-// checkResource2Body is checkresource2.json: the version of each bulk category. he, ch and squareui are
-// never requested by the launcher flow and stay "0"; subui "0" would be a kill switch, so it is never 0 here.
+// checkResource2Body is checkresource2.json: the version of each bulk category. ch is the chat action icon version
+// (the client reads it raw: arts_chatting_<ch>/ and cache/action/<ch>_...), not a patcher category, so it is the
+// string "00005" that names the santi icon files and no list is requested for it. he and squareui are never
+// requested and stay "0"; subui "0" would be a kill switch, so it is never 0 here.
 func checkResource2Body(versions map[string]int) string {
-	return fmt.Sprintf(`{"adr":{"10.1.0.0":"1"},"resource":{"1":{"animation":"%d","he":"0","ch":"0","sound":"%d","subui":"%d","tx":"%d","squareui":"0","ui":"%d"}}}`,
+	return fmt.Sprintf(`{"adr":{"10.1.0.0":"1"},"resource":{"1":{"animation":"%d","he":"0","ch":"00005","sound":"%d","subui":"%d","tx":"%d","squareui":"0","ui":"%d"}}}`,
 		versions["animation"], versions["sound"], versions["subui"], versions["tx"], versions["ui"])
 }
 

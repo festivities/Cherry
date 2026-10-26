@@ -294,6 +294,8 @@ func runVerify(ctx context.Context, objs []*object) error {
 						group = "item:" + parts[2]
 					case "garden", "world":
 						group = "pack:" + parts[1]
+					case "chatting":
+						group = "chat:action"
 					default:
 						group = "bulk:" + parts[1]
 					}

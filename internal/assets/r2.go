@@ -4,9 +4,10 @@
 // copies live in %LOCALAPPDATA%\Cherry\static (see Store).
 //
 // Streaming is on only when streaming.json enables it AND %LOCALAPPDATA%\Cherry\cloudflare.json exists
-// (Open). The checkresource2 versions then come from the manifests, so the patcher lists every category
-// again. A device saved the empty "[]" lists Cherry served before (the lab devices), so its next patcher
-// run downloads the whole bulk set (about 360 MB) again. Fresh devices download it anyway.
+// (Open). The checkresource2 versions then come from the manifests, so the patcher fetches every category
+// list again and downloads each entry whose path + MD5 is not in its saved list. The lab devices still hold
+// the production lists of their backup (Cherry's old static versions matched them, so its "[]" lists were
+// never fetched), so they download only the differences (24 MB on 2026-10-26); fresh devices get it all.
 package assets
 
 import (

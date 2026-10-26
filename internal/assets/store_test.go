@@ -133,7 +133,7 @@ func TestCheckResource2Body(t *testing.T) {
 	}
 	r := got.Resource["1"]
 	if got.Adr["10.1.0.0"] != "1" || r["animation"] != "11" || r["sound"] != "22" || r["subui"] != "33" ||
-		r["tx"] != "44" || r["ui"] != "55" || r["he"] != "0" || r["ch"] != "0" || r["squareui"] != "0" {
+		r["tx"] != "44" || r["ui"] != "55" || r["he"] != "0" || r["ch"] != "00005" || r["squareui"] != "0" {
 		t.Fatalf("body = %s", body)
 	}
 }
@@ -155,13 +155,14 @@ func TestRouteParsing(t *testing.T) {
 		}
 	}
 	files := map[string]string{
-		"/arts_animation_tw_00531/world_icon/b.png":                   "static/animation/world_icon/b.png",
-		"/arts_tx_en_00543/arts_strings.ast":                          "static/tx/arts_strings.ast",
-		"/arts_item_custom_123/dp.png":                                "static/item/custom/123/dp.png",
-		"/img/read/arts_item_pet_326400389/dp.png":                    "static/item/pet/326400389/dp.png",
-		"/arts_item_dress_225409162/1409_iteminfo.artsitem":           "static/item/dress/225409162/1409_iteminfo.artsitem",
-		"/img/read/arts_item_custom_224400004/1409_iteminfo.artsitem": "static/item/custom/224400004/1409_iteminfo.artsitem",
-		"/arts_item_interior_122013091/lpitem.aniproj":                "static/item/interior/122013091/122013091.aniproj",
+		"/arts_animation_tw_00531/world_icon/b.png":                     "static/animation/world_icon/b.png",
+		"/arts_tx_en_00543/arts_strings.ast":                            "static/tx/arts_strings.ast",
+		"/arts_item_custom_123/dp.png":                                  "static/item/custom/123/dp.png",
+		"/img/read/arts_item_pet_326400389/dp.png":                      "static/item/pet/326400389/dp.png",
+		"/arts_item_dress_225409162/1409_iteminfo.artsitem":             "static/item/dress/225409162/1409_iteminfo.artsitem",
+		"/img/read/arts_item_custom_224400004/1409_iteminfo.artsitem":   "static/item/custom/224400004/1409_iteminfo.artsitem",
+		"/arts_item_interior_122013091/lpitem.aniproj":                  "static/item/interior/122013091/122013091.aniproj",
+		"/arts_chatting_00005/action_hd/chatting_deco_action_hello.png": "static/chatting/action_hd/chatting_deco_action_hello.png",
 	}
 	for p, key := range files {
 		if got, ok := fileKey(p); !ok || got != key {
@@ -176,6 +177,14 @@ func TestRouteParsing(t *testing.T) {
 		"/arts_item_custom_12a/dp.png",                // id not numeric
 		"/img/read/arts_tx_en_00543/arts_strings.ast", // /img/read carries item files only
 		"/arts_strings.ast",
+		"/arts_chatting_00005/action_normal/chatting_deco_action_hello.png", // only action_hd is streamed
+		"/arts_chatting_00005/action_hd/x.png",                              // not a chat action icon
+		"/arts_chatting_00005/action_hd/chatting_deco_action_hello.jpg",     // not a png
+		"/arts_chatting_00005/action_hd/../chatting_deco_action_hello.png",  // traversal
+		"/arts_chatting_00005/action_hd/chatting_deco_action_a/b.png",       // one file name only
+		"/arts_chatting_00005/action_hd/chatting_deco_action_..\\x.png",     // backslash
+		"/arts_chatting_abc/action_hd/chatting_deco_action_hello.png",       // version not digits
+		"/arts_chatting_00005/chatting_deco_action_hello.png",               // no action_hd folder
 	} {
 		if key, ok := fileKey(p); ok {
 			t.Errorf("fileKey(%s) accepted as %s", p, key)
@@ -231,6 +240,7 @@ func TestFileRouteReadThroughCache(t *testing.T) {
 	f := newFakeR2(t)
 	fixture(t, f)
 	f.put("static/item/custom/123/dp.png", []byte("thumb"))
+	f.put("static/chatting/action_hd/chatting_deco_action_hello.png", []byte("icon"))
 	s, dir := webStore(t, f)
 
 	rec, ok := get(t, s, "/arts_animation_tw_00531/a.png")
@@ -251,6 +261,20 @@ func TestFileRouteReadThroughCache(t *testing.T) {
 	}
 	if rec, ok := get(t, s, "/img/read/arts_item_custom_123/dp.png"); !ok || rec.Body.String() != "thumb" {
 		t.Fatalf("dp.png: handled=%v body=%q", ok, rec.Body.String())
+	}
+	if rec, ok := get(t, s, "/arts_chatting_00005/action_hd/chatting_deco_action_hello.png"); !ok || rec.Body.String() != "icon" {
+		t.Fatalf("chat icon: handled=%v body=%q", ok, rec.Body.String())
+	}
+	if b, err := os.ReadFile(filepath.Join(dir, "chatting", "action_hd", "chatting_deco_action_hello.png")); err != nil || string(b) != "icon" {
+		t.Fatalf("chat icon local copy: %q, %v", b, err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, ok := get(t, s, "/arts_chatting_00005/action_hd/chatting_deco_action_cry.png"); ok {
+			t.Fatal("absent chat icon answered")
+		}
+	}
+	if n := f.getCount("static/chatting/action_hd/chatting_deco_action_cry.png"); n != 1 {
+		t.Fatalf("R2 GETs for an absent chat icon = %d, want 1 (negative cache)", n)
 	}
 }
 

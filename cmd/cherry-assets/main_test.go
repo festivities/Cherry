@@ -41,8 +41,13 @@ func TestBuildObjectsMapsCategories(t *testing.T) {
 		"item/pet/326400389/texture.png",
 		"item/craftitem/garden01/x.png", // non-numeric folder: not served
 		"item/set/1/dp.png",             // kind not in ItemKinds
+		"cache/action/00005_chatting_deco_action_hello.png",
+		"cache/action/00001_chatting_deco_action_hello.png", // another version: not served
+		"cache/action/chatting_deco_action_hello.png",       // no version prefix: not served
+		"cache/action/00005_chatting_deco_action_hello.jpg", // not a png: not served
+		"cache/sticker/00005_hello.png",                     // another folder: not served
 	)
-	objs, err := buildObjects(root)
+	objs, err := buildObjects([]string{root})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,15 +56,16 @@ func TestBuildObjectsMapsCategories(t *testing.T) {
 		got[o.key] = o.cat + "|" + o.rel
 	}
 	want := map[string]string{
-		"static/animation/world_icon/b.png":       "animation|world_icon/b.png",
-		"static/sound/BGM.ogg":                    "sound|BGM.ogg",
-		"static/ui/MarbleChallengePopup.plist":    "ui|MarbleChallengePopup.plist",
-		"static/ui/UIImage_hd/c.png":              "ui|UIImage_hd/c.png",
-		"static/subui/MarbleChallengePopup.plist": "subui|MarbleChallengePopup.plist",
-		"static/tx/arts_strings.ast":              "tx|arts_strings.ast",
-		"static/item/custom/123/dp.png":           "|",
-		"static/item/custom/123/sub/part.png":     "|",
-		"static/item/pet/326400389/texture.png":   "|",
+		"static/animation/world_icon/b.png":                        "animation|world_icon/b.png",
+		"static/sound/BGM.ogg":                                     "sound|BGM.ogg",
+		"static/ui/MarbleChallengePopup.plist":                     "ui|MarbleChallengePopup.plist",
+		"static/ui/UIImage_hd/c.png":                               "ui|UIImage_hd/c.png",
+		"static/subui/MarbleChallengePopup.plist":                  "subui|MarbleChallengePopup.plist",
+		"static/tx/arts_strings.ast":                               "tx|arts_strings.ast",
+		"static/item/custom/123/dp.png":                            "|",
+		"static/item/custom/123/sub/part.png":                      "|",
+		"static/item/pet/326400389/texture.png":                    "|",
+		"static/chatting/action_hd/chatting_deco_action_hello.png": "|",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("objects = %d, want %d: %v", len(got), len(want), got)
@@ -77,6 +83,7 @@ func TestBuildObjectsMapsPacks(t *testing.T) {
 	files := []string{
 		"animation/a.png", "sound/BGM.ogg", "UIResource/MarbleChallengePopup.plist", "stringtable/arts_strings.ast",
 		"item/custom/README", "item/dress/README", "item/interior/README", "item/tile/README", "item/garden/README", "item/pet/README",
+		"cache/action/00005_chatting_deco_action_hello.png",
 		"garden/1908231803.mworldpack",
 		"garden/1908231803/iteminfo.artsitem",
 		"garden/notes.txt",
@@ -84,7 +91,7 @@ func TestBuildObjectsMapsPacks(t *testing.T) {
 		"world/icon/x.png",
 	}
 	root := writeTree(t, files...)
-	objs, err := buildObjects(root)
+	objs, err := buildObjects([]string{root})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,8 +111,71 @@ func TestBuildObjectsMapsPacks(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "garden", "notes.mworldpack"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := buildObjects(root); err == nil {
+	if _, err := buildObjects([]string{root}); err == nil {
 		t.Fatal("a non-numeric pack name was planned")
+	}
+}
+
+// Later roots add the items and map packs the first root lacks. A key the first root has keeps the first root's
+// file, the bulk files of a later root are ignored, and a folder the later root lacks (world/ here) is skipped.
+func TestBuildObjectsLaterRootsFillGaps(t *testing.T) {
+	first := writeTree(t,
+		"animation/a.png",
+		"sound/BGM.ogg",
+		"stringtable/arts_strings.ast",
+		"UIResource/UIImage_hd/c.png",
+		"garden/1908231803.mworldpack",
+		"world/2201202900.mworldpack",
+		"item/custom/123/dp.png",
+		"item/custom/123/part.png",
+		"item/dress/README",
+		"item/interior/README",
+		"item/tile/README",
+		"item/pet/README",
+		"item/garden/README",
+		"cache/action/00005_chatting_deco_action_hello.png",
+	)
+	second := writeTree(t,
+		"animation/a.png", // bulk: ignored
+		"animation/b.png", // bulk: ignored
+		"cache/action/00005_chatting_deco_action_yes.png", // chat icons: first root only
+		"garden/1908231803.mworldpack",                    // the first root has this key
+		"garden/1908261114.mworldpack",                    // added
+		"item/custom/123/dp.png",                          // the first root has this key
+		"item/custom/123/extra.png",                       // added to a shared id
+		"item/custom/224301832/dp.png",                    // added id
+		"item/dress/225103469/dp.png",                     // added id
+	)
+	objs, err := buildObjects([]string{first, second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"static/animation/a.png":                                   filepath.Join(first, "animation", "a.png"),
+		"static/sound/BGM.ogg":                                     filepath.Join(first, "sound", "BGM.ogg"),
+		"static/tx/arts_strings.ast":                               filepath.Join(first, "stringtable", "arts_strings.ast"),
+		"static/ui/UIImage_hd/c.png":                               filepath.Join(first, "UIResource", "UIImage_hd", "c.png"),
+		"static/garden/1908231803.mworldpack":                      filepath.Join(first, "garden", "1908231803.mworldpack"),
+		"static/world/2201202900.mworldpack":                       filepath.Join(first, "world", "2201202900.mworldpack"),
+		"static/item/custom/123/dp.png":                            filepath.Join(first, "item", "custom", "123", "dp.png"),
+		"static/item/custom/123/part.png":                          filepath.Join(first, "item", "custom", "123", "part.png"),
+		"static/chatting/action_hd/chatting_deco_action_hello.png": filepath.Join(first, "cache", "action", "00005_chatting_deco_action_hello.png"),
+		"static/garden/1908261114.mworldpack":                      filepath.Join(second, "garden", "1908261114.mworldpack"),
+		"static/item/custom/123/extra.png":                         filepath.Join(second, "item", "custom", "123", "extra.png"),
+		"static/item/custom/224301832/dp.png":                      filepath.Join(second, "item", "custom", "224301832", "dp.png"),
+		"static/item/dress/225103469/dp.png":                       filepath.Join(second, "item", "dress", "225103469", "dp.png"),
+	}
+	got := map[string]string{}
+	for _, o := range objs {
+		got[o.key] = o.path
+	}
+	if len(objs) != len(want) {
+		t.Fatalf("objects = %d, want %d: %v", len(objs), len(want), got)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("%s = %q, want %q", k, got[k], v)
+		}
 	}
 }
 
@@ -115,6 +185,7 @@ func TestSummarizeGroups(t *testing.T) {
 		{key: "static/item/custom/1/dp.png", size: 5},
 		{key: "static/item/custom/1/b.png", size: 7},
 		{key: "static/garden/1.mworldpack", pack: "garden", size: 3},
+		{key: "static/chatting/action_hd/chatting_deco_action_hello.png", size: 4},
 	}
 	tot := summarize(objs)
 	if tot.count["bulk:tx"] != 1 || tot.count["item:custom"] != 2 || tot.bytes["item:custom"] != 12 {
@@ -122,5 +193,8 @@ func TestSummarizeGroups(t *testing.T) {
 	}
 	if tot.count["pack:garden"] != 1 || tot.bytes["pack:garden"] != 3 {
 		t.Fatalf("pack totals = %+v", tot)
+	}
+	if tot.count["chat:action"] != 1 || tot.bytes["chat:action"] != 4 || tot.count["item:action_hd"] != 0 {
+		t.Fatalf("chat totals = %+v", tot)
 	}
 }
