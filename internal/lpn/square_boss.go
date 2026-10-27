@@ -40,9 +40,12 @@ func (s *squareSession) handleBoss(frame []byte, msgid uint16, data []byte) erro
 	aidText := strconv.FormatUint(aid, 10)
 	boss := economy.ActiveFishBoss()
 	switch msgid {
-	case 35: // cr_friend_invite_req {AidList1}: the master invites; no reply (the client shows its own "Invitation Complete")
+	case 35: // cr_friend_invite_req {AidList1}: the master invites; each invitee gets the invite push (square_boss_room.go); no reply (the client shows its own "Invitation Complete")
 		s.bossInvite(data)
 		return nil
+	case 37: // the invite picker's list request (empty) -> rc_friend_invite_list_res (46): the aids already invited
+		s.logger.Printf("SQUARE fishing boss invited list aid=%d", aid)
+		return s.reply(frame, 46, s.bossInvitedList())
 	case 36: // cr_room_enter_friend_req {FriendAid1 = the master, Revision2}: an invitee enters the master's lobby (rc6 theme 28)
 		owner, _ := protobufUintField(data, 1)
 		return s.reply(frame, 6, s.bossAccept(frame, owner))

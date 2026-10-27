@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"cherry/internal/economy"
+	"cherry/internal/httpx"
 	"cherry/internal/store"
 )
 
@@ -174,7 +175,7 @@ func TestFaceShopPurchaseEquipsAndGrants(t *testing.T) {
 	store.AccountsMu.Unlock()
 
 	body := `{"brandId":"","shopid":"1","price":"0","displayCoinUnit":"G","itemCd":"","cpId":"",` +
-		`"saveItemList":[{"itemCode":"CUEY0030Q","invenSeq":0},{"itemCode":"CUMO001ET"},{"itemCode":"SKN002"},` +
+		`"saveItemList":[{"itemCode":"CUEY0030Q","invenSeq":0},{"itemCode":"CUMO001ET"},{"itemCode":"SKN005"},` +
 		`{"itemCode":"CUTO0011X"},{"itemCode":"CUON004TV","invenSeq":3},{"itemCode":"CUSH0009Q"}],` +
 		`"invenItemList":[3],"language":"ja","deviceType":"android","useVoucher":"false"}`
 	code, resp := faceShopReq(t, "ftok", http.MethodPost, faceShopPurchaseURL, body+"\x00")
@@ -208,14 +209,19 @@ func TestFaceShopPurchaseEquipsAndGrants(t *testing.T) {
 	if avatarHasCD(avatar.Items, "CUEY00002") || avatarHasCD(avatar.Items, "CUMO00002") {
 		t.Errorf("old faces still equipped: %+v", avatar.Items)
 	}
-	if avatar.Skin != "2" {
-		t.Errorf("skin changed to %q", avatar.Skin)
+	if avatar.Skin != "005" {
+		t.Errorf("response skin = %q, want 005", avatar.Skin)
 	}
 
 	store.AccountsMu.Lock()
 	gotItems := append([]string(nil), acc.ItemCodes...)
 	gotInv := append([]string(nil), acc.InventoryCodes...)
+	gotSkin, gotTickets := acc.Skin, acc.FaceTickets
 	store.AccountsMu.Unlock()
+	// New faces and a new skin: one ticket for the whole request.
+	if gotSkin != "005" || gotTickets != 9 {
+		t.Errorf("skin %q tickets %d, want 005 and 9", gotSkin, gotTickets)
+	}
 	wantItems := []string{"CUEY0030Q", "CUMO001ET", "CUEB00001", "CUNO00001", "CUHE0000L", "CUON004TV"}
 	if strings.Join(gotItems, ",") != strings.Join(wantItems, ",") {
 		t.Errorf("equipped = %v, want %v", gotItems, wantItems)
@@ -237,9 +243,13 @@ func TestFaceShopPurchaseEquipsAndGrants(t *testing.T) {
 		reloaded = a
 	}
 	reloadedItems := strings.Join(reloaded.ItemCodes, ",")
+	reloadedSkin, reloadedTickets := reloaded.Skin, reloaded.FaceTickets
 	store.AccountsMu.Unlock()
 	if reloadedItems != strings.Join(wantItems, ",") {
 		t.Errorf("reloaded equipped = %s", reloadedItems)
+	}
+	if reloadedSkin != "005" || reloadedTickets != 9 {
+		t.Errorf("reloaded skin %q tickets %d, want 005 and 9", reloadedSkin, reloadedTickets)
 	}
 
 	// Closet now lists the purchased face as an owned selectable row.
@@ -248,15 +258,127 @@ func TestFaceShopPurchaseEquipsAndGrants(t *testing.T) {
 		t.Errorf("closet missing purchased face")
 	}
 
-	// Idempotent repeat.
+	// Idempotent repeat: same faces and skin, so no ticket.
 	if code, _ := faceShopReq(t, "ftok", http.MethodPost, faceShopPurchaseURL, body); code != 200 {
 		t.Errorf("repeat status %d", code)
 	}
 	store.AccountsMu.Lock()
-	n := len(reloaded.InventoryCodes)
+	n, tickets := len(reloaded.InventoryCodes), reloaded.FaceTickets
 	store.AccountsMu.Unlock()
-	if n != 8 {
-		t.Errorf("inventory grew on repeat: %d", n)
+	if n != 8 || tickets != 9 {
+		t.Errorf("repeat changed inventory (%d) or tickets (%d)", n, tickets)
+	}
+}
+
+// Skin tone rides in saveItemList as SKN%03d and is stored as acc.Skin ("SKN005" -> "005";
+// the account's "2" equals SKN002 by number).
+// A new skin is a change: it spends one ticket and lifts the 61009 refusal for owned faces.
+func TestFaceShopSkinPurchase(t *testing.T) {
+	starter := []string{"CUEY00002", "CUMO00002", "CUEB00001", "CUNO00001", "CUHE0000L"}
+	ownedNotWorn := []string{"CUEY00002", "CUMO00002"}
+	cases := []struct {
+		name      string
+		equipped  []string
+		inventory []string
+		body      string
+		status    int
+		refusal   string // exact body on refusal
+		skin      string // acc.Skin after the request
+		tickets   int64
+	}{
+		{"skin only, owned faces", starter, starter,
+			`{"saveItemList":[{"itemCode":"CUEY00002"},{"itemCode":"CUMO00002"},{"itemCode":"CUEB00001"},{"itemCode":"CUNO00001"},{"itemCode":"CUHE0000L"},{"itemCode":"SKN005"}]}`,
+			200, "", "005", 9},
+		{"owned not worn, same skin", []string{"CUEY00002"}, ownedNotWorn,
+			`{"saveItemList":[{"itemCode":"CUEY00002"},{"itemCode":"CUMO00002"},{"itemCode":"SKN002"}]}`,
+			400, `{"errorCode":"61009","errorMessage":"cherry: item already purchased"}`, "2", 10},
+		{"owned not worn, new skin", []string{"CUEY00002"}, ownedNotWorn,
+			`{"saveItemList":[{"itemCode":"CUEY00002"},{"itemCode":"CUMO00002"},{"itemCode":"SKN005"}]}`,
+			200, "", "005", 9},
+		{"new face, new skin", starter, starter,
+			`{"saveItemList":[{"itemCode":"CUEY0030Q"},{"itemCode":"SKN005"}]}`,
+			200, "", "005", 9},
+		{"new face, same skin", starter, starter,
+			`{"saveItemList":[{"itemCode":"CUEY0030Q"},{"itemCode":"SKN002"}]}`,
+			200, "", "2", 9},
+		{"SKN000 is a tone", starter, starter,
+			`{"saveItemList":[{"itemCode":"SKN000"}]}`,
+			200, "", "000", 9},
+		{"two skins in one request", starter, starter,
+			`{"saveItemList":[{"itemCode":"SKN003"},{"itemCode":"SKN004"}]}`,
+			400, httpx.BadRequestBody, "2", 10},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			acc := faceShopSetup(t, "FEMALE", c.equipped, c.inventory)
+			path := filepath.Join(t.TempDir(), "accounts.json")
+			store.AccountsMu.Lock()
+			store.AccountStorePath = path
+			store.AccountsMu.Unlock()
+			code, resp := faceShopReq(t, "ftok", http.MethodPost, faceShopPurchaseURL, c.body)
+			if code != c.status {
+				t.Fatalf("status %d (%s), want %d", code, resp, c.status)
+			}
+			if c.refusal != "" && string(resp) != c.refusal {
+				t.Errorf("refusal body %s, want %s", resp, c.refusal)
+			}
+			store.AccountsMu.Lock()
+			skin, tickets := acc.Skin, acc.FaceTickets
+			store.AccountsMu.Unlock()
+			if skin != c.skin || tickets != c.tickets {
+				t.Fatalf("skin %q tickets %d, want %q %d", skin, tickets, c.skin, c.tickets)
+			}
+			if c.status != http.StatusOK {
+				return
+			}
+			var out struct {
+				Result store.AvatarInfoResult `json:"result"`
+			}
+			if err := json.Unmarshal(resp, &out); err != nil {
+				t.Fatal(err)
+			}
+			if out.Result.Skin != c.skin {
+				t.Errorf("response skin %q, want %q", out.Result.Skin, c.skin)
+			}
+			// Persisted: reload accounts.json and read the skin back.
+			store.AccountsMu.Lock()
+			store.Accounts, store.LatestAcc = map[string]*store.Account{}, nil
+			store.AccountsMu.Unlock()
+			if err := store.LoadAccountsFrom(path); err != nil {
+				t.Fatal(err)
+			}
+			store.AccountsMu.Lock()
+			var reloaded *store.Account
+			for _, a := range store.Accounts {
+				reloaded = a
+			}
+			reloadedSkin, reloadedTickets := reloaded.Skin, reloaded.FaceTickets
+			store.AccountsMu.Unlock()
+			if reloadedSkin != c.skin || reloadedTickets != c.tickets {
+				t.Errorf("persisted skin %q tickets %d, want %q %d", reloadedSkin, reloadedTickets, c.skin, c.tickets)
+			}
+		})
+	}
+}
+
+func TestFaceShopSkinRollsBackOnSaveFailure(t *testing.T) {
+	acc := faceShopSetup(t, "FEMALE", []string{"CUEY00002"}, []string{"CUEY00002"})
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store.AccountsMu.Lock()
+	store.AccountStorePath = filepath.Join(blocker, "accounts.json")
+	store.AccountsMu.Unlock()
+	code, _ := faceShopReq(t, "ftok", http.MethodPost, faceShopPurchaseURL, `{"saveItemList":[{"itemCode":"SKN005"}]}`)
+	if code != http.StatusInternalServerError {
+		t.Fatalf("status %d, want 500", code)
+	}
+	store.AccountsMu.Lock()
+	skin, tickets := acc.Skin, acc.FaceTickets
+	store.AccountsMu.Unlock()
+	if skin != "2" || tickets != 10 {
+		t.Errorf("not rolled back: skin %q tickets %d", skin, tickets)
 	}
 }
 

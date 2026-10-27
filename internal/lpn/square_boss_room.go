@@ -2,15 +2,18 @@ package lpn
 
 import (
 	"cmp"
+	"encoding/json"
 	"log"
+	"maps"
 	"slices"
 	"strconv"
 
 	"cherry/internal/economy"
+	"cherry/internal/store"
 )
 
 // Square boss rooms (multiplayer, Economy Phase DE; wire notes %TEMP%\opencode\cherry\leftovers-20261026\
-// boss-mp-spec.md sections 2 to 4 and 7; the room policy is the user's). A lobby belongs to one Square
+// boss-mp-spec.md sections 2 to 4 and 7, boss-mp-addendum.md 1d, 1e, 1j and 3; the room policy is the user's). A lobby belongs to one Square
 // (squareRoom.bosses, oldest first) and holds up to max_players members. The first member is the master; when
 // the master leaves, the earliest remaining member is the master. A member is a session: its seat keeps the
 // session's transport (a squarePlayer: conn and frame header), so the pushes reach every member from any
@@ -50,15 +53,32 @@ func (s *squareSession) bossSquare() *squareRoom {
 	return s.rooms.room(squareThemeID)
 }
 
-// bossSeatFor is a new seat for the session, with the frame's tunnel as its transport.
-func (s *squareSession) bossSeatFor(frame []byte) *squareBossSeat {
+// bossSeatFor is a new seat in sq for the session, with the frame's tunnel as its transport.
+func (s *squareSession) bossSeatFor(frame []byte, sq *squareRoom) *squareBossSeat {
 	p := &squarePlayer{aid: s.aid, conn: s.conn, b1: frame[1]}
 	copy(p.sid[:], frame[2:10])
-	return &squareBossSeat{sq: s.bossSquare(), p: p, hits: map[uint64]uint64{}}
+	return &squareBossSeat{sq: sq, p: p, hits: map[uint64]uint64{}}
+}
+
+// bossLobbyOf is the Square that holds the lobby the master owner opened, by the owner's aid. An invitee accepts from
+// wherever its session is (a Garden, another Square), so the lobby is searched in every Square, not in the session's.
+func (rs *squareRooms) bossLobbyOf(owner uint64) *squareRoom {
+	rs.mu.Lock()
+	rooms := slices.Collect(maps.Values(rs.rooms))
+	rs.mu.Unlock()
+	for _, sq := range rooms {
+		sq.mu.Lock()
+		found := slices.ContainsFunc(sq.bosses, func(r *squareBossRoom) bool { return r.members[0].aid() == owner })
+		sq.mu.Unlock()
+		if found {
+			return sq
+		}
+	}
+	return nil
 }
 
 // entryLocked is a member's FishBossUserInLobby: Aid1, IsRoomMaster2 (the first member), State3 (ready, or
-// the master, who is always ready) and Name7.
+// the master, who is always ready), RodInfo4 (the rod in use), Profile5 (the picture) and Name7.
 func (r *squareBossRoom) entryLocked(m *squareBossSeat) []byte {
 	master := r.members[0] == m
 	state := uint64(squareBossNotReady)
@@ -68,7 +88,52 @@ func (r *squareBossRoom) entryLocked(m *squareBossSeat) []byte {
 	u := pbVar(nil, 1, m.aid())
 	u = pbVar(u, 2, squareBool(master))
 	u = pbVar(u, 3, state)
+	if rod := squareBossRod(m.aid()); rod != nil {
+		u = pbLen(u, 4, rod)
+	}
+	u = pbLen(u, 5, []byte(squareBossPicture(m.aid())))
 	return pbLen(u, 7, []byte(squareAccountName(m.aid())))
+}
+
+// squareStaticHost is the static host of the Square's pictures: the host the client resolves to Cherry, so an absolute
+// URL on it is served by the same routes as the fish cards (economy.FishImageURL).
+const (
+	squareStaticHost         = "https://play-static.line-scdn.net"
+	squareProfilePlaceholder = squareStaticHost + "/cherry/menu/user-star.png" // Profile5 of an account with no picture
+)
+
+// squareDefaultRod is the first rod of the fish shop: the rod a member shows when none is in use.
+func squareDefaultRod() (economy.FishingItem, bool) {
+	for _, it := range economy.FishingShopItems() {
+		if it.Kind == economy.FishKindRod {
+			return it, true
+		}
+	}
+	return economy.FishingItem{}, false
+}
+
+// squareBossRod is RodInfo4 of a lobby entry: an AssetItemClient for the rod the member has in use (the default rod
+// when none). The picture is an absolute URL, because the lobby's picture download takes the URL as it is
+// (boss-mp-addendum 3). nil only when the shop lists no rod at all.
+func squareBossRod(aid uint64) []byte {
+	_, inUse := economy.FishingBag(strconv.FormatUint(aid, 10), economy.FishKindRod)
+	rod, ok := economy.FishingItemByID(inUse)
+	if !ok {
+		rod, ok = squareDefaultRod()
+	}
+	if !ok {
+		return nil
+	}
+	return squareAsset(rod, squareStaticHost+"/"+economy.FishingItemImageURL(rod.ID))
+}
+
+// squareBossPicture is Profile5 of a lobby entry, an absolute URL that is never empty: the member's uploaded picture
+// (its OBS path, served by the profile route) or the placeholder icon for an account with none.
+func squareBossPicture(aid uint64) string {
+	if acc, ok := store.AccountByAvatarID(strconv.FormatUint(aid, 10)); ok && acc.ProfileImage.Image != "" {
+		return squareStaticHost + acc.ProfileImage.Image
+	}
+	return squareProfilePlaceholder
 }
 
 // addLocked puts seat at the end of the lobby and returns the members it joined.
@@ -128,8 +193,8 @@ func pushMembers(logger *log.Logger, members []*squareBossSeat, msgid uint16, bo
 
 // bossOpen puts the session into a new lobby as its master (cr45: a start always opens its own lobby).
 func (s *squareSession) bossOpen(frame []byte) {
-	seat := s.bossSeatFor(frame)
-	sq := seat.sq
+	sq := s.bossSquare()
+	seat := s.bossSeatFor(frame, sq)
 	sq.mu.Lock()
 	r := &squareBossRoom{invited: map[uint64]bool{}}
 	sq.bosses = append(sq.bosses, r)
@@ -141,8 +206,8 @@ func (s *squareSession) bossOpen(frame []byte) {
 // bossJoinLobby puts the session into the oldest lobby of its Square that has room, or opens one when none has.
 // The members already there get rc70 with the newcomer. The try is already spent.
 func (s *squareSession) bossJoinLobby(frame []byte) {
-	seat := s.bossSeatFor(frame)
-	sq := seat.sq
+	sq := s.bossSquare()
+	seat := s.bossSeatFor(frame, sq)
 	seats := int(economy.ActiveFishBoss().MaxPlayers)
 	sq.mu.Lock()
 	r := sq.bossLobbyLocked(seats)
@@ -306,8 +371,28 @@ func (s *squareSession) bossKick(frame []byte, data []byte) error {
 	return nil
 }
 
-// bossInvite answers cr35: the master invites the aids in AidList1 to its lobby. Nothing is pushed (how an invitee's
-// popup is raised is not traced, spec 2.3); an invited aid may accept with cr36 until it joins.
+// bossInvite answers cr35: the master invites the aids in AidList1 to its lobby. Each new invitee gets the invite push
+// on its :10123 session (bossInvitePush); an invited aid may accept with cr36 until it joins. There is no reply to cr35.
+// bossInvitedList is rc_friend_invite_list_res {AidList1} for cr37 (empty), which the Square invite picker sends on
+// open and waits for (NaSquareInviteFriendInviteLayer::MsgProc 0x1d05d48 case 0x305C, boss-mp-addendum 1g): the aids
+// the session's lobby already invited, in id order. Outside a lobby the list is empty.
+func (s *squareSession) bossInvitedList() []byte {
+	var body []byte
+	seat := s.boss
+	if seat == nil {
+		return body
+	}
+	seat.sq.mu.Lock()
+	defer seat.sq.mu.Unlock()
+	if seat.room == nil {
+		return body
+	}
+	for _, a := range slices.Sorted(maps.Keys(seat.room.invited)) {
+		body = pbVar(body, 1, a)
+	}
+	return body
+}
+
 func (s *squareSession) bossInvite(data []byte) {
 	aids, ok := partyAidList(data)
 	seat := s.boss
@@ -317,30 +402,64 @@ func (s *squareSession) bossInvite(data []byte) {
 	}
 	sq := seat.sq
 	sq.mu.Lock()
-	defer sq.mu.Unlock()
 	r := seat.room
 	if r == nil || r.fight || r.members[0] != seat {
+		sq.mu.Unlock()
 		s.logger.Printf("SQUARE fishing boss invite aid=%d ignored not the master of a lobby", s.aid)
 		return
 	}
-	n := 0
+	var invitees []uint64
 	for _, a := range aids {
 		if a == 0 || a == s.aid || slices.ContainsFunc(r.members, func(m *squareBossSeat) bool { return m.aid() == a }) {
 			continue
 		}
 		r.invited[a] = true
-		n++
+		invitees = append(invitees, a)
 	}
-	s.logger.Printf("SQUARE fishing boss invite aid=%d invited=%d of=%d", s.aid, n, len(aids))
+	sq.mu.Unlock()
+	s.logger.Printf("SQUARE fishing boss invite aid=%d invited=%d of=%d", s.aid, len(invitees), len(aids))
+	for _, a := range invitees {
+		s.bossInvitePush(a)
+	}
+}
+
+// bossInvitePush raises the invitee's invite popup (popup 33) with one LO push on its :10123 session (boss-mp-addendum
+// 1j): op 0x1B, txn 0, UTF-8 JSON. sendInit named the invitee's account, so the session is found by its aid. An
+// invitee with no session gets no popup; the line says so.
+func (s *squareSession) bossInvitePush(to uint64) {
+	master := strconv.FormatUint(s.aid, 10)
+	body, err := json.Marshal(map[string]any{
+		"catg":     "square",
+		"msgid":    master + "-" + strconv.FormatUint(to, 10) + "-" + strconv.FormatInt(economy.NowFunc().UnixNano(), 10),
+		"sender":   master,
+		"content":  squareAccountName(s.aid) + " invites you to a Boss Raid!",
+		"params":   map[string]any{"pType": "SIR"},
+		"mapParam": map[string]any{"catg": "square", "aid": master},
+	})
+	sent := false
+	if err == nil {
+		sent, err = sessionPush(to, loOpPush, body)
+	}
+	if err != nil {
+		s.logger.Printf("SQUARE fishing boss invite push aid=%d to=%d sent=%v err=%v", s.aid, to, sent, err)
+		return
+	}
+	s.logger.Printf("SQUARE fishing boss invite push aid=%d to=%d sent=%v", s.aid, to, sent)
 }
 
 // bossAccept answers cr36: an invitee enters the master's lobby (the master is owner) when it has room, has not
-// started and the master invited the invitee; a try is spent as for the banner. The reply is an rc6 body: theme 28,
-// or a refusal, which has no Result 196609 and so fails the client's enter (spec 11.1 [I]).
+// started and the master invited the invitee; a try is spent as for the banner. The lobby is found by the owner's aid
+// in any Square and the invitation by the invitee's aid, so the invitee's session may be in any Square or in none.
+// The reply is an rc6 body: theme 28, or a refusal, which has no Result 196609 and so fails the client's enter
+// (spec 11.1 [I]).
 func (s *squareSession) bossAccept(frame []byte, owner uint64) []byte {
 	s.bossLeave()
-	seat := s.bossSeatFor(frame)
-	sq := seat.sq
+	sq := s.rooms.bossLobbyOf(owner)
+	if sq == nil {
+		s.logger.Printf("SQUARE fishing boss accept refused aid=%d owner=%d no lobby", s.aid, owner)
+		return pbVar(nil, 1, 0)
+	}
+	seat := s.bossSeatFor(frame, sq)
 	seats := int(economy.ActiveFishBoss().MaxPlayers)
 	sq.mu.Lock()
 	var r *squareBossRoom
@@ -365,6 +484,12 @@ func (s *squareSession) bossAccept(frame []byte, owner uint64) []byte {
 	delete(r.invited, s.aid) // the invitation is used up: a later leave does not leave it open
 	body := pbLen(nil, 2, r.entryLocked(seat))
 	sq.mu.Unlock()
+	// The accept is the invitee's Square enter (it sends no cr2): its cr10 and relaystart (cr5) follow at once, so the
+	// session counts as entered in the lobby's Square, leaving any other Square it was in.
+	if s.player != nil && sq != s.room {
+		s.close()
+	}
+	s.room, s.square, s.entered = sq, squaresFile.Get().entry(squareThemeID), true
 	s.boss = seat
 	s.logger.Printf("SQUARE fishing boss accept aid=%d owner=%d members=%d left=%d", s.aid, owner, len(others)+1, left)
 	pushMembers(s.logger, others, 70, body)

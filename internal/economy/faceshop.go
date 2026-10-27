@@ -5,10 +5,13 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 
 	"cherry/data"
+	"cherry/internal/assets"
 	"cherry/internal/httpx"
+	"cherry/internal/itemcode"
 	"cherry/internal/store"
 )
 
@@ -20,7 +23,9 @@ import (
 //        ResFaceShopSaveNPurchase @0x1c0b780
 // Shop data is one catalog per avatar type; the single price is shop.discountedPrice.
 
-// FaceCatalog is the 1,173 device-renderable face codes (HE14/EB200/EY507/NO54/MO398).
+// FaceCatalog is the 1,173 device-renderable face codes (HE14/EB200/EY507/NO54/MO398). The converted human
+// faces (429 CU HE/EB/EY/NO/MO custom items in the converted index) join it through faceCatalog; the 157 animal
+// faces (CA) do not, since the Face Shop's animal branch is empty by design.
 var (
 	FaceCatalog    = strings.Fields(data.FaceCodes)
 	FaceCatalogSet = func() map[string]struct{} {
@@ -38,6 +43,36 @@ var (
 var faceShopCategoryKey = map[string]string{"HE": "FACE", "EB": "BROW", "EY": "EYE", "NO": "NOSE", "MO": "MOUTH"}
 
 var faceShopSlots = []string{"HE", "EB", "EY", "NO", "MO"}
+
+// isHumanFace: a CU code in one of the five Face Shop slots (animal faces are not sold here).
+func isHumanFace(code string) bool {
+	if len(code) != 9 || code[:2] != "CU" {
+		return false
+	}
+	_, ok := faceShopCategoryKey[code[2:4]]
+	return ok
+}
+
+// faceCatalog is every face the Face Shop lists: FaceCatalog, then the converted custom faces the converted
+// index lists, in id order. assets.GeneratedItems is nil while itemconv.json is off, so none are listed then.
+func faceCatalog() []string {
+	codes := slices.Clone(FaceCatalog)
+	for _, id := range assets.GeneratedItems().IDs("custom") {
+		if code, ok := itemcode.Code(id); ok && isHumanFace(code) {
+			codes = append(codes, code)
+		}
+	}
+	return codes
+}
+
+// faceForSale reports whether a face code can be bought now: a catalog face, or a converted face the index lists.
+func faceForSale(code string) bool {
+	if _, ok := FaceCatalogSet[code]; ok {
+		return true
+	}
+	id, ok := itemcode.ID(code)
+	return ok && isHumanFace(code) && assets.GeneratedItems().Has("custom", id)
+}
 
 type faceShopItem struct {
 	CD             string `json:"cd"`
@@ -99,7 +134,7 @@ func faceShopBody(gender string, shopID int) []byte {
 			cats[slot] = cat
 			result[avatarType+key] = cat
 		}
-		for _, code := range FaceCatalog {
+		for _, code := range faceCatalog() {
 			cat := cats[code[2:4]]
 			cat.Items = append(cat.Items, faceShopItem{CD: code})
 		}
@@ -157,9 +192,28 @@ func HandleFaceShopData(w http.ResponseWriter, r *http.Request) {
 }
 
 // Economy: catalog shop.price stays 0 and every purchase that changes a face part
-// consumes one Face Shop ticket (voucher), whatever useVoucher says; tickets are
-// bought with Gems (economy.go). With 0 tickets the client itself only offers the
-// voucher shop (NaFaceShop::CheckVoucherPurchase), so the server check is a backstop.
+// or the skin tone consumes one Face Shop ticket (voucher), whatever useVoucher says;
+// tickets are bought with Gems (economy.go). With 0 tickets the client itself only
+// offers the voucher shop (NaFaceShop::CheckVoucherPurchase), so the server check is
+// a backstop. The skin tone rides in saveItemList as SKN%03d and is stored as acc.Skin in the
+// client's own create form (three digits; live accounts hold "000" and "001", so SKN000 is a tone).
+// Cherry's code and data name no skin range, so any SKN%03d is accepted.
+
+// skinCode parses a skin pseudo code to the stored acc.Skin form ("SKN002" -> "002").
+// Web's isSkinItemCode (save/v2, which ignores skins) takes the same shape.
+func skinCode(code string) (string, bool) {
+	if len(code) != 6 || !strings.HasPrefix(code, "SKN") || !httpx.IsAllDigits(code[3:]) {
+		return "", false
+	}
+	return code[3:], true
+}
+
+// sameSkin compares skins by number: create stores the client's "000" form, older and test accounts hold "2".
+func sameSkin(a, b string) bool {
+	n, errA := strconv.Atoi(a)
+	m, errB := strconv.Atoi(b)
+	return a == b || errA == nil && errB == nil && n == m
+}
 
 type faceShopPurchaseReq struct {
 	SaveItemList  []store.AvatarSaveItem `json:"saveItemList"`
@@ -196,9 +250,10 @@ func HandleFaceShopPurchase(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Same shape rules as save/v2; only face-category codes are applied (the
+	// Same shape rules as save/v2; only face-category codes and the skin are applied (the
 	// preview avatar wears a try-on gown, so its clothes list is not authoritative).
 	faces := make(map[string]string, 5) // category -> new code
+	skin := ""                          // new skin from a SKN%03d code, "" when the request has none
 	for _, item := range req.SaveItemList {
 		if item.ItemCode == nil || *item.ItemCode == "" {
 			httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
@@ -212,10 +267,19 @@ func HandleFaceShopPurchase(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		code := *item.ItemCode
+		if s, ok := skinCode(code); ok {
+			// Two skins in one request are ambiguous.
+			if skin != "" && skin != s {
+				httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+				return
+			}
+			skin = s
+			continue
+		}
 		if !store.IsBasicFaceItemCode(code) {
 			continue
 		}
-		if _, known := FaceCatalogSet[code]; !known {
+		if !faceForSale(code) {
 			httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 			return
 		}
@@ -236,11 +300,16 @@ func HandleFaceShopPurchase(w http.ResponseWriter, r *http.Request) {
 	previous := *acc
 	// The request carries the preview avatar's full face list; the client cannot tell new
 	// from owned (DoBuyFaceItem @0x1c08448). A face neither worn nor owned is a purchase
-	// (one ticket). A change made only of owned faces is refused like the stock server most
+	// (one ticket). A change made only of owned faces and the same skin is refused like the stock server most
 	// likely did: errorCode 61009 -> "Item already purchased." (ErrCommonShopPurchase
 	// @0x1aa9cdc), nothing equipped or spent; owned faces are switched in Closet > Makeup.
 	owned := store.AccountInventoryCodes(acc)
-	changed, rebuy := false, false
+	current := acc.Skin
+	if current == "" {
+		current = "1" // the default AvatarInfoForAccount reports
+	}
+	// A new skin is a change of its own: it spends the ticket and lifts the 61009 refusal.
+	changed, rebuy := skin != "" && !sameSkin(skin, current), false
 	for _, code := range faces {
 		worn := slices.Contains(acc.ItemCodes, code)
 		changed = changed || !worn && !slices.Contains(owned, code)
@@ -259,6 +328,9 @@ func HandleFaceShopPurchase(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteJSON(w, http.StatusBadRequest, errNotEnoughBody)
 			return
 		}
+	}
+	if skin != "" && !sameSkin(skin, current) {
+		acc.Skin = skin // before SaveAccountsLocked, so the rollback below restores it too
 	}
 	granted := make([]string, 0, len(faces))
 	for _, slot := range faceShopSlots {

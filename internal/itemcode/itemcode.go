@@ -11,8 +11,10 @@ import (
 // roomLetters are the room categories, catIdx 3..35 in order.
 const roomLetters = "TA CH CL DR BE KI TB BA EL PR BG WA TI WD TD DO WI GO PL FD LA AB GC FU SL PT PI ZA BW BT ZB MP VO"
 
-// clothLetters are the clothing categories (attribute C).
-var clothLetters = map[int64]string{38: "HE", 40: "EB", 41: "EY", 42: "NO", 43: "MO", 44: "HA", 50: "TO", 51: "ON", 52: "PA", 53: "SH", 54: "AH", 55: "AE", 56: "FE"}
+// clothLetters are the clothing categories (attribute C). 39, 57 and 58 are the animal face, ear and tail: the
+// 2014 iOS Skin (FA), Ears (EA) and Tail (TL) items, whose ids the client uses too (the 10.1 santi backup holds
+// 2339/2357/2358 folders; dressup.go maps FACE=39, EAR=57, TAIL=58 for animals).
+var clothLetters = map[int64]string{38: "HE", 39: "FA", 40: "EB", 41: "EY", 42: "NO", 43: "MO", 44: "HA", 50: "TO", 51: "ON", 52: "PA", 53: "SH", 54: "AH", 55: "AE", 56: "FE", 57: "EA", 58: "TL"}
 
 // Code is the item code of numeric id n; ok is false for an id no category explains.
 func Code(n int64) (string, bool) {

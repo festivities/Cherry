@@ -9,6 +9,9 @@ func TestIDRoundTrip(t *testing.T) {
 		"RUGO007DR": 122009567, // room (R, U), GO (20): tail 007DR = 9567
 		"RUTD003K2": 121704610, // room, TD (17): tail 003K2 = 4610
 		"GULS0255R": 428499999, // landscape (G, U), LS (84): tail 0255R = 99999, the top of Cherry's block
+		"CAFA0000S": 233900028, // animal face (cat 39): a 10.1 folder of the santi backup
+		"CAEA0000E": 235700014, // animal ear (cat 57): a 10.1 folder of the santi backup
+		"CATL00006": 235800006, // animal tail (cat 58): a 10.1 folder of the santi backup
 	} {
 		id, ok := ID(code)
 		if !ok || id != want {

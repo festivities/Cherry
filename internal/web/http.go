@@ -55,7 +55,9 @@ const termAllBody = `{"result":{"1":true}}`
 
 const profileBody = `{"result":{"name":"guest","newbie":true}}`
 
-const settingAllBody = `{"result":{"notiFlag":false,"changeCountry":false,"countryName":"","soundConfig":false,"notiConfig":{},"privacyConfig":{},"roomSize":{"max":0,"cur":0}}}`
+// settingAllBody: notiConfig.onlineNotiYn must be true, or the client drops every session push silently
+// (GetIsEnableOnlinePush 0x1933b84 in IsValidShowPushBannerPopup 0x20eb178; boss-mp-addendum 7), e.g. a boss invite.
+const settingAllBody = `{"result":{"notiFlag":false,"changeCountry":false,"countryName":"","soundConfig":false,"notiConfig":{"onlineNotiYn":true,"ingameNotiYn":true,"squareInvtNotiYn":true},"privacyConfig":{},"roomSize":{"max":0,"cur":0}}}`
 
 const friendLineBuddyBody = `{"result":{"nextCursor":"0","buddyList":[],"bookmarks":[]}}`
 

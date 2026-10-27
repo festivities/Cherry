@@ -132,16 +132,18 @@ func squareInvenItemPlain(it economy.FishingItem, count uint64) []byte {
 // path and starts no picture download. Flip to false to revert.
 const squareBagShowsOwned = false
 
-// squareAsset is an AssetItemClient, the Asset (field 1) of a bag row. Name and Description are plain
-// strings. ImageUrl (5) and PlayingImageUrl (6) are sent as explicit empty strings: NaCommonDownloadSprite
-// then takes its failed-indicator path (InitWithPath 0x20d0f58, length check) and no download is queued.
+// squareAsset is an AssetItemClient: the Asset (field 1) of a bag row, and the RodInfo4 of a lobby entry (square_boss_room.go).
+// Name and Description are plain strings. picture is ImageUrl (5): the bag passes "", so NaCommonDownloadSprite takes
+// its failed-indicator path (InitWithPath 0x20d0f58, length check) and no download is queued; the lobby passes an
+// absolute URL (an empty one shows the warning icon, boss-mp-addendum 3). PlayingImageUrl (6) is always empty: it is
+// the rod art of another member's avatar (boss-mp-addendum 2.4, not verified on device).
 // Every field is sent, because an unset field keeps the default instance's placeholder text. Zero dates
 // hide the period banner (NaFishingBagPopup::OnTouchCell shows it only when item+48 != 0).
-func squareAsset(it economy.FishingItem) []byte {
+func squareAsset(it economy.FishingItem, picture string) []byte {
 	a := pbVar(nil, 1, uint64(it.ID))           // ItemId
 	a = pbLen(a, 2, []byte(it.Name))            // Name
 	a = pbLen(a, 4, []byte(squareItemDesc(it))) // Description
-	a = pbLen(a, 5, nil)                        // ImageUrl: empty
+	a = pbLen(a, 5, []byte(picture))            // ImageUrl
 	a = pbLen(a, 6, nil)                        // PlayingImageUrl: empty
 	a = pbVar(a, 7, 1)                          // MaxCount
 	a = pbVar(a, 8, uint64(it.Kind))            // ItemType: 1 bait, 2 rod
@@ -151,7 +153,7 @@ func squareAsset(it economy.FishingItem) []byte {
 
 // squareInvenItemClient is an InvenItemClient bag row: Asset (1, message) and Count (2, int32).
 func squareInvenItemClient(it economy.FishingItem, count uint64) []byte {
-	return pbVar(pbLen(nil, 1, squareAsset(it)), 2, count)
+	return pbVar(pbLen(nil, 1, squareAsset(it, "")), 2, count)
 }
 
 // squareOwned returns every shop item the account owns, rods and bait.

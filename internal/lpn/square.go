@@ -56,7 +56,9 @@ func squareRoomEnter(npcs []byte, theme uint64, mapFile string) []byte {
 
 // squareThemeInfo is one theme_info of rc_themelist_res: ThemeId, ThemeIndex, ThemeName, ThemeEnabled,
 // ThemeGroupId (the world type's own group: GetRepresentGroupType is the identity for these ids),
-// ThemeVisibled, UserCount and ThemeListName. The list picture is chosen by the client, not by the id.
+// ThemeVisibled, UserCount, ThemeListName and ThemeCountryCodeList "ALL". The list picture is chosen by the client,
+// not by the id. The invite picker lists only friends whose country is in the theme's country list, and "ALL" matches
+// every one (AddFriendCellDatas 0x1cd4230; boss-mp-addendum 6).
 func squareThemeInfo(sq Square, count uint64) []byte {
 	theme := pbVar(nil, 1, sq.Theme)
 	theme = pbVar(theme, 2, 0)
@@ -68,7 +70,8 @@ func squareThemeInfo(sq Square, count uint64) []byte {
 	theme = pbVar(theme, 12, sq.Theme)
 	theme = pbVar(theme, 14, 1)
 	theme = pbVar(theme, 16, count)
-	return pbLen(theme, 17, []byte(sq.ListName))
+	theme = pbLen(theme, 17, []byte(sq.ListName))
+	return pbLen(theme, 19, []byte("ALL"))
 }
 
 // squareItemPrefix maps an item code's category (code[2:4]) to its numeric
@@ -554,6 +557,10 @@ func (s *squareSession) handleData(frame []byte) error {
 		s.entered = false
 		return err
 	}
+	switch msgid { // boss lobby and battle requests act on the session's boss seat, so they need no Square relay (an invitee who accepts from the Garden)
+	case 35, 36, 37, 46, 47, 48, 49, 50, 55, 58, 60:
+		return s.handleBoss(frame, msgid, data)
+	}
 	if s.player == nil {
 		s.logger.Printf("SQUARE msgid=%d outside room ignored", msgid)
 		return nil
@@ -647,7 +654,7 @@ func (s *squareSession) handleData(frame []byte) error {
 		return s.reply(frame, 24, body)
 	case 25, 26, 27, 28, 29, 30, 59, 87, 88, 89, 90, 91: // fishing: cast, book, shop, bag, gear (square_fishing.go)
 		return s.handleFishing(frame, msgid, data)
-	case 35, 36, 45, 46, 47, 48, 49, 50, 54, 55, 56, 57, 58, 60: // boss fishing rooms and boss book: invite, accept, try, lobby, ready/start, kick, play, reset, finish, sticker, book (square_boss.go, square_boss_room*.go)
+	case 45, 54, 56, 57: // boss try, banner and book (square_boss.go); the lobby and battle requests are handled above the relay gate
 		return s.handleBoss(frame, msgid, data)
 	case 52, 53: // Boss Coin exchange office: list, buy (square_exchange.go)
 		return s.handleExchange(frame, msgid, data)
