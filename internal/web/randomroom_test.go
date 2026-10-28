@@ -98,3 +98,20 @@ func TestRoomRandomMatchesVisitLayout(t *testing.T) {
 		t.Errorf("host pet list = %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestRandomGardenHost(t *testing.T) {
+	installSocialTestAccounts(t, map[string]*store.Account{
+		"rg-me": {AccessToken: "rg-me", SessionKey: "sk", Aid: "1201", Name: "Me"},
+		"rg-a":  {AccessToken: "rg-a", SessionKey: "sk", Aid: "1202", Name: "Ann"},
+	})
+	for range 50 {
+		rec := socialTestRequestAs(t, "rg-me", http.MethodGet, "/v4/room/random/hostaid", "")
+		if rec.Code != http.StatusOK || rec.Body.String() != `{"result":{"hostAvatarId":"1202"}}` {
+			t.Fatalf("hostaid = %d %s", rec.Code, rec.Body.String())
+		}
+	}
+	installSocialTestAccounts(t, map[string]*store.Account{"rg-me": {AccessToken: "rg-me", SessionKey: "sk", Aid: "1201"}})
+	if rec := socialTestRequestAs(t, "rg-me", http.MethodGet, "/v4/room/random/hostaid", ""); rec.Body.String() != `{"result":{"hostAvatarId":"1201"}}` {
+		t.Fatalf("alone = %s, want own aid", rec.Body.String())
+	}
+}

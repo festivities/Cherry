@@ -1108,6 +1108,23 @@ func HandleRoomRandom(w http.ResponseWriter, r *http.Request) {
 	}})
 }
 
+// HandleRandomGardenHost serves GET /v4/room/random/hostaid (home MENU Random Garden; ReqRandomVisitAid
+// 0x1b9564c, ResRandomVisitAid 0x1b11038 reads result.hostAvatarId as a string, message 11072): a random
+// other account whose Garden the client then visits. With nobody else the requester's own aid is sent, which
+// reloads its own Garden (the client's error path does the same with an empty aid, after a popup).
+func HandleRandomGardenHost(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		httpx.ServeNotFound(w)
+		return
+	}
+	viewer, _ := store.AccountForRequest(r)
+	host, ok := randomRoomHost(viewer.Aid)
+	if !ok {
+		host = viewer.Aid
+	}
+	httpx.WriteObj(w, map[string]any{"result": map[string]any{"hostAvatarId": host}})
+}
+
 // randomRoomHost picks a random account other than exclude, once per aid (an account may hold several
 // token aliases). ok is false when there is no such account.
 func randomRoomHost(exclude string) (string, bool) {
