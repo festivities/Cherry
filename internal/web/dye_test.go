@@ -405,6 +405,28 @@ func TestDyeApplyRefusals(t *testing.T) {
 	}
 }
 
+// TestDyeMaskIsAPictureForDyeableGarments: the dye cell's dp_mask.png is a PNG for every dyeable garment, including the three
+// the archive lacks a mask for (224102378, 224407224, 225409234); a garment that is not dyeable, another kind or another
+// file keeps its 404.
+func TestDyeMaskIsAPictureForDyeableGarments(t *testing.T) {
+	for _, path := range []string{"/arts_item_custom_224102378/dp_mask.png", "/arts_item_custom_224407224/dp_mask.png",
+		"/img/read/arts_item_dress_225409234/dp_mask.png"} {
+		rec := decorReq(t, "", http.MethodGet, path, "")
+		if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" {
+			t.Fatalf("%s: status %d type %q", path, rec.Code, rec.Header().Get("Content-Type"))
+		}
+		if _, err := png.Decode(rec.Body); err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+	}
+	for _, path := range []string{"/arts_item_custom_224999999/dp_mask.png", "/arts_item_pet_225001650/dp_mask.png",
+		"/arts_item_custom_224102378/dp_mask.jpg"} {
+		if rec := decorReq(t, "", http.MethodGet, path, ""); rec.Code != http.StatusNotFound {
+			t.Fatalf("%s: status %d, want 404", path, rec.Code)
+		}
+	}
+}
+
 // TestDyeImageIsAPicture: /cherry/dye/<itemNo>.png is a PNG; an unknown dye is 404.
 func TestDyeImageIsAPicture(t *testing.T) {
 	rec := decorReq(t, "", http.MethodGet, "/cherry/dye/9501.png", "")

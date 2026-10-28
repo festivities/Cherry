@@ -607,6 +607,47 @@ func HandleDyeImage(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(b)
 }
 
+// dyeMaskSide is the side of the blank dye mask; the cell scales the picture to its own size.
+const dyeMaskSide = 128
+
+// ServeDyeMask answers GET <arts_item_<kind>_<id>/dp_mask.png> (and the /img/read form) for a dyeable garment when the
+// streamed files had no such file; handleRoot calls it after the stream. The dye cell asks for this mask, and a 404 turns
+// the cell into the warning icon. Three dyeable garments (224102378, 224407224, 225409234) have no dp_mask.png in the
+// archive; the others have theirs and the stream serves those. The answer is a blank transparent mask, so the preview
+// stays untinted (in-world the tint comes from the per-part masks, which all 15 garments have).
+// ponytail: blank mask; compose the <part>_mask.png files into the dp layout if the preview tint matters.
+func ServeDyeMask(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method != http.MethodGet {
+		return false
+	}
+	rest, ok := strings.CutPrefix(r.URL.Path, "/img/read/arts_item_")
+	if !ok {
+		rest, ok = strings.CutPrefix(r.URL.Path, "/arts_item_")
+		if !ok {
+			return false
+		}
+	}
+	kind, tail, ok := strings.Cut(rest, "_")
+	if !ok || (kind != "custom" && kind != "dress") {
+		return false
+	}
+	idText, file, ok := strings.Cut(tail, "/")
+	if !ok || file != "dp_mask.png" || !httpx.IsAllDigits(idText) {
+		return false
+	}
+	id, err := strconv.ParseInt(idText, 10, 64)
+	if err != nil || !slices.Contains(ActiveDyes().Dyeable, id) {
+		return false
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewNRGBA(image.Rect(0, 0, dyeMaskSide, dyeMaskSide))); err != nil {
+		return false
+	}
+	w.Header().Set("Content-Type", "image/png")
+	_, _ = w.Write(buf.Bytes())
+	return true
+}
+
 // RegisterDyeRoutes serves the Dye Shop and Dye Inventory lists, the palette, the dyeable garment list of the dye popups,
 // the dye purchase and the apply. Routes under /cherry/dye/ are registered with the other Cherry pictures.
 func RegisterDyeRoutes(mux *http.ServeMux) {

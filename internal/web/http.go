@@ -977,6 +977,10 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 	if assets.ServeGeneratedItem(w, r) {
 		return
 	}
+	// A dyeable garment's dye preview mask that the stream lacks (economy.ServeDyeMask); the dp.png generator follows.
+	if economy.ServeDyeMask(w, r) {
+		return
+	}
 	if r.Method == http.MethodGet {
 		if kind, id, ok := thumbs.ParseDpPath(r.URL.Path); ok {
 			thumbs.ServeDpPNG(w, kind, id)
