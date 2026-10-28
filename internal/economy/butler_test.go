@@ -337,6 +337,78 @@ func TestButlerRosterIsOriginal(t *testing.T) {
 	}
 }
 
+// TestButlerLookalikesAndSkins: every shipped look-alike is one of its butler's outfit codes, and Merry's are her animal
+// parts. The skin colour is palette index 1 (the untinted base) for the six human butlers and 0 for Merry (ANIMAL, ignored).
+func TestButlerLookalikesAndSkins(t *testing.T) {
+	for _, d := range ActiveButlers().Butlers {
+		for _, code := range d.Lookalikes {
+			if !slices.Contains(d.Outfit, code) {
+				t.Fatalf("%s: look-alike %s is not in the outfit", d.Name, code)
+			}
+		}
+		want := int64(1)
+		if d.Gender == "ANIMAL" {
+			want = 0
+		}
+		if d.SkinColor != want {
+			t.Fatalf("%s: skin_color %d, want %d", d.Name, d.SkinColor, want)
+		}
+	}
+	if d, ok := ButlerByID(merry); !ok || !slices.Equal(d.Lookalikes, []string{"CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N"}) {
+		t.Fatalf("merry look-alikes = %+v, want her four animal parts", d)
+	}
+}
+
+// TestButlerOutfitRefusesTwoOfASlotAndUnlistedLookalike: a butler wears one item per 2-letter slot (a human and an animal
+// eye count as one slot), and a look-alike must be one of the outfit's codes. Both are checked at load, with no archive.
+func TestButlerOutfitRefusesTwoOfASlotAndUnlistedLookalike(t *testing.T) {
+	valid := func(outfit, lookalikes []string) *Butlers {
+		return &Butlers{Origin: "mixed", Note: "n", FreeDays: 3, Hire: []ButlerPrice{{Days: 30, Cash: 30}},
+			Gathering: ButlerGathering{Gems: 3, GemsCap: 10, GathersPerDay: 10},
+			Butlers: []ButlerDef{{ID: CherryButlerFirst, Name: "X", Gender: "FEMALE", Skin: "cherry_x", Outfit: outfit,
+				Lookalikes: lookalikes, Abilities: []string{"essence"}, Art: "b1"}}}
+	}
+	if err := checkButlers(valid([]string{"CUON009D6", "CUEY002AF", "CAEA0004N"}, []string{"CUEY002AF"})); err != nil {
+		t.Fatalf("one item per slot with a look-alike: %v", err)
+	}
+	for _, outfit := range [][]string{
+		{"CUEY002AF", "CUEY0015Q"}, // two human eyes
+		{"CUEY002AF", "CAEY0001O"}, // a human and an animal eye
+		{"CUON009D6", "CUON009D6"}, // the same item twice
+	} {
+		if err := checkButlers(valid(outfit, nil)); err == nil || !strings.Contains(err.Error(), "one item per slot") {
+			t.Fatalf("outfit %v: err = %v, want the slot refused", outfit, err)
+		}
+	}
+	if err := checkButlers(valid([]string{"CUON009D6"}, []string{"CUEY002AF"})); err == nil || !strings.Contains(err.Error(), "not in outfit") {
+		t.Fatalf("look-alike outside the outfit: err = %v", err)
+	}
+}
+
+// TestButlerOutfitAcceptsFaceParts: verifyButlers takes a Face Shop part as an outfit item (a human face, and an animal
+// eye and ear) as well as a shop fashion item, and refuses a face code the Face Shop does not list. The archive is read in
+// place, so the test skips where it is absent.
+func TestButlerOutfitAcceptsFaceParts(t *testing.T) {
+	if _, err := fs.Stat(butlerArtFS, "."); err != nil {
+		t.Skip("UI archive absent")
+	}
+	check := func(outfit ...string) error {
+		b := *ActiveButlers()
+		b.Butlers = slices.Clone(b.Butlers)
+		b.Butlers[0].Outfit = outfit
+		return verifyButlers(&b)
+	}
+	if err := check("CUON009D6", "CUEY002AF", "CUEB000J2", "CAEA0004N"); err != nil {
+		t.Fatalf("human face and animal ear: %v", err)
+	}
+	if err := check("CUON009D6", "CAEY0001O"); err != nil {
+		t.Fatalf("animal eye: %v", err)
+	}
+	if err := check("CUON009D6", "CUEY00000"); err == nil || !strings.Contains(err.Error(), "Face Shop part") {
+		t.Fatalf("unlisted face code: err = %v", err)
+	}
+}
+
 // TestButlerOutfitAndPortrait: the shipped outfits pass the load check against the archive's shop catalog and every
 // portrait is in the archive. An outfit with a code the catalog lacks, or a portrait slot the archive lacks, is refused.
 // /cherry/butler/<id>.png serves each roster butler's original portrait as it is (474 px). The archive is read in

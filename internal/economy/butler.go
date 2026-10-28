@@ -23,8 +23,9 @@ import (
 // Garden butlers (Garden LPN agent 10; spec butler-spec.md). The Shop hires a butler for earned Cash, the Book
 // lists the hired ones and sets the chief (the butler the Garden shows), a hired butler's gathering pays Garden
 // materials and a few Gems, and the Profile popup shows a butler's details. The seven roster butlers are the original
-// ones: names, abilities, portraits, outfit items and profile texts come from the client's files (data/butlers.json
-// says which field is which). Their ids, skin codes, prices and gathering amounts are Cherry's own, in a reserved block.
+// ones: names, abilities, portraits and profile texts come from the client's files, and so do the outfit items except
+// the look-alikes Cherry picked (ButlerDef.lookalikes). data/butlers.json says which field is which. Their ids, skin
+// codes, skin colours, prices and gathering amounts are Cherry's own, in a reserved block.
 
 // CherryButlerFirst and CherryButlerLast bound the butler ids Cherry makes. checkButlers refuses an id outside it.
 const (
@@ -89,24 +90,31 @@ type ButlerGathering struct {
 //	id         in the Cherry block, never a retired id (Cherry-made)
 //	name       the original name (string table 9854-9860)
 //	gender     "MALE", "FEMALE" or "ANIMAL" (the client's sex enum 0, 1, 2); from the portrait [I]
-//	skin       the one default skin code, "cherry_" + a name (Cherry-made); skin_color is avatarSkinColor (0 = default [I])
-//	outfit     item codes the skin wears: original catalog items with art (checked at load). A slot no archive item
-//	           matches is left out, and the note says so
+//	skin       the one default skin code, "cherry_" + a name (Cherry-made)
+//	skin_color avatarSkinColor: an index into the client's skin palette g_akHBC (0 to 16; 0 is a tan tint, 1 the
+//	           untinted base). Cherry chose the values from the portraits (original palette indices). ANIMAL is ignored
+//	           by the client. Sent as is; an absent field would read as 0
+//	outfit     item codes the skin wears: original items (checked at load: a shop fashion item with art, or a Face
+//	           Shop part, human CU or animal CA). At most one item per 2-letter slot (EY, ON, AH, ...). A slot no
+//	           archive item matches is left out, or filled by a look-alike (lookalikes), and the note says so
+//	lookalikes Cherry-picked look-alikes: codes of outfit (checked at load) that stand in for a true item no archive
+//	           has. Cherry-made choice, not the true item. Optional; absent means none. Added 2026-10-29
 //	abilities  gather kinds ("fish", "essence", "ore") of the original abilities: Fishing, collecting Drops, mining
 //	art        the original portrait slot b1 to b7: UIResource/UIImage_hd/butler_event_profile_<art>.png, served as is
 //	profile    the original blood type, birthday, keywords and quote: kept for the record (no verified protocol field)
 //	note       what is empty or uncertain in this butler (optional)
 type ButlerDef struct {
-	ID        int64         `json:"id"`
-	Name      string        `json:"name"`
-	Gender    string        `json:"gender"`
-	Skin      string        `json:"skin"`
-	SkinColor int64         `json:"skin_color"`
-	Outfit    []string      `json:"outfit"`
-	Abilities []string      `json:"abilities"`
-	Art       string        `json:"art"`
-	Profile   ButlerProfile `json:"profile"`
-	Note      string        `json:"note,omitempty"`
+	ID         int64         `json:"id"`
+	Name       string        `json:"name"`
+	Gender     string        `json:"gender"`
+	Skin       string        `json:"skin"`
+	SkinColor  int64         `json:"skin_color"`
+	Outfit     []string      `json:"outfit"`
+	Lookalikes []string      `json:"lookalikes,omitempty"`
+	Abilities  []string      `json:"abilities"`
+	Art        string        `json:"art"`
+	Profile    ButlerProfile `json:"profile"`
+	Note       string        `json:"note,omitempty"`
 }
 
 // ButlerProfile is the original profile text of a roster butler (its name card and quote in the client files).
@@ -178,9 +186,20 @@ func checkButlers(b *Butlers) error {
 			}
 			seen[a] = true
 		}
+		slots := map[string]bool{}
 		for _, code := range d.Outfit {
 			if _, ok := itemcode.ID(code); !ok {
 				return fmt.Errorf("butler %d: outfit code %q is not an item code", d.ID, code)
+			}
+			slot := store.ItemSlot(code)
+			if slots[slot] {
+				return fmt.Errorf("butler %d: outfit wears two %s items (one item per slot): %s", d.ID, slot, code)
+			}
+			slots[slot] = true
+		}
+		for _, code := range d.Lookalikes {
+			if !slices.Contains(d.Outfit, code) {
+				return fmt.Errorf("butler %d: look-alike %s is not in outfit", d.ID, code)
 			}
 		}
 		ids[d.ID] = true
@@ -188,18 +207,19 @@ func checkButlers(b *Butlers) error {
 	return nil
 }
 
-// verifyButlers runs at load (not for the embedded default alone): every outfit code must be a fashion item of the shop
-// catalog (so it has art), and every portrait must be in the archive. No outfit slot is required: an archive without an
-// item for a slot leaves it empty. The archive is read here, as the shop catalog reads it.
+// verifyButlers runs at load (not for the embedded default alone): every outfit code must be a shop fashion item with
+// art, or a part the Face Shop lists (faceForSale: human faces, animal parts, converted ones), and every portrait must be
+// in the archive. No outfit slot is required: an archive without an item for a slot leaves it empty. The archive is read
+// here, as the shop catalog reads it.
 func verifyButlers(b *Butlers) error {
-	catalog := map[string]bool{}
+	fashion := map[string]bool{}
 	for _, it := range loadCatalog().fashion {
-		catalog[it.Code] = true
+		fashion[it.Code] = true
 	}
 	for _, d := range b.Butlers {
 		for _, code := range d.Outfit {
-			if !catalog[code] {
-				return fmt.Errorf("butler %d: outfit item %s is not a shop item with art", d.ID, code)
+			if !fashion[code] && !faceForSale(code) {
+				return fmt.Errorf("butler %d: outfit item %s is not a shop item with art or a Face Shop part", d.ID, code)
 			}
 		}
 		if _, err := fs.Stat(butlerArtFS, butlerArtFile(d)); err != nil {

@@ -4,11 +4,13 @@ import (
 	"encoding/binary"
 	"io"
 	"log"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
 
 	"cherry/internal/economy"
+	"cherry/internal/itemcode"
 	"cherry/internal/store"
 	"cherry/internal/testutil"
 )
@@ -202,6 +204,47 @@ func TestButlerRelayFallbackChief(t *testing.T) {
 		t.Fatal("a running contract with no stored chief spawns no butler")
 	}
 	checkButlerWire(t, "relay", body)
+}
+
+// TestButlerSkinItemsAreNumericIDs: every outfit code of every roster butler reaches ButlerSkinInfo.items (field 5) as its
+// numeric item id, face and animal parts included. Merry's CA codes are encoded too (SquareNumericItem is CU only; the
+// butler path uses itemcode.ID). avatarSkinColor (field 4) is the shipped skin_color. Spec 12.1 field numbers are checked.
+func TestButlerSkinItemsAreNumericIDs(t *testing.T) {
+	for _, d := range economy.ActiveButlers().Butlers {
+		skin := butlerSkin(d)
+		checkButlerWire(t, "skin", skin)
+		var got, want []uint64
+		for _, item := range pbAll(t, skin, 5) {
+			id, _ := protobufUintField(item, 1)
+			got = append(got, id)
+		}
+		for _, code := range d.Outfit {
+			id, ok := itemcode.ID(code)
+			if !ok {
+				t.Fatalf("%s: outfit code %s is not an item code", d.Name, code)
+			}
+			want = append(want, uint64(id))
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("%s: skin items %v, want %v", d.Name, got, want)
+		}
+		if c, _ := protobufUintField(skin, 4); c != uint64(d.SkinColor) {
+			t.Fatalf("%s: avatarSkinColor %d, want %d", d.Name, c, d.SkinColor)
+		}
+	}
+	merry, ok := economy.ButlerByID(1900000006)
+	if !ok {
+		t.Fatal("merry is not in the roster")
+	}
+	items := map[uint64]bool{}
+	for _, item := range pbAll(t, butlerSkin(merry), 5) {
+		id, _ := protobufUintField(item, 1)
+		items[id] = true
+	}
+	// CAEY0001O = 234100060 (eyes, animal face 41), CAEA0004N = 235700167 (ears, 57): the client's numeric ids.
+	if !items[234100060] || !items[235700167] {
+		t.Fatalf("merry's animal parts encoded as %v, want 234100060 and 235700167", items)
+	}
 }
 
 // TestButlerRelayChiefFields: relay start carries the owner's chief in fields 8 and 9 only while its contract runs,
