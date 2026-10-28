@@ -354,8 +354,8 @@ func TestButlerLookalikesAndSkins(t *testing.T) {
 			t.Fatalf("%s: skin_color %d, want %d", d.Name, d.SkinColor, want)
 		}
 	}
-	if d, ok := ButlerByID(merry); !ok || !slices.Equal(d.Lookalikes, []string{"CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N"}) {
-		t.Fatalf("merry look-alikes = %+v, want her four animal parts", d)
+	if d, ok := ButlerByID(merry); !ok || !slices.Equal(d.Lookalikes, []string{"CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"}) {
+		t.Fatalf("merry look-alikes = %+v, want her five animal parts", d)
 	}
 }
 
