@@ -58,7 +58,7 @@ Rule (user, 2026-10-28): everything Cherry invents must be distinguishable from 
 | Pictures: fish cards `/cherry/fish/`, gear `/cherry/fishing/`, season popups `/cherry/event/`, butler portraits `/cherry/butler/`, menu icons `/cherry/menu/` (Tabler, MIT), calendar cells `cherry_day*`, thumbnails/landscape/pet composites | route prefix / file prefix / `dp-cache\` |
 | Synthetic item names (`economy.ItemName`, "Hair 0066I"), mail sender "Cherry Staff", Friend aid 100000 "Friend", pet name "Minipet {n}" | in code or the marked data file |
 
-Not Cherry-made (do not block): tutorial clone avatar ids (the client requests them), `face_codes.txt` / `animal_face_codes.txt` (172 originals: 114 EY/NO/MO + 24 FA + 19 EA + 15 TL). Not yet re-verified against the archives: dressup set codes, lab grant codes, starter codes, FSV1/FSV5. Known debt: `economy/fishing.go` hard-codes the absolute archive path of the fish silhouette.
+Not Cherry-made (do not block): tutorial clone avatar ids (the client requests them), `face_codes.txt` / `animal_face_codes.txt` (172 originals: 114 EY/NO/MO + 24 FA + 19 EA + 15 TL). Not yet re-verified against the archives: dressup set codes, lab grant codes, starter codes, FSV1/FSV5. The fish silhouette path in `economy/fishing.go` is an original read in place, like the other archive paths (`thumbs`, `attendskin`, `web.artsStringsPath`, `cmd/cherry-assets`); not a marking issue (reclassified 2026-10-28). A configurable archive root for all of them belongs to Roadmap 5 "Distribution".
 
 ## Workflow (user instructions)
 

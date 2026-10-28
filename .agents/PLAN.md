@@ -72,7 +72,7 @@ Then recheck the lab: `git status`, the Cherry PID/path/hash, `adb devices` plus
      - Not built: the Book's Chat/Profile, intimacy, the skin shop and voices.
   4. **Marking leftovers:**
      - Check against the archives that these codes are original: dressup lists, starter codes, lab grant codes and Atelier FSV1/FSV5. They were flagged "unverified" in the inventory.
-     - `internal/economy/fishing.go:220` `fishSilhouette` hard-codes an absolute path into the read-only archive (`D:/Dev/projects/Cherry/.opencode/line-play-artifacts/…/fish_ani_0001.png`). Make it relative to the configured asset root, or embed a derived file.
+     - ~~`internal/economy/fishing.go:220` `fishSilhouette` absolute archive path~~ — reclassified 2026-10-28 (accepting session): it is the same in-place read pattern as the 8 other archive paths (AGENTS "Policies"), so not a marking leftover; a shared configurable archive root goes with Roadmap 5.
   5. **Open checks carried over** (classify or fix, with evidence):
      - **APK-only static CDN art:** `photozone/frame/`, `gacha`, `banner`, `actionsticker`, `notice_img`, `event_icon`, `preset`, `profilebg`, … Watch a fresh install's log for static 404s. An R2 upload needs the user's go-ahead.
      - **Befriend 1001↔1006** before any two-device test.
@@ -91,6 +91,10 @@ Then recheck the lab: `git status`, the Cherry PID/path/hash, `adb devices` plus
   - **Never set Butler vipGrade.** It raises the "Become VIP" gate, which is real money.
   - **Relative picture URLs.** Some picture URLs are relative to the client's static base, for example butler `skinImgUrl`. An empty one leaves an endless spinner.
   - **CRLF after `git checkout`.** On this host, `git checkout` of a file can leave CRLF and fail gofmt. Fix it with `sed -i 's/\r$//'`.
+
+### HANDOFF ACCEPTED — 2026-10-28 ~22:10 host time (new Claude Code session)
+
+Context loaded (AGENTS in full, PLAN handoff/Status/Roadmap 7/Home menu, HISTORY index). Lab recheck matches the snapshot, no corrections: tree clean at `9cfb842`; Cherry PID 50248 = `D:\Dev\projects\Cherry\cherry.exe`, SHA-256 prefix `466bc3237e044cf6`, log `cherry-butler5-20261028-private.log` with `lan=192.168.1.7`; emulator-5554 = AVD Cherry, emulator-5556 = AVD Jerry; YunDetectService PID 33036; `%LOCALAPPDATA%\Cherry\config\` holds only `streaming.json`. Continuing at Next steps 1 (Colorant spec).
 
 ## Status (2026-10-28 evening)
 
