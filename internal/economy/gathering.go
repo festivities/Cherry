@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"cherry/data"
+	"cherry/internal/assets"
 	"cherry/internal/opdata"
 	"cherry/internal/store"
 	"cherry/internal/thumbs"
@@ -348,4 +350,26 @@ func HandleGatherImage(w http.ResponseWriter, r *http.Request) {
 	}
 	file := "item" + strconv.FormatInt(id, 10) + ".png"
 	http.ServeFile(w, r, filepath.Join(thumbs.DpItemRoot, "craftitem", "garden01", "items", file))
+}
+
+// ServeGardenCraftArt answers GET /garden01/… and /craft01/… (the Bag and Factory art the client downloads from the
+// static base) from the archive, in place, when streaming is off. The craft folder is read first, then the download
+// cache: the uploader (cmd/cherry-assets) takes the same order, so the two never disagree. A miss returns false, so
+// the caller's 404 applies.
+func ServeGardenCraftArt(w http.ResponseWriter, r *http.Request) bool {
+	rel, ok := assets.CraftRel(r.URL.Path)
+	if !ok || r.Method != http.MethodGet {
+		return false
+	}
+	files := filepath.Dir(thumbs.DpItemRoot) // the device backup's files/ tree
+	for _, p := range []string{
+		filepath.Join(files, "item", "craftitem", filepath.FromSlash(rel)),
+		filepath.Join(files, "cache", filepath.FromSlash(rel)),
+	} {
+		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() {
+			http.ServeFile(w, r, p)
+			return true
+		}
+	}
+	return false
 }

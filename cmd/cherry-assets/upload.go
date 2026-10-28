@@ -394,6 +394,8 @@ func verifyGroup(key string) string {
 	}
 	parts := strings.Split(key, "/")
 	switch {
+	case craftGroup(key) != "":
+		return craftGroup(key)
 	case len(parts) > 2 && parts[1] == "item":
 		return "item:" + parts[2]
 	case len(parts) > 2 && parts[1] == "chatting":

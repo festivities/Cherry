@@ -42,7 +42,7 @@ func TestBuildObjectsMapsCategories(t *testing.T) {
 		"item/custom/123/dp.png",
 		"item/custom/123/sub/part.png",
 		"item/pet/326400389/texture.png",
-		"item/craftitem/garden01/x.png", // non-numeric folder: not served
+		"item/craftitem/garden01/x.png", // a Garden craft PNG (craft art, not an item): listed as static/garden01/x.png
 		"item/set/1/dp.png",             // kind not in ItemKinds
 		"cache/action/00005_chatting_deco_action_hello.png",
 		"cache/action/00001_chatting_deco_action_hello.png", // another version: not served
@@ -59,6 +59,7 @@ func TestBuildObjectsMapsCategories(t *testing.T) {
 		got[o.key] = o.cat + "|" + o.rel
 	}
 	want := map[string]string{
+		"static/garden01/x.png":                                    "|",
 		"static/animation/world_icon/b.png":                        "animation|world_icon/b.png",
 		"static/sound/BGM.ogg":                                     "sound|BGM.ogg",
 		"static/ui/MarbleChallengePopup.plist":                     "ui|MarbleChallengePopup.plist",

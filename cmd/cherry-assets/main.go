@@ -69,7 +69,7 @@ var bulkSources = []bulkSource{
 
 // object is one R2 object to upload. Bulk objects also feed their category's index.
 type object struct {
-	key  string // static/<cat>/<rel>, static/item/<kind>/<id>/<rel>, static/<dir>/<name> (map pack), static/chatting/action_hd/<name>, or cherry/... when generated
+	key  string // static/<cat>/<rel>, static/item/<kind>/<id>/<rel>, static/<dir>/<name> (map pack), static/chatting/action_hd/<name>, static/garden01|craft01/<rel> (craft art), or cherry/... when generated
 	path string // local file
 	size int64
 	cat  string // bulk category; "" for item and pack files
@@ -272,6 +272,11 @@ func listRoot(dataset string, first bool) ([]*object, error) {
 			objs = append(objs, &object{key: "static/chatting/action_hd/" + name, path: filepath.Join(chatDir, ent.Name()), size: info.Size()})
 		}
 	}
+	craft, err := craftObjects(dataset)
+	if err != nil {
+		return nil, err
+	}
+	objs = append(objs, craft...)
 	for _, kind := range assets.ItemKinds {
 		kindDir := filepath.Join(dataset, "item", kind)
 		ents, err := os.ReadDir(kindDir)
@@ -311,6 +316,59 @@ func listRoot(dataset string, first bool) ([]*object, error) {
 	return objs, nil
 }
 
+// craftObjects lists the Garden craft art of one dataset root (assets.CraftRel): the craft folder item/craftitem/ first,
+// then the download cache cache/, both at the same relative path. A path both folders hold is listed once, from the
+// craft folder, which is what cherry-assets serves in place when streaming is off (ServeGardenCraftArt). A missing
+// folder contributes nothing.
+func craftObjects(dataset string) ([]*object, error) {
+	var objs []*object
+	seen := map[string]bool{}
+	for _, base := range []string{filepath.Join(dataset, "item", "craftitem"), filepath.Join(dataset, "cache")} {
+		for _, dir := range assets.CraftDirs {
+			root := filepath.Join(base, dir)
+			if _, err := os.Stat(root); errors.Is(err, fs.ErrNotExist) {
+				continue
+			}
+			err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+				if err != nil {
+					return err
+				}
+				if d.IsDir() || !d.Type().IsRegular() {
+					return nil
+				}
+				rel := filepath.ToSlash(mustRel(base, p))
+				if _, ok := assets.CraftRel("/" + rel); !ok || seen[rel] {
+					return nil
+				}
+				seen[rel] = true
+				info, err := d.Info()
+				if err != nil {
+					return err
+				}
+				objs = append(objs, &object{key: "static/" + rel, path: p, size: info.Size()})
+				return nil
+			})
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", dir, err)
+			}
+		}
+	}
+	return objs, nil
+}
+
+// craftGroup names the plan group of a Garden craft object key ("craft:garden01"), or "" for any other key.
+func craftGroup(key string) string {
+	rel, ok := strings.CutPrefix(key, "static/")
+	if !ok {
+		return ""
+	}
+	if _, ok := assets.CraftRel("/" + rel); !ok {
+		return ""
+	}
+	dir, _, _ := strings.Cut(rel, "/")
+	return "craft:" + dir
+}
+
 // onlyPacks keeps the map pack objects.
 func onlyPacks(objs []*object) []*object {
 	var out []*object
@@ -342,7 +400,7 @@ func isDigits(s string) bool {
 	return true
 }
 
-// totals summarises the objects per group ("bulk:<cat>", "pack:<dir>", "chat:action", "item:<kind>", "generated").
+// totals summarises the objects per group ("bulk:<cat>", "pack:<dir>", "chat:action", "craft:<dir>", "item:<kind>", "generated").
 type totals struct {
 	count map[string]int
 	bytes map[string]int64
@@ -359,6 +417,8 @@ func summarize(objs []*object) totals {
 			group = "bulk:" + o.cat
 		case o.pack != "":
 			group = "pack:" + o.pack
+		case craftGroup(o.key) != "":
+			group = craftGroup(o.key)
 		case strings.HasPrefix(o.key, "static/chatting/"):
 			group = "chat:action"
 		default:
@@ -377,8 +437,8 @@ func printPlan(objs []*object) {
 		groups = append(groups, g)
 	}
 	sort.Strings(groups)
-	var bulkN, packN, chatN, itemN, genN int
-	var bulkB, packB, chatB, itemB, genB int64
+	var bulkN, packN, chatN, craftN, itemN, genN int
+	var bulkB, packB, chatB, craftB, itemB, genB int64
 	for _, g := range groups {
 		fmt.Printf("%-16s %8d objects %14d bytes\n", g, t.count[g], t.bytes[g])
 		switch {
@@ -391,6 +451,9 @@ func printPlan(objs []*object) {
 		case strings.HasPrefix(g, "chat:"):
 			chatN += t.count[g]
 			chatB += t.bytes[g]
+		case strings.HasPrefix(g, "craft:"):
+			craftN += t.count[g]
+			craftB += t.bytes[g]
 		case g == "generated":
 			genN += t.count[g]
 			genB += t.bytes[g]
@@ -402,9 +465,10 @@ func printPlan(objs []*object) {
 	fmt.Printf("%-16s %8d objects %14d bytes\n", "bulk total", bulkN, bulkB)
 	fmt.Printf("%-16s %8d objects %14d bytes\n", "pack total", packN, packB)
 	fmt.Printf("%-16s %8d objects %14d bytes\n", "chat total", chatN, chatB)
+	fmt.Printf("%-16s %8d objects %14d bytes\n", "craft total", craftN, craftB)
 	fmt.Printf("%-16s %8d objects %14d bytes\n", "item total", itemN, itemB)
 	fmt.Printf("%-16s %8d objects %14d bytes\n", "generated", genN, genB)
-	fmt.Printf("%-16s %8d objects %14d bytes\n", "all", bulkN+packN+chatN+itemN+genN, bulkB+packB+chatB+itemB+genB)
+	fmt.Printf("%-16s %8d objects %14d bytes\n", "all", bulkN+packN+chatN+craftN+itemN+genN, bulkB+packB+chatB+craftB+itemB+genB)
 }
 
 func main() {

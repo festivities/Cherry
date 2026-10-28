@@ -953,6 +953,10 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 	if streaming.ServeRoute(w, r) {
 		return
 	}
+	// Streaming off: the Garden craft art is read in place from the archive (streaming on: R2 alone answers it).
+	if streaming == nil && economy.ServeGardenCraftArt(w, r) {
+		return
+	}
 	// A converted iOS-only item (cmd/cherry-assets convert) answers from the local generated tree when R2 did not.
 	if assets.ServeGeneratedItem(w, r) {
 		return
