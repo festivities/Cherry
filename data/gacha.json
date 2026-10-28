@@ -1,4 +1,6 @@
 {
+  "origin": "cherry",
+  "note": "Cherry-made gacha: the id 1001 (inside CherryGachaFirst/Last 1001-2999; no archive holds an original gacha id), the name, prices, rates, refund and collection size. The kinds (fashion, interior) are the client's category names, chosen by Cherry.",
   "id": 1001,
   "name": "Cherry Gacha",
   "coin_price": 100,

@@ -74,7 +74,7 @@ func TestStarterFileRefusals(t *testing.T) {
 func TestStarterOverrideGrantsOperatorCodes(t *testing.T) {
 	t.Cleanup(starterFile.Reset)
 	path := filepath.Join(t.TempDir(), "starter.json")
-	text := `{"starter_codes": ["RUTI000EW", "RUWA000HR", "RUDO0002Z", "RUAB00002", "RUTI0007H"], "pet_name": "Pet-{n}"}`
+	text := `{"origin": "mixed", "note": "test", "starter_codes": ["RUTI000EW", "RUWA000HR", "RUDO0002Z", "RUAB00002", "RUTI0007H"], "pet_name": "Pet-{n}"}`
 	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
 		t.Fatal(err)
 	}

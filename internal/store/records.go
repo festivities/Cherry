@@ -129,6 +129,28 @@ type GatherDay struct {
 	Gems    int64            `json:"gems,omitempty"`
 }
 
+// ButlerBook is one account's Garden butlers (economy/butler.go): the butlers under contract, the chief the
+// Garden shows, whether the account's free first hire (once per account) is used, and the butler gathering of one
+// game day (Day). Replaced, never edited in place. Free is the list of the per-butler free hires written before the
+// account-wide flag: a non-empty list counts as used, and it is never written again (butlerBookOf drops it).
+type ButlerBook struct {
+	Hired    []ButlerHire `json:"hired,omitempty"`
+	Leader   int64        `json:"leader,omitempty"`
+	FreeUsed bool         `json:"freeUsed,omitempty"`
+	Free     []int64      `json:"free,omitempty"`
+	Day      int64        `json:"day,omitempty"`
+	Gems     int64        `json:"gems,omitempty"`    // Gems paid by butler gathering on Day
+	Gathers  int64        `json:"gathers,omitempty"` // butler gathers on Day
+}
+
+// ButlerHire is one butler's contract: Begin and End are epoch milliseconds, and the butler leaves the
+// book at End.
+type ButlerHire struct {
+	ID    int64 `json:"id"`
+	Begin int64 `json:"begin"`
+	End   int64 `json:"end"`
+}
+
 // AtelierState is one account's Garden Atelier state (economy/atelier.go): Stamina points as of
 // StaminaAt (epoch milliseconds, the regen timer base; only set while stamina is below full), and the
 // design ids of the blueprints bought with Smiles. A missing record means full stamina and none bought.

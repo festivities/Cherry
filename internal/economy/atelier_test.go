@@ -122,17 +122,17 @@ func TestAtelierOverrideReplacesDefault(t *testing.T) {
 	t.Cleanup(func() { atelierFile.Reset() })
 	dir := t.TempDir()
 	path := filepath.Join(dir, "atelier.json")
-	override := `{"stamina":{"max":3,"regen_seconds":60},
+	override := `{"origin":"mixed","note":"test","stamina":{"max":3,"regen_seconds":60},
 		"themes":[{"id":7,"kind":"material","name":"Test","information":"","banner":"b.png","icon":"i.png"}],
 		"goods":[{"id":490100,"name":"Test Good"}],
-		"designs":[{"id":700001,"theme":7,"product_material":490100,"inputs":[{"item":210000,"count":2}],"stamina":1,"blueprint_smiles":0}]}`
+		"designs":[{"id":101201,"theme":7,"product_material":490100,"inputs":[{"item":210000,"count":2}],"stamina":1,"blueprint_smiles":0}]}`
 	if err := os.WriteFile(path, []byte(override), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := atelierFile.LoadFrom(path); err != nil {
 		t.Fatalf("override: %v", err)
 	}
-	if a := ActiveAtelier(); a.Stamina.Max != 3 || len(a.Designs) != 1 || a.Designs[0].ID != 700001 {
+	if a := ActiveAtelier(); a.Stamina.Max != 3 || len(a.Designs) != 1 || a.Designs[0].ID != 101201 {
 		t.Fatalf("override not active: %+v", a)
 	}
 
@@ -140,10 +140,10 @@ func TestAtelierOverrideReplacesDefault(t *testing.T) {
 	if err := os.WriteFile(bad, []byte(strings.Replace(override, `"item":210000`, `"item":5`, 1)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := atelierFile.LoadFrom(bad); err == nil || !strings.Contains(err.Error(), "design 700001: input 5") || !strings.Contains(err.Error(), bad) {
+	if err := atelierFile.LoadFrom(bad); err == nil || !strings.Contains(err.Error(), "design 101201: input 5") || !strings.Contains(err.Error(), bad) {
 		t.Fatalf("bad override error = %v", err)
 	}
-	if a := ActiveAtelier(); len(a.Designs) != 1 || a.Designs[0].ID != 700001 {
+	if a := ActiveAtelier(); len(a.Designs) != 1 || a.Designs[0].ID != 101201 {
 		t.Fatal("a refused override changed the active recipes")
 	}
 

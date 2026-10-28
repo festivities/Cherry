@@ -38,6 +38,7 @@ import (
 //	shop[]            {id, name, kind "rod"|"bait", price, rare_bonus}: Gem-priced gear, bought once
 //	                  each; rare_bonus adds percentage points to the rare chance while in use.
 type Fishing struct {
+	opdata.Provenance
 	DailyCap    int64         `json:"daily_cap"`
 	RarePercent int           `json:"rare_percent"`
 	Fish        []FishDef     `json:"fish"`
@@ -63,7 +64,22 @@ var fishingFile = opdata.New("fishing.json", data.FishingJSON, checkFishing, nil
 // ActiveFishing is the fishing file in use.
 func ActiveFishing() *Fishing { return fishingFile.Get() }
 
+// CherryFishFirst and CherryFishLast bound the Square catch ids, fish and boss fish alike (fishing.json,
+// fishboss.json). The client takes them from the server; no archive holds an original Square fish id
+// (artsdata.db newfishlist is empty and the boss payload's FishId 4901 is Cherry's). CherryFishShopFirst and
+// CherryFishShopLast bound the fish shop item ids (rods and baits). Their numbers 9001-9199 overlap the Cherry
+// quest block, but the shop ids live in FishingGear and the quest ids in QuestDay, never in the same table.
+const (
+	CherryFishFirst     int64 = 4101
+	CherryFishLast      int64 = 4999
+	CherryFishShopFirst int64 = 9001
+	CherryFishShopLast  int64 = 9199
+)
+
 func checkFishing(f *Fishing) error {
+	if err := f.CheckOrigin("cherry"); err != nil {
+		return err
+	}
 	if f.DailyCap < 0 {
 		return errors.New("daily_cap must not be negative")
 	}
@@ -74,8 +90,8 @@ func checkFishing(f *Fishing) error {
 	ids := map[int64]bool{}
 	for i := range f.Fish {
 		fd := &f.Fish[i]
-		if fd.ID < 1 || ids[fd.ID] {
-			return fmt.Errorf("fish %d: id must be unique and positive", fd.ID)
+		if !inCherryBlock(fd.ID, CherryFishFirst, CherryFishLast) || ids[fd.ID] {
+			return fmt.Errorf("fish %d: id must be unique and inside the Cherry block %d-%d", fd.ID, CherryFishFirst, CherryFishLast)
 		}
 		if fd.Name == "" || fd.Gems < 0 || fd.Level < 0 {
 			return fmt.Errorf("fish %d: name must not be empty, gems and level must not be negative", fd.ID)
@@ -105,7 +121,7 @@ func checkFishing(f *Fishing) error {
 		default:
 			return fmt.Errorf("shop item %d: kind must be rod or bait, not %q", it.ID, it.KindName)
 		}
-		if it.ID < 1 || it.Name == "" || it.Price < 0 || it.RareBonus < 0 {
+		if !inCherryBlock(it.ID, CherryFishShopFirst, CherryFishShopLast) || it.Name == "" || it.Price < 0 || it.RareBonus < 0 {
 			return fmt.Errorf("shop item %d: id and name must be set, price and rare_bonus not negative", it.ID)
 		}
 	}

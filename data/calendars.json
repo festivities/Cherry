@@ -1,4 +1,6 @@
 {
+  "origin": "mixed",
+  "note": "Mixed. ORIGINAL: the item codes of the calendar rewards (item) and of the limited lists. A reward item must have art in the item archive (verifyCalendars refuses it otherwise); a limited code without art is logged and left out of the shop list. CHERRY-MADE: the login Gem, Cash and ticket amounts and the day order, the season names, titles, windows and colours, the choice of which original items each season shows, and the popup texts, colours, button skin and popup numbers no 9101, 9201, 9301 (CherryPopupFirst/Last).",
   "normal": {
     "ink": "#606094",
     "cycle": [

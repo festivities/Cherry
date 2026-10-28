@@ -35,6 +35,7 @@ import (
 //	reward                 gems per arrival, gems_daily_cap Gems a game day from arrivals, store_points,
 //	                       exp and mmr per arrival (all 0 or more)
 type Racing struct {
+	opdata.Provenance
 	Title              string        `json:"title"`
 	MaxTickets         int64         `json:"max_tickets"`
 	RosterDelayMs      int64         `json:"roster_delay_ms"`
@@ -92,6 +93,9 @@ var racingFile = opdata.New("racing.json", data.RacingJSON, checkRacing, nil)
 func ActiveRacing() *Racing { return racingFile.Get() }
 
 func checkRacing(r *Racing) error {
+	if err := r.CheckOrigin("cherry"); err != nil {
+		return err
+	}
 	area := func(name string, a RacingArea) error {
 		if a.BeginX < 0 || a.BeginY < 0 || a.EndX < a.BeginX || a.EndY < a.BeginY {
 			return fmt.Errorf("track %s: begin must not be past end, and no coordinate negative", name)

@@ -41,7 +41,9 @@ func TestSquaresDefaultList(t *testing.T) {
 func TestSquaresCheckRejectsBadData(t *testing.T) {
 	city := `{"theme":6,"name":"LINE City","list_name":"LINE City","map":"2401039000","map_size":160,"spawn":{"x":93,"y":80},"index":0,"visible":true}`
 	cafe := `{"theme":32,"name":"LINE Café","list_name":"LINE Café","map":"2202250100","map_size":160,"spawn":{"x":87,"y":85},"index":1,"visible":true}`
-	doc := func(entries ...string) string { return `{"squares":[` + strings.Join(entries, ",") + `]}` }
+	doc := func(entries ...string) string {
+		return `{"origin":"mixed","note":"test","squares":[` + strings.Join(entries, ",") + `]}`
+	}
 	for name, bad := range map[string]string{
 		"no LINE City":       doc(cafe),
 		"City listed twice":  doc(city, city),

@@ -1,4 +1,6 @@
 {
+  "origin": "mixed",
+  "note": "Mixed. ORIGINAL: the item codes in the categories, the dress lists and the set elements (the client's own item codes; only their shape is checked at startup). CHERRY-MADE: the set names (Style M1 to Animal Set 2), which codes are grouped into each set and the category lists chosen as the default look.",
   "male": {
     "categories": {
       "EYE": ["CUEY0000Q", "CUEY0000S"],

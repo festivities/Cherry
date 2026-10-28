@@ -52,6 +52,7 @@ import (
 //	face_tickets[]     {code, tickets, standard, price, name}: Face Shop ticket packs sold for Gems
 //	                   (price 0 to standard; standard at least 1)
 type Prices struct {
+	opdata.Provenance
 	ClothingPrices  map[string]int64  `json:"clothing_prices"`
 	InteriorPrice   int64             `json:"interior_price"`
 	InteriorPrices  map[string]int64  `json:"interior_prices"`
@@ -83,6 +84,9 @@ var pricesFile = opdata.New("prices.json", data.PricesJSON, checkPrices, nil)
 func ActivePrices() *Prices { return pricesFile.Get() }
 
 func checkPrices(p *Prices) error {
+	if err := p.CheckOrigin("mixed"); err != nil {
+		return err
+	}
 	if err := checkCategoryMap("clothing_prices", p.ClothingPrices); err != nil {
 		return err
 	}

@@ -96,6 +96,7 @@ type avatarSetRollEntry struct {
 //
 // Item codes are checked for shape only (store.ValidItemCode); the archive is not consulted.
 type Dressup struct {
+	opdata.Provenance
 	Male   Look `json:"male"`
 	Female Look `json:"female"`
 	Animal Look `json:"animal"`
@@ -127,6 +128,9 @@ var (
 func dressupCurrent() *Dressup { return dressupFile.Get() }
 
 func checkDressup(d *Dressup) error {
+	if err := d.CheckOrigin("mixed"); err != nil {
+		return err
+	}
 	if err := checkLook("male", &d.Male, humanCategories); err != nil {
 		return err
 	}

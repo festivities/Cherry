@@ -18,6 +18,7 @@ import (
 //	               layout places them, and the client refuses to save a floor 1 without a door and a diary.
 //	pet_name       the default name of a pet; {n} is the pet's number in its owner's list
 type Starter struct {
+	opdata.Provenance
 	StarterCodes []string `json:"starter_codes"`
 	PetName      string   `json:"pet_name"`
 }
@@ -36,6 +37,9 @@ func PetName(n int) string {
 }
 
 func checkStarter(s *Starter) error {
+	if err := s.CheckOrigin("mixed"); err != nil {
+		return err
+	}
 	seen := map[string]bool{}
 	for _, code := range s.StarterCodes {
 		if !store.ValidItemCode(code) || seen[code] {

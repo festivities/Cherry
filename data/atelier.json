@@ -1,4 +1,6 @@
 {
+  "origin": "mixed",
+  "note": "Mixed. ORIGINAL: theme ids 1012 and 1013 and their banners (cache/craft01/<theme>/); goods ids 490000-491002 (item/craftitem/garden01/items art); the input material ids 110000-331000 (the gathering drops); the clothing item codes of the designs (item codes with art). CHERRY-MADE: the stamina rule, the goods and design names, every recipe (inputs, counts, stamina, blueprint Smiles), which original item each design makes, and the design ids 101201-101399 (CherryDesignFirst/Last; no archive holds a recipe or design).",
   "stamina": {"max": 100, "regen_seconds": 300},
   "themes": [
     {"id": 1012, "kind": "material", "name": "Garden Craft", "information": "Turn gathered Garden materials into goods.", "banner": "craft01/1012/craft_1012_home_banner.png", "icon": "craft01/1012/craft_1012_home_list_item.png"},

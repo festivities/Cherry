@@ -110,7 +110,7 @@ func TestSquareUnlistedThemeReturnsToCity(t *testing.T) {
 // An operator file can hide a Square: it is not listed and a request for it goes to LINE City.
 func TestSquareOperatorFileHidesSquare(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "squares.json")
-	doc := `{"squares":[
+	doc := `{"origin":"mixed","note":"test","squares":[
 	  {"theme":6,"name":"LINE City","list_name":"LINE City","map":"2401039000","map_size":160,"spawn":{"x":93,"y":80},"index":0,"visible":true},
 	  {"theme":33,"name":"Runway Square","list_name":"Runway Square","map":"2310272600","map_size":180,"spawn":{"x":85,"y":81},"index":1,"visible":false}
 	]}`

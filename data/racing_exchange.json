@@ -1,4 +1,6 @@
 {
+  "origin": "mixed",
+  "note": "Mixed. ORIGINAL: the item codes of the rows (sellable, not pets: verifyRideShop). CHERRY-MADE: the row ids 1-5 (CherryRideShopRowFirst/Last; a reservation, the rows come from the server) and the Ride Point prices.",
   "rows": [
     {"id": 1, "item_code": "CUTO0018W", "price": 20},
     {"id": 2, "item_code": "CUON000GT", "price": 30},

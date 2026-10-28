@@ -32,6 +32,7 @@ import (
 // Every row costs Boss Coins (there is no event currency yet). An item the account already owns is
 // refused, not sold back (the shop refuses owned clothing the same way).
 type Exchange struct {
+	opdata.Provenance
 	Title     string          `json:"title"`
 	TitleDesc string          `json:"title_desc"`
 	Rows      []ExchangeRow   `json:"rows"`
@@ -59,7 +60,18 @@ func ActiveExchange() *Exchange { return exchangeFile.Get() }
 // checkExchange validates the structure: a title, a non-empty standing group, unique positive ids and
 // positive prices, and a season name on every event. The item codes and the season names are checked
 // at startup (verifyExchange), once the item archive and the calendars are loaded.
+// CherryExchangeRowFirst and CherryExchangeRowLast bound the Boss Coin exchange row ids (exchange.json; the client
+// sends the row id back as gacha_id, exchange-spec). The standing rows are 1001-1006, the Halloween rows 2001-2004.
+// The rows come from the server, so no archive holds an original row id; the block is a reservation.
+const (
+	CherryExchangeRowFirst int64 = 1001
+	CherryExchangeRowLast  int64 = 2999
+)
+
 func checkExchange(e *Exchange) error {
+	if err := e.CheckOrigin("mixed"); err != nil {
+		return err
+	}
 	if e.Title == "" {
 		return errors.New("title must not be empty")
 	}
@@ -70,8 +82,8 @@ func checkExchange(e *Exchange) error {
 	check := func(where string, rows []ExchangeRow) error {
 		for i, r := range rows {
 			switch {
-			case r.ID < 1:
-				return fmt.Errorf("%s row %d: id must be at least 1", where, i+1)
+			case !inCherryBlock(r.ID, CherryExchangeRowFirst, CherryExchangeRowLast):
+				return fmt.Errorf("%s row %d: id %d is outside the Cherry block %d-%d", where, i+1, r.ID, CherryExchangeRowFirst, CherryExchangeRowLast)
 			case seen[r.ID]:
 				return fmt.Errorf("%s row %d: id %d is used twice", where, i+1, r.ID)
 			case r.Price < 1:

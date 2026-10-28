@@ -36,6 +36,7 @@ import (
 // The default must be one of gardens[]. An owner's override is set with /admin/garden; an override that
 // is no longer listed falls back to the default.
 type Gardens struct {
+	opdata.Provenance
 	Default string        `json:"default"`
 	Gardens []GardenEntry `json:"gardens"`
 }
@@ -100,6 +101,9 @@ var gardensFile = opdata.New("gardens.json", data.GardensJSON, checkGardens, nil
 // once and named, generated needs a landscape, a fish spot names a host, a dword@0 above 0 and a tile on
 // the map, and the default is one of them.
 func checkGardens(g *Gardens) error {
+	if err := g.CheckOrigin("mixed"); err != nil {
+		return err
+	}
 	seen := map[string]bool{}
 	landscapes := map[string]bool{}
 	for i, e := range g.Gardens {

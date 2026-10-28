@@ -1,0 +1,23 @@
+{
+  "origin": "cherry",
+  "note": "Cherry-made butlers: names, skins, prices and gathering amounts are Cherry's own, not original game data. Hire prices are in earned Cash (cash). Ids lie in the Cherry block 1900000000-1900000999 (economy.CherryButlerFirst/Last); skin codes start with cherry_.",
+  "free_days": 3,
+  "hire": [
+    {"days": 7, "cash": 10},
+    {"days": 30, "cash": 30}
+  ],
+  "gathering": {
+    "kinds": ["essence", "ore"],
+    "gems": 3,
+    "gems_cap": 10,
+    "gathers_per_day": 10
+  },
+  "butlers": [
+    {"id": 1900000001, "name": "Hazel", "gender": "FEMALE", "skin": "cherry_hazel",
+      "outfit": ["CUON004BH", "CUHA0003L", "CUSH0005G"], "skin_color": 0},
+    {"id": 1900000002, "name": "Wren", "gender": "FEMALE", "skin": "cherry_wren",
+      "outfit": ["CUON001CG", "CUHA0003C", "CUSH0006G"], "skin_color": 0},
+    {"id": 1900000003, "name": "Oswin", "gender": "MALE", "skin": "cherry_oswin",
+      "outfit": ["CUON001DI", "CUHA00052", "CUSH0007O"], "skin_color": 0}
+  ]
+}

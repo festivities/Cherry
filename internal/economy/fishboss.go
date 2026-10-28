@@ -44,6 +44,7 @@ import (
 //
 // The chart must be able to deal max_hp: len(play_note) * damage_per_hit >= max_hp.
 type FishBoss struct {
+	opdata.Provenance
 	MaxTries      int64      `json:"max_tries"`
 	ResetGems     int64      `json:"reset_gems"`
 	MaxPlayers    int64      `json:"max_players"`
@@ -108,6 +109,9 @@ var fishbossFile = opdata.New("fishboss.json", data.FishbossJSON, checkFishBoss,
 func ActiveFishBoss() *FishBoss { return fishbossFile.Get() }
 
 func checkFishBoss(f *FishBoss) error {
+	if err := f.CheckOrigin("cherry"); err != nil {
+		return err
+	}
 	if f.MaxTries < 1 {
 		return errors.New("max_tries must be at least 1")
 	}
@@ -144,8 +148,8 @@ func checkFishBoss(f *FishBoss) error {
 			return fmt.Errorf("play_note[%d] digit %c has no note_detail entry", i, c)
 		}
 	}
-	if f.Boss.ID < 1 || f.Boss.Name == "" {
-		return errors.New("boss id must be positive and the name set")
+	if !inCherryBlock(f.Boss.ID, CherryFishFirst, CherryFishLast) || f.Boss.Name == "" {
+		return fmt.Errorf("boss id must be inside the Cherry fish block %d-%d and the name set", CherryFishFirst, CherryFishLast)
 	}
 	if f.Boss.MaxHp < 1 {
 		return errors.New("boss max_hp must be positive")

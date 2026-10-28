@@ -1,4 +1,6 @@
 {
+  "origin": "cherry",
+  "note": "Cherry-made rewards: the welcome Gems, the daily quests (ids 9001-9005 in CherryQuestFirst/Last; names, descriptions, Gem rewards and trigger keys), the season event quests (ids 9101-9303), the hearts rule and the mail rules (the sender 'Cherry Staff'). No original quest id, goal or reward exists in the archives (phaseD quests.md).",
   "welcome_gems": 300,
   "quests": [
     {"id": 9001, "key": "garden-own", "name": "Visit your Garden", "desc": "Enter your own Garden today.", "gems": 30},

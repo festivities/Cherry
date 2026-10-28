@@ -1,4 +1,6 @@
 {
+  "origin": "mixed",
+  "note": "Mixed. ORIGINAL: the item codes of the rows (sellable, with art: verifyExchange). CHERRY-MADE: the office title and description, the row ids 1001-1006 and 2001-2004 (CherryExchangeRowFirst/Last; a reservation, the rows come from the server), the Boss Coin prices, and the Halloween event rows.",
   "title": "Boss Coin Exchange",
   "title_desc": "Trade Boss Coins from Square boss fishing for items.",
   "rows": [

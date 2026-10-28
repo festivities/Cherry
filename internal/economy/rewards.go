@@ -27,6 +27,7 @@ import (
 //	mail              sender: the name on staff mail; default_days: expiry when a staff grant gives none;
 //	                  max_amount: largest Gem, Cash or ticket amount per mail row; max_rows: mailbox size
 type Rewards struct {
+	opdata.Provenance
 	WelcomeGems int64        `json:"welcome_gems"`
 	Quests      []QuestDef   `json:"quests"`
 	EventQuests []EventQuest `json:"event_quests"`
@@ -77,7 +78,18 @@ func HeartQuest() QuestDef {
 	return QuestDef{}
 }
 
+// CherryQuestFirst and CherryQuestLast bound the quest ids Cherry makes: the daily quests (9001-9005) and the
+// event quests of each season (9101-9103 Halloween, 9201-9203 Winter, 9301-9303 New Year). The client compiles
+// no quest goal or reward (phaseD quests.md), and no archive holds a quest id.
+const (
+	CherryQuestFirst int64 = 9001
+	CherryQuestLast  int64 = 9399
+)
+
 func checkRewards(r *Rewards) error {
+	if err := r.CheckOrigin("cherry"); err != nil {
+		return err
+	}
 	switch {
 	case r.WelcomeGems < 0:
 		return errors.New("welcome_gems must not be negative")
@@ -101,8 +113,8 @@ func checkRewards(r *Rewards) error {
 	hearts := 0
 	for i := range r.Quests {
 		q := &r.Quests[i]
-		if q.ID < 1 || ids[q.ID] {
-			return fmt.Errorf("quest %d: id must be unique and positive", q.ID)
+		if !inCherryBlock(q.ID, CherryQuestFirst, CherryQuestLast) || ids[q.ID] {
+			return fmt.Errorf("quest %d: id must be unique and inside the Cherry block %d-%d", q.ID, CherryQuestFirst, CherryQuestLast)
 		}
 		ids[q.ID] = true
 		if q.Name == "" {
@@ -140,8 +152,8 @@ func checkRewards(r *Rewards) error {
 	eventKeys := map[string]map[string]bool{} // season -> keys of its event quests
 	for _, e := range r.EventQuests {
 		switch {
-		case e.ID < 1 || ids[e.ID]:
-			return fmt.Errorf("event quest %d: id must be unique and positive", e.ID)
+		case !inCherryBlock(e.ID, CherryQuestFirst, CherryQuestLast) || ids[e.ID]:
+			return fmt.Errorf("event quest %d: id must be unique and inside the Cherry block %d-%d", e.ID, CherryQuestFirst, CherryQuestLast)
 		case e.Name == "":
 			return fmt.Errorf("event quest %d: name must not be empty", e.ID)
 		case !seasonNames[e.Season]:

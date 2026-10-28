@@ -1,4 +1,6 @@
 {
+  "origin": "mixed",
+  "note": "Mixed. ORIGINAL: the link types (the goSomewhere(...) keys are the client's home menu rows) and the native scene names they name. CHERRY-MADE: every row label, the icon files (data/menuicons, Tabler Icons MIT, rendered by scripts/render-menu-icons.py) and the choice of rows (PLAN Home menu lists the kept and removed rows).",
   "labels": {
     "goSomewhere(closet)": "Closet",
     "goSomewhere(myfriends)": "Friends",
@@ -43,7 +45,10 @@
     "goSomewhere(gardeneditcloud)": "Garden Edit Cloud",
     "goSomewhere(bag)": "Bag",
     "goSomewhere(factory)": "Factory",
-    "goSomewhere(randomGarden)": "Random Garden"
+    "goSomewhere(randomGarden)": "Random Garden",
+    "goSomewhere(butlerShop)": "Butler Shop",
+    "goSomewhere(butlerBook)": "Butler Book",
+    "goSomewhere(butlerSkinSelect)": "Butler Skins"
   },
   "icons": {
     "goSomewhere(closet)": "shirt.png",
@@ -89,6 +94,9 @@
     "goSomewhere(gardeneditcloud)": "cloud-upload.png",
     "goSomewhere(bag)": "backpack.png",
     "goSomewhere(factory)": "building-factory-2.png",
-    "goSomewhere(randomGarden)": "dice-4.png"
+    "goSomewhere(randomGarden)": "dice-4.png",
+    "goSomewhere(butlerShop)": "building-store.png",
+    "goSomewhere(butlerBook)": "book-2.png",
+    "goSomewhere(butlerSkinSelect)": "palette.png"
   }
 }

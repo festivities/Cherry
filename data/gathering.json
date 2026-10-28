@@ -1,4 +1,6 @@
 {
+  "origin": "mixed",
+  "note": "Mixed. ORIGINAL: the drop item ids 110000-331000 and their art (item/craftitem/garden01/items). CHERRY-MADE: the drop names (no item-name table is in the archives; Star Fragment (310000) also appears in the client string table, arts_strings 12005, so that name may be the original; the rest are Cherry's), the drop weights, the caps, Smiles, Gems, bag slots and fish length rules.",
   "own_cap": 20,
   "friend_cap": 5,
   "friend_gardens": 3,

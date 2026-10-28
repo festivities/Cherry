@@ -21,6 +21,7 @@ import (
 //	clone_avatars    {avatar id: "MALE" | "FEMALE" | "ANIMAL"}: the sex of each clone avatar
 //	lab_grant_codes  clothing item codes every lab account owns on top of its inventory (LabAids)
 type Profiles struct {
+	opdata.Provenance
 	FriendName    string            `json:"friend_name"`
 	CloneName     string            `json:"clone_name"`
 	CloneAvatars  map[string]string `json:"clone_avatars"`
@@ -42,6 +43,9 @@ func FriendName() string { return ActiveProfiles().FriendName }
 func CuratedGrantCodes() []string { return ActiveProfiles().LabGrantCodes }
 
 func checkProfiles(p *Profiles) error {
+	if err := p.CheckOrigin("mixed"); err != nil {
+		return err
+	}
 	if strings.TrimSpace(p.FriendName) == "" {
 		return errors.New("friend_name must not be empty")
 	}

@@ -328,6 +328,7 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 			if agent == 10 && msgid == 3 && gardenRoomEntered && length == 12 && bytes.Equal(frame[2:10], gardenRoomTunnel[:]) {
 				body := gardenRelayStart(gardenOwnerAid, gardenLoginAid, conn, frame[1], frame[2:10], logger)
 				body = append(body, gardenGatherRelay(gardenLoginAid, gardenOwnerAid, economy.NowFunc())...)
+				body = append(body, gardenButlerRelay(gardenOwnerAid, economy.NowFunc())...) // fields 8 and 9: the chief (garden_butler.go)
 				reply := make([]byte, 16+len(body))
 				binary.BigEndian.PutUint32(reply, uint32(12+len(body)))
 				reply[4], reply[5] = 'G', frame[1]
@@ -365,6 +366,12 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 			if agent == 10 && gardenLandscapeMsg(msgid) && gardenRelayStarted && length >= 12 && bytes.Equal(frame[2:10], gardenRoomTunnel[:]) {
 				if err := gardenLandscapeHandle(conn, frame, msgid, gardenLoginAid, gardenOwnerAid, landscape, logger); err != nil {
 					logger.Printf("OBS %s garden-landscape remote=%s err=%v", addr, remote, err)
+					return
+				}
+			}
+			if agent == 10 && gardenButlerMsg(msgid) && gardenRelayStarted && length >= 12 && bytes.Equal(frame[2:10], gardenRoomTunnel[:]) {
+				if err := gardenButlerHandle(conn, frame, msgid, gardenLoginAid, logger); err != nil {
+					logger.Printf("OBS %s garden-butler remote=%s err=%v", addr, remote, err)
 					return
 				}
 			}

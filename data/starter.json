@@ -1,4 +1,6 @@
 {
+  "origin": "mixed",
+  "note": "Mixed. ORIGINAL: the four starter item codes (the client's room item codes; their shape is checked, not their art). CHERRY-MADE: which four items a new avatar gets and the minipet name pattern 'Minipet {n}'.",
   "starter_codes": ["RUTI000EW", "RUWA000HR", "RUDO0002Z", "RUAB00002"],
   "pet_name": "Minipet {n}"
 }

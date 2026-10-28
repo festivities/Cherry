@@ -30,6 +30,7 @@ import (
 // An item the account already owns stays on the list, marked owned (the client disables its button),
 // and a buy of it is refused.
 type RideShop struct {
+	opdata.Provenance
 	Rows  []RideShopRow `json:"rows"`
 	Begin time.Time     `json:"begin"`
 	End   time.Time     `json:"end"`
@@ -55,7 +56,17 @@ func ActiveRideShop() *RideShop { return rideShopFile.Get() }
 
 // checkRideShop validates the structure: ids unique and at least 1, prices at least 1, a set item code,
 // and a period whose end is after its begin. The item codes are checked at startup (verifyRideShop).
+// CherryRideShopRowFirst and CherryRideShopRowLast bound the Ride Point shop row ids (racing_exchange.json; the
+// client's ShopId). The rows come from the server, so no archive holds an original row id; rows 1-5 are Cherry's.
+const (
+	CherryRideShopRowFirst int64 = 1
+	CherryRideShopRowLast  int64 = 99
+)
+
 func checkRideShop(s *RideShop) error {
+	if err := s.CheckOrigin("mixed"); err != nil {
+		return err
+	}
 	if !s.Begin.IsZero() && !s.End.IsZero() && !s.End.After(s.Begin) {
 		return errors.New("end must be after begin")
 	}
@@ -63,8 +74,8 @@ func checkRideShop(s *RideShop) error {
 	for i, r := range s.Rows {
 		where := fmt.Sprintf("row %d", i+1)
 		switch {
-		case r.ID < 1:
-			return fmt.Errorf("%s: id must be at least 1", where)
+		case !inCherryBlock(r.ID, CherryRideShopRowFirst, CherryRideShopRowLast):
+			return fmt.Errorf("%s: id %d is outside the Cherry block %d-%d", where, r.ID, CherryRideShopRowFirst, CherryRideShopRowLast)
 		case seen[r.ID]:
 			return fmt.Errorf("%s: id %d is used twice", where, r.ID)
 		case r.Price < 1:

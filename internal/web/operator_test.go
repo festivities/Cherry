@@ -91,7 +91,7 @@ func TestDressupFileRefusals(t *testing.T) {
 		{mutateWeb(t, raw, `"EAR": ["CAEA0000E", "CAEA0000M"]`, `"EAR": ["CAEA0000E", "CAEA0000M"], "PAW": []`), `animal: category "PAW" must be one of`},
 		{mutateWeb(t, raw, `"CUHA00053"`, `"CUHA0005"`), `male FHAIR: "CUHA0005" is not an item code`},
 		{mutateWeb(t, raw, `"name": "Animal Set 1"`, `"name": ""`), "animal: set CATO000IU needs a name"},
-		{`{"male": {"sets": []}, "female": {}, "animal": {}}`, "male: sets must list at least one look"},
+		{`{"origin":"mixed","note":"test","male": {"sets": []}, "female": {}, "animal": {}}`, "male: sets must list at least one look"},
 	}
 	for _, c := range cases {
 		refuseWeb(t, dressupFile.LoadFrom, "dressup.json", c.text, c.want)

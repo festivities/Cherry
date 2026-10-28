@@ -1,4 +1,6 @@
 {
+  "origin": "cherry",
+  "note": "Cherry-made Riding Pet Race: the title (echoes the client's wording, arts_strings 7566), the ticket, timing and track values (the course on the Pet Theme Park map 2201202900 is Cherry's: row 69, start 75, finish 112), the pet stats, the grades (Rookie, Silver, Gold), the experience and the rewards.",
   "title": "Riding Pet Race",
   "max_tickets": 5,
   "roster_delay_ms": 3000,

@@ -49,10 +49,18 @@ var popupLinks = []string{"closet", "diary", "myRoom", "interiorShop", "fashionS
 const popupButtonSkins = 15
 
 // checkSeasonPopup validates the popup of one season; seen holds the popup numbers already used.
+// CherryPopupFirst and CherryPopupLast bound the season popup numbers (calendars.json popup.no): Cherry's own
+// numbers, the season's first event quest id (9101 Halloween, 9201 Winter, 9301 New Year). No archive holds an
+// original popup number that is readable here (eventPopup.db is not a SQLite file).
+const (
+	CherryPopupFirst int64 = 9101
+	CherryPopupLast  int64 = 9399
+)
+
 func checkSeasonPopup(season string, p *seasonPopupJSON, seen map[int64]bool) error {
 	switch {
-	case p.No < 1 || seen[p.No]:
-		return fmt.Errorf("season %s: popup no must be unique and positive", season)
+	case !inCherryBlock(p.No, CherryPopupFirst, CherryPopupLast) || seen[p.No]:
+		return fmt.Errorf("season %s: popup no must be unique and inside the Cherry block %d-%d", season, CherryPopupFirst, CherryPopupLast)
 	case p.Title == "" || p.Sub == "":
 		return fmt.Errorf("season %s: popup title and sub must not be empty", season)
 	case p.CookieHours < 1 || p.CookieHours > 8760:

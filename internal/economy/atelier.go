@@ -62,6 +62,7 @@ const (
 
 // Atelier is the parsed recipe file.
 type Atelier struct {
+	opdata.Provenance
 	Stamina AtelierStaminaRule `json:"stamina"`
 	Themes  []AtelierTheme     `json:"themes"`
 	Goods   []AtelierGood      `json:"goods"`
@@ -174,7 +175,18 @@ func parseAtelier(raw []byte) (*Atelier, error) {
 	return opdata.Decode(raw, (*Atelier).check)
 }
 
+// CherryDesignFirst and CherryDesignLast bound the Atelier design ids (atelier.json). The themes 1012 and 1013 are
+// original (their banners are in cache/craft01), but no archive holds a recipe or design: the designs are
+// Cherry-made, numbered theme*100+n, and the block is reserved for them.
+const (
+	CherryDesignFirst int64 = 101201
+	CherryDesignLast  int64 = 101399
+)
+
 func (a *Atelier) check() error {
+	if err := a.CheckOrigin("mixed"); err != nil {
+		return err
+	}
 	if a.Stamina.Max < 1 {
 		return errors.New("stamina.max must be at least 1")
 	}
@@ -219,8 +231,8 @@ func (a *Atelier) check() error {
 	hasDesign := map[int64]bool{}
 	products := map[string]int64{}
 	for _, d := range a.Designs {
-		if d.ID < 1 || designs[d.ID] {
-			return fmt.Errorf("design %d: id must be unique and positive", d.ID)
+		if !inCherryBlock(d.ID, CherryDesignFirst, CherryDesignLast) || designs[d.ID] {
+			return fmt.Errorf("design %d: id must be unique and inside the Cherry block %d-%d", d.ID, CherryDesignFirst, CherryDesignLast)
 		}
 		kind, ok := themeKind[d.Theme]
 		if !ok {

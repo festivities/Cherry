@@ -37,6 +37,7 @@ import (
 //	                  drop, the weights of a kind sum above 0, and an item id is one material only.
 //	                  Names are Cherry-made (the client has no name table for these ids).
 type Gathering struct {
+	opdata.Provenance
 	OwnCap        int64                   `json:"own_cap"`
 	FriendCap     int64                   `json:"friend_cap"`
 	FriendGardens int64                   `json:"friend_gardens"`
@@ -62,6 +63,9 @@ var gatheringFile = opdata.New("gathering.json", data.GatheringJSON, checkGather
 func ActiveGathering() *Gathering { return gatheringFile.Get() }
 
 func checkGathering(g *Gathering) error {
+	if err := g.CheckOrigin("mixed"); err != nil {
+		return err
+	}
 	for _, v := range []struct {
 		key string
 		val int64

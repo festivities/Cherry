@@ -59,7 +59,8 @@ func TestRideShopFileRefusals(t *testing.T) {
 	cases := []struct{ text, want string }{
 		{mutateDefault(t, def, `"price": 20`, `"price": 0`), "row 1 (id 1): price must be at least 1 Ride Point"},
 		{mutateDefault(t, def, `"id": 2,`, `"id": 1,`), "row 2: id 1 is used twice"},
-		{mutateDefault(t, def, `"id": 1, "item_code"`, `"id": 0, "item_code"`), "row 1: id must be at least 1"},
+		{mutateDefault(t, def, `"id": 1, "item_code"`, `"id": 0, "item_code"`), "row 1: id 0 is outside the Cherry block 1-99"},
+		{mutateDefault(t, def, `"id": 1, "item_code"`, `"id": 100, "item_code"`), "row 1: id 100 is outside the Cherry block 1-99"},
 		{mutateDefault(t, def, `"item_code": "CUTO0018W"`, `"item_code": "CUZZ0018W"`), "item CUZZ0018W is not a sellable item code"},
 		{mutateDefault(t, def, `"item_code": "CUTO0018W"`, `"item_code": "CUTO00099"`), "item CUTO00099 has no art"},
 		{mutateDefault(t, def, `"item_code": "CUTO0018W"`, `"item_code": "PUPE00077"`), "item PUPE00077 is a pet"},

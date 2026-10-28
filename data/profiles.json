@@ -1,4 +1,6 @@
 {
+  "origin": "mixed",
+  "note": "Mixed. ORIGINAL: the four clone avatar ids (1151262555912366100, 1151262590612422506, 1151262602112441105, 1151262571612391402: the built-in avatars NaCreateLayer::InitCloneAvatars requests, observed in JICAMA.md), and the lab grant item codes (their shape is checked). CHERRY-MADE: the synthetic friend's name (its aid 100000, store.FriendAID, is Cherry's), the clone name, each clone's sex and looks (the authentic item lists are not in the archives).",
   "friend_name": "Friend",
   "clone_name": "cherry",
   "clone_avatars": {

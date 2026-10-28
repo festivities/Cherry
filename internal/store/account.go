@@ -120,6 +120,7 @@ type Account struct {
 	Pins           []string         // avatar ids on the requester's My Pins, in pin order (web/pins.go); replaced, never edited in place
 	DiaryProfile   *DiaryProfile    // Diary profile edit fields (diaryprofile.go, web/profileedit.go); replaced, never edited in place
 	Wishes         []string         // item codes on the requester's wish list, at most four (web/wishlist.go); replaced, never edited in place
+	Butlers        *ButlerBook      // Garden butlers: contracts, chief, gathering (economy/butler.go); replaced, never edited in place
 }
 
 // FishingGear is the Square fishing gear an account bought (economy/fishing_shop.go): the item IDs

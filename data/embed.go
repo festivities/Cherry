@@ -136,3 +136,9 @@ var RemodelJSON []byte
 //
 //go:embed cherrytips.json
 var CherryTipsJSON []byte
+
+// ButlersJSON is the Garden butler roster, the hire prices and the butler gathering amounts: Cherry-made
+// (economy/butler.go).
+//
+//go:embed butlers.json
+var ButlersJSON []byte

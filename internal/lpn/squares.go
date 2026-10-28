@@ -13,6 +13,7 @@ import (
 // Squares is data/squares.json: the Squares in the Square list (rc_themelist_res) and the map and spawn
 // each one loads (rc_room_enter_res, relaystart). Theme is the world type the client keys on (ThemeId).
 type Squares struct {
+	opdata.Provenance
 	Squares []Square `json:"squares"`
 }
 
@@ -44,6 +45,9 @@ func LoadOperatorData() error { return squaresFile.Load() }
 // checkSquares: unique themes, names and map folder set, spawn inside the map, and LINE City (theme 6)
 // listed on its own map: the fishing, boss, exchange, race and Ride Point NPCs are placed there.
 func checkSquares(s *Squares) error {
+	if err := s.CheckOrigin("mixed"); err != nil {
+		return err
+	}
 	seen := map[uint64]bool{}
 	city := false
 	for _, sq := range s.Squares {

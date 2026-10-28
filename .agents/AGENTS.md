@@ -36,6 +36,30 @@ Reconstruct a Go server emulator ("Cherry") for LINE PLAY (jp.naver.lineplay.and
 - **Live data is private.** Accounts, tokens, social data, ledger, media and raw logs/pcaps stay outside Git; docs summarize method/path/status and protocol metadata only.
 - **Resets:** prefer the in-game **Delete Avatar** flow to restart an account. App-data resets / new guests only on explicit user request (done: emulator 2026-10-03, phone 2026-10-07). Back up `accounts.json` (and `social.json`) before any data edit, and stop Cherry before offline store edits.
 
+### Cherry-made content (marking pass 2026-10-28 evening; full inventory with evidence `%TEMP%\opencode\cherry\cherry-made-20261028\inventory.md`)
+
+Rule (user, 2026-10-28): everything Cherry invents must be distinguishable from original ground truth. Every `data/*.json` carries `"origin"` (`cherry` = wholly Cherry-made, `mixed` = original ids/art + Cherry-made values, the `note` says per field which) via `opdata.Provenance` (required by the strict loader); Cherry-invented id families live in reserved blocks with startup validation; Cherry-made pictures are served only under `/cherry/…` routes or cached in `dp-cache\`, and stored only under R2 `cherry/`.
+
+| Content | Marker |
+| --- | --- |
+| Data files: `fishing`, `fishboss`, `gacha`, `racing`, `rewards`, `butlers`, `modelhouse`, `remodel`, `cherrytips` | `origin: "cherry"` (the on/off switches `streaming.json` / `itemconv.json` are configuration, not content, and stay unmarked: requiring origin there broke the live private `config\streaming.json` override at the 2026-10-28 20:13 deploy — Cherry refused to start for ~1 min; any operator override of a CONTENT file now needs `origin` + `note`) |
+| Data files: `atelier`, `gathering` (material/goods ids, themes 1012/1013 + `craft01/`/`garden01/` art original; names, recipes, weights, amounts Cherry-made), `calendars`, `dressup`, `exchange`, `gardens`, `menu`, `prices`, `profiles`, `racing_exchange`, `squares`, `starter` | `origin: "mixed"` + per-field note |
+| Fish + boss fish ids | block 4101–4999 (`CherryFishFirst/Last`) |
+| Fish shop gear | 9001–9199 (`CherryFishShopFirst/Last`) |
+| Quests (daily, hearts, event) | 9001–9399 (`CherryQuestFirst/Last`) |
+| Gacha ids | 1001–2999 (`CherryGachaFirst/Last`) |
+| Boss Coin exchange rows / Ride Point rows | 1001–2999 / 1–99 |
+| Atelier designs | 101201–101399 (`CherryDesignFirst/Last`) |
+| Season popup numbers | 9101–9399 (`CherryPopupFirst/Last`; unverified vs `eventPopup.db`) |
+| Garden landscape items | 428499000–428499999 (`assets.CherryItemFirst/Last`) |
+| Butlers | 1900000000–1900000999 (`CherryButlerFirst/Last`), skins `cherry_*`, outfits = original items picked by Cherry |
+| Model House sets | codes `GUMH…` (category unknown to the client) |
+| Converted iOS items | original ids; R2 `cherry/item/`, D1 `generated` rows, recipe `itemconv-v1` |
+| Pictures: fish cards `/cherry/fish/`, gear `/cherry/fishing/`, season popups `/cherry/event/`, butler portraits `/cherry/butler/`, menu icons `/cherry/menu/` (Tabler, MIT), calendar cells `cherry_day*`, thumbnails/landscape/pet composites | route prefix / file prefix / `dp-cache\` |
+| Synthetic item names (`economy.ItemName`, "Hair 0066I"), mail sender "Cherry Staff", Friend aid 100000 "Friend", pet name "Minipet {n}" | in code or the marked data file |
+
+Not Cherry-made (do not block): tutorial clone avatar ids (the client requests them), `face_codes.txt` / `animal_face_codes.txt` (172 originals: 114 EY/NO/MO + 24 FA + 19 EA + 15 TL). Not yet re-verified against the archives: dressup set codes, lab grant codes, starter codes, FSV1/FSV5. Known debt: `economy/fishing.go` hard-codes the absolute archive path of the fish silhouette.
+
 ## Workflow (user instructions)
 
 - **Delegation:** native research and implementation go to the Haiku `cherry-worker` subagent (`.claude/agents/cherry-worker.md`) with self-contained prompts. The main agent coordinates, deploys, reads logs and writes docs. Give workers file ownership when several run at once.

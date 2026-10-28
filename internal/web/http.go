@@ -120,6 +120,9 @@ var homeLinks = []string{
 	"goSomewhere(bag)",
 	"goSomewhere(factory)",
 	"goSomewhere(randomGarden)",
+	"goSomewhere(butlerShop)",
+	"goSomewhere(butlerBook)",
+	"goSomewhere(butlerSkinSelect)",
 }
 
 // homeMenuIconPrefix is the picture path of a home menu row. It is RELATIVE on purpose: the client's
@@ -132,6 +135,7 @@ const homeMenuIconPrefix = "cherry/menu/"
 //	labels  {link type: name}: one non-empty name per home menu row; a key that no row uses is refused
 //	icons   {link type: file}: optional; a file name in data/menuicons (a row without one keeps the placeholder)
 type Menu struct {
+	opdata.Provenance
 	Labels map[string]string `json:"labels"`
 	Icons  map[string]string `json:"icons"`
 }
@@ -161,6 +165,9 @@ func LoadOperatorData() error {
 }
 
 func checkMenu(m *Menu) error {
+	if err := m.CheckOrigin("mixed"); err != nil {
+		return err
+	}
 	for _, link := range slices.Sorted(maps.Keys(m.Labels)) {
 		if !slices.Contains(homeLinks, link) {
 			return fmt.Errorf("label %q: no home menu row has that link type", link)
@@ -286,6 +293,7 @@ func NewMux() http.Handler {
 	mux.HandleFunc("/arts_session/sckey.enc", lpn.HandleSckeyEnc)
 	mux.HandleFunc("/cherry/fish/", economy.HandleFishImage)
 	mux.HandleFunc("/cherry/fishing/", economy.HandleFishingItemImage)
+	mux.HandleFunc("/cherry/butler/", economy.HandleButlerImage)
 	mux.HandleFunc("/cherry/menu/", handleMenuIcon)
 	mux.HandleFunc("/cherry/garden/items/", economy.HandleGatherImage)
 	mux.HandleFunc("/v4/setInitConf", handleSetInitConf)

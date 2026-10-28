@@ -1,4 +1,6 @@
 {
+  "origin": "mixed",
+  "note": "Mixed. ORIGINAL: the map ids (the garden packs in santi files/garden/; a map id is also the creation time shown as the label), the item codes of the non-generated landscapes (GULS..., item folders in files/item/garden/), and the fish spot host item (an original room item code). CHERRY-MADE: the garden names, the sky colours and stars, the choice of default map and of the fish spot's index and position, and the generated landscapes (generated true): their ids sit in assets.CherryItemFirst/Last (428499000-428499999), no original folder is there, and Cherry serves them.",
   "default": "1908231803",
   "gardens": [
     {"map": "1908231803", "label": "2019-08-23 18:03", "name": "Classic meadow", "landscape": "GULS00003", "fish": {"host": "RUPL0018L", "idx": 21, "x": 33, "y": 54}, "sky": {"top": "#78c8ec", "bottom": "#ceeef9"}},

@@ -104,7 +104,8 @@ func TestGachaFileRefusals(t *testing.T) {
 		{mutateDefault(t, raw, `"rare_percent": 10`, `"rare_percent": 101`), "rare_percent must be 0 to 100"},
 		{mutateDefault(t, raw, `"kinds": ["fashion", "interior"]`, `"kinds": ["clothes"]`), `kinds: "clothes" must be fashion or interior`},
 		{mutateDefault(t, raw, `"exclude": []`, `"exclude": ["XXXX"]`), `exclude: "XXXX" is not a sellable item code`},
-		{mutateDefault(t, raw, `"id": 1001`, `"id": 0`), "id must be positive"},
+		{mutateDefault(t, raw, `"id": 1001`, `"id": 0`), "id 0 is outside the Cherry block 1001-2999"},
+		{mutateDefault(t, raw, `"id": 1001`, `"id": 3001`), "id 3001 is outside the Cherry block 1001-2999"},
 	}
 	for _, c := range cases {
 		refuseFile(t, gachaFile.LoadFrom, "gacha.json", c.text, c.want)

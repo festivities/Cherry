@@ -56,6 +56,7 @@ type calSchedule struct {
 // The popup kind of a row follows from its columns: item = ITEM, tickets = VOUCH, else GEM. The skin
 // version key (scheduleId) is derived from each calendar's rows, so editing a row re-downloads the skin.
 type Calendars struct {
+	opdata.Provenance
 	Normal  calendarJSON `json:"normal"`
 	Seasons []seasonJSON `json:"seasons"`
 
@@ -95,6 +96,9 @@ func ActiveCalendars() *Calendars { return calendarsFile.Get() }
 func seasons() []calSchedule { return calendarsFile.Get().seasonScheds }
 
 func checkCalendars(c *Calendars) error {
+	if err := c.CheckOrigin("mixed"); err != nil {
+		return err
+	}
 	ink, err := parseHexColor(c.Normal.Ink)
 	if err != nil {
 		return fmt.Errorf("normal: %w", err)

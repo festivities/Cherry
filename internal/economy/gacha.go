@@ -38,6 +38,7 @@ import (
 //	kinds             the pool: "fashion" (clothing) and/or "interior" (furniture); pets and faces never
 //	exclude           item codes never drawn (each must be a sellable code)
 type Gacha struct {
+	opdata.Provenance
 	ID            int64    `json:"id"`
 	Name          string   `json:"name"`
 	CoinPrice     int64    `json:"coin_price"`
@@ -55,10 +56,22 @@ var gachaFile = opdata.New("gacha.json", data.GachaJSON, checkGacha, nil)
 // ActiveGacha is the gacha file in use.
 func ActiveGacha() *Gacha { return gachaFile.Get() }
 
+// CherryGachaFirst and CherryGachaLast bound the gacha ids Cherry makes (gacha.json). No archive holds an
+// original gacha id: the gacha list is server-side, and the banner files in cache/gacha_banner_0 are named by
+// banner ids (3699 to 5593 in the names seen), outside this block. The block shares its numbers with the Boss Coin exchange rows
+// (CherryExchangeRowFirst), a different request on the wire.
+const (
+	CherryGachaFirst int64 = 1001
+	CherryGachaLast  int64 = 2999
+)
+
 func checkGacha(g *Gacha) error {
+	if err := g.CheckOrigin("cherry"); err != nil {
+		return err
+	}
 	switch {
-	case g.ID < 1:
-		return errors.New("id must be positive")
+	case !inCherryBlock(g.ID, CherryGachaFirst, CherryGachaLast):
+		return fmt.Errorf("id %d is outside the Cherry block %d-%d", g.ID, CherryGachaFirst, CherryGachaLast)
 	case g.Name == "":
 		return errors.New("name must not be empty")
 	case g.CoinPrice < 0 || g.BundlePrice < 0:

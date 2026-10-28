@@ -74,7 +74,8 @@ func TestExchangeFileRefusals(t *testing.T) {
 		{mutateDefault(t, def, `"item_code": "CUTO0007B"`, `"item_code": "CUTO00099"`), "item CUTO00099 has no art in the item archive"},
 		{mutateDefault(t, def, `"season": "halloween"`, `"season": "nosuch"`), `season "nosuch" is not a season in calendars.json`},
 		{mutateDefault(t, def, `"season": "halloween"`, `"season": ""`), "season must name a season"},
-		{`{"title":"T","title_desc":"","rows":[],"events":[]}`, "rows must not be empty"},
+		{`{"origin":"mixed","note":"test","title":"T","title_desc":"","rows":[],"events":[]}`, "rows must not be empty"},
+		{mutateDefault(t, def, `"id": 1003, "item_code": "CUTO0007B", "price": 20`, `"id": 500, "item_code": "CUTO0007B", "price": 20`), "id 500 is outside the Cherry block 1001-2999"},
 		{mutateDefault(t, def, `"title": "Boss Coin Exchange"`, `"title": ""`), "title must not be empty"},
 	}
 	for _, c := range cases {

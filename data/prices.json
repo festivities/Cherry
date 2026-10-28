@@ -1,4 +1,6 @@
 {
+  "origin": "mixed",
+  "note": "Mixed. ORIGINAL: the category keys of the clothing prices (HA, ON, TO, PA, SH, AH, AE, FE: the client's item-code categories) and the room category keys (UWLPP to UFLDC). CHERRY-MADE: every price, rate and percentage, the category names (Hair, Outfit, ...), the Face Shop ticket codes and names, and the deal and sell-back rules.",
   "clothing_prices": {"HA": 200, "ON": 250, "TO": 150, "PA": 150, "SH": 120, "AH": 120, "FE": 120, "AE": 100},
   "interior_price": 150,
   "interior_prices": {"WA": 100, "TI": 100},

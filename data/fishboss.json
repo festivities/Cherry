@@ -1,4 +1,6 @@
 {
+  "origin": "cherry",
+  "note": "Cherry-made boss fishing. The boss (id 4901, inside the Cherry fish block CherryFishFirst-CherryFishLast), its name, tint, explanation and HP, the timing and note values, the Gem and Boss Coin rewards and the book reward. Nothing here is original: the client fills the battle screen from these values and the server's payload shape.",
   "max_tries": 3,
   "reset_gems": 0,
   "max_players": 5,

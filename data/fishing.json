@@ -1,4 +1,6 @@
 {
+  "origin": "cherry",
+  "note": "Cherry-made Square fishing. The fish (ids 4101-4202 in CherryFishFirst/Last; names, levels, Gems, rarity and tints), the daily Gem cap and the rare chance, and the fish shop (rods and baits, ids 9001-9199 in CherryFishShopFirst/Last; names, prices and rare bonuses). No original Square fish or fishing gear exists in the archives.",
   "daily_cap": 150,
   "rare_percent": 10,
   "fish": [
