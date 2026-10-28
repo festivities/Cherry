@@ -475,6 +475,28 @@ func TestSpecialChanceEmpty(t *testing.T) {
 	}
 }
 
+// TestPackageHomeIconRefused: Package Day 1 and Package send bill/prod/icon; both icons are unavailable,
+// so the client shows nothing on sale (ResPurchaseHomeIcon reads these fields).
+func TestPackageHomeIconRefused(t *testing.T) {
+	rec := decorReq(t, "", "GET", "/v4/bill/prod/icon?deviceType=Android", "")
+	if rec.Code != 200 {
+		t.Fatalf("status %d %s", rec.Code, rec.Body)
+	}
+	var b struct {
+		Result struct {
+			Starter struct {
+				Available bool `json:"available"`
+			} `json:"starterIcon"`
+			Package struct {
+				Available bool `json:"available"`
+			} `json:"packageIcon"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &b); err != nil || b.Result.Starter.Available || b.Result.Package.Available {
+		t.Fatalf("icons offered: %v %s", err, rec.Body)
+	}
+}
+
 func TestCuratedGrantLabOnly(t *testing.T) {
 	setLab(t, "9701", false)
 	setLab(t, "9702", true)

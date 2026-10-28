@@ -987,6 +987,17 @@ func (s *roomPartySession) relay(msgid uint16, data []byte) error {
 	return nil
 }
 
+// vipLoungeHostAID is the host of the VIP Lounge (MENU row 50, scene 304): the constant that
+// NaBrandManager::NaBrandManager (0x194fa90) stores at this+408 and CSceneChange::DivideRoomScene
+// (0x1c8b904) sends as room/enter. It is not an account. The client has no VIP check on that path (the
+// non-VIP popup's "Go to the VIP Garden", NaVipLoungeNoneVipPopup::CButtonHandler case 27, uses it too),
+// so it is served as a free visit to an empty lounge; VIP membership itself stays unserved.
+// ponytail: default empty room, no lounge decor; add a Cherry-made layout when wanted.
+const (
+	vipLoungeHostAID = "1145205883351836906"
+	vipLoungeName    = "Cherry VIP Lounge"
+)
+
 // HandleRoom serves GET /v4/room/myroom/<LEVEL> and /v4/room/enter/<aid>/<LEVEL>:
 // an empty room with a floor and wall whose assets exist in the full-client dataset.
 func HandleRoom(w http.ResponseWriter, r *http.Request) {
@@ -996,6 +1007,7 @@ func HandleRoom(w http.ResponseWriter, r *http.Request) {
 	}
 	parts := strings.Split(strings.TrimPrefix(r.URL.Path, "/v4/room/"), "/")
 	var name, level, decorAID string
+	lounge := false
 	switch {
 	case len(parts) == 2 && parts[0] == "myroom":
 		level = parts[1]
@@ -1007,6 +1019,8 @@ func HandleRoom(w http.ResponseWriter, r *http.Request) {
 		level = parts[2]
 		if parts[1] == store.FriendAID {
 			name = store.FriendName()
+		} else if parts[1] == vipLoungeHostAID {
+			name, lounge = vipLoungeName, true
 		} else if acc, ok := store.AccountByAvatarID(parts[1]); ok {
 			name, decorAID = acc.Name, parts[1]
 		} else {
@@ -1023,7 +1037,7 @@ func HandleRoom(w http.ResponseWriter, r *http.Request) {
 	}
 	if viewer, ok := store.AccountForRequest(r); ok {
 		if v, err := strconv.ParseUint(viewer.Aid, 10, 64); err == nil {
-			if parts[0] == "myroom" {
+			if parts[0] == "myroom" || lounge {
 				ClearRoomVisit(v)
 			} else if owner, err := strconv.ParseUint(parts[1], 10, 64); err == nil {
 				NoteRoomVisit(v, owner)

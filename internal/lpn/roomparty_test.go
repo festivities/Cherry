@@ -83,9 +83,10 @@ func TestRoomRoutes(t *testing.T) {
 	store.AccountsMu.Unlock()
 	defer func() { store.AccountsMu.Lock(); delete(store.Accounts, "room-test"); store.AccountsMu.Unlock() }()
 	for path, name := range map[string]string{
-		"/v4/room/enter/9002/LEVEL_2":   "Rin",
-		"/v4/room/enter/100000/LEVEL_1": store.FriendName(),
-		"/v4/room/myroom/LEVEL_3":       "",
+		"/v4/room/enter/9002/LEVEL_2":                "Rin",
+		"/v4/room/enter/100000/LEVEL_1":              store.FriendName(),
+		"/v4/room/enter/1145205883351836906/LEVEL_1": vipLoungeName,
+		"/v4/room/myroom/LEVEL_3":                    "",
 	} {
 		rec := serveRoom(t, http.MethodGet, path)
 		if rec.Code != http.StatusOK {

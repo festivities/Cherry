@@ -56,12 +56,19 @@ func RegisterEconomyRoutes(mux *http.ServeMux) {
 	for _, unit := range []string{"gem", "cash", "heart"} {
 		mux.HandleFunc("/v4/bill/prod/spot/"+unit, httpx.HandleJSONBody(EmptySpecialChanceBody))
 	}
+	// Home-icon package status (NaDispatcherPurchase::ReqPurchaseHomeIcon, MENU rows Package Day 1 and Package):
+	// ResPurchaseHomeIcon reads result.starterIcon/packageIcon (achieveId asInt; iconType, category,
+	// endDateTime asString; available asBool). Both unavailable: nothing is on sale, nothing is offered.
+	mux.HandleFunc("/v4/bill/prod/icon", httpx.HandleJSONBody(homeIconBody))
 	registerLoginBonusRoutes(mux)
 	registerMailRoutes(mux)
 	registerShopRoutes(mux)
 }
 
 const EmptySpecialChanceBody = `{"result":{"items":[],"location":""}}`
+
+const homeIconBody = `{"result":{"starterIcon":{"achieveId":0,"iconType":"","available":false,"category":"","endDateTime":""},` +
+	`"packageIcon":{"achieveId":0,"iconType":"","available":false,"category":"","endDateTime":""}}}`
 
 // ResExtraHeartBalanceURL @0x1b53c3c: totalCount, freeTotalCount, paidCount (asInt).
 const extraHeartBalanceBody = `{"result":{"totalCount":0,"freeTotalCount":0,"paidCount":0}}`
