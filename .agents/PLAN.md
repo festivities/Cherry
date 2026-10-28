@@ -71,7 +71,7 @@ Then recheck the lab: `git status`, the Cherry PID/path/hash, `adb devices` plus
        - Then device-test ch 50 → hc 59, plus the reward popup ch 54/55 → hc 64/65.
      - Not built: the Book's Chat/Profile, intimacy, the skin shop and voices.
   4. **Marking leftovers:**
-     - Check against the archives that these codes are original: dressup lists, starter codes, lab grant codes and Atelier FSV1/FSV5. They were flagged "unverified" in the inventory.
+     - ~~Check dressup/starter/lab grant codes and FSV1/FSV5~~ — done 2026-10-28: all 64 item codes are original, FSV1/FSV5 Cherry-made (`cherry-made-20261028\verify-codes.md`; AGENTS "Cherry-made content").
      - ~~`internal/economy/fishing.go:220` `fishSilhouette` absolute archive path~~ — reclassified 2026-10-28 (accepting session): it is the same in-place read pattern as the 8 other archive paths (AGENTS "Policies"), so not a marking leftover; a shared configurable archive root goes with Roadmap 5.
   5. **Open checks carried over** (classify or fix, with evidence):
      - **APK-only static CDN art:** `photozone/frame/`, `gacha`, `banner`, `actionsticker`, `notice_img`, `event_icon`, `preset`, `profilebg`, … Watch a fresh install's log for static 404s. An R2 upload needs the user's go-ahead.
