@@ -468,6 +468,11 @@ func NewMux() http.Handler {
 	mux.HandleFunc("/v4/avatar/{aid}/profile", handleAvatarProfileSave)
 	mux.HandleFunc("/v4/avatar/", handleAvatarInfo)
 	mux.HandleFunc("/v4/banned/keyword", handleBannedKeyword)
+	mux.HandleFunc("/v4/rcmdpost/list", handleRecommendPostList)
+	mux.HandleFunc("/v4/storybook/list", httpx.HandleJSONBody(storyEmptyListBody))
+	mux.HandleFunc("/v4/shop/storygacha/list", httpx.HandleJSONBody(storyEmptyListBody))
+	mux.HandleFunc("/v4/line/event/invite/validate", httpx.HandleJSONBody(lineEventValidBody))
+	mux.HandleFunc("/v4/line/event/invite/friend/list", httpx.HandleJSONBody(lineEventFriendListBody))
 	mux.HandleFunc("/", handleRoot)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Some screens put their static base in front of an absolute picture URL (the boss result asked
