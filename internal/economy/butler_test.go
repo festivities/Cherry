@@ -71,7 +71,7 @@ func ledgerReasons(t *testing.T, dir string) []string {
 // short Cash balance or an unknown period is refused with nothing spent, the account's free first hire (3 days,
 // once per account, whichever butler) costs nothing, and a hire of a butler under contract extends it from its end.
 func TestHireChargesRefusesAndFreeOnce(t *testing.T) {
-	dir := butlerAccount(t, "3101", 45, 0)
+	dir := butlerAccount(t, "3101", 75, 0)
 	now := time.Date(2026, 10, 28, 3, 0, 0, 0, time.UTC)
 	const hazel, wren = 1900000001, 1900000002
 	if v := ButlerViewOf("3101", now); !v.FreeOpen() {
@@ -82,7 +82,7 @@ func TestHireChargesRefusesAndFreeOnce(t *testing.T) {
 	if got, err := HireButler("3101", hazel, ButlerCoinCash, 3, true, now); err != nil || !got.Free || got.Price != 0 {
 		t.Fatalf("free hire: %+v err=%v", got, err)
 	}
-	if cash, _, book, _ := butlerState(t, "3101"); cash != 45 || !book.FreeUsed || len(book.Hired) != 1 {
+	if cash, _, book, _ := butlerState(t, "3101"); cash != 75 || !book.FreeUsed || len(book.Hired) != 1 {
 		t.Fatalf("after free hire: cash=%d book=%+v", cash, book)
 	}
 	if v := ButlerViewOf("3101", now); v.FreeOpen() {
@@ -94,18 +94,18 @@ func TestHireChargesRefusesAndFreeOnce(t *testing.T) {
 		t.Fatal("second free hire of the account accepted")
 	}
 
-	// Paid hires are open after the free one: 7 days for 10 Cash extends hazel's 3-day contract from its end.
-	got, err := HireButler("3101", hazel, ButlerCoinCash, 7, false, now.Add(time.Hour))
-	if err != nil || got.Price != 10 || got.Free {
+	// A paid 30-day hire after the free one extends hazel's 3-day contract from its end, for 30 Cash.
+	got, err := HireButler("3101", hazel, ButlerCoinCash, 30, false, now.Add(time.Hour))
+	if err != nil || got.Price != 30 || got.Free {
 		t.Fatalf("paid hire after the free one: %+v err=%v", got, err)
 	}
-	if cash, _, book, _ := butlerState(t, "3101"); cash != 35 || len(book.Hired) != 1 || book.Hired[0].End != now.UnixMilli()+10*dayMillis {
+	if cash, _, book, _ := butlerState(t, "3101"); cash != 45 || len(book.Hired) != 1 || book.Hired[0].End != now.UnixMilli()+33*dayMillis {
 		t.Fatalf("after paid hire: cash=%d hired=%+v", cash, book.Hired)
 	}
 
-	// 30 days for 30 Cash with 35 Cash is affordable; with 25 it is refused and nothing moves.
+	// wren for 30 days with 45 Cash is affordable; then, with 25 Cash, hazel's extension is refused and nothing moves.
 	if _, err := HireButler("3101", wren, ButlerCoinCash, 30, false, now); err != nil {
-		t.Fatalf("30-day hire with 35 Cash: %v", err)
+		t.Fatalf("30-day hire with 45 Cash: %v", err)
 	}
 	store.AccountsMu.Lock()
 	store.AccountByAidLocked("3101").Cash = 25
@@ -117,21 +117,20 @@ func TestHireChargesRefusesAndFreeOnce(t *testing.T) {
 		t.Fatalf("short balance changed state: cash=%d book=%+v", cash, book)
 	}
 
-	// Only earned Cash is charged: any other cost type is refused.
-	if _, err := HireButler("3101", hazel, 4, 7, false, now); err == nil {
+	// Only earned Cash is charged: any other cost type is refused. A butler outside the roster is refused.
+	if _, err := HireButler("3101", hazel, 4, 30, false, now); err == nil {
 		t.Fatal("cost type 4 (Gems) accepted for a hire")
 	}
-	// A butler outside the roster is refused.
-	if _, err := HireButler("3101", 1900000009, ButlerCoinCash, 7, false, now); err == nil {
+	if _, err := HireButler("3101", 1900000009, ButlerCoinCash, 30, false, now); err == nil {
 		t.Fatal("unknown butler accepted")
 	}
 
-	// Two paid hires (7 days, 30 days) are in the ledger as Cash debits; the free hire is not.
+	// Two paid 30-day hires are in the ledger as Cash debits; the free hire is not.
 	lines := ledgerLines(t, dir)
-	if len(lines) != 2 || !strings.Contains(lines[0], `"currency":"cash"`) || !strings.Contains(lines[0], `"delta":-10`) {
-		t.Fatalf("ledger = %v, want the 7-day Cash debit then the 30-day one", lines)
+	if len(lines) != 2 || !strings.Contains(lines[0], `"currency":"cash"`) || !strings.Contains(lines[0], `"delta":-30`) {
+		t.Fatalf("ledger = %v, want two Cash debits of 30", lines)
 	}
-	if reasons := ledgerReasons(t, dir); reasons[0] != "butler:hire:1900000001:7" || reasons[1] != "butler:hire:1900000002:30" {
+	if reasons := ledgerReasons(t, dir); reasons[0] != "butler:hire:1900000001:30" || reasons[1] != "butler:hire:1900000002:30" {
 		t.Fatalf("ledger reasons = %v", reasons)
 	}
 }
@@ -151,7 +150,7 @@ func TestLegacyFreeListCountsAsUsed(t *testing.T) {
 	if _, err := HireButler("3103", 1900000002, ButlerCoinCash, 3, true, now); err == nil {
 		t.Fatal("free hire accepted after a legacy free hire")
 	}
-	if _, err := HireButler("3103", 1900000002, ButlerCoinCash, 7, false, now); err != nil {
+	if _, err := HireButler("3103", 1900000002, ButlerCoinCash, 30, false, now); err != nil {
 		t.Fatalf("paid hire after a legacy free hire: %v", err)
 	}
 	store.AccountsMu.Lock()
@@ -160,8 +159,8 @@ func TestLegacyFreeListCountsAsUsed(t *testing.T) {
 	if stored == nil || !stored.FreeUsed || stored.Free != nil {
 		t.Fatalf("stored book after the write = %+v, want the flag and no legacy list", stored)
 	}
-	if cash, _, _, _ := butlerState(t, "3103"); cash != 35 {
-		t.Fatalf("paid hire cash = %d, want 35", cash)
+	if cash, _, _, _ := butlerState(t, "3103"); cash != 15 {
+		t.Fatalf("paid hire cash = %d, want 15", cash)
 	}
 }
 
@@ -212,7 +211,7 @@ func TestGatherPaysCappedGems(t *testing.T) {
 }
 
 // TestButlerConfigRefusesIdOutsideCherryBlock: the roster must use Cherry-block ids, and an operator file that
-// does not is refused at load (the embedded default is valid).
+// does not is refused at load (the embedded default is valid). The hire list must hold only the 30-day period.
 func TestButlerConfigRefusesIdOutsideCherryBlock(t *testing.T) {
 	t.Cleanup(butlersFile.Reset)
 	if b := ActiveButlers(); b.Origin != "cherry" || len(b.Butlers) != 3 {
@@ -225,7 +224,7 @@ func TestButlerConfigRefusesIdOutsideCherryBlock(t *testing.T) {
 	}
 
 	valid := func(id int64) *Butlers {
-		return &Butlers{Origin: "cherry", Note: "n", FreeDays: 3, Hire: []ButlerPrice{{Days: 7, Cash: 10}},
+		return &Butlers{Origin: "cherry", Note: "n", FreeDays: 3, Hire: []ButlerPrice{{Days: 30, Cash: 30}},
 			Gathering: ButlerGathering{Kinds: []string{"essence"}, Gems: 3, GemsCap: 10, GathersPerDay: 10},
 			Butlers:   []ButlerDef{{ID: id, Name: "X", Gender: "FEMALE", Skin: "cherry_x", Outfit: []string{"CUON004BH"}}}}
 	}
@@ -239,10 +238,19 @@ func TestButlerConfigRefusesIdOutsideCherryBlock(t *testing.T) {
 		t.Fatalf("item-block id: err = %v", err)
 	}
 
+	// Only the 30-day period: the client's contract picker offers nothing else (CButtonHandler 0x22cfb84).
+	for _, hire := range [][]ButlerPrice{{{Days: 7, Cash: 10}}, {{Days: 30, Cash: 30}, {Days: 7, Cash: 10}}, {}} {
+		b := valid(CherryButlerFirst)
+		b.Hire = hire
+		if err := checkButlers(b); err == nil || !strings.Contains(err.Error(), "30-day") || !strings.Contains(err.Error(), "CButtonHandler 0x22cfb84") {
+			t.Fatalf("hire %+v: err = %v, want the 30-day client rule named", hire, err)
+		}
+	}
+
 	bad := filepath.Join(t.TempDir(), "butlers.json")
-	raw := `{"origin":"cherry","note":"n","free_days":3,"hire":[{"days":7,"cash":10}],` +
+	raw := `{"origin":"cherry","note":"n","free_days":3,"hire":[{"days":30,"cash":30}],` +
 		`"gathering":{"kinds":["ore"],"gems":3,"gems_cap":10,"gathers_per_day":10},` +
-		`"butlers":[{"id":5,"name":"Low","gender":"MALE","skin":"cherry_low"}]}`
+		`"butlers":[{"id":5,"name":"Low","gender":"MALE","skin":"cherry_low","outfit":["CUON004BH"]}]}`
 	if err := os.WriteFile(bad, []byte(raw), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -298,13 +306,13 @@ func TestHireMakesFirstHireChief(t *testing.T) {
 	now := time.Date(2026, 10, 28, 3, 0, 0, 0, time.UTC)
 	const hazel, wren = 1900000001, 1900000002
 
-	if _, err := HireButler("3104", hazel, ButlerCoinCash, 7, false, now); err != nil {
+	if _, err := HireButler("3104", hazel, ButlerCoinCash, 30, false, now); err != nil {
 		t.Fatalf("first hire: %v", err)
 	}
 	if _, _, book, _ := butlerState(t, "3104"); book.Leader != hazel {
 		t.Fatalf("first hire leader = %d, want %d", book.Leader, hazel)
 	}
-	if _, err := HireButler("3104", wren, ButlerCoinCash, 7, false, now.Add(time.Minute)); err != nil {
+	if _, err := HireButler("3104", wren, ButlerCoinCash, 30, false, now.Add(time.Minute)); err != nil {
 		t.Fatalf("second hire: %v", err)
 	}
 	if _, _, book, _ := butlerState(t, "3104"); book.Leader != hazel {

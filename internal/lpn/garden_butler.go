@@ -23,8 +23,9 @@ const butlerRefused = 1
 // butlerNoDate is "no date" for the v64 sale, sell and free end times (int64 -1; 0 would read as 1970).
 const butlerNoDate = math.MaxUint64
 
-// butlerChiefTile is the Garden tile the chief stands on [I]: open ground between the spawn and the spots.
-var butlerChiefTile = [2]int{28, 36}
+// butlerChiefTile is the Garden tile the chief stands on [I]. (33,39) is about 120 px right of the owner's spawn
+// (30,39) on the 60x60 packs, so the chief does not stand hidden behind the owner's avatar.
+var butlerChiefTile = [2]int{33, 39}
 
 // butlerReplies maps every butler request to its reply msgid (spec section 2).
 var butlerReplies = map[uint16]uint16{

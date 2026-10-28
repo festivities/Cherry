@@ -97,7 +97,7 @@ func TestButlerRepliesMatchSpecWire(t *testing.T) {
 		return &store.ButlerBook{Leader: id, Hired: []store.ButlerHire{{ID: id, Begin: now.UnixMilli(), End: now.UnixMilli() + 30*86400000}}}
 	}
 	expired := &store.ButlerBook{Hired: []store.ButlerHire{{ID: wren, Begin: now.UnixMilli() - 40*86400000, End: now.UnixMilli() - 3600000}}}
-	buy := pbVar(pbVar(pbVar(pbVar(pbVar(nil, 1, hazel), 2, uint64(economy.ButlerCoinCash)), 3, 0), 4, 0), 5, 7)
+	buy := pbVar(pbVar(pbVar(pbVar(pbVar(nil, 1, hazel), 2, uint64(economy.ButlerCoinCash)), 3, 0), 4, 0), 5, 30)
 
 	rows := []struct {
 		name  string
@@ -154,6 +154,16 @@ func TestButlerRepliesMatchSpecWire(t *testing.T) {
 		} else if len(msgs) != 1 {
 			t.Fatalf("%s: %d frames, want 1", r.name, len(msgs))
 		}
+	}
+}
+
+// TestButlerChiefTileBesideSpawn: the chief stands about 120 px right of the owner's spawn tile (30,39), not behind
+// the owner's avatar.
+func TestButlerChiefTileBesideSpawn(t *testing.T) {
+	cx, _ := gardenPx(butlerChiefTile[0], butlerChiefTile[1])
+	ox, _ := gardenPx(30, 39)
+	if butlerChiefTile != [2]int{33, 39} || cx-ox != 120 {
+		t.Fatalf("chief tile %v is %d px right of the owner's spawn, want (33,39) and 120 px", butlerChiefTile, int64(cx)-int64(ox))
 	}
 }
 

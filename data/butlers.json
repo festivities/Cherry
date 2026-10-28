@@ -1,9 +1,8 @@
 {
   "origin": "cherry",
-  "note": "Cherry-made butlers: names, skins, prices and gathering amounts are Cherry's own, not original game data. Hire prices are in earned Cash (cash). Ids lie in the Cherry block 1900000000-1900000999 (economy.CherryButlerFirst/Last); skin codes start with cherry_.",
+  "note": "Cherry-made butlers: names, skins, prices and gathering amounts are Cherry's own, not original game data. Hire prices are in earned Cash (cash). The client's contract picker offers only 30-day periods (CButtonHandler 0x22cfb84 builds rows for employDays 30 only), so hire lists the one 30-day period. The free first hire (free_days) is a separate path. Ids lie in the Cherry block 1900000000-1900000999 (economy.CherryButlerFirst/Last); skin codes start with cherry_.",
   "free_days": 3,
   "hire": [
-    {"days": 7, "cash": 10},
     {"days": 30, "cash": 30}
   ],
   "gathering": {

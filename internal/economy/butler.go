@@ -50,7 +50,7 @@ const dayMillis = 86400000
 //	origin      must be "cherry"
 //	note        says the butlers are Cherry-made; text for operators, not sent to the client
 //	free_days   days of the account's first hire, free once per account (a first hire, paid or free, uses it)
-//	hire        hire periods and their earned-Cash prices: days unique, each at least 1, cash at least 1
+//	hire        the one 30-day period and its earned-Cash price (the client's contract picker offers 30 days only)
 //	gathering   kinds: one drop of each listed kind ("fish", "essence" or "ore", data/gathering.json) pays a
 //	            gather; gems: Gems per gather; gems_cap: Gems a game day from butler gathering, per account;
 //	            gathers_per_day: gathers a game day per account (0 turns butler gathering off)
@@ -104,15 +104,13 @@ func checkButlers(b *Butlers) error {
 	if b.FreeDays < 1 {
 		return errors.New("free_days must be at least 1")
 	}
-	if len(b.Hire) < 1 {
-		return errors.New("hire must list at least one period")
+	// The client's contract picker (CButtonHandler 0x22cfb84, cmp w2,#0x1E) builds rows only for 30-day entries and
+	// labels them "+30day": any other period would buy the wrong entry of the price vector.
+	if len(b.Hire) != 1 || b.Hire[0].Days != 30 {
+		return errors.New("hire must list exactly one 30-day period: the client's contract picker (CButtonHandler 0x22cfb84) offers only 30 days")
 	}
-	days := map[int64]bool{}
-	for _, p := range b.Hire {
-		if p.Days < 1 || p.Cash < 1 || days[p.Days] {
-			return fmt.Errorf("hire: days %d must be unique and at least 1, cash at least 1", p.Days)
-		}
-		days[p.Days] = true
+	if b.Hire[0].Cash < 1 {
+		return errors.New("hire: cash must be at least 1")
 	}
 	g := b.Gathering
 	if g.Gems < 0 || g.GemsCap < 0 || g.GathersPerDay < 0 {
