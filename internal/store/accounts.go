@@ -56,6 +56,9 @@ type StoredAccount struct {
 	Racing         *RacingRecord         `json:"racing,omitempty"`
 	GardenMap      string                `json:"gardenMap,omitempty"`
 	Landscapes     []string              `json:"landscapes,omitempty"`
+	Pins           []string              `json:"pins,omitempty"`
+	DiaryProfile   *DiaryProfile         `json:"diaryProfile,omitempty"`
+	Wishes         []string              `json:"wishes,omitempty"`
 }
 
 type savedAccounts struct {
@@ -115,6 +118,7 @@ func LoadAccountsFrom(path string) error {
 				Smiles: max(saved.Smiles, 0), GardenBag: saved.GardenBag, Gather: saved.Gather,
 				Atelier: saved.Atelier,
 				Racing:  saved.Racing, GardenMap: saved.GardenMap, Landscapes: saved.Landscapes,
+				Pins: saved.Pins, DiaryProfile: saved.DiaryProfile, Wishes: saved.Wishes,
 			}
 		}
 		for token, id := range state.Aliases {
@@ -205,7 +209,8 @@ func StoredFrom(acc *Account) StoredAccount {
 		BossCoins: acc.BossCoins, BossTries: acc.BossTries, BossCaught: acc.BossCaught, BossBook: acc.BossBook,
 		Hearts: acc.Hearts, PaidPrices: acc.PaidPrices,
 		Smiles: acc.Smiles, GardenBag: acc.GardenBag, Gather: acc.Gather, Atelier: acc.Atelier,
-		Racing: acc.Racing, GardenMap: acc.GardenMap, Landscapes: acc.Landscapes,
+		Racing: acc.Racing, GardenMap: acc.GardenMap, Landscapes: acc.Landscapes, Pins: acc.Pins,
+		DiaryProfile: acc.DiaryProfile, Wishes: acc.Wishes,
 	}
 }
 

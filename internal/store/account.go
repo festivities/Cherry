@@ -20,6 +20,7 @@ type AccountSnapshot struct {
 	ItemCodes      []string
 	InventoryCodes []string
 	ProfileImage   ProfileImage
+	DiaryProfile   *DiaryProfile
 }
 
 func AccountInventoryCodes(acc *Account) []string {
@@ -66,6 +67,7 @@ func AccountByAvatarID(id string) (AccountSnapshot, bool) {
 				ItemCodes:      AppearanceItemCodes(acc.Gender, acc.ItemCodes),
 				InventoryCodes: AccountOwnedCodes(acc),
 				ProfileImage:   acc.ProfileImage,
+				DiaryProfile:   acc.DiaryProfile,
 			}, true
 		}
 	}
@@ -115,6 +117,9 @@ type Account struct {
 	Racing         *RacingRecord    // Riding Pet Race tickets, exp, MMR and store points (economy/racing.go); replaced, never edited in place
 	GardenMap      string           // Garden map this account's Garden shows (economy/gardens.go); "" = the default
 	Landscapes     []string         // bought Garden landscape item codes (economy/landscape.go); replaced, never edited in place
+	Pins           []string         // avatar ids on the requester's My Pins, in pin order (web/pins.go); replaced, never edited in place
+	DiaryProfile   *DiaryProfile    // Diary profile edit fields (diaryprofile.go, web/profileedit.go); replaced, never edited in place
+	Wishes         []string         // item codes on the requester's wish list, at most four (web/wishlist.go); replaced, never edited in place
 }
 
 // FishingGear is the Square fishing gear an account bought (economy/fishing_shop.go): the item IDs

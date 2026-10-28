@@ -9,6 +9,13 @@ import "embed"
 //go:embed face_codes.txt
 var FaceCodes string
 
+// AnimalFaceCodes is the animal Face Shop catalog of the 10.1 santi backup (generated once with itemcode.Code from
+// type A folders that hold a 1409_iteminfo.artsitem): 114 EY/NO/MO faces (custom cat 41/42/43), 24 FA skins
+// (custom 39), 19 EA ears and 15 TL tails (dress 57/58).
+//
+//go:embed animal_face_codes.txt
+var AnimalFaceCodes string
+
 // The operator-editable defaults (AGENTS "Operator-editable fabricated content"). Each is read by
 // the economy package (or, for profiles, the web package) through internal/opdata. An operator file
 // with the same name in %LOCALAPPDATA%\Cherry\config replaces the default entirely.
@@ -114,3 +121,13 @@ var StreamingJSON []byte
 //
 //go:embed itemconv.json
 var ItemconvJSON []byte
+
+// ModelHouseJSON is the Model House set list: Cherry-made furniture sets, their elements and prices (economy/modelhouse.go).
+//
+//go:embed modelhouse.json
+var ModelHouseJSON []byte
+
+// CherryTipsJSON is the Cherry Tip list: Cherry-made gameplay tips (economy/cherrytip.go).
+//
+//go:embed cherrytips.json
+var CherryTipsJSON []byte

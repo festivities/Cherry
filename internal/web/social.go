@@ -171,6 +171,7 @@ func handleProfile(w http.ResponseWriter, r *http.Request) {
 		if pi := acc.ProfileImage; pi.Image != "" {
 			body["obsProfileImagePath"], body["obsWholeBodyProfileImagePath"], body["bg"] = pi.Image, pi.WholeBody, pi.Bg
 		}
+		body["intro"] = profileIntro(acc) // ParseJson (0x1b6f000) reads result.intro as the Status Message
 		profileJSON(w, body)
 		return
 	}

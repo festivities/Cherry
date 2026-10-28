@@ -16,7 +16,8 @@ import (
 // Minipet display/arrangement subset (libgame.so 10.1.0.0): NaDispatcherPet
 // represent/arrange parsers (ResRepresentPetInfo @0x1b64e78, ResPetArrangeList
 // @0x1bfb678, ResPetRoomList @0x1bfc2c4, ResPetLimitInfo @0x1a7e040). Growth,
-// feeding, calls, shop and the Pet Book (pet/book/*) are not implemented.
+// feeding, calls and shop are not implemented; the Pet Book list is HandlePetBook (pet/book/race/list/*),
+// the Pet Book detail pages (pet/book/race/detail, pet/book/race/info) are not.
 
 const PetMaxArrange = 8
 
@@ -243,4 +244,117 @@ func petBaseID(aid string) int64 {
 		return n*100 + 1
 	}
 	return 1001
+}
+
+// PetSpecies is one sellable Minipet of the Minipet Shop catalog as the Pet Book lists it: the item code,
+// the numeric item id and the client's race category (UDOG, UCAT, UTOY or URIDE). economy.PetSpecies supplies it.
+type PetSpecies struct {
+	Code string
+	ID   int64
+	Catg string
+}
+
+// petBookRow is one ResPetBookList element (sDataPetInfo). Key types are IDA-checked (0x1c34340, rows-d 4.2):
+// asInt keys are numbers, asString keys strings, asBool keys bools. Keys Cherry has no source for stay zero.
+type petBookRow struct {
+	RaceID                      int    `json:"raceId"`
+	CatgCd                      string `json:"catgCd"`
+	ItemNo                      int    `json:"itemNo"`
+	ItemCode                    string `json:"itemCode"`
+	ItemSaleType                string `json:"itemSaleType"`
+	LocaleCd                    string `json:"localeCd"`
+	RaceNm                      string `json:"raceNm"`
+	PetID                       string `json:"petId"`
+	PetMemo                     string `json:"petMemo"`
+	AvatarID                    string `json:"avatarId"`
+	FirstVisited                string `json:"firstVisited"`
+	FirstLevelUp                string `json:"firstLevelUp"`
+	LastVisited                 string `json:"lastVisited"`
+	InitActivityRemainTimestamp string `json:"initActivityRemainTimestamp"`
+	CallPayCode                 string `json:"callPayCode"`
+	ExposureYn                  bool   `json:"exposureYn"`
+	ArrangedYn                  bool   `json:"arrangedYn"`
+	DefaultCallYn               bool   `json:"defaultCallYn"`
+	DefaultCallRemainTimestamp  string `json:"defaultCallRemainTimestamp"`
+	GiftItemID                  int    `json:"giftItemId"`
+	GiftItemCode                string `json:"giftItemCode"`
+	PetSleepingYn               bool   `json:"petSleepingYn"`
+	FinalLevelYn                bool   `json:"finalLevelYn"`
+	CoppaStatus                 int    `json:"coppaStatus"`
+	PetName                     string `json:"petName"`
+	Exp                         int    `json:"exp"`
+	MaxExp                      int    `json:"maxExp"`
+	Level                       int    `json:"level"`
+	ReceiveHeart                int    `json:"receiveHeart"`
+	SkinSerial                  string `json:"skinSerial"`
+	SkinID                      int    `json:"skinId"`
+	SkinCode                    string `json:"skinCode"`
+	LinkPosX                    int    `json:"linkPosX"`
+	LinkPosY                    int    `json:"linkPosY"`
+	LinkScale                   int    `json:"linkScale"`
+	FirstVisitYn                bool   `json:"firstVisitYn"`
+	RepresentYn                 bool   `json:"representYn"`
+	InteriorOwnYn               bool   `json:"interiorOwnYn"`
+	PaidCallCount               int    `json:"paidCallCount"`
+	MaxPaidCallCount            int    `json:"maxPaidCallCount"`
+	CallPrice                   int    `json:"callPrice"`
+}
+
+// petBookOwned is an account's own pet (the MYPET tab): the same level and experience Cherry already serves
+// on the represent and arrange lists.
+func petBookOwned(aid string, p store.PetItem, catg string) petBookRow {
+	return petBookRow{
+		RaceID: PetSkinID(p.Cd), CatgCd: catg, ItemCode: p.Cd, LocaleCd: "en",
+		PetID: strconv.FormatInt(p.ID, 10), AvatarID: aid, PetName: p.Name,
+		ExposureYn: true, ArrangedYn: p.Room != "", RepresentYn: p.Rep, DefaultCallRemainTimestamp: "0",
+		Exp: 0, MaxExp: 100, Level: 1, SkinSerial: strconv.FormatInt(p.ID, 10),
+		SkinID: PetSkinID(p.Cd), SkinCode: p.Cd, LinkScale: 100,
+	}
+}
+
+// petBookSpecies is a catalog Minipet in a race tab: the account may not own it, so no pet id, avatar or
+// name; level and experience stay 0 and the max experience 100 (neutral placeholders, no Cherry source).
+func petBookSpecies(sp PetSpecies) petBookRow {
+	return petBookRow{
+		RaceID: int(sp.ID), CatgCd: sp.Catg, ItemCode: sp.Code, LocaleCd: "en",
+		ExposureYn: true, MaxExp: 100, SkinID: int(sp.ID), SkinCode: sp.Code, LinkScale: 100,
+	}
+}
+
+// HandlePetBook serves GET pet/book/race/list/<category> (NaDispatcherPet::ReqPetBookList → ResPetBookList
+// 0x1c34340: result.list is an array of rows). The client's five tabs are MYPET, UDOG, UCAT, UTOY and URIDE
+// (NaPetBook static init, sub_1511374). MYPET lists the account's pets; a race tab lists the Minipet Shop
+// catalog pets of that category (economy.PetSpecies). Any other category gets an empty list: an error reply
+// would leave the client's spinner up (11684 never hides it, 11683 does).
+func HandlePetBook(species func() []PetSpecies) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			httpx.ServeNotFound(w)
+			return
+		}
+		category := strings.TrimPrefix(r.URL.Path, "/v4/pet/book/race/list/")
+		all := species()
+		list := []petBookRow{}
+		if category == "MYPET" {
+			acc := petAccount(w, r)
+			if acc == nil {
+				return
+			}
+			catg := map[string]string{}
+			for _, sp := range all {
+				catg[sp.Code] = sp.Catg
+			}
+			for _, p := range acc.Pets {
+				list = append(list, petBookOwned(acc.Aid, p, catg[p.Cd]))
+			}
+			store.AccountsMu.Unlock()
+		} else {
+			for _, sp := range all {
+				if sp.Catg == category {
+					list = append(list, petBookSpecies(sp))
+				}
+			}
+		}
+		petJSON(w, map[string]any{"list": list})
+	}
 }

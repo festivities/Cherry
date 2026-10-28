@@ -238,6 +238,16 @@ func loadCatalog() *shopCatalog {
 	return catalog
 }
 
+// PetSpecies is the Minipet Shop catalog (the sellable pets with art) for the Pet Book (room.HandlePetBook).
+func PetSpecies() []room.PetSpecies {
+	c := loadCatalog()
+	out := make([]room.PetSpecies, 0, len(c.pet))
+	for _, it := range c.pet {
+		out = append(out, room.PetSpecies{Code: it.Code, ID: it.ID, Catg: it.Catg})
+	}
+	return out
+}
+
 // itemCodeFromID is the item code of numeric id n (itemcode.Code: SbItemTable::GetIntIdx inverted).
 func itemCodeFromID(n int64) (string, bool) { return itemcode.Code(n) }
 

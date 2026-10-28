@@ -171,6 +171,13 @@ func bindSession(aid uint64, c *lockedConn) {
 	sessionConns[aid] = c
 }
 
+// SessionOnline reports whether aid has a live :10123 session (friends' online markers, web session/status).
+func SessionOnline(aid uint64) bool {
+	sessionConnsMu.Lock()
+	defer sessionConnsMu.Unlock()
+	return sessionConns[aid] != nil
+}
+
 // unbindSession forgets the accounts whose live session was c.
 func unbindSession(c *lockedConn) {
 	sessionConnsMu.Lock()

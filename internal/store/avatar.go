@@ -2,14 +2,18 @@ package store
 
 import (
 	"encoding/json"
+	"slices"
 	"strconv"
 )
 
-// InitAvatarBaseItem @0x29a7f84 (called from AvActorManager::Initialize).
-// Index 0=MALE, 1=FEMALE. Numeric ids → CU codes via squareNumericItem inverse.
+// InitAvatarBaseItem @0x29a7f84 (called from AvActorManager::Initialize): three lists, one per AvActor::GetSex
+// (0 MALE, 1 FEMALE, 2 ANIMAL; AvAvatar::_FillEquipBaseSlot reads g_vecBaseItem[3*sex]). Cherry keeps the clothes,
+// the hair and the animal skin (CAFA0005O, the FA entry of the ANIMAL list); the face starters of each list are
+// owned faces here, as they are for humans.
 var AvatarBaseItems = map[string][]string{
 	"MALE":   {"CUTO0011X", "CUPA000LO", "CUSH0009Q", "CUHA00001"},
 	"FEMALE": {"CUTO0011X", "CUPA000LO", "CUSH0009Q", "CUHA00004"},
+	"ANIMAL": {"CATO000L8", "CAPA000BP", "CASH00001", "CAFA0005O"},
 }
 
 func ItemSlot(code string) string {
@@ -19,12 +23,15 @@ func ItemSlot(code string) string {
 	return code[2:4]
 }
 
-func IsAvatarBaseItem(code string) bool {
-	for _, list := range AvatarBaseItems {
-		for _, b := range list {
-			if b == code {
-				return true
-			}
+// IsAvatarBaseItem reports whether save/v2 skips code as a base item. Every account skips the human bases, as
+// before; an ANIMAL account also skips its animal base, so a human save never skips an animal code.
+func IsAvatarBaseItem(gender, code string) bool {
+	for key, list := range AvatarBaseItems {
+		if key == "ANIMAL" && gender != "ANIMAL" {
+			continue
+		}
+		if slices.Contains(list, code) {
+			return true
 		}
 	}
 	return false

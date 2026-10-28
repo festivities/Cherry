@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -133,7 +134,7 @@ func TestFaceShopDataGenderRoutesAndAuth(t *testing.T) {
 	}
 	faceShopSetup(t, "ANIMAL", nil, nil)
 	_, body = faceShopReq(t, "ftok", http.MethodGet, "/v4/faceshop/v2/shop/1", "")
-	if !strings.Contains(string(body), `"avatarType":"A"`) || !strings.Contains(string(body), `"AFACE":{"items":[]}`) || strings.Contains(string(body), "CUEY") {
+	if !strings.Contains(string(body), `"avatarType":"A"`) || !strings.Contains(string(body), `"AFACE":{"items":[{"cd":"CAFA0000Q"`) || strings.Contains(string(body), "CUEY") {
 		t.Fatalf("animal shop body: %.200s", body)
 	}
 	for _, c := range []struct {
@@ -464,4 +465,75 @@ func hasCode(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// TestAnimalSaveSkipsBase: an animal client's save/v2 carries its base clothes and skin (CATO000L8, CAPA000BP,
+// CASH00001, CAFA0005O) with its starter faces. The base codes are skipped and the faces saved (200). A human save of
+// an animal base code is still refused (400), as before the animal list existed.
+func TestAnimalSaveSkipsBase(t *testing.T) {
+	starters := []string{"CAEY00002", "CANO00001", "CAMO00002"}
+	acc := faceShopSetup(t, "ANIMAL", starters, starters)
+	const animalSave = `[{"itemCode":"CATO000L8"},{"itemCode":"CAPA000BP"},{"itemCode":"CASH00001"},{"itemCode":"CAFA0005O"},` +
+		`{"itemCode":"CAEY00002","invenSeq":1},{"itemCode":"CANO00001","invenSeq":2},{"itemCode":"CAMO00002","invenSeq":3}]`
+	if code, body := faceShopReq(t, "ftok", http.MethodPut, "/v4/avatar/save/v2", animalSave); code != http.StatusOK {
+		t.Fatalf("animal save: status %d %s", code, body)
+	}
+	if !slices.Equal(acc.ItemCodes, starters) {
+		t.Errorf("animal save stored %v, want the starter faces only (base codes skipped)", acc.ItemCodes)
+	}
+
+	human := faceShopSetup(t, "FEMALE", nil, nil)
+	if code, body := faceShopReq(t, "ftok", http.MethodPut, "/v4/avatar/save/v2", `[{"itemCode":"CATO000L8"}]`); code != http.StatusBadRequest {
+		t.Fatalf("human save of animal base CATO000L8: status %d %s, want 400", code, body)
+	}
+	if len(human.ItemCodes) != 0 {
+		t.Errorf("refused human save changed items to %v", human.ItemCodes)
+	}
+}
+
+// TestAnimalWearOverHTTP: the animal shop body lists the originals under AFACE/AEAR/ATAIL; a tail changed through
+// invenItemList (a string, as the client sends it) is bought over the route for one ticket, and the Closet save that
+// follows keeps it, since the purchase granted it.
+func TestAnimalWearOverHTTP(t *testing.T) {
+	starters := []string{"CAEY00002", "CANO00001", "CAMO00002", "CAEA00001", "CATL00001"}
+	acc := faceShopSetup(t, "ANIMAL", starters, starters)
+	path := filepath.Join(t.TempDir(), "accounts.json")
+	store.AccountsMu.Lock()
+	store.AccountStorePath = path
+	store.AccountsMu.Unlock()
+
+	code, body := faceShopReq(t, "ftok", http.MethodGet, "/v4/faceshop/v2/shop/1?shopLocation=HOME", "")
+	if code != http.StatusOK {
+		t.Fatalf("shop body: status %d", code)
+	}
+	for _, want := range []string{`"AFACE":{"items":[{"cd":"CAFA0000Q"`, `"AEAR":{"items":[{"cd":"CAEA00001"`, `"ATAIL":{"items":[{"cd":"CATL00001"`} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("shop body lacks %s", want)
+		}
+	}
+
+	const buy = `{"saveItemList":[{"itemCode":"CAEY00002","invenSeq":1},{"itemCode":"CANO00001","invenSeq":2},` +
+		`{"itemCode":"CAMO00002","invenSeq":3},{"itemCode":"CAEA00001","invenSeq":4},{"itemCode":"CATL00006","invenSeq":5}],` +
+		`"invenItemList":["CATL00006"],"useVoucher":"false"}`
+	if code, resp := faceShopReq(t, "ftok", http.MethodPost, faceShopPurchaseURL, buy); code != http.StatusOK {
+		t.Fatalf("tail purchase: status %d %s", code, resp)
+	}
+	store.AccountsMu.Lock()
+	tickets := acc.FaceTickets
+	store.AccountsMu.Unlock()
+	if tickets != 9 {
+		t.Errorf("tickets = %d, want 9 (one for the tail)", tickets)
+	}
+
+	const save = `[{"itemCode":"CAEY00002","invenSeq":1},{"itemCode":"CANO00001","invenSeq":2},` +
+		`{"itemCode":"CAMO00002","invenSeq":3},{"itemCode":"CAEA00001","invenSeq":4},{"itemCode":"CATL00006","invenSeq":5}]`
+	if code, resp := faceShopReq(t, "ftok", http.MethodPut, "/v4/avatar/save/v2", save); code != http.StatusOK {
+		t.Fatalf("Closet save of the bought tail: status %d %s", code, resp)
+	}
+	store.AccountsMu.Lock()
+	worn := slices.Clone(acc.ItemCodes)
+	store.AccountsMu.Unlock()
+	if !slices.Contains(worn, "CATL00006") || slices.Contains(worn, "CATL00001") {
+		t.Errorf("worn after the Closet save = %v, want CATL00006 and not the starter tail", worn)
+	}
 }

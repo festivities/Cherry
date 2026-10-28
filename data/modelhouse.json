@@ -1,0 +1,34 @@
+{
+  "origin": "cherry",
+  "note": "Cherry-made Model House sets. No Model House set survives in the original game archives, so every set code, name, description and price here is Cherry's own invention (AGENTS, Operator-editable fabricated content). The element item codes are real Interior Shop furniture. Price rule: the sum of the elements' Gem prices (interior_price 150; WA and TI 100 in prices.json) less 10 percent, in whole Gems.",
+  "sets": [
+    {
+      "code": "GUMH00001",
+      "name": "Cherry Set: Cozy Living Room",
+      "description": "A Cherry-made living room: chair, table, plant, electronics and wall decor.",
+      "elements": ["RUCH0011X", "RUTB000GB", "RUPL0004M", "RUEL000B0", "RUWI00033"],
+      "price": 675
+    },
+    {
+      "code": "GUMH00002",
+      "name": "Cherry Set: Sunny Bedroom",
+      "description": "A Cherry-made bedroom: a bed, a dresser, a window and a plant.",
+      "elements": ["RUBE000KH", "RUCL000EE", "RUWD0000S", "RUPL00055"],
+      "price": 540
+    },
+    {
+      "code": "GUMH00003",
+      "name": "Cherry Set: Corner Cafe",
+      "description": "A Cherry-made café corner: a table, a chair, food and a kitchen item.",
+      "elements": ["RUTA0004S", "RUCH0011Y", "RUFD000BH", "RUKI00022"],
+      "price": 540
+    },
+    {
+      "code": "GUMH00004",
+      "name": "Cherry Set: Bath Time",
+      "description": "A Cherry-made bathroom corner: a bath item, a plant and a wallpaper.",
+      "elements": ["RUBA0002Z", "RUPL0005J", "RUWA000IC"],
+      "price": 360
+    }
+  ]
+}

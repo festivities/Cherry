@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"maps"
+	"math/rand/v2"
 	"net/http"
 	"strconv"
 	"strings"
@@ -1029,6 +1030,19 @@ func HandleRoom(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	roomInfo := roomInfoFor(r, level, decorAID, parts[0] == "myroom" || decorAID != "")
+	maxLevel := "LEVEL_" + strconv.Itoa(room.RoomPartyFloors)
+	body, _ := json.Marshal(map[string]any{"result": map[string]any{
+		"roomInfo":          roomInfo,
+		"ownMaxGroundLevel": maxLevel, "availMaxGroundLevel": maxLevel,
+		"name": name, "vipRewardedList": []any{},
+	}})
+	httpx.WriteJSON(w, http.StatusOK, string(body))
+}
+
+// roomInfoFor is the roomInfo object of a My Room at level. decor adds the saved layout of decorAID
+// ("" = the requester's own room). Visits send it as "roomInfo", the random room as "room".
+func roomInfoFor(r *http.Request, level, decorAID string, decor bool) map[string]any {
 	roomInfo := map[string]any{
 		"groundLevel": level,
 		"tileSize":    12, // ponytail: unverified; hero spawn tile (8,4) must fit inside
@@ -1038,16 +1052,66 @@ func HandleRoom(w http.ResponseWriter, r *http.Request) {
 		"wall":      map[string]any{"seq": "0", "cd": room.RoomWallCode, "type": "wallTile"}, // default RUWA0006D (121400229) lacks wall_l/r_1.png
 		"floorItem": []any{}, "wallItem": []any{}, "item": []any{}, "memberAvatarIdList": []any{},
 	}
-	if parts[0] == "myroom" || decorAID != "" { // saved layout (roomdecor.go); friend 100000 and unsaved levels keep the default
+	if decor { // saved layout (roomdecor.go); friend 100000 and unsaved levels keep the default
 		maps.Copy(roomInfo, room.RoomDecorInfo(r, decorAID, level))
 	}
+	return roomInfo
+}
+
+// randomRoomLevel is the ground level of a random visit (room/random has no level parameter).
+const randomRoomLevel = "LEVEL_1"
+
+// noOtherRoomBody answers a random visit when no other account exists. An error body with an errorCode
+// other than 10001 (or 140001/140002) gets the client's "unexpected error" popup 10077 and a Garden reload
+// (ErrRandomRoomInfoWithCachePolicy @0x1b950d8). The spec's 404 gives the same popup (audit row 12); a 500
+// is used here as the explicit error body. [I] for the 500 status: the client only tests status 504.
+const noOtherRoomBody = `{"errorCode":"500","errorMessage":"cherry: no other room"}`
+
+// HandleRoomRandom serves GET /v4/room/random (Other Room): the My Room of a random account other
+// than the requester. The reply is the room/enter layout under "room" (ResRandomRoomInfoWithCachePolicy
+// @0x1bb178c reads result.room, hostAvatarId, ownMaxGroundLevel and availMaxGroundLevel). The client asks
+// again when hostAvatarId is its own aid, so the requester is never picked.
+func HandleRoomRandom(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		httpx.ServeNotFound(w)
+		return
+	}
+	viewer, _ := store.AccountForRequest(r) // no session: Aid "" excludes nobody
+	host, ok := randomRoomHost(viewer.Aid)
+	if !ok {
+		httpx.WriteJSON(w, http.StatusInternalServerError, noOtherRoomBody)
+		return
+	}
+	if v, err := strconv.ParseUint(viewer.Aid, 10, 64); err == nil {
+		if h, err := strconv.ParseUint(host, 10, 64); err == nil {
+			NoteRoomVisit(v, h)
+		}
+	}
 	maxLevel := "LEVEL_" + strconv.Itoa(room.RoomPartyFloors)
-	body, _ := json.Marshal(map[string]any{"result": map[string]any{
-		"roomInfo":          roomInfo,
+	httpx.WriteObj(w, map[string]any{"result": map[string]any{
+		"hostAvatarId": host, "room": roomInfoFor(r, randomRoomLevel, host, true),
 		"ownMaxGroundLevel": maxLevel, "availMaxGroundLevel": maxLevel,
-		"name": name, "vipRewardedList": []any{},
 	}})
-	httpx.WriteJSON(w, http.StatusOK, string(body))
+}
+
+// randomRoomHost picks a random account other than exclude, once per aid (an account may hold several
+// token aliases). ok is false when there is no such account.
+func randomRoomHost(exclude string) (string, bool) {
+	store.AccountsMu.Lock()
+	defer store.AccountsMu.Unlock()
+	seen := map[string]bool{}
+	var aids []string
+	for _, acc := range store.Accounts {
+		if acc == nil || acc.Aid == exclude || acc.Aid == "0" || !store.ValidAvatarID(acc.Aid) || seen[acc.Aid] {
+			continue
+		}
+		seen[acc.Aid] = true
+		aids = append(aids, acc.Aid)
+	}
+	if len(aids) == 0 {
+		return "", false
+	}
+	return aids[rand.IntN(len(aids))], true
 }
 
 // Pets in a Room Party. Scene 303 skips the HTTP pet loads (NaMyRoomBaseScene::

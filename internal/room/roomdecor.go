@@ -650,6 +650,18 @@ const (
 // ponytail: every room has 2 floors until a remodeling shop / ownership exists.
 const RoomPartyFloors = 2
 
+// HandleGroundLevelStatus serves GET room/groundlevel/status/<aid>, the Remodeling Shop's floor level
+// (NaDispatcherRoom::ResRoomGroundLevelStatus 0x1a8771c). The client strips "LEVEL_" from ownMaxGroundLevel
+// and atoi's the rest; that number selects the shop tier (11741 → NaRemodelingShopLayer::LoadCurrentLevelShop).
+// Floors are free, so every account has RoomPartyFloors.
+func HandleGroundLevelStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		httpx.ServeNotFound(w)
+		return
+	}
+	petJSON(w, map[string]any{"ownMaxGroundLevel": "LEVEL_" + strconv.Itoa(RoomPartyFloors)})
+}
+
 // RoomLevelValid accepts LEVEL_<n>.
 func RoomLevelValid(s string) bool {
 	n, ok := strings.CutPrefix(s, "LEVEL_")

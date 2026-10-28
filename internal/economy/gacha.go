@@ -603,7 +603,11 @@ func registerGachaRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/v4/shop/gachaList2/new/all", handleGachaList(false))
 	// banner/all, banner/top and banner/promotion all parse as sDataGachaBannerAll (result object).
 	mux.HandleFunc("/v4/shop/gachaList2/banner/", httpx.HandleJSONBody(`{"result":{"mainTopBannerList":[],"mainPromotionBannerList":[],"mainVipLeftList":[],"mainVipRightList":[],"moreVipCategoryId":0}}`))
+	// The exact path is the keyword list (ReqGachaKeywords 0x1b999a0 → ResGachaKeywords 0x1b4c43c walks result
+	// as an array). keyword/<n> is the search result list (ReqGachaList_By_Keyword 0x1b99224 → sDataGachaShopList
+	// ::SetData 0x2608bc0, the object shape of catg/all/<id>). The client's gachaNew link asks keyword/2.
 	mux.HandleFunc("/v4/shop/gachaList2/keyword", httpx.HandleJSONBody(`{"result":[]}`))
+	mux.HandleFunc("/v4/shop/gachaList2/keyword/", handleGachaList(false))
 	mux.HandleFunc("/v4/shop/gacha/detail/target/", handleGachaDetail)
 	// ResGachaLikeItemList: result is an array of {categoryName, items} (walked with size()).
 	mux.HandleFunc("/v4/likes/popular/item", httpx.HandleJSONBody(`{"result":[]}`))

@@ -1,0 +1,36 @@
+{
+  "origin": "cherry",
+  "note": "Cherry-made tips about Cherry's own features (AGENTS, Operator-editable fabricated content). No original LINE PLAY text here. The images are empty: no Cherry-made picture exists for these tips yet.",
+  "tips": [
+    {
+      "bannerId": 1,
+      "title": "Daily quests",
+      "description": "Check the Quest menu every day. Garden daily quests refresh each day and complete as you play.",
+      "image": ""
+    },
+    {
+      "bannerId": 2,
+      "title": "Fishing in a Square",
+      "description": "Tap START, then HIT! when the bite comes. Daily catches are capped, so pace yourself.",
+      "image": ""
+    },
+    {
+      "bannerId": 3,
+      "title": "Gather and craft",
+      "description": "Tap gathering spots in the Garden for materials, then craft items at the Atelier.",
+      "image": ""
+    },
+    {
+      "bannerId": 4,
+      "title": "Face Shop tickets",
+      "description": "Each Face Shop change uses one Face Shop ticket.",
+      "image": ""
+    },
+    {
+      "bannerId": 5,
+      "title": "Model House sets",
+      "description": "A Model House set bundles Interior Shop furniture into one purchase, priced below the items bought one by one.",
+      "image": ""
+    }
+  ]
+}

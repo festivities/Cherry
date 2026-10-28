@@ -390,6 +390,9 @@ func NewMux() http.Handler {
 	mux.HandleFunc("/v4/friend/status/", handleFriendStatus)
 	mux.HandleFunc("/v4/friend/apply/", handleFriendApply)
 	mux.HandleFunc("/v4/friend/accept/", handleFriendAccept)
+	mux.HandleFunc("/v4/pin/list", handlePinList)
+	mux.HandleFunc("/v4/pin/add/", handlePinAdd)
+	mux.HandleFunc("/v4/pin/delete", handlePinDelete)
 	mux.HandleFunc("/v4/diary2/ext/checkExist/", handleDiaryCheckExist)
 	mux.HandleFunc("/v4/diary2/intro/", handleDiaryIntro)
 	mux.HandleFunc("/v4/diary2/ext/write", handleDiaryWrite)
@@ -425,12 +428,21 @@ func NewMux() http.Handler {
 	mux.HandleFunc("/v4/r/badge/reset/", handleBadgeReset)
 	mux.HandleFunc("/v4/faceshop/v2/shop/", economy.HandleFaceShopData)
 	mux.HandleFunc("/v4/faceshop/saveAndPurchase/v2", economy.HandleFaceShopPurchase)
+	mux.HandleFunc("/v4/shop/gift/list/", economy.HandleGiftShopList)
+	mux.HandleFunc("/v4/gift/send", economy.HandleGiftSend)
 	economy.RegisterEconomyRoutes(mux)
+	economy.RegisterModelHouseRoutes(mux)
 	registerDeleteAccountRoutes(mux)
 	mux.HandleFunc("/v4/items/dress/some", economy.HandleItemsSome)
 	mux.HandleFunc("/v4/items/room/some", economy.HandleItemsSome)
 	mux.HandleFunc("/v4/playhome/games/lp_rmchat", handlePlayDetailLPRmchat)
 	mux.HandleFunc("/v4/playhome/games/lp_sq", httpx.HandleJSONBody(playDetailLPSquareBody))
+	mux.HandleFunc("/v4/home/sublist/game/Android", handleMoreGameList)
+	mux.HandleFunc("/v4/home/sublist/shop/10.1.0.0/Android.nhn", handleMoreShopList)
+	mux.HandleFunc("/v4/noti/event/", handleMoreEventList)
+	mux.HandleFunc("/v4/friends/invitation/info", httpx.HandleJSONBody(inviteInfoBody))
+	mux.HandleFunc("/v4/timemagic/count", httpx.HandleJSONBody(timemagicCountBody))
+	mux.HandleFunc("/v4/session/status", handleSessionStatus)
 	mux.HandleFunc("/v4/inven/interior/items/all", room.InvenInteriorHandler(economy.RoomItemPrice))
 	mux.HandleFunc("/v4/inven/use/list/interior/dividefloor", room.HandleInvenDivideFloor)
 	mux.HandleFunc("/v4/room/save/new", room.HandleRoomSaveNew)
@@ -438,10 +450,22 @@ func NewMux() http.Handler {
 	mux.HandleFunc("/v4/room/preset/save/", room.HandleRoomPresetSave)
 	mux.HandleFunc("/v4/room/preset/remove/", room.HandleRoomPresetRemove)
 	mux.HandleFunc("/v4/room/preset/find/", room.HandleRoomPresetFind)
+	mux.HandleFunc("/v4/pet/book/race/list/", room.HandlePetBook(economy.PetSpecies))
 	mux.HandleFunc("/v4/pet/", room.HandlePet)
+	mux.HandleFunc("/v4/room/groundlevel/status/", room.HandleGroundLevelStatus)
+	mux.HandleFunc("/v4/room/random", lpn.HandleRoomRandom)
 	mux.HandleFunc("/v4/room/", lpn.HandleRoom)
+	mux.HandleFunc("/v4/cherrytip/list/", economy.HandleCherryTipList)
+	mux.HandleFunc("/v4/diary/profile/image/", handleDiaryProfileImage)
+	mux.HandleFunc("/v4/diary/profile/", handleDiaryProfile)
+	mux.HandleFunc("/v4/diary/wish/list/", handleWishList)
+	mux.HandleFunc("/v4/diary/wish/save", handleWishSave)
+	mux.HandleFunc("/v4/mileage/inven/items", handleMileageInven)
+	mux.HandleFunc("/v4/profile/intro/", handleProfileIntroSave)
 	mux.HandleFunc("/v4/profile/", handleProfile)
+	mux.HandleFunc("/v4/avatar/{aid}/profile", handleAvatarProfileSave)
 	mux.HandleFunc("/v4/avatar/", handleAvatarInfo)
+	mux.HandleFunc("/v4/banned/keyword", handleBannedKeyword)
 	mux.HandleFunc("/", handleRoot)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Some screens put their static base in front of an absolute picture URL (the boss result asked
@@ -918,7 +942,7 @@ func handleAvatarSaveV2(w http.ResponseWriter, r *http.Request) {
 	itemCodes := make([]string, 0, len(req))
 	for _, item := range req {
 		code := *item.ItemCode
-		if isSkinItemCode(code) || store.IsAvatarBaseItem(code) {
+		if isSkinItemCode(code) || store.IsAvatarBaseItem(acc.Gender, code) {
 			continue
 		}
 		if _, owned := serials[code]; !owned {
