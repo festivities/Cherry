@@ -1,44 +1,96 @@
 # Cherry — Plan (PLAN.md)
 
-Feature status, roadmap and the current per-feature protocol reference. Rules, lab facts and architecture: [AGENTS.md](AGENTS.md). Dated evidence and old snapshots: [HISTORY.md](HISTORY.md). Last full audit: 2026-10-28 evening (main agent; MENU route audit + cleanup to 44 rows, animal Face Shop, Model House, Profile Edit, Gift Shop, craft art; handoff written).
+Feature status, roadmap and the current per-feature protocol reference. Rules, lab facts and architecture: [AGENTS.md](AGENTS.md). Dated evidence and old snapshots: [HISTORY.md](HISTORY.md). Last full audit: 2026-10-28 ~21:50 (main agent; Garden butlers, Cherry-made content marking; handoff written).
 
 ## Handoff protocol (user instruction 2026-10-05)
 
 When the user says they are **moving to another conversation whose agent has no context at all**, the outgoing agent MUST record it here as **HANDOFF INITIATED** with a self-sufficient state snapshot, and the receiving agent MUST append **HANDOFF ACCEPTED** (dated, with any state corrections) once it has loaded context. Older INITIATED/ACCEPTED pairs move to HISTORY.md once accepted.
 
-Earlier pairs (latest: Claude Code 2026-10-28 00:40 → Claude Code 2026-10-28, accepted) are in HISTORY.md.
+Earlier pairs (latest: Claude Code 2026-10-28 17:30 → Claude Code 2026-10-28 evening, accepted) are in HISTORY.md.
 
-### HANDOFF INITIATED — 2026-10-28 ~17:30 host time (Claude Code session → new Claude Code session with no context)
+### HANDOFF INITIATED — 2026-10-28 ~21:50 host time (Claude Code session → new Claude Code session with no context)
 
-You are the receiving agent with **zero context**. Read all of [AGENTS.md](AGENTS.md) — above all "Policies" (on-demand streaming; **R2/D1 layout**; **Cherry-generated assets are never treated as original game assets**; operator-editable fabricated content; **no real money**), "Workflow" (delegation; "Tester practicalities", esp. the 2026-10-28 MENU and brief notes; **Commits: autonomous since 2026-10-28**; deploy recipe), "Tooling rules" (IDA: per-job copies only, never open the pristine `.i64`; write long Python/doc scripts with the file tool — bash heredocs broke twice), "Lab" (accounts changed today), "Code map", "Known client-inherent limits" (new Home MENU bullet) — then this file: this block, "Status", **Roadmap 6–7** and the references "Home menu" (kept rows + routes, removed rows + reasons) and "Face Shop" (animal avatars). [HISTORY.md](HISTORY.md) holds the previous handoff pair verbatim. Do not edit `JICAMA.md`. Then recheck the lab (`git status`, Cherry PID/path/hash, `adb devices` + `adb -s <serial> emu avd name`, the `lan=` value in the Cherry log), append **HANDOFF ACCEPTED** below with corrections, and continue at "Next steps". Times in today's docs are the host clock (UTC+8); the game day still resets at 06:00 JST.
+You are the receiving agent with **zero context**. Read all of [AGENTS.md](AGENTS.md). Above all, read these sections:
+- "Policies": on-demand streaming; R2/D1 layout; Cherry-generated assets are never treated as original; operator-editable fabricated content; no real money. Also read the **"Cherry-made content"** table, which was new this session.
+- "Workflow": delegation; "Tester practicalities"; Commits, which are autonomous since 2026-10-28; the deploy recipe.
+- "Tooling rules". IDA: use per-job copies only and never open the pristine `.i64`. Write scripts with the file tool, not a heredoc.
+- "Lab", "Code map" and "Known client-inherent limits".
 
-**State snapshot (2026-10-28 ~17:30):**
-- **Repo:** branch `main`, everything committed and pushed; code HEAD `4047f03` (Garden craft art) on top of `be42506`…`500596c` (MENU fixes, cleanup, animal Face Shop, Model House) plus docs commits incl. this handoff. Gate green (`gofmt -l .` empty, `go vet ./...`, `go test -race -count=1 -timeout 1200s ./...`; the full race run takes ~2–10 min on this host — run it in the background).
-- **Running:** Cherry PID **29516** (started 17:15), repo-root `cherry.exe` SHA-256 prefix `7c66877e3bd7007c`, log `%TEMP%\opencode\cherry\tools\m3-evidence\fresh-entry-20260926\cherry-menufix9-20261028-private.log`, streaming ON. emulator-5554 = AVD **Cherry** (1001), emulator-5556 = AVD **Jerry** (1006, animal). LAN IP 192.168.1.7. YunDetectService PID 33036: never stop it.
-- **R2/D1:** `cherry-assets verify` green after today's upload (user go-ahead): +42 original Garden craft files under `static/garden01/`, `static/craft01/` (111,252 planned objects; D1 `generated` 15,611 rows).
-- **Accounts:** see AGENTS "Accounts" — 1001 6,432 Gems; 1002 1,240 Gems + a Postbox gift; **1004 deleted, 1006 "jerry" (ANIMAL) created**; only 1001↔1002 are friends.
-- **Lab incident:** a host blackout (~06:30–10:30) wiped AVD Cherry's downloaded client files (6.4 MB left, login kept); it re-downloaded 348 MB through streaming. The pushed santi dataset is gone from that AVD (Jerry still has it). Also: Event Ranking's CONFIRM wipes the files again (row removed).
-- **Done this session (details in Status, Roadmap 7 and the references):** the full **home MENU audit** (124 rows tapped on AVD Cherry + static research per row, specs under `%TEMP%\opencode\cherry\menu-audit-20261028\`) and fixes, all device-verified: My Pins, Other/Random Room, Random Garden, More Games/Shop/Events, Invitation info, Gift Shop (list, `gift/send`, wish list), Model House (Cherry-made sets, preview room, purchase), Profile Edit (diary profile, status + nickname, photos, banned words, **non-empty session `lineId`**), Gacha New, Minipet Book, Remodeling Shop (owned-floor rows; back works), Cherry Tip, Recommended Posts, VIP Lounge (free room), package rows answered silently, `session/status` online, Garden craft art (`garden01/`, `craft01/`). **MENU cleaned up 124 → 44 rows** (user decision; every removed link type and reason in PLAN "Home menu"); final walk of the 45-row version passed (all open and return with the HUD); Today Members removed afterwards. **Animal Face Shop:** 172 original + converted CA faces, skin, ears, tails; ANIMAL base items; purchases device-verified on Jerry.
-- **User decisions this session:** skin change costs one ticket (kept); list the animal faces and skin/ears/tails (done); AVD Jerry turned into an animal avatar (done via Delete Avatar); Model House = a few editable Cherry-made sets, clearly marked Cherry-made (done); remove dead, paid/ad and not-yet-built MENU rows and document them (done); Today Members removed (duplicate); R2 upload of the craft originals (done); **autonomous commits and pushes authorized**.
-- **Next steps — the user's focus for this handoff: the still-open tasks below and the 14 not-yet-built MENU features (Roadmap 7).**
-  1. **Not-yet-built features (Roadmap 7, 14 link types; Butler ×3 DONE 2026-10-28 evening, `64bbfca`/`4ffbbc5` — next: Colorant):** Butler ×3 → Colorant (dye) ×3 → Story Gacha ×3 → Lucky/Jackpot Spin ×2 → Lounge Chat → Circle → Treasure World. Per feature: ask the user only for genuine product choices (e.g. what butlers/dyes/spin prizes exist and cost — offer a Cherry-made default in a `data/*.json` with `origin: "cherry"`); `reverse-engineer` closes the open protocol fields into a spec; `cherry-worker` implements with explicit file ownership (staging only its files); main agent reviews, gates, deploys; re-add the link type to `homeLinks` + a `data/menu.json` label (and icon) and remove it from the "Removed MENU rows" table; `cherry-tester` verifies on AVD Cherry (Jerry for animal/two-device checks). Commit + push each verified feature.
-  2. **Open checks / small gaps (classify or fix, with evidence):**
-     - APK-only completeness of static-base CDN art: `files/cache/` subtrees the client downloads by URL and Cherry may not serve — `photozone/frame/` (252 files, 16 MB; the comic diary flow sends relative `displayImagePath`s), `gacha`, `gacha_banner_0`, `banner`, `actionsticker`, `notice_img`, `item_thumbnail_M_105`, `mileage_item_image`, `hmmn_icn_img`, `mdsp_icn_img`, `event_icon`, `preset`, `profilebg` (inventory from the craft-art worker; URL origins unverified). Watch a fresh/APK-only install's log for static 404s; serve originals the same way as `assets.CraftDirs` (R2 upload needs the user's go-ahead).
-     - ~~Ask the user whether to restore AVD Cherry's pushed santi dataset~~ — **user 2026-10-28 evening: keep it on the streamed set** (it tests the streaming player path; Jerry keeps the full set).
-     - Befriend 1001↔1006 before the next two-device test.
-     - Recommended Posts: confirm by screenshot what the empty "no list" cell reads (it may look like a network error).
-     - VIP Lounge: leaving it once landed on a default-looking Garden — check whose Garden/map that is.
-     - Remodeling Shop: 3F opened first on a device whose shop tip is unseen may still stick [I].
-     - Gift receive: whether gifts also belong in the client's separate gift box (`ReqGiftWithPage` 0x1b8cbe8) besides the Postbox.
-     - Event Ranking popup raiser (`NaExceptionManager` +14 writer) — only if the row should ever return.
-     - Harmless boot 404s (list in PLAN "Home menu", last table row) — quiet them only with verified reply shapes.
-  2a. **DONE 2026-10-28 evening (table: AGENTS "Cherry-made content"; inventory `cherry-made-20261028\inventory.md`).** Cherry-made marking pass (user request 2026-10-28 evening; run after Butler lands, it shares `operator.go`/`embed.go`):** (1) every `data/*` file gets `"origin"` + `"note"`; mixed files say per field what is original (e.g. Atelier/gathering ids + `craft01/`/`garden01/` art) vs Cherry-made (names, recipes, weights, amounts); (2) reserved id blocks + startup validation for Cherry-invented ids with no block yet (fish 4101+, boss fish 4901, quests 9001+/event 9101+, gacha 1001, exchange/racing row ids, Atelier recipe/design ids if not original — verify each against the client/archives first); (3) inventory ALL other Cherry-made content too (user: "handle others I missed": e.g. synthetic item names `items/*/some`, menu icons, gardens.json names/skies, squares names, synthetic Friend 100000 and clone-avatar profiles, dressup lists, starter, generated thumbnails/skins/pictures) and add one "Cherry-made content" table to AGENTS listing each with its marker (path prefix, id block, `origin` field).
-  3. Roadmap 6 deferred items remain (gacha categories/"Most Liked", Fashion SET tab, Friend-profile CHAT, Style Magazine, guestbook replies, Diary comments/likes, …).
-- **Hazards learned this session:** an empty list is not automatically safe — Model House throws on an empty vector, the Pet Book/Remodeling Shop skip `HideSystemIndicator` (back blocked), Brand Shop Ex null-derefs an empty link: verify the empty path in IDA before serving `[]`; an empty `lineId` makes `find("")` reject every profile save; LPN replies with no required fields can be empty but must exist (Butler); workers sometimes stop at an unexpected popup — tell testers which popups they may answer and how; worker commits must stage only their own files; the host's heredocs failed twice (`python -` without input hung a command; a long heredoc ended early) — use the Write tool for scripts; after a session limit, resume the same agent with SendMessage.
+Then read this file: this block, "Status" (its last two rows are new), **Roadmap 7** (the not-yet-built MENU features) and the reference "Home menu". [HISTORY.md](HISTORY.md) holds the previous handoff pair verbatim. Do not edit `JICAMA.md`.
 
-### HANDOFF ACCEPTED — 2026-10-28 evening (new Claude Code session)
+Then recheck the lab: `git status`, the Cherry PID/path/hash, `adb devices` plus `adb -s <serial> emu avd name`, and the `lan=` value in the Cherry log. Append **HANDOFF ACCEPTED** below with any corrections, and continue at "Next steps". Times are host clock (UTC+8). The game day resets at 06:00 JST.
 
-Context loaded (AGENTS.md, PLAN.md, JICAMA.md, HISTORY headings + last pair). Lab rechecked, no corrections: tree clean, HEAD `0ea77ec` = `origin/main` (docs-only after `4047f03`); Cherry PID 29516, `D:\Dev\projects\Cherry\cherry.exe`, SHA-256 prefix `7c66877e3bd7007c`, started 17:15:03; YunDetectService PID 33036; emulator-5554 = AVD Cherry, emulator-5556 = AVD Jerry; log `cherry-menufix9-20261028-private.log`, `lan=192.168.1.7`. Continuing at "Next steps" 1 (Butler first).
+**State snapshot (2026-10-28 ~21:50):**
+- **Repo:**
+  - Branch `main`, everything is committed and pushed, and the tree is clean.
+  - Code HEAD is `4ffbbc5` (butler 30-day hires, chief tile). Before it: `64bbfca` (Garden butlers + Cherry-made content marking) and `04924f5` (handoff accept).
+  - Docs commits follow: `671a023` plus this handoff.
+  - The gate is green: `gofmt -l .` is empty, and `go vet ./...` and `go test -race -count=1 -timeout 1200s ./...` pass. Run the race tests in the background; they take ~2–10 min.
+  - Known Windows flakes pass on rerun: "rename … Access is denied" in save tests (web, gathering), and `TestSquareBossAcceptFromAnotherSquare` timing.
+- **Running:**
+  - Cherry PID **50248**, repo-root `cherry.exe` SHA-256 prefix `466bc3237e044cf6` (built from `4ffbbc5`).
+  - Log: `%TEMP%\opencode\cherry\tools\m3-evidence\fresh-entry-20260926\cherry-butler5-20261028-private.log`. Streaming is ON.
+  - emulator-5554 = AVD **Cherry** (1001). emulator-5556 = AVD **Jerry** (1006, animal). LAN IP 192.168.1.7.
+  - YunDetectService PID 33036: never stop it.
+- **Accounts:**
+  - Balances and the rest are in AGENTS "Accounts".
+  - 1001 now has **30 Cash** and butlers Hazel (free, ends ~Oct 31) and Wren (a 7-day legacy hire, ends Nov 4). Wren is chief, and 1001's free hire is used.
+  - Backups: `economy-20261006\accounts-backup-pre-butler{,2,4,5}.json`.
+- **Done this session:**
+  - **Garden butlers**, device-verified: Shop, free and Cash hire, Book, chief change, the chief spawning and roaming in the Garden, Skins screen. The MENU now has 47 rows. Details are in the Status row and Roadmap 7.
+  - **Cherry-made content marking:** every content `data/*.json` has `origin`/`note` (`opdata.Provenance`), and the Cherry id blocks are validated at startup. The table is in AGENTS "Cherry-made content"; the inventory is in `%TEMP%\opencode\cherry\cherry-made-20261028\inventory.md`.
+- **User decisions this session:**
+  - AVD Cherry stays on the streamed dataset.
+  - Butlers: 3 Cherry-made butlers, kept distinguishable from original data (id block 1900000000–1900000999, skins `cherry_*`).
+  - Butler hire: paid in earned **Cash**. The client only offers 30 days → 30 Cash. One free 3-day hire per account.
+  - Butler gathering pays Atelier materials plus a small capped amount of Gems.
+  - Mark every Cherry-made asset ("handle others I missed"). Done.
+- **Next steps (the user's focus for this handoff: open tasks and what's next):**
+  1. **Colorant (dye) ×3** is next in Roadmap 7 (colorantShop / colorantBaseShop / colorantInven):
+     - Start with a `reverse-engineer` spec written to `%TEMP%\opencode\cherry\menu-audit-20261028\colorant-spec.md`. The starting point is `rows-f-spec.md` rows 106–108.
+     - It must close these open fields:
+       - the routes `GET shop/dye/item/list`, `GET shop/dye/baseitem/list/DRESS/all` and `GET inven/dye/item/list` (list keys ALL/SINGLE/RANDOM/CUSTOM must be arrays)
+       - buy `POST purchase/dye/item`
+       - apply `POST inven/dye/item/use/custom`, and how a dyed colour is stored on and rendered for a worn garment (the dyeType field on ItemInfo is already used by butler outfits)
+       - the consumer of message 11947
+       - **which balance the client's affordability check reads** (the Butler lesson)
+       - which empty lists are safe to serve
+     - Then ask the user only the product choices, each with a Cherry-made default:
+       - the dye catalog (colours, single/random/custom kinds)
+       - the price in Gems, unless IDA shows the client checks another balance
+       - which garments can be dyed
+     - Then the usual chain: `cherry-worker` implements → the main agent reviews, runs the gate and deploys → `cherry-tester` on AVD Cherry.
+     - When it passes:
+       - re-add the three link types to `homeLinks`, with labels and icons in `data/menu.json`
+       - remove them from "Removed MENU rows"
+       - commit and push
+  2. **The rest of Roadmap 7, in order:** Story Gacha ×3 (needs Cherry-made books and banners) → Lucky/Jackpot Spin ×2 (decode the reward keys at `SetRewardData` 0x23658dc first) → Lounge Chat (session cmd 1101 frame format) → Circle → Treasure World. Same per-feature chain as step 1.
+  3. **Butler follow-ups** (optional; none are blockers):
+     - **Gathering is not reachable on the device:** the Book shows no gather button.
+       - Find what turns it on: `SetGatheringButtonStatus` and `UpdateGatheringStatus` in `NaButlerBookPopup`, plus the `gatheringStatus`/`ability` values in hc 63. The open points are listed in `butler-spec.md` §6/§11.
+       - Then device-test ch 50 → hc 59, plus the reward popup ch 54/55 → hc 64/65.
+     - Not built: the Book's Chat/Profile, intimacy, the skin shop and voices.
+  4. **Marking leftovers:**
+     - Check against the archives that these codes are original: dressup lists, starter codes, lab grant codes and Atelier FSV1/FSV5. They were flagged "unverified" in the inventory.
+     - `internal/economy/fishing.go:220` `fishSilhouette` hard-codes an absolute path into the read-only archive (`D:/Dev/projects/Cherry/.opencode/line-play-artifacts/…/fish_ani_0001.png`). Make it relative to the configured asset root, or embed a derived file.
+  5. **Open checks carried over** (classify or fix, with evidence):
+     - **APK-only static CDN art:** `photozone/frame/`, `gacha`, `banner`, `actionsticker`, `notice_img`, `event_icon`, `preset`, `profilebg`, … Watch a fresh install's log for static 404s. An R2 upload needs the user's go-ahead.
+     - **Befriend 1001↔1006** before any two-device test.
+     - **Recommended Posts:** check what the empty "no list" cell reads.
+     - **VIP Lounge:** check the Garden you return to.
+     - **Remodeling Shop:** check the 3F tip on an unseen device.
+     - **Gift box:** check whether gifts also belong in the gift box (`ReqGiftWithPage` 0x1b8cbe8) besides the Postbox.
+     - **Boot 404s:** quiet the harmless boot 404s only with verified reply shapes. The list is in "Home menu".
+  6. Roadmap 6 deferred items are unchanged.
+- **Hazards learned this session:**
+  - **Switch files stay unmarked.** Making `origin` mandatory in `streaming.json`/`itemconv.json` made Cherry refuse the live private override `%LOCALAPPDATA%\Cherry\config\streaming.json` and stay down for ~1 min. Never require new fields in files an operator override may already hold. Check `%LOCALAPPDATA%\Cherry\config\` before a schema change.
+  - **Wait for `lan=` before relaunching apps.** After a deploy, wait for the `lan=` line in the new log before relaunching the apps. An app started while Cherry is down shows "Network Error".
+  - **Check the currency in IDA first.** Before you pick a currency, look up which balance the client's pre-check reads. Butler Gem prices would have blocked every hire, because the check reads Cash.
+  - **Check client pickers before choosing options.** Client pickers may support fewer options than the protocol carries: butler hires are 30 days only.
+  - **Butler wire times are epoch seconds,** not milliseconds.
+  - **Never set Butler vipGrade.** It raises the "Become VIP" gate, which is real money.
+  - **Relative picture URLs.** Some picture URLs are relative to the client's static base, for example butler `skinImgUrl`. An empty one leaves an endless spinner.
+  - **CRLF after `git checkout`.** On this host, `git checkout` of a file can leave CRLF and fail gofmt. Fix it with `sed -i 's/\r$//'`.
 
 ## Status (2026-10-28 evening)
 
