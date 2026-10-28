@@ -70,3 +70,28 @@ func TestDyeIconIsAPNGInTheDyeColour(t *testing.T) {
 		t.Fatalf("bulb colour = %02x%02x%02x alpha %02x", r>>8, g>>8, bl>>8, a>>8)
 	}
 }
+
+// TestDyeRandomListFillsTheClientSlots: a RANDOM dye with fewer than 12 colours goes out as 12 entries (the client reads
+// slots 0..11 unchecked), and each colour keeps its total chance.
+func TestDyeRandomListFillsTheClientSlots(t *testing.T) {
+	it := DyeItem{Kind: "RANDOM"}
+	for _, c := range []string{"#000001", "#000002", "#000003", "#000004", "#000005", "#000006", "#000007", "#000008"} {
+		it.Colors = append(it.Colors, DyeColorDef{Color: c, Prob: 0.125})
+	}
+	wire := dyeWireColors(it)
+	if len(wire) != dyeRandomSlots {
+		t.Fatalf("got %d entries, want %d", len(wire), dyeRandomSlots)
+	}
+	sum := map[string]float64{}
+	for _, c := range wire {
+		sum[c.Color] += c.Prob
+	}
+	for _, c := range it.Colors {
+		if d := sum[c.Color] - 0.125; d > 1e-9 || d < -1e-9 {
+			t.Fatalf("%s: chance %g, want 0.125", c.Color, sum[c.Color])
+		}
+	}
+	if single := (DyeItem{Kind: "SINGLE", Colors: it.Colors[:1]}); len(dyeWireColors(single)) != 1 {
+		t.Fatal("SINGLE list changed")
+	}
+}

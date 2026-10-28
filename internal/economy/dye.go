@@ -222,10 +222,34 @@ func dyeViewOf(r *http.Request) dyeView {
 	return dyeView{ok: true, dyes: acc.Dyes, colors: acc.DyeColors, owned: store.AccountOwnedCodes(acc), paid: acc.PaidPrices}
 }
 
+// dyeRandomSlots is how many colours of a RANDOM dye the client cycles through in its colour preview:
+// UpdateDyeColor 0x1fe0890 reads dyeItemColorList[0..11] with no size check (colorant-spec.md 18), so a shorter list
+// crashed the client on the GL thread.
+const dyeRandomSlots = 12
+
+// dyeWireColors is a dye's dyeItemColorList. A RANDOM dye with fewer than dyeRandomSlots colours repeats them in order
+// and splits each colour's prob over its copies, so the list is long enough and every colour keeps its chance.
+func dyeWireColors(it DyeItem) []DyeColorDef {
+	if it.Kind != "RANDOM" || len(it.Colors) >= dyeRandomSlots {
+		return it.Colors
+	}
+	copies := make([]int, len(it.Colors))
+	for i := range dyeRandomSlots {
+		copies[i%len(it.Colors)]++
+	}
+	out := make([]DyeColorDef, 0, dyeRandomSlots)
+	for i := range dyeRandomSlots {
+		c := it.Colors[i%len(it.Colors)]
+		out = append(out, DyeColorDef{Color: c.Color, Prob: c.Prob / float64(copies[i%len(it.Colors)])})
+	}
+	return out
+}
+
 // dyeRow is one dye as sDyeItemInfo reads it, with the requester's owned count.
 func dyeRow(it DyeItem, count int) map[string]any {
-	colors := make([]map[string]any, 0, len(it.Colors))
-	for _, c := range it.Colors {
+	wire := dyeWireColors(it)
+	colors := make([]map[string]any, 0, len(wire))
+	for _, c := range wire {
 		colors = append(colors, map[string]any{"colorCode": c.Color, "prob": c.Prob})
 	}
 	return map[string]any{
