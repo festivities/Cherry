@@ -205,7 +205,10 @@ func dpFrameWith(n *dpNat, p dpFrameParam) *image.RGBA {
 		p = dpFrameParam{w: 130, h: 100, zoom: 1.5, cy: 50}
 	}
 	img := n.img
-	bb := dpAlphaBBox(img)
+	bb := n.frame
+	if bb.Empty() {
+		bb = dpAlphaBBox(img)
+	}
 	if bb.Empty() {
 		return out
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"image/png"
 	"net/http"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"cherry/internal/economy"
 	"cherry/internal/itemcode"
 	"cherry/internal/store"
+	"cherry/internal/thumbs"
 )
 
 const (
@@ -405,10 +407,17 @@ func TestDyeApplyRefusals(t *testing.T) {
 	}
 }
 
-// TestDyeMaskIsAPictureForDyeableGarments: the dye cell's dp_mask.png is a PNG for every dyeable garment, including the three
-// the archive lacks a mask for (224102378, 224407224, 225409234); a garment that is not dyeable, another kind or another
-// file keeps its 404.
+// TestDyeMaskIsAPictureForDyeableGarments: a dyeable garment the archive has no mask for gets a composed dp_mask.png (the
+// dye cell's picture: 224102378, 224407224, 225409234). The archive's original mask (224102309) is served as is when no
+// stream answered it; a garment that is not dyeable, another kind or another file keeps its 404. Needs the device
+// archive; the cache is a temp dir.
 func TestDyeMaskIsAPictureForDyeableGarments(t *testing.T) {
+	if _, err := os.Stat(filepath.Join(thumbs.DpItemRoot, "custom")); err != nil {
+		t.Skip("device archive absent")
+	}
+	oldCache := thumbs.DpCacheDir
+	thumbs.DpCacheDir = t.TempDir()
+	t.Cleanup(func() { thumbs.DpCacheDir = oldCache })
 	for _, path := range []string{"/arts_item_custom_224102378/dp_mask.png", "/arts_item_custom_224407224/dp_mask.png",
 		"/img/read/arts_item_dress_225409234/dp_mask.png"} {
 		rec := decorReq(t, "", http.MethodGet, path, "")
@@ -419,8 +428,12 @@ func TestDyeMaskIsAPictureForDyeableGarments(t *testing.T) {
 			t.Fatalf("%s: %v", path, err)
 		}
 	}
-	for _, path := range []string{"/arts_item_custom_224999999/dp_mask.png", "/arts_item_pet_225001650/dp_mask.png",
-		"/arts_item_custom_224102378/dp_mask.jpg"} {
+	// the original mask is served as is when no stream answered it
+	if rec := decorReq(t, "", http.MethodGet, "/arts_item_custom_224102309/dp_mask.png", ""); rec.Code != http.StatusOK {
+		t.Fatalf("original mask: status %d", rec.Code)
+	}
+	for _, path := range []string{"/arts_item_custom_224999999/dp_mask.png",
+		"/arts_item_pet_225001650/dp_mask.png", "/arts_item_custom_224102378/dp_mask.jpg"} {
 		if rec := decorReq(t, "", http.MethodGet, path, ""); rec.Code != http.StatusNotFound {
 			t.Fatalf("%s: status %d, want 404", path, rec.Code)
 		}

@@ -21,6 +21,7 @@ import (
 	"cherry/internal/itemcode"
 	"cherry/internal/opdata"
 	"cherry/internal/store"
+	"cherry/internal/thumbs"
 )
 
 // Colorant (dye): the Dye Shop (home menu goSomewhere(colorantShop)) sells dye items for Gems, the Dye Inventory
@@ -607,15 +608,10 @@ func HandleDyeImage(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(b)
 }
 
-// dyeMaskSide is the side of the blank dye mask; the cell scales the picture to its own size.
-const dyeMaskSide = 128
-
 // ServeDyeMask answers GET <arts_item_<kind>_<id>/dp_mask.png> (and the /img/read form) for a dyeable garment when the
-// streamed files had no such file; handleRoot calls it after the stream. The dye cell asks for this mask, and a 404 turns
-// the cell into the warning icon. Three dyeable garments (224102378, 224407224, 225409234) have no dp_mask.png in the
-// archive; the others have theirs and the stream serves those. The answer is a blank transparent mask, so the preview
-// stays untinted (in-world the tint comes from the per-part masks, which all 15 garments have).
-// ponytail: blank mask; compose the <part>_mask.png files into the dp layout if the preview tint matters.
+// streamed files had no such file; handleRoot calls it after the stream. The mask is composed from the garment's part
+// masks (thumbs.ServeDyeMask, Cherry-made); the archive's original masks are never answered here. false leaves the
+// request to the rest of handleRoot, which answers 404 (the dye cell then shows its warning icon).
 func ServeDyeMask(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method != http.MethodGet {
 		return false
@@ -639,13 +635,7 @@ func ServeDyeMask(w http.ResponseWriter, r *http.Request) bool {
 	if err != nil || !slices.Contains(ActiveDyes().Dyeable, id) {
 		return false
 	}
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, image.NewNRGBA(image.Rect(0, 0, dyeMaskSide, dyeMaskSide))); err != nil {
-		return false
-	}
-	w.Header().Set("Content-Type", "image/png")
-	_, _ = w.Write(buf.Bytes())
-	return true
+	return thumbs.ServeDyeMask(w, kind, idText)
 }
 
 // RegisterDyeRoutes serves the Dye Shop and Dye Inventory lists, the palette, the dyeable garment list of the dye popups,

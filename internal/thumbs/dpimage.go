@@ -369,6 +369,12 @@ var dpDefaultExpressionOnly = map[string]bool{"EB": true}
 // single-anchor-group items (and anchor 17, which has no node) use the legacy
 // tight crop.
 func dpComposeNatural(dir, kind string) (*dpNat, dpCat, bool) {
+	return dpComposeAs(dir, kind, false)
+}
+
+// dpComposeAs is dpComposeNatural for the colour preview (tones false) or, with tones true, for the dye mask composed
+// from the same layout (dpmask.go).
+func dpComposeAs(dir, kind string, tones bool) (*dpNat, dpCat, bool) {
 	loaded, text, ok := dpLoadParts(dir, kind)
 	if !ok {
 		return nil, dpCat{}, false
@@ -376,6 +382,11 @@ func dpComposeNatural(dir, kind string) (*dpNat, dpCat, bool) {
 	cat := dpCategoryOf(filepath.Base(dir))
 	if dpDefaultExpressionOnly[cat.code] {
 		loaded = loaded[:1]
+	}
+	if tones {
+		if loaded, ok = dpToneParts(dir, loaded); !ok {
+			return nil, dpCat{}, false
+		}
 	}
 	anchors := map[int]bool{}
 	placeholder := false
@@ -387,15 +398,15 @@ func dpComposeNatural(dir, kind string) (*dpNat, dpCat, bool) {
 	// Placeholder parts carry only an animation, which the legacy crop cannot draw, so they always
 	// take the skeleton path (the legacy crop of 1x1 stand-ins rendered as a blank thumbnail).
 	if placeholder || (!anchors[dpTagSpecial] && (len(anchors) > 1 || cat.head())) {
-		if n := dpSkeletonCompose(dir, text, loaded, cat); n != nil {
+		if n := dpSkeletonCompose(dir, text, loaded, cat, tones); n != nil {
 			return n, cat, true
 		}
 	}
 	return &dpNat{img: dpLegacyCrop(loaded)}, cat, true
 }
 
-// dpSkeletonCompose places every front part on its idle-pose node.
-func dpSkeletonCompose(dir, text string, loaded []dpLoaded, cat dpCat) *dpNat {
+// dpSkeletonCompose places every front part on its idle-pose node. tones paints the bald head in the base tone (dpmask.go).
+func dpSkeletonCompose(dir, text string, loaded []dpLoaded, cat dpCat, tones bool) *dpNat {
 	rig := dpLoadRig(cat.rig())
 	if rig == nil {
 		return nil
@@ -403,6 +414,11 @@ func dpSkeletonCompose(dir, text string, loaded []dpLoaded, cat dpCat) *dpNat {
 	var layers []dpLayer
 	if cat.head() {
 		layers = rig.headLayers()
+		if tones {
+			for i := range layers {
+				layers[i].img = dpBaseTone(layers[i].img)
+			}
+		}
 	}
 	placeholders := false
 	for i, lp := range loaded {
@@ -442,6 +458,8 @@ type dpNat struct {
 	img          *image.RGBA
 	skel         bool
 	headX, headY float64
+	// frame, when not empty, is the alpha box dpFrameWith fits instead of img's own (a dye mask fits the colour preview's box).
+	frame image.Rectangle
 }
 
 // dpAnimLayers draws the animation symbols attached to placeholder parts: the
