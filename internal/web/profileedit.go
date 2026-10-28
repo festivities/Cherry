@@ -197,7 +197,63 @@ func handleDiaryProfileImage(w http.ResponseWriter, r *http.Request) {
 		httpx.ServeNotFound(w)
 		return
 	}
-	profileJSON(w, map[string]any{"imageList": []any{}})
+	rows := []map[string]any{}
+	if snap, ok := store.AccountByAvatarID(aid); ok && snap.DiaryProfile != nil {
+		// SetDiaryProfileImgData (0x1e27408): imageId/imageUrl strings, blind/mainImage/heartReceivable bools,
+		// heartCount int. Cherry keeps no photo hearts.
+		for _, p := range snap.DiaryProfile.Photos {
+			rows = append(rows, map[string]any{"imageId": p.ImageID, "imageUrl": p.ImageURL, "mainImage": p.Main,
+				"blind": false, "heartCount": 0, "heartReceivable": false})
+		}
+	}
+	profileJSON(w, map[string]any{"imageList": rows})
+}
+
+// maxProfilePhotos caps the stored photo list; ponytail: the client's own cap is not decoded, raise it if a
+// device save is refused.
+const maxProfilePhotos = 10
+
+// handleProfilePhotoSave serves POST /v4/profile/image (ReqDiaryProfilePhotoSave 0x1bd730c): the body is a JSON
+// array of {imageId, imageUrl, mainImage} that replaces the owner's photo list. ResDiaryProfilePhotoSave
+// (0x1a83474) never reads the reply body; a failure shows an error popup (ErrDiaryProfilePhotoSave 0x1abb4cc).
+func handleProfilePhotoSave(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		httpx.ServeNotFound(w)
+		return
+	}
+	raw, err := httpx.ReadNativeBody(r)
+	var photos []store.ProfilePhoto
+	if err == nil {
+		_, err = httpx.UnmarshalNativeJSON(raw, &photos)
+	}
+	ok := err == nil && len(photos) <= maxProfilePhotos
+	for _, p := range photos {
+		ok = ok && profileTextOK(p.ImageID, 128) && profileTextOK(p.ImageURL, 512)
+	}
+	if !ok {
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
+	store.AccountsMu.Lock()
+	defer store.AccountsMu.Unlock()
+	acc := store.SessionAccountLocked(r)
+	if acc == nil {
+		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
+		return
+	}
+	previous := acc.DiaryProfile
+	next := store.DiaryProfile{}
+	if previous != nil {
+		next = *previous
+	}
+	next.Photos = photos
+	acc.DiaryProfile = &next
+	if err := store.SaveAccountsLocked(); err != nil {
+		acc.DiaryProfile = previous
+		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, `{"result":true}`)
 }
 
 // handleMileageInven serves GET /v4/mileage/inven/items with no items. Any failure here (even a 404)
@@ -255,7 +311,8 @@ func handleProfileIntroSave(w http.ResponseWriter, r *http.Request) {
 		Job: req.Job, JobSecret: req.JobSecret,
 	}
 	if previous != nil {
-		next.StatusMessage = previous.StatusMessage // the Status Message has its own route; keep it
+		// The Status Message and the photos have their own routes; keep them.
+		next.StatusMessage, next.Photos = previous.StatusMessage, previous.Photos
 	}
 	acc.DiaryProfile = next
 	if err := store.SaveAccountsLocked(); err != nil {

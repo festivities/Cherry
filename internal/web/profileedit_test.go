@@ -209,6 +209,25 @@ func TestAvatarProfileStatusSaveGetRoundTrip(t *testing.T) {
 	checkFields(t, cleared, map[string]any{"intro": ""})
 }
 
+func TestProfilePhotoSaveRoundTrip(t *testing.T) {
+	profileEditFixture(t)
+	body := `[{"imageId":"7","imageUrl":"https://obs.line-scdn.net/x.jpg","mainImage":true}]` + "\x00"
+	if rec := socialTestRequestAs(t, "dp-owner", http.MethodPost, "/v4/profile/image", body); rec.Code != http.StatusOK {
+		t.Fatalf("photo save = %d %s", rec.Code, rec.Body.String())
+	}
+	got := diaryProfileResult(t, socialTestRequestAs(t, "dp-visitor", http.MethodGet, "/v4/diary/profile/image/1201", ""))
+	list, _ := got["imageList"].([]any)
+	if len(list) != 1 || list[0].(map[string]any)["imageId"] != "7" || list[0].(map[string]any)["mainImage"] != true {
+		t.Fatalf("imageList = %v", got["imageList"])
+	}
+	if rec := socialTestRequestAs(t, "dp-owner", http.MethodPost, "/v4/profile/image", `{"imageId":"7"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("object body = %d, want 400", rec.Code)
+	}
+	if rec := socialTestRequestAs(t, "", http.MethodPost, "/v4/profile/image", `[]`); rec.Code != http.StatusNotFound {
+		t.Errorf("no session = %d, want 404", rec.Code)
+	}
+}
+
 func TestAvatarProfileNicknameRenamesCopies(t *testing.T) {
 	profileEditFixture(t)
 	store.SocialMu.Lock()

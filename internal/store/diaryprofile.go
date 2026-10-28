@@ -15,4 +15,13 @@ type DiaryProfile struct {
 	BloodTypeSecret bool   `json:"bloodTypeSecret,omitempty"`
 	Job             string `json:"job,omitempty"`
 	JobSecret       bool   `json:"jobSecret,omitempty"`
+	// Photos is the profile photo list (POST /v4/profile/image), in the client's order.
+	Photos []ProfilePhoto `json:"photos,omitempty"`
+}
+
+// ProfilePhoto is one profile photo row: the client's image id and URL and whether it is the main photo.
+type ProfilePhoto struct {
+	ImageID  string `json:"imageId"`
+	ImageURL string `json:"imageUrl"`
+	Main     bool   `json:"mainImage"`
 }

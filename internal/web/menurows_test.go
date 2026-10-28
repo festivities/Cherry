@@ -66,6 +66,17 @@ func TestGroundLevelStatusShape(t *testing.T) {
 	}
 }
 
+// TestRemodelingRoomListRoute: the floor tabs of the Remodeling Shop reach the empty item list through the mux
+// (no "Network Error." popup from a 404, rows-d 14.2 and IDA 2026-10-28).
+func TestRemodelingRoomListRoute(t *testing.T) {
+	for _, code := range []string{"URMEXT", "URM2F", "URM3F"} {
+		rec := serve(t, http.MethodGet, "/v4/shop/interior/remodelingroomlist/"+code+"?isFull=false")
+		if rec.Code != http.StatusOK || rec.Body.String() != `{"result":{"items":[]}}` {
+			t.Fatalf("%s: status %d body %s", code, rec.Code, rec.Body)
+		}
+	}
+}
+
 // TestPetBookListRouteShape: the race tab answers 200 with result.list as an array (rows are typed in room).
 func TestPetBookListRouteShape(t *testing.T) {
 	rec := serve(t, http.MethodGet, "/v4/pet/book/race/list/UDOG")
