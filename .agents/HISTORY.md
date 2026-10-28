@@ -792,3 +792,93 @@ You are the receiving agent with **zero context**. Read all of [AGENTS.md](AGENT
 ### HANDOFF ACCEPTED — 2026-10-28 evening (new Claude Code session)
 
 Context loaded (AGENTS.md, PLAN.md, JICAMA.md, HISTORY headings + last pair). Lab rechecked, no corrections: tree clean, HEAD `0ea77ec` = `origin/main` (docs-only after `4047f03`); Cherry PID 29516, `D:\Dev\projects\Cherry\cherry.exe`, SHA-256 prefix `7c66877e3bd7007c`, started 17:15:03; YunDetectService PID 33036; emulator-5554 = AVD Cherry, emulator-5556 = AVD Jerry; log `cherry-menufix9-20261028-private.log`, `lan=192.168.1.7`. Continuing at "Next steps" 1 (Butler first).
+
+## From PLAN.md — handoff pair 2026-10-28 ~21:50 → 2026-10-28 ~22:10 (accepted; moved verbatim 2026-10-29)
+
+### HANDOFF INITIATED — 2026-10-28 ~21:50 host time (Claude Code session → new Claude Code session with no context)
+
+You are the receiving agent with **zero context**. Read all of [AGENTS.md](AGENTS.md). Above all, read these sections:
+- "Policies": on-demand streaming; R2/D1 layout; Cherry-generated assets are never treated as original; operator-editable fabricated content; no real money. Also read the **"Cherry-made content"** table, which was new this session.
+- "Workflow": delegation; "Tester practicalities"; Commits, which are autonomous since 2026-10-28; the deploy recipe.
+- "Tooling rules". IDA: use per-job copies only and never open the pristine `.i64`. Write scripts with the file tool, not a heredoc.
+- "Lab", "Code map" and "Known client-inherent limits".
+
+Then read this file: this block, "Status" (its last two rows are new), **Roadmap 7** (the not-yet-built MENU features) and the reference "Home menu". [HISTORY.md](HISTORY.md) holds the previous handoff pair verbatim. Do not edit `JICAMA.md`.
+
+Then recheck the lab: `git status`, the Cherry PID/path/hash, `adb devices` plus `adb -s <serial> emu avd name`, and the `lan=` value in the Cherry log. Append **HANDOFF ACCEPTED** below with any corrections, and continue at "Next steps". Times are host clock (UTC+8). The game day resets at 06:00 JST.
+
+**State snapshot (2026-10-28 ~21:50):**
+- **Repo:**
+  - Branch `main`, everything is committed and pushed, and the tree is clean.
+  - Code HEAD is `4ffbbc5` (butler 30-day hires, chief tile). Before it: `64bbfca` (Garden butlers + Cherry-made content marking) and `04924f5` (handoff accept).
+  - Docs commits follow: `671a023` plus this handoff.
+  - The gate is green: `gofmt -l .` is empty, and `go vet ./...` and `go test -race -count=1 -timeout 1200s ./...` pass. Run the race tests in the background; they take ~2–10 min.
+  - Known Windows flakes pass on rerun: "rename … Access is denied" in save tests (web, gathering), and `TestSquareBossAcceptFromAnotherSquare` timing.
+- **Running:**
+  - Cherry PID **50248**, repo-root `cherry.exe` SHA-256 prefix `466bc3237e044cf6` (built from `4ffbbc5`).
+  - Log: `%TEMP%\opencode\cherry\tools\m3-evidence\fresh-entry-20260926\cherry-butler5-20261028-private.log`. Streaming is ON.
+  - emulator-5554 = AVD **Cherry** (1001). emulator-5556 = AVD **Jerry** (1006, animal). LAN IP 192.168.1.7.
+  - YunDetectService PID 33036: never stop it.
+- **Accounts:**
+  - Balances and the rest are in AGENTS "Accounts".
+  - 1001 now has **30 Cash** and butlers Hazel (free, ends ~Oct 31) and Wren (a 7-day legacy hire, ends Nov 4). Wren is chief, and 1001's free hire is used.
+  - Backups: `economy-20261006\accounts-backup-pre-butler{,2,4,5}.json`.
+- **Done this session:**
+  - **Garden butlers**, device-verified: Shop, free and Cash hire, Book, chief change, the chief spawning and roaming in the Garden, Skins screen. The MENU now has 47 rows. Details are in the Status row and Roadmap 7.
+  - **Cherry-made content marking:** every content `data/*.json` has `origin`/`note` (`opdata.Provenance`), and the Cherry id blocks are validated at startup. The table is in AGENTS "Cherry-made content"; the inventory is in `%TEMP%\opencode\cherry\cherry-made-20261028\inventory.md`.
+- **User decisions this session:**
+  - AVD Cherry stays on the streamed dataset.
+  - Butlers: 3 Cherry-made butlers, kept distinguishable from original data (id block 1900000000–1900000999, skins `cherry_*`).
+  - Butler hire: paid in earned **Cash**. The client only offers 30 days → 30 Cash. One free 3-day hire per account.
+  - Butler gathering pays Atelier materials plus a small capped amount of Gems.
+  - Mark every Cherry-made asset ("handle others I missed"). Done.
+- **Next steps (the user's focus for this handoff: open tasks and what's next):**
+  1. **Colorant (dye) ×3** is next in Roadmap 7 (colorantShop / colorantBaseShop / colorantInven):
+     - Start with a `reverse-engineer` spec written to `%TEMP%\opencode\cherry\menu-audit-20261028\colorant-spec.md`. The starting point is `rows-f-spec.md` rows 106–108.
+     - It must close these open fields:
+       - the routes `GET shop/dye/item/list`, `GET shop/dye/baseitem/list/DRESS/all` and `GET inven/dye/item/list` (list keys ALL/SINGLE/RANDOM/CUSTOM must be arrays)
+       - buy `POST purchase/dye/item`
+       - apply `POST inven/dye/item/use/custom`, and how a dyed colour is stored on and rendered for a worn garment (the dyeType field on ItemInfo is already used by butler outfits)
+       - the consumer of message 11947
+       - **which balance the client's affordability check reads** (the Butler lesson)
+       - which empty lists are safe to serve
+     - Then ask the user only the product choices, each with a Cherry-made default:
+       - the dye catalog (colours, single/random/custom kinds)
+       - the price in Gems, unless IDA shows the client checks another balance
+       - which garments can be dyed
+     - Then the usual chain: `cherry-worker` implements → the main agent reviews, runs the gate and deploys → `cherry-tester` on AVD Cherry.
+     - When it passes:
+       - re-add the three link types to `homeLinks`, with labels and icons in `data/menu.json`
+       - remove them from "Removed MENU rows"
+       - commit and push
+  2. **The rest of Roadmap 7, in order:** Story Gacha ×3 (needs Cherry-made books and banners) → Lucky/Jackpot Spin ×2 (decode the reward keys at `SetRewardData` 0x23658dc first) → Lounge Chat (session cmd 1101 frame format) → Circle → Treasure World. Same per-feature chain as step 1.
+  3. **Butler follow-ups** (optional; none are blockers):
+     - **Gathering is not reachable on the device:** the Book shows no gather button.
+       - Find what turns it on: `SetGatheringButtonStatus` and `UpdateGatheringStatus` in `NaButlerBookPopup`, plus the `gatheringStatus`/`ability` values in hc 63. The open points are listed in `butler-spec.md` §6/§11.
+       - Then device-test ch 50 → hc 59, plus the reward popup ch 54/55 → hc 64/65.
+     - Not built: the Book's Chat/Profile, intimacy, the skin shop and voices.
+  4. **Marking leftovers:**
+     - ~~Check dressup/starter/lab grant codes and FSV1/FSV5~~ — done 2026-10-28: all 64 item codes are original, FSV1/FSV5 Cherry-made (`cherry-made-20261028\verify-codes.md`; AGENTS "Cherry-made content").
+     - ~~`internal/economy/fishing.go:220` `fishSilhouette` absolute archive path~~ — reclassified 2026-10-28 (accepting session): it is the same in-place read pattern as the 8 other archive paths (AGENTS "Policies"), so not a marking leftover; a shared configurable archive root goes with Roadmap 5.
+  5. **Open checks carried over** (classify or fix, with evidence):
+     - **APK-only static CDN art:** `photozone/frame/`, `gacha`, `banner`, `actionsticker`, `notice_img`, `event_icon`, `preset`, `profilebg`, … Watch a fresh install's log for static 404s. An R2 upload needs the user's go-ahead.
+     - **Befriend 1001↔1006** before any two-device test.
+     - **Recommended Posts:** check what the empty "no list" cell reads.
+     - **VIP Lounge:** check the Garden you return to.
+     - **Remodeling Shop:** check the 3F tip on an unseen device.
+     - **Gift box:** check whether gifts also belong in the gift box (`ReqGiftWithPage` 0x1b8cbe8) besides the Postbox.
+     - **Boot 404s:** quiet the harmless boot 404s only with verified reply shapes. The list is in "Home menu".
+  6. Roadmap 6 deferred items are unchanged.
+- **Hazards learned this session:**
+  - **Switch files stay unmarked.** Making `origin` mandatory in `streaming.json`/`itemconv.json` made Cherry refuse the live private override `%LOCALAPPDATA%\Cherry\config\streaming.json` and stay down for ~1 min. Never require new fields in files an operator override may already hold. Check `%LOCALAPPDATA%\Cherry\config\` before a schema change.
+  - **Wait for `lan=` before relaunching apps.** After a deploy, wait for the `lan=` line in the new log before relaunching the apps. An app started while Cherry is down shows "Network Error".
+  - **Check the currency in IDA first.** Before you pick a currency, look up which balance the client's pre-check reads. Butler Gem prices would have blocked every hire, because the check reads Cash.
+  - **Check client pickers before choosing options.** Client pickers may support fewer options than the protocol carries: butler hires are 30 days only.
+  - **Butler wire times are epoch seconds,** not milliseconds.
+  - **Never set Butler vipGrade.** It raises the "Become VIP" gate, which is real money.
+  - **Relative picture URLs.** Some picture URLs are relative to the client's static base, for example butler `skinImgUrl`. An empty one leaves an endless spinner.
+  - **CRLF after `git checkout`.** On this host, `git checkout` of a file can leave CRLF and fail gofmt. Fix it with `sed -i 's/\r$//'`.
+
+### HANDOFF ACCEPTED — 2026-10-28 ~22:10 host time (new Claude Code session)
+
+Context loaded (AGENTS in full, PLAN handoff/Status/Roadmap 7/Home menu, HISTORY index). Lab recheck matches the snapshot, no corrections: tree clean at `9cfb842`; Cherry PID 50248 = `D:\Dev\projects\Cherry\cherry.exe`, SHA-256 prefix `466bc3237e044cf6`, log `cherry-butler5-20261028-private.log` with `lan=192.168.1.7`; emulator-5554 = AVD Cherry, emulator-5556 = AVD Jerry; YunDetectService PID 33036; `%LOCALAPPDATA%\Cherry\config\` holds only `streaming.json`. Continuing at Next steps 1 (Colorant spec).
