@@ -90,7 +90,6 @@ var homeLinks = []string{
 	"goSomewhere(profileedit)",
 	"goSomewhere(addfriends)",
 	"goSomewhere(invitation)",
-	"goSomewhere(todayMember)",
 	"goSomewhere(roomEdit)",
 	"goSomewhere(setting)",
 	"goSomewhere(square)",
