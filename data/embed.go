@@ -127,6 +127,11 @@ var ItemconvJSON []byte
 //go:embed modelhouse.json
 var ModelHouseJSON []byte
 
+// RemodelJSON is the Remodeling Shop rows: the owned floors under Cherry-made names with real room item codes (economy/remodel.go).
+//
+//go:embed remodel.json
+var RemodelJSON []byte
+
 // CherryTipsJSON is the Cherry Tip list: Cherry-made gameplay tips (economy/cherrytip.go).
 //
 //go:embed cherrytips.json

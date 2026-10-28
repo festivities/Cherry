@@ -1,0 +1,8 @@
+{
+  "origin": "cherry",
+  "note": "Cherry-made Remodeling Shop rows. Cherry gives the 1F and 2F rooms free (ownMaxGroundLevel LEVEL_2), so each owned floor is one row marked existInven and inUseYn: the client then disables BUY and refuses apply locally (IsApplyRemodelingCheck message 8164), and no purchase or apply request is sent. The row codes are real room item codes the client already knows (RUTI0005D the default floor, tile/121500193; RUWA0006D the default wall, interior/121400229); the client's own room-size item codes are not in the static data, so the thumbnail is a stand-in and the names are Cherry's. The 3F tab has no row (nothing owned, nothing for sale). Rows are always served as owned and in use, so only list floors the player owns.",
+  "rows": [
+    {"tab": "URMEXT", "code": "RUTI0005D", "name": "Cherry 1F room", "roomSize": 1},
+    {"tab": "URM2F", "code": "RUWA0006D", "name": "Cherry 2F room", "roomSize": 2}
+  ]
+}

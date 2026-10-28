@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"cherry/internal/economy"
@@ -66,14 +67,18 @@ func TestGroundLevelStatusShape(t *testing.T) {
 	}
 }
 
-// TestRemodelingRoomListRoute: the floor tabs of the Remodeling Shop reach the empty item list through the mux
-// (no "Network Error." popup from a 404, rows-d 14.2 and IDA 2026-10-28).
+// TestRemodelingRoomListRoute: the floor tabs of the Remodeling Shop reach the mux (no "Network Error." popup from a 404).
+// The owned 1F and 2F tabs answer their row (an empty tab leaves the screen's touch skip up, IDA 2026-10-28); 3F stays empty.
 func TestRemodelingRoomListRoute(t *testing.T) {
-	for _, code := range []string{"URMEXT", "URM2F", "URM3F"} {
+	for code, row := range map[string]string{"URMEXT": `"itemCode":"RUTI0005D"`, "URM2F": `"itemCode":"RUWA0006D"`} {
 		rec := serve(t, http.MethodGet, "/v4/shop/interior/remodelingroomlist/"+code+"?isFull=false")
-		if rec.Code != http.StatusOK || rec.Body.String() != `{"result":{"items":[]}}` {
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), row) {
 			t.Fatalf("%s: status %d body %s", code, rec.Code, rec.Body)
 		}
+	}
+	rec := serve(t, http.MethodGet, "/v4/shop/interior/remodelingroomlist/URM3F?isFull=false")
+	if rec.Code != http.StatusOK || rec.Body.String() != `{"result":{"items":[]}}` {
+		t.Fatalf("URM3F: status %d body %s", rec.Code, rec.Body)
 	}
 }
 
