@@ -1121,8 +1121,18 @@ func sessionResultBody(acc *store.Account) string {
 	store.AccountsMu.Lock()
 	sessionKey, mid, avatarUserID, aid := acc.SessionKey, acc.Mid, acc.AvatarUserID, acc.Aid
 	store.AccountsMu.Unlock()
-	return fmt.Sprintf(`{"sessionKey":"%s","mid":"%s","avatarUserId":"%s","aid":"%s","lineId":"","lineName":"","termAge":false}`,
-		sessionKey, mid, avatarUserID, aid)
+	return fmt.Sprintf(`{"sessionKey":"%s","mid":"%s","avatarUserId":"%s","aid":"%s","lineId":"%s","lineName":"","termAge":false}`,
+		sessionKey, mid, avatarUserID, aid, guestLineID(aid))
+}
+
+// guestLineID is the lineId of a guest account. The client checks saves for the LINE ID with find(lineId) and
+// no empty guard (NaDiaryProfileEditView::SubmitChanges 0x1e13ff4, NaDiaryIntroEditView::Submit 0x1e13d14,
+// NaClosetStylingNamePopup 0x1ff24a8), and find("") always hits, so an empty lineId refuses every save. No
+// reader treats a non-empty value as a LINE-linked account (lineid-spec.md, 2026-10-28). It is longer than
+// any text those fields accept (status 50, nickname 20 runes), so it can never match. lineName stays "":
+// creation would pre-fill the nickname with it.
+func guestLineID(aid string) string {
+	return fmt.Sprintf("cherry-guest-%010s-%s", aid, strings.Repeat("0", 40))
 }
 
 func avAuthSetCookie(token string) string {
