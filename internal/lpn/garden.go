@@ -134,10 +134,27 @@ func gardenAvatarInfo(aid uint64) []byte {
 	b = pbLen(b, 7, []byte(acc.Skin))
 	for _, code := range acc.ItemCodes {
 		if n, ok := SquareNumericItem(code); ok {
-			b = pbLen(b, 13, pbVar(nil, 1, n))
+			item := pbVar(nil, 1, n)
+			if colors, dyed := acc.DyeColors[code]; dyed {
+				item = gardenDyeItem(item, colors)
+			}
+			b = pbLen(b, 13, item)
 		}
 	}
 	return b
+}
+
+// gardenDyeItem adds the dye of a garment to its AvatarInfo item (GAMEBASE::ItemInfo): dye_type#3 (2, two layers) and
+// color_and_transparencies#4, each {colorCode#1, transparency#2}, layer 0 first (field_numbers.tsv, GAMEBASE::ItemInfo).
+func gardenDyeItem(item []byte, colors []store.DyeColor) []byte {
+	layers := store.DyeLayers(colors)
+	item = pbVar(item, 3, store.DyeTypeTwoLayers)
+	for _, c := range layers {
+		layer := pbLen(nil, 1, []byte(c.ColorCode))
+		layer = pbVar(layer, 2, uint64(c.Transparency))
+		item = pbLen(item, 4, layer)
+	}
+	return item
 }
 
 func gardenPlayerInfo(v *gardenViewer) []byte {

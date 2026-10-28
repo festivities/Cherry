@@ -35,6 +35,7 @@ named by `icons` in `data/menu.json`. They are not game assets.
 | `clover.png` | `clover` | `#6D7CFF` | `goSomewhere(eventLottoDetail)` |
 | `code.png` | `code` | `#6D7CFF` | `html` |
 | `coins.png` | `coins` | `#E9B824` | `goSomewhere(goldenChance)` |
+| `color-swatch.png` | `color-swatch` | `#FF7FA8` | `goSomewhere(colorantInven)` |
 | `confetti.png` | `confetti` | `#FF7FA8` | `goSomewhere(roompartyInvite)` |
 | `credit-card.png` | `credit-card` | `#FF9F43` | `goSomewhere(cashShop)` |
 | `crown.png` | `crown` | `#E9B824` | `goSomewhere(viplounge)`, `goSomewhere(vipenterpopup)`, `goSomewhere(vipdetail)` |
@@ -44,6 +45,7 @@ named by `icons` in `data/menu.json`. They are not game assets.
 | `dice-4.png` | `dice-4` | `#6CC650` | `goSomewhere(randomGarden)` |
 | `dice-5.png` | `dice-5` | `#FF7FA8` | `goSomewhere(randomRoom)` |
 | `dice.png` | `dice` | `#2BBFA4` | `goSomewhere(marbleboardWebview)` |
+| `droplet.png` | `droplet` | `#FF9F43` | `goSomewhere(colorantShop)` |
 | `egg.png` | `egg` | `#B98B65` | `goSomewhere(ridingpetGacha)` |
 | `fish.png` | `fish` | `#2BBFA4` | `goSomewhere(fishingExchange)` |
 | `flag-3.png` | `flag-3` | `#2BBFA4` | `goSomewhere(ridingpetplayinfo)` |

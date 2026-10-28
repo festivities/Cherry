@@ -76,9 +76,42 @@ func AvatarInfoForAccount(acc AccountSnapshot) AvatarInfoResult {
 	}
 	return AvatarInfoResult{
 		AvatarID: acc.Aid, Name: acc.Name, Gender: gender, SType: "NORMAL", Skin: skin,
-		Country: acc.Country, Items: avatarItemsFromInventory(AppearanceItemCodes(gender, acc.ItemCodes), acc.InventoryCodes),
+		Country: acc.Country, Items: avatarItemsFromInventory(AppearanceItemCodes(gender, acc.ItemCodes), acc.InventoryCodes, acc.DyeColors),
 		PetProfiles: []string{},
 	}
+}
+
+// ClosetOrder is the order inven/closet/items/all lists owned codes in: wearables in owned order, then the basic faces.
+// A code's invenSeq there is its 1-based place in this order; the dye routes number garments the same way.
+func ClosetOrder(owned []string) []string {
+	order := make([]string, 0, len(owned))
+	for _, code := range owned {
+		if !IsBasicFaceItemCode(code) {
+			order = append(order, code)
+		}
+	}
+	for _, code := range owned {
+		if IsBasicFaceItemCode(code) {
+			order = append(order, code)
+		}
+	}
+	return order
+}
+
+// DyeColor is one tone layer of a dyed garment: its colour as "#RRGGBB" and its transparency in percent (0 opaque).
+type DyeColor struct {
+	ColorCode    string `json:"colorCode"`
+	Transparency int    `json:"transparency"`
+}
+
+// DyeTypeTwoLayers is the dyeType of a dyed garment: two tone layers, colorAndTransparencies[0] and [1].
+const DyeTypeTwoLayers = 2
+
+// DyeLayers returns the two tone layers of a garment: its stored colours, or white and opaque when it is undyed.
+func DyeLayers(colors []DyeColor) []DyeColor {
+	out := []DyeColor{{ColorCode: "#FFFFFF"}, {ColorCode: "#FFFFFF"}}
+	copy(out, colors)
+	return out
 }
 
 func IsBasicFaceItemCode(code string) bool {
@@ -103,7 +136,7 @@ func ItemSerials(codes []string) map[string]string {
 	return serials
 }
 
-func avatarItemsFromInventory(codes, inventory []string) []AvatarItem {
+func avatarItemsFromInventory(codes, inventory []string, dyes map[string][]DyeColor) []AvatarItem {
 	wearableCodes := make([]string, 0, len(inventory))
 	for _, code := range inventory {
 		if !IsBasicFaceItemCode(code) {
@@ -117,7 +150,13 @@ func avatarItemsFromInventory(codes, inventory []string) []AvatarItem {
 		if serial == "" {
 			serial = "0"
 		}
-		items = append(items, AvatarItem{CD: code, InvenSeq: serial, ColorAndTransparencies: []any{}})
+		item := AvatarItem{CD: code, InvenSeq: serial, ColorAndTransparencies: []any{}}
+		if colors, ok := dyes[code]; ok {
+			layers := DyeLayers(colors)
+			item.DyeType = DyeTypeTwoLayers
+			item.ColorAndTransparencies = []any{layers[0], layers[1]}
+		}
+		items = append(items, item)
 	}
 	return items
 }

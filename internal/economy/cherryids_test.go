@@ -31,6 +31,7 @@ func TestOperatorFilesNeedOriginAndNote(t *testing.T) {
 		decode func([]byte) error
 	}{
 		{"atelier.json", data.AtelierJSON, decodeWith((*Atelier).check)},
+		{"dyes.json", data.DyesJSON, decodeWith(checkDyes)},
 		{"calendars.json", data.CalendarsJSON, decodeWith(checkCalendars)},
 		{"exchange.json", data.ExchangeJSON, decodeWith(checkExchange)},
 		{"fishboss.json", data.FishbossJSON, decodeWith(checkFishBoss)},

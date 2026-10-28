@@ -48,7 +48,9 @@
     "goSomewhere(randomGarden)": "Random Garden",
     "goSomewhere(butlerShop)": "Butler Shop",
     "goSomewhere(butlerBook)": "Butler Book",
-    "goSomewhere(butlerSkinSelect)": "Butler Skins"
+    "goSomewhere(butlerSkinSelect)": "Butler Skins",
+    "goSomewhere(colorantShop)": "Dye Shop",
+    "goSomewhere(colorantInven)": "Dye Inventory"
   },
   "icons": {
     "goSomewhere(closet)": "shirt.png",
@@ -97,6 +99,8 @@
     "goSomewhere(randomGarden)": "dice-4.png",
     "goSomewhere(butlerShop)": "building-store.png",
     "goSomewhere(butlerBook)": "book-2.png",
-    "goSomewhere(butlerSkinSelect)": "palette.png"
+    "goSomewhere(butlerSkinSelect)": "palette.png",
+    "goSomewhere(colorantShop)": "droplet.png",
+    "goSomewhere(colorantInven)": "color-swatch.png"
   }
 }

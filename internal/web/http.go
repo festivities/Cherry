@@ -123,6 +123,8 @@ var homeLinks = []string{
 	"goSomewhere(butlerShop)",
 	"goSomewhere(butlerBook)",
 	"goSomewhere(butlerSkinSelect)",
+	"goSomewhere(colorantShop)",
+	"goSomewhere(colorantInven)",
 }
 
 // homeMenuIconPrefix is the picture path of a home menu row. It is RELATIVE on purpose: the client's
@@ -294,6 +296,7 @@ func NewMux() http.Handler {
 	mux.HandleFunc("/cherry/fish/", economy.HandleFishImage)
 	mux.HandleFunc("/cherry/fishing/", economy.HandleFishingItemImage)
 	mux.HandleFunc("/cherry/butler/", economy.HandleButlerImage)
+	mux.HandleFunc("/cherry/dye/", economy.HandleDyeImage)
 	mux.HandleFunc("/cherry/menu/", handleMenuIcon)
 	mux.HandleFunc("/cherry/garden/items/", economy.HandleGatherImage)
 	mux.HandleFunc("/v4/setInitConf", handleSetInitConf)
@@ -362,6 +365,7 @@ func NewMux() http.Handler {
 	mux.HandleFunc("/v4/gift/send", economy.HandleGiftSend)
 	economy.RegisterEconomyRoutes(mux)
 	economy.RegisterModelHouseRoutes(mux)
+	economy.RegisterDyeRoutes(mux)
 	economy.RegisterRemodelRoutes(mux)
 	registerDeleteAccountRoutes(mux)
 	mux.HandleFunc("/v4/items/dress/some", economy.HandleItemsSome)
@@ -461,6 +465,8 @@ type closetInventoryItem struct {
 	SpecialEffects string `json:"specialEffects"`
 	Grade          string `json:"grade"`
 	DyeType        int    `json:"dyeType"`
+	// ColorAndTransparencies is set for a dyed garment only (omitted otherwise, so undyed rows stay as they were).
+	ColorAndTransparencies []store.DyeColor `json:"colorAndTransparencies,omitempty"`
 }
 
 type closetBasicFaceItem struct {
@@ -480,16 +486,16 @@ func handleClosetItemsAll(w http.ResponseWriter, r *http.Request) {
 	store.AccountsMu.Lock()
 	acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]
 	var codes []string
-	var paid map[string]int64 // copy-on-write, safe to read after unlock
+	var paid map[string]int64            // copy-on-write, safe to read after unlock
+	var dyes map[string][]store.DyeColor // copy-on-write, safe to read after unlock
 	if acc != nil {
 		codes = store.AccountOwnedCodes(acc)
 		paid = acc.PaidPrices
+		dyes = acc.DyeColors
 	}
 	store.AccountsMu.Unlock()
 	basicFaceItems := make([]closetBasicFaceItem, 0, len(codes))
-	faceCodes := make([]string, 0, len(codes))
 	seenFaceCategories := make(map[string]struct{}, 5)
-	wearableCodes := make([]string, 0, len(codes))
 	for _, code := range codes {
 		if store.IsBasicFaceItemCode(code) {
 			category := code[2:4]
@@ -497,15 +503,17 @@ func handleClosetItemsAll(w http.ResponseWriter, r *http.Request) {
 				basicFaceItems = append(basicFaceItems, closetBasicFaceItem{ItemCode: code})
 				seenFaceCategories[category] = struct{}{}
 			}
-			faceCodes = append(faceCodes, code)
-		} else {
-			wearableCodes = append(wearableCodes, code)
 		}
 	}
-	items := make([]closetInventoryItem, 0, len(codes))
-	for i, code := range append(wearableCodes, faceCodes...) {
+	order := store.ClosetOrder(codes)
+	items := make([]closetInventoryItem, 0, len(order))
+	for i, code := range order {
 		price, grade := economy.ClosetPrice(paid, code) // faces and unclassified codes: price 0, grade N
-		items = append(items, closetInventoryItem{ItemCode: code, InvenSeq: strconv.Itoa(i + 1), Count: 1, Price: int(price), Grade: grade})
+		item := closetInventoryItem{ItemCode: code, InvenSeq: strconv.Itoa(i + 1), Count: 1, Price: int(price), Grade: grade}
+		if colors, ok := dyes[code]; ok {
+			item.DyeType, item.ColorAndTransparencies = store.DyeTypeTwoLayers, store.DyeLayers(colors)
+		}
+		items = append(items, item)
 	}
 	payload, _ := json.Marshal(struct {
 		Result closetItemsResult `json:"result"`
@@ -902,7 +910,7 @@ func handleAvatarSaveV2(w http.ResponseWriter, r *http.Request) {
 	info := store.AvatarInfoForAccount(store.AccountSnapshot{
 		Aid: acc.Aid, Name: acc.Name, Gender: acc.Gender, Skin: acc.Skin,
 		Country: acc.Country, ItemCodes: append([]string(nil), acc.ItemCodes...),
-		InventoryCodes: store.AccountOwnedCodes(acc),
+		InventoryCodes: store.AccountOwnedCodes(acc), DyeColors: acc.DyeColors,
 	})
 	store.AccountsMu.Unlock()
 	payload, _ := json.Marshal(struct {

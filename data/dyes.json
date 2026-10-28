@@ -1,0 +1,28 @@
+{
+  "origin": "cherry",
+  "note": "Cherry-made Colorant (dye) catalog: the dye names, prices (Gems), colours, the random draw, the custom palette and the shop picture set are Cherry's own, not original game data. The dyeable garments are the 15 client items whose artsitem carries the dye flag and a <part>_mask.png (spec colorant-spec.md 16.B); dyeable may only list a subset of them. Dye item numbers lie in the Cherry block 9501-9599 (economy.CherryDyeFirst/Last). Pictures are served by Cherry at /cherry/dye/<itemNo>.png.",
+  "dyeable": [
+    224102309, 224102378, 224102536, 224102579, 224102653, 224102775, 224102816, 224102858, 224102932, 224103060,
+    224406975, 224407224,
+    225001650, 225409234, 235411996
+  ],
+  "palette": [
+    "#E53935", "#FB8C00", "#FDD835", "#43A047", "#1E88E5", "#8E24AA", "#EC407A", "#212121",
+    "#FFFFFF", "#8D6E63", "#00ACC1", "#7CB342", "#3949AB", "#F48FB1", "#FFB74D", "#90A4AE"
+  ],
+  "dyes": [
+    {"item_no": 9501, "name": "Red Dye", "kind": "SINGLE", "price": 100, "colors": [{"color": "#E53935", "prob": 1}]},
+    {"item_no": 9502, "name": "Orange Dye", "kind": "SINGLE", "price": 100, "colors": [{"color": "#FB8C00", "prob": 1}]},
+    {"item_no": 9503, "name": "Yellow Dye", "kind": "SINGLE", "price": 100, "colors": [{"color": "#FDD835", "prob": 1}]},
+    {"item_no": 9504, "name": "Green Dye", "kind": "SINGLE", "price": 100, "colors": [{"color": "#43A047", "prob": 1}]},
+    {"item_no": 9505, "name": "Blue Dye", "kind": "SINGLE", "price": 100, "colors": [{"color": "#1E88E5", "prob": 1}]},
+    {"item_no": 9506, "name": "Purple Dye", "kind": "SINGLE", "price": 100, "colors": [{"color": "#8E24AA", "prob": 1}]},
+    {"item_no": 9507, "name": "Pink Dye", "kind": "SINGLE", "price": 100, "colors": [{"color": "#EC407A", "prob": 1}]},
+    {"item_no": 9508, "name": "Black Dye", "kind": "SINGLE", "price": 100, "colors": [{"color": "#212121", "prob": 1}]},
+    {"item_no": 9509, "name": "Random Dye", "kind": "RANDOM", "price": 60, "colors": [
+      {"color": "#E53935", "prob": 0.125}, {"color": "#FB8C00", "prob": 0.125}, {"color": "#FDD835", "prob": 0.125},
+      {"color": "#43A047", "prob": 0.125}, {"color": "#1E88E5", "prob": 0.125}, {"color": "#8E24AA", "prob": 0.125},
+      {"color": "#EC407A", "prob": 0.125}, {"color": "#212121", "prob": 0.125}]},
+    {"item_no": 9510, "name": "Custom Dye", "kind": "CUSTOM", "price": 200, "colors": []}
+  ]
+}

@@ -21,6 +21,7 @@ type AccountSnapshot struct {
 	InventoryCodes []string
 	ProfileImage   ProfileImage
 	DiaryProfile   *DiaryProfile
+	DyeColors      map[string][]DyeColor
 }
 
 func AccountInventoryCodes(acc *Account) []string {
@@ -68,6 +69,7 @@ func AccountByAvatarID(id string) (AccountSnapshot, bool) {
 				InventoryCodes: AccountOwnedCodes(acc),
 				ProfileImage:   acc.ProfileImage,
 				DiaryProfile:   acc.DiaryProfile,
+				DyeColors:      acc.DyeColors,
 			}, true
 		}
 	}
@@ -99,28 +101,30 @@ type Account struct {
 	AttendKey      int64     // day key (06:00 JST boundary) of the last attend
 	Mail           []MailRow // unclaimed mailbox rows, mailbox.go; replaced, never edited in place
 	NextMailSeq    int64
-	ProfileImage   ProfileImage     // saved profile picture (OBS paths + background), profileimage.go
-	Quests         *QuestDay        // Garden daily quest progress, economy/quests.go; replaced, never edited in place
-	Fishing        *FishingDay      // Square fishing Gems for one game day, economy/fishing.go; replaced, never edited in place
-	FishCaught     map[int64]int64  // Square catches per fish id (the fishing book); replaced, never edited in place
-	Gear           *FishingGear     // Square fish shop: bought gear and what is in use, economy/fishing_shop.go; replaced, never edited in place
-	BossCoins      int64            // Square boss Boss Coins (economy/fishboss.go); not in the ledger, an exchange will spend it
-	BossTries      *BossDay         // Square boss tries used on one game day, economy/fishboss.go; replaced, never edited in place
-	BossCaught     map[int64]int64  // Square boss catches per boss id (economy/fishboss.go); replaced, never edited in place
-	BossBook       map[int64]bool   // Square boss book reward claimed per boss id (economy/fishboss.go); replaced, never edited in place
-	Hearts         *Hearts          // heart quest state, economy/hearts.go; replaced, never edited in place
-	PaidPrices     map[string]int64 // clothing codes bought at a daily deal: Gems paid (economy/deals.go); replaced, never edited in place
-	Smiles         int64            // earned Smiles (Garden gathering, economy/gathering.go); ledger-backed like Gems
-	GardenBag      []GardenBagStack // Garden materials in the Bag (economy/gathering.go); replaced, never edited in place
-	Gather         *GatherDay       // Garden gathering caps and Gem bonus for one game day (economy/gathering.go); replaced, never edited in place
-	Atelier        *AtelierState    // Garden Atelier stamina and blueprints (economy/atelier.go); replaced, never edited in place
-	Racing         *RacingRecord    // Riding Pet Race tickets, exp, MMR and store points (economy/racing.go); replaced, never edited in place
-	GardenMap      string           // Garden map this account's Garden shows (economy/gardens.go); "" = the default
-	Landscapes     []string         // bought Garden landscape item codes (economy/landscape.go); replaced, never edited in place
-	Pins           []string         // avatar ids on the requester's My Pins, in pin order (web/pins.go); replaced, never edited in place
-	DiaryProfile   *DiaryProfile    // Diary profile edit fields (diaryprofile.go, web/profileedit.go); replaced, never edited in place
-	Wishes         []string         // item codes on the requester's wish list, at most four (web/wishlist.go); replaced, never edited in place
-	Butlers        *ButlerBook      // Garden butlers: contracts, chief, gathering (economy/butler.go); replaced, never edited in place
+	ProfileImage   ProfileImage          // saved profile picture (OBS paths + background), profileimage.go
+	Quests         *QuestDay             // Garden daily quest progress, economy/quests.go; replaced, never edited in place
+	Fishing        *FishingDay           // Square fishing Gems for one game day, economy/fishing.go; replaced, never edited in place
+	FishCaught     map[int64]int64       // Square catches per fish id (the fishing book); replaced, never edited in place
+	Gear           *FishingGear          // Square fish shop: bought gear and what is in use, economy/fishing_shop.go; replaced, never edited in place
+	BossCoins      int64                 // Square boss Boss Coins (economy/fishboss.go); not in the ledger, an exchange will spend it
+	BossTries      *BossDay              // Square boss tries used on one game day, economy/fishboss.go; replaced, never edited in place
+	BossCaught     map[int64]int64       // Square boss catches per boss id (economy/fishboss.go); replaced, never edited in place
+	BossBook       map[int64]bool        // Square boss book reward claimed per boss id (economy/fishboss.go); replaced, never edited in place
+	Hearts         *Hearts               // heart quest state, economy/hearts.go; replaced, never edited in place
+	PaidPrices     map[string]int64      // clothing codes bought at a daily deal: Gems paid (economy/deals.go); replaced, never edited in place
+	Smiles         int64                 // earned Smiles (Garden gathering, economy/gathering.go); ledger-backed like Gems
+	GardenBag      []GardenBagStack      // Garden materials in the Bag (economy/gathering.go); replaced, never edited in place
+	Gather         *GatherDay            // Garden gathering caps and Gem bonus for one game day (economy/gathering.go); replaced, never edited in place
+	Atelier        *AtelierState         // Garden Atelier stamina and blueprints (economy/atelier.go); replaced, never edited in place
+	Racing         *RacingRecord         // Riding Pet Race tickets, exp, MMR and store points (economy/racing.go); replaced, never edited in place
+	GardenMap      string                // Garden map this account's Garden shows (economy/gardens.go); "" = the default
+	Landscapes     []string              // bought Garden landscape item codes (economy/landscape.go); replaced, never edited in place
+	Pins           []string              // avatar ids on the requester's My Pins, in pin order (web/pins.go); replaced, never edited in place
+	DiaryProfile   *DiaryProfile         // Diary profile edit fields (diaryprofile.go, web/profileedit.go); replaced, never edited in place
+	Wishes         []string              // item codes on the requester's wish list, at most four (web/wishlist.go); replaced, never edited in place
+	Butlers        *ButlerBook           // Garden butlers: contracts, chief, gathering (economy/butler.go); replaced, never edited in place
+	Dyes           map[string]int        // dye items owned by item number (economy/dye.go); replaced, never edited in place
+	DyeColors      map[string][]DyeColor // colours of dyed garments by item code (economy/dye.go); replaced, never edited in place
 }
 
 // FishingGear is the Square fishing gear an account bought (economy/fishing_shop.go): the item IDs

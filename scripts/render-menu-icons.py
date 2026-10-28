@@ -108,6 +108,8 @@ ICONS = {
     "calendar-check": ("calendar-check", "#E9B824"),
     "list-check": ("list-check", "#E9B824"),
     "coins": ("coins", "#E9B824"),
+    "droplet": ("droplet", "#FF9F43"),
+    "color-swatch": ("color-swatch", "#FF7FA8"),
 }
 
 

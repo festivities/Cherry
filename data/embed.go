@@ -142,3 +142,9 @@ var CherryTipsJSON []byte
 //
 //go:embed butlers.json
 var ButlersJSON []byte
+
+// DyesJSON is the Colorant (dye) catalog: the dye shop items, the random and custom colours and the dyeable garments
+// (economy/dye.go).
+//
+//go:embed dyes.json
+var DyesJSON []byte
