@@ -1,22 +1,71 @@
 {
-  "origin": "cherry",
-  "note": "Cherry-made butlers: names, skins, prices and gathering amounts are Cherry's own, not original game data. Hire prices are in earned Cash (cash). The client's contract picker offers only 30-day periods (CButtonHandler 0x22cfb84 builds rows for employDays 30 only), so hire lists the one 30-day period. The free first hire (free_days) is a separate path. Ids lie in the Cherry block 1900000000-1900000999 (economy.CherryButlerFirst/Last); skin codes start with cherry_.",
+  "origin": "mixed",
+  "note": "Mixed. ORIGINAL (client files: UIResource/UIImage_hd butler_event_name_bN, butler_event_profile_bN and butler_event_text_bN .png; string table 9854-9867): the seven names; each butler's blood type, birthday, keywords and quote (profile, record only: no verified protocol field); the ability names Fishing, collecting Drops and mining; the portrait (art, served unchanged); the outfit item ids (catalog items with art, matched by eye; see each butler's note); gender (read from the portrait, [I]). CHERRY-MADE: the ids (1900000004-1900000010 in the Cherry block; 1900000001-1900000003 were Cherry's Hazel, Wren and Oswin, retired and never reused), the skin codes and skin ids (one default skin per butler: its outfit), skin_color 0 (default tone [I]), the ability-to-gather-kind mapping (Fishing = fish, collecting Drops = essence (the Korean card says essence absorption), mining = ore), free_days, hire (the one 30-day period at 30 earned Cash), and gathering gems, gems_cap and gathers_per_day. Hire prices are in earned Cash (cash). The client's contract picker offers only 30-day periods (CButtonHandler 0x22cfb84), so hire lists the one 30-day period. The free first hire (free_days) is a separate path.",
   "free_days": 3,
   "hire": [
     {"days": 30, "cash": 30}
   ],
   "gathering": {
-    "kinds": ["essence", "ore"],
     "gems": 3,
     "gems_cap": 10,
     "gathers_per_day": 10
   },
   "butlers": [
-    {"id": 1900000001, "name": "Hazel", "gender": "FEMALE", "skin": "cherry_hazel",
-      "outfit": ["CUON004BH", "CUHA0003L", "CUSH0005G"], "skin_color": 0},
-    {"id": 1900000002, "name": "Wren", "gender": "FEMALE", "skin": "cherry_wren",
-      "outfit": ["CUON001CG", "CUHA0003C", "CUSH0006G"], "skin_color": 0},
-    {"id": 1900000003, "name": "Oswin", "gender": "MALE", "skin": "cherry_oswin",
-      "outfit": ["CUON001DI", "CUHA00052", "CUSH0007O"], "skin_color": 0}
+    {
+      "id": 1900000004, "name": "Ophelia", "gender": "FEMALE", "skin": "cherry_ophelia", "skin_color": 0,
+      "outfit": ["CUON009D6", "CUHA006L8", "CUSH003KV"],
+      "abilities": ["fish", "essence", "ore"],
+      "art": "b1",
+      "profile": {"blood_type": "AB", "birthday": "Aug 12", "keywords": ["Perfectionist", "courteous", "self-control"], "quote": "A perfect butler works for a perfect lord."},
+      "note": "Outfit: ON, HA and SH are original. Not found: the round gold monocle (no item in either archive). Her ribbon is part of HA 224408540."
+    },
+    {
+      "id": 1900000005, "name": "Ian", "gender": "MALE", "skin": "cherry_ian", "skin_color": 0,
+      "outfit": ["CUON009CW", "CUHA006L7", "CUSH003KZ"],
+      "abilities": ["fish", "essence"],
+      "art": "b2",
+      "profile": {"blood_type": "B", "birthday": "Sep 30", "keywords": ["Gentle", "mild", "smile"], "quote": "I would very much want to serve my lord even in my sleep."},
+      "note": "Outfit: ON and HA are original; SH 225304643 is the plain black lace-up (a likely match, not confirmed by eye). No accessories."
+    },
+    {
+      "id": 1900000006, "name": "Merry", "gender": "ANIMAL", "skin": "cherry_merry", "skin_color": 0,
+      "outfit": ["CUON009CV", "CUSH003KY", "CUAH0087T"],
+      "abilities": ["ore"],
+      "art": "b3",
+      "profile": {"blood_type": "O", "birthday": "Jan 17", "keywords": ["Cute", "diligent", "committed"], "quote": "It's my duty for my lord to have a MERRY day!"},
+      "note": "ANIMAL (bunny): gender ANIMAL is the client's sex 2, so the client's animal base fills the slots the outfit leaves empty [I]. ON, SH and the head band AH 225410649 are original. Not found: the ears and the tail (no item in either archive; the animal base has none), so her ears are not drawn. No HA: the animal head has no hair item."
+    },
+    {
+      "id": 1900000007, "name": "Kai", "gender": "MALE", "skin": "cherry_kai", "skin_color": 0,
+      "outfit": ["CUON009CT", "CUHA006LD", "CUSH003KU"],
+      "abilities": ["fish", "essence", "ore"],
+      "art": "b4",
+      "profile": {"blood_type": "AB", "birthday": "Nov 22", "keywords": ["Cold-hearted", "solitary", "loyal"], "quote": "I liked being alone. Until I met you."},
+      "note": "Outfit: ON and HA are original; SH 225304638 is a likely match (black lace-up with sparkle). Not found: the ear chain (225410706 is a different design and is not used)."
+    },
+    {
+      "id": 1900000008, "name": "Celina", "gender": "FEMALE", "skin": "cherry_celina", "skin_color": 0,
+      "outfit": ["CUHA006L6", "CUSH003KX"],
+      "abilities": ["essence", "ore"],
+      "art": "b5",
+      "profile": {"blood_type": "A", "birthday": "Feb 19", "keywords": ["Love", "clingy", "darkness"], "quote": "May I be close to you forever...!"},
+      "note": "No ON: the batch slots CUON009CY, CZ, D1, D5 and D8 are in neither archive; CUON008U1 (225111449) is a lookalike outside the batch and is not used. HA and SH are original. Not found: the heart eyepatch and the ribbons (225410605 is a different design)."
+    },
+    {
+      "id": 1900000009, "name": "Elena", "gender": "FEMALE", "skin": "cherry_elena", "skin_color": 0,
+      "outfit": ["CUON009CS", "CUSH003KT"],
+      "abilities": ["essence"],
+      "art": "b6",
+      "profile": {"blood_type": "A", "birthday": "Jul 19", "keywords": ["Innocent", "whimsical", "clumsy"], "quote": "Oh no! I put salt in instead of sugar!"},
+      "note": "No HA: the mint braids (224408541, 224408543) are in neither archive. ON and SH are original (white apron dress, black Mary Janes). Not found: the maid headband and bow (225410649 is Merry's head band)."
+    },
+    {
+      "id": 1900000010, "name": "Michel", "gender": "MALE", "skin": "cherry_michel", "skin_color": 0,
+      "outfit": ["CUON009CU", "CUHA006LA", "CUSH003KW"],
+      "abilities": ["fish"],
+      "art": "b7",
+      "profile": {"blood_type": "O", "birthday": "Mar 23", "keywords": ["Foodaholic", "endearing", "naïve"], "quote": "I choose you over food!"},
+      "note": "Outfit: ON and HA are original; SH 225304640 (tan) is a likely match. No accessories."
+    }
   ]
 }

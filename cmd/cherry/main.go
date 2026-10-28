@@ -38,6 +38,10 @@ func main() {
 			logger.Fatalf("cherry: operator data: %v", err)
 		}
 	}
+	// A failed roster migration leaves the old contracts in place (it restores them) and must not keep Cherry down.
+	if err := economy.MigrateButlerRoster(time.Now()); err != nil {
+		logger.Printf("cherry: butler roster migration skipped: %v", err)
+	}
 
 	certs, err := netsvc.GenerateCerts()
 	if err != nil {

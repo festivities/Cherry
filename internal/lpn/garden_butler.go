@@ -14,8 +14,9 @@ import (
 // Garden butlers (Garden LPN agent 10; spec butler-spec.md): the Shop (51 list, 52 hire), the Book (53 list,
 // 50 gather, 56 chief) and Skin Select (62). Every other butler request gets a refusal with no data and no
 // spend, so the client's spinner clears. Field numbers and wire types are the spec's contract (section 3).
-// Reply msgids differ from request msgids (section 2). The content is Cherry-made: economy/butler.go and
-// data/butlers.json. The chief spawns through hc_room_relaystart_res fields 8 and 9 (garden.go relay start).
+// Reply msgids differ from request msgids (section 2). The roster is original data with Cherry-made ids and prices:
+// economy/butler.go and data/butlers.json. The chief spawns through hc_room_relaystart_res fields 8 and 9 (garden.go
+// relay start).
 
 // butlerRefused is the generic refusal result of a butler reply: nothing changed, no data.
 const butlerRefused = 1
@@ -42,7 +43,7 @@ func gardenButlerMsg(msgid uint16) bool {
 func butlerSkinID(b economy.ButlerDef) uint64 { return uint64(b.ID - economy.CherryButlerFirst + 1) }
 
 // butlerImageURL is the portrait of a roster butler: a RELATIVE path (the client prefixes its static base), served by
-// economy.HandleButlerImage at /cherry/butler/<id>.png.
+// economy.HandleButlerImage at /cherry/butler/<id>.png with the original art (the form the client already loads).
 func butlerImageURL(b economy.ButlerDef) string {
 	return "cherry/butler/" + strconv.FormatInt(b.ID, 10) + ".png"
 }
@@ -94,19 +95,24 @@ func butlerInfo(b economy.ButlerDef, hire *store.ButlerHire, chief bool, now tim
 	return body
 }
 
-// butlerDetail is ButlerDetailInfo for one contract (spec 3.3): the info, the gathering state (idle [I]) and one
-// ability: the gathering type, today's gathers against the cap. vipGrade (f2) is left unset on purpose: a grade would
-// trigger the client's VIP gate (spec 12.3) and its "Become VIP" route, which is real money. Without a grade the
-// line "Hiring available for  and above." reads blank. That is client-inherent, not a bug.
-func butlerDetail(b economy.ButlerDef, hire store.ButlerHire, chief bool, gathers int64, now time.Time) []byte {
-	body := pbLen(nil, 1, butlerInfo(b, &hire, chief, now))
+// butlerDetail is ButlerDetailInfo (spec 3.3): the info (with the employment when hire is a contract), the gathering
+// state (idle [I]) and one ability per gathering type of the butler: the type, today's gathers against the cap.
+// vipGrade (f2) is left unset on purpose: a grade would trigger the client's VIP gate (spec 12.3) and its "Become VIP"
+// route, which is real money. Without a grade the line "Hiring available for  and above." reads blank. That is
+// client-inherent, not a bug.
+func butlerDetail(b economy.ButlerDef, hire *store.ButlerHire, chief bool, gathers int64, now time.Time) []byte {
+	body := pbLen(nil, 1, butlerInfo(b, hire, chief, now))
 	body = pbVar(body, 4, 0) // gatheringStatus [I]
 	body = pbVar(body, 5, 0) // gatheringRemainTime
-	ability := pbVar(nil, 1, uint64(economy.ButlerGatherType()))
-	ability = pbVar(ability, 2, 0) // gatheringTime
-	ability = pbVar(ability, 3, uint64(gathers))
-	ability = pbVar(ability, 4, uint64(economy.ActiveButlers().Gathering.GathersPerDay))
-	return pbLen(body, 6, ability)
+	perDay := uint64(economy.ActiveButlers().Gathering.GathersPerDay)
+	for _, kind := range economy.ButlerAbilities(b) {
+		ability := pbVar(nil, 1, uint64(kind))
+		ability = pbVar(ability, 2, 0) // gatheringTime
+		ability = pbVar(ability, 3, uint64(gathers))
+		ability = pbVar(ability, 4, perDay)
+		body = pbLen(body, 6, ability)
+	}
+	return body
 }
 
 // butlerCoin is CoinInfo: the coin type and its value.
@@ -169,7 +175,7 @@ func butlerBookBody(v economy.ButlerView, expired []economy.ButlerDef, now time.
 	chief := v.Chief()
 	for _, b := range economy.ActiveButlers().Butlers {
 		if h, ok := v.Hire(b.ID); ok {
-			body = pbLen(body, 2, butlerDetail(b, h, b.ID == chief, gathers, now))
+			body = pbLen(body, 2, butlerDetail(b, &h, b.ID == chief, gathers, now))
 		}
 	}
 	if len(expired) > 0 {
@@ -247,6 +253,21 @@ func gardenButlerReply(msgid uint16, viewer uint64, data []byte, now time.Time, 
 		return []gardenMsg{{59, butlerGatherBody(0, status)}}
 	case 51: // shop {}
 		return []gardenMsg{{60, butlerShopBody(economy.ButlerViewOf(aid, now), now)}}
+	case 57: // profile_info {butler_id}: the Profile popup shows the butler's info and abilities, and its employment if any
+		id, _ := protobufUintField(data, 1)
+		b, ok := economy.ButlerByID(int64(id))
+		if !ok {
+			break // refused below
+		}
+		v := economy.ButlerViewOf(aid, now)
+		var hire *store.ButlerHire
+		if h, ok := v.Hire(b.ID); ok {
+			hire = &h
+		}
+		_, gathers := v.Today()
+		body := pbVar(nil, 1, 0)
+		body = pbLen(body, 2, butlerDetail(b, hire, v.Chief() == b.ID, gathers, now))
+		return []gardenMsg{{67, body}}
 	case 52: // buy {butler_id, cost_type, cost_value (ignored: the server prices it), is_free, employ_days}
 		id, _ := protobufUintField(data, 1)
 		costType, _ := protobufUintField(data, 2)

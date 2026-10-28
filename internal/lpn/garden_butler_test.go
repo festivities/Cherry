@@ -92,12 +92,12 @@ func checkButlerWire(t *testing.T, name string, body []byte) {
 func TestButlerRepliesMatchSpecWire(t *testing.T) {
 	now := time.Date(2026, 10, 28, 3, 0, 0, 0, time.UTC)
 	logger := log.New(io.Discard, "", 0)
-	const hazel, wren = 1900000001, 1900000002
+	const ophelia, ian = 1900000004, 1900000005
 	hired := func(id int64) *store.ButlerBook {
 		return &store.ButlerBook{Leader: id, Hired: []store.ButlerHire{{ID: id, Begin: now.UnixMilli(), End: now.UnixMilli() + 30*86400000}}}
 	}
-	expired := &store.ButlerBook{Hired: []store.ButlerHire{{ID: wren, Begin: now.UnixMilli() - 40*86400000, End: now.UnixMilli() - 3600000}}}
-	buy := pbVar(pbVar(pbVar(pbVar(pbVar(nil, 1, hazel), 2, uint64(economy.ButlerCoinCash)), 3, 0), 4, 0), 5, 30)
+	expired := &store.ButlerBook{Hired: []store.ButlerHire{{ID: ian, Begin: now.UnixMilli() - 40*86400000, End: now.UnixMilli() - 3600000}}}
+	buy := pbVar(pbVar(pbVar(pbVar(pbVar(nil, 1, ophelia), 2, uint64(economy.ButlerCoinCash)), 3, 0), 4, 0), 5, 30)
 
 	rows := []struct {
 		name  string
@@ -109,12 +109,15 @@ func TestButlerRepliesMatchSpecWire(t *testing.T) {
 		push  bool // a second frame: the chief push (hc 68)
 	}{
 		{name: "shop", req: 51, reply: 60, spec: "shop"},
-		{name: "book", req: 53, reply: 63, spec: "book", book: hired(hazel)},
+		{name: "book", req: 53, reply: 63, spec: "book", book: hired(ophelia)},
 		{name: "book with expiry", req: 53, reply: 63, spec: "book", book: expired},
+		{name: "profile without a contract", req: 57, reply: 67, spec: "book", data: pbVar(nil, 1, ophelia)},
+		{name: "profile under contract", req: 57, reply: 67, spec: "book", data: pbVar(nil, 1, ophelia), book: hired(ophelia)},
+		{name: "profile refused for an unknown butler", req: 57, reply: 67, spec: "result", data: pbVar(nil, 1, 1900000050)},
 		{name: "skin select", req: 62, reply: 73, spec: "thumbs"},
-		{name: "gather", req: 50, reply: 59, spec: "gather", data: pbVar(pbVar(nil, 1, hazel), 2, 4), book: hired(hazel)},
+		{name: "gather", req: 50, reply: 59, spec: "gather", data: pbVar(pbVar(nil, 1, ophelia), 2, 4), book: hired(ophelia)},
 		{name: "hire", req: 52, reply: 61, spec: "bought", data: buy},
-		{name: "chief", req: 56, reply: 66, spec: "leader", data: pbVar(nil, 1, hazel), book: hired(hazel), push: true},
+		{name: "chief", req: 56, reply: 66, spec: "leader", data: pbVar(nil, 1, ophelia), book: hired(ophelia), push: true},
 		{name: "reward info refused", req: 54, reply: 64, spec: "result"},
 		{name: "hire refused", req: 52, reply: 61, spec: "result"},
 		{name: "skin equip refused", req: 59, reply: 70, spec: "result"},
@@ -171,7 +174,7 @@ func TestButlerChiefTileBesideSpawn(t *testing.T) {
 // remainTime is seconds. The device read milliseconds as year 58793 (2026-10-28).
 func TestButlerTimesAreEpochSeconds(t *testing.T) {
 	now := time.Date(2026, 10, 28, 3, 0, 0, 0, time.UTC)
-	h := store.ButlerHire{ID: 1900000001, Begin: now.UnixMilli(), End: now.UnixMilli() + 7*86400000}
+	h := store.ButlerHire{ID: 1900000004, Begin: now.UnixMilli(), End: now.UnixMilli() + 7*86400000}
 	body := butlerEmployment(h, now)
 	if got, _ := protobufUintField(body, 3); got != uint64(now.Unix()) {
 		t.Fatalf("firstTime = %d, want epoch seconds %d", got, now.Unix())
@@ -191,9 +194,9 @@ func TestButlerTimesAreEpochSeconds(t *testing.T) {
 // the chief, economy.ButlerChief), so an account hired before the chief rule gets its butler without a data edit.
 func TestButlerRelayFallbackChief(t *testing.T) {
 	now := time.Date(2026, 10, 28, 3, 0, 0, 0, time.UTC)
-	const hazel = 1900000001
+	const ophelia = 1900000004
 	testutil.InstallAccounts(t, map[string]*store.Account{"brf-3352": {AccessToken: "brf-3352", SessionKey: "sk", Aid: "3352", Name: "Owner",
-		Butlers: &store.ButlerBook{Hired: []store.ButlerHire{{ID: hazel, Begin: now.UnixMilli(), End: now.UnixMilli() + 86400000}}}}})
+		Butlers: &store.ButlerBook{Hired: []store.ButlerHire{{ID: ophelia, Begin: now.UnixMilli(), End: now.UnixMilli() + 86400000}}}}})
 	body := gardenButlerRelay(3352, now)
 	if len(body) == 0 {
 		t.Fatal("a running contract with no stored chief spawns no butler")
@@ -205,9 +208,9 @@ func TestButlerRelayFallbackChief(t *testing.T) {
 // and nothing otherwise.
 func TestButlerRelayChiefFields(t *testing.T) {
 	now := time.Date(2026, 10, 28, 3, 0, 0, 0, time.UTC)
-	const hazel = 1900000001
+	const ophelia = 1900000004
 	testutil.InstallAccounts(t, map[string]*store.Account{"brt-3350": {AccessToken: "brt-3350", SessionKey: "sk", Aid: "3350", Name: "Owner",
-		Butlers: &store.ButlerBook{Leader: hazel, Hired: []store.ButlerHire{{ID: hazel, Begin: now.UnixMilli(), End: now.UnixMilli() + 86400000}}}}})
+		Butlers: &store.ButlerBook{Leader: ophelia, Hired: []store.ButlerHire{{ID: ophelia, Begin: now.UnixMilli(), End: now.UnixMilli() + 86400000}}}}})
 	body := gardenButlerRelay(3350, now)
 	if len(body) == 0 {
 		t.Fatal("chief under contract: no relay fields")

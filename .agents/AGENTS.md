@@ -52,7 +52,7 @@ Rule (user, 2026-10-28): everything Cherry invents must be distinguishable from 
 | Atelier designs | 101201–101399 (`CherryDesignFirst/Last`) |
 | Season popup numbers | 9101–9399 (`CherryPopupFirst/Last`; unverified vs `eventPopup.db`) |
 | Garden landscape items | 428499000–428499999 (`assets.CherryItemFirst/Last`) |
-| Butlers | 1900000000–1900000999 (`CherryButlerFirst/Last`), skins `cherry_*`, outfits = original items picked by Cherry |
+| Butlers (`origin: "mixed"`; roster = the 7 original Garden butlers b1–b7: names, abilities, portraits, profile texts and outfit items are original, `data/butlers.json` notes say which field is which) | ids 1900000004–1900000010 (block 1900000000–1900000999, `CherryButlerFirst/Last`; 1900000001–3 were Hazel, Wren, Oswin and are never reused), skin codes `cherry_*` and skin ids, hire prices (30 days / 30 Cash), free hire, gathering gems/caps = Cherry-made; portraits = original `butler_event_profile_bN.png` served at `/cherry/butler/<id>.png`; `MigrateButlerRoster` refunds the retired paid contracts once |
 | Model House sets | codes `GUMH…` (category unknown to the client) |
 | Converted iOS items | original ids; R2 `cherry/item/`, D1 `generated` rows, recipe `itemconv-v1` |
 | Pictures: fish cards `/cherry/fish/`, gear `/cherry/fishing/`, season popups `/cherry/event/`, butler portraits `/cherry/butler/`, menu icons `/cherry/menu/` (Tabler, MIT), calendar cells `cherry_day*`, thumbnails/landscape/pet composites, dye icons `/cherry/dye/`, generated dye masks `dp_mask.png` for the 11 dyeable items without an original (`dm1_`) | route prefix / file prefix / `dp-cache\` |

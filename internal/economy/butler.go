@@ -1,9 +1,11 @@
 package economy
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
-	"hash/fnv"
+	"io/fs"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,21 +18,23 @@ import (
 	"cherry/internal/itemcode"
 	"cherry/internal/opdata"
 	"cherry/internal/store"
-	"cherry/internal/thumbs"
 )
 
 // Garden butlers (Garden LPN agent 10; spec butler-spec.md). The Shop hires a butler for earned Cash, the Book
-// lists the hired ones and sets the chief (the butler the Garden shows), and a hired butler's gathering pays
-// Garden materials and a few Gems. The butlers are Cherry-made, not original game data: no archive holds an
-// original butler id or skin code, so the ids sit in a reserved block and the skin codes start with cherry_.
-// The roster, prices and gathering amounts are data/butlers.json (operator-editable).
+// lists the hired ones and sets the chief (the butler the Garden shows), a hired butler's gathering pays Garden
+// materials and a few Gems, and the Profile popup shows a butler's details. The seven roster butlers are the original
+// ones: names, abilities, portraits, outfit items and profile texts come from the client's files (data/butlers.json
+// says which field is which). Their ids, skin codes, prices and gathering amounts are Cherry's own, in a reserved block.
 
-// CherryButlerFirst and CherryButlerLast bound the butler ids Cherry makes. No original butler id is in
-// this block, and checkButlers refuses an id outside it.
+// CherryButlerFirst and CherryButlerLast bound the butler ids Cherry makes. checkButlers refuses an id outside it.
 const (
 	CherryButlerFirst int64 = 1900000000
 	CherryButlerLast  int64 = 1900000999
 )
+
+// retiredButlerIDs are the ids of the first Cherry roster (Hazel, Wren and Oswin). They are never reused: a contract
+// that names one is retired by MigrateButlerRoster.
+var retiredButlerIDs = []int64{CherryButlerFirst + 1, CherryButlerFirst + 2, CherryButlerFirst + 3}
 
 // IsCherryButler reports whether id is in Cherry's own butler block.
 func IsCherryButler(id int64) bool { return id >= CherryButlerFirst && id <= CherryButlerLast }
@@ -45,16 +49,19 @@ var ErrButlerRefused = errors.New("butler: refused")
 
 const dayMillis = 86400000
 
+// butlerArtFS is the original UI art tree (lpbackup UIResource/UIImage_hd). The portraits are read from it in place.
+var butlerArtFS fs.FS = os.DirFS(filepath.FromSlash(`D:/Dev/projects/Cherry/.opencode/line-play-artifacts/lpbackup/jp.naver.lineplay.android/files/UIResource/UIImage_hd`))
+
 // Butlers is data/butlers.json. Strict JSON: unknown keys are an error.
 //
-//	origin      must be "cherry"
-//	note        says the butlers are Cherry-made; text for operators, not sent to the client
+//	origin      must be "mixed": the roster is original; the ids, skin codes, prices and gathering amounts are Cherry-made
+//	note        says per field which are original and which are Cherry-made; text for operators, not sent to the client
 //	free_days   days of the account's first hire, free once per account (a first hire, paid or free, uses it)
 //	hire        the one 30-day period and its earned-Cash price (the client's contract picker offers 30 days only)
-//	gathering   kinds: one drop of each listed kind ("fish", "essence" or "ore", data/gathering.json) pays a
-//	            gather; gems: Gems per gather; gems_cap: Gems a game day from butler gathering, per account;
-//	            gathers_per_day: gathers a game day per account (0 turns butler gathering off)
-//	butlers     one or more: id (in the Cherry block), name, gender "MALE" or "FEMALE", skin ("cherry_" + code)
+//	gathering   gems: Gems per gather; gems_cap: Gems a game day from butler gathering, per account; gathers_per_day:
+//	            gathers a game day per account (0 turns butler gathering off). A gather pays one drop of each of the
+//	            butler's abilities (ButlerDef.Abilities)
+//	butlers     one or more roster butlers
 type Butlers struct {
 	Origin    string          `json:"origin"`
 	Note      string          `json:"note"`
@@ -72,21 +79,42 @@ type ButlerPrice struct {
 
 // ButlerGathering is the butler gathering (see Butlers).
 type ButlerGathering struct {
-	Kinds         []string `json:"kinds"`
-	Gems          int64    `json:"gems"`
-	GemsCap       int64    `json:"gems_cap"`
-	GathersPerDay int64    `json:"gathers_per_day"`
+	Gems          int64 `json:"gems"`
+	GemsCap       int64 `json:"gems_cap"`
+	GathersPerDay int64 `json:"gathers_per_day"`
 }
 
-// ButlerDef is one roster butler. Outfit lists the item codes it wears (original catalog items with art, checked
-// at load against the shop catalog); SkinColor is avatarSkinColor (0 = the default tone [I]).
+// ButlerDef is one roster butler.
+//
+//	id         in the Cherry block, never a retired id (Cherry-made)
+//	name       the original name (string table 9854-9860)
+//	gender     "MALE", "FEMALE" or "ANIMAL" (the client's sex enum 0, 1, 2); from the portrait [I]
+//	skin       the one default skin code, "cherry_" + a name (Cherry-made); skin_color is avatarSkinColor (0 = default [I])
+//	outfit     item codes the skin wears: original catalog items with art (checked at load). A slot no archive item
+//	           matches is left out, and the note says so
+//	abilities  gather kinds ("fish", "essence", "ore") of the original abilities: Fishing, collecting Drops, mining
+//	art        the original portrait slot b1 to b7: UIResource/UIImage_hd/butler_event_profile_<art>.png, served as is
+//	profile    the original blood type, birthday, keywords and quote: kept for the record (no verified protocol field)
+//	note       what is empty or uncertain in this butler (optional)
 type ButlerDef struct {
-	ID        int64    `json:"id"`
-	Name      string   `json:"name"`
-	Gender    string   `json:"gender"`
-	Skin      string   `json:"skin"`
-	Outfit    []string `json:"outfit"`
-	SkinColor int64    `json:"skin_color"`
+	ID        int64         `json:"id"`
+	Name      string        `json:"name"`
+	Gender    string        `json:"gender"`
+	Skin      string        `json:"skin"`
+	SkinColor int64         `json:"skin_color"`
+	Outfit    []string      `json:"outfit"`
+	Abilities []string      `json:"abilities"`
+	Art       string        `json:"art"`
+	Profile   ButlerProfile `json:"profile"`
+	Note      string        `json:"note,omitempty"`
+}
+
+// ButlerProfile is the original profile text of a roster butler (its name card and quote in the client files).
+type ButlerProfile struct {
+	BloodType string   `json:"blood_type"`
+	Birthday  string   `json:"birthday"`
+	Keywords  []string `json:"keywords"`
+	Quote     string   `json:"quote"`
 }
 
 var butlersFile = opdata.New("butlers.json", data.ButlersJSON, checkButlers, verifyButlers)
@@ -95,11 +123,11 @@ var butlersFile = opdata.New("butlers.json", data.ButlersJSON, checkButlers, ver
 func ActiveButlers() *Butlers { return butlersFile.Get() }
 
 func checkButlers(b *Butlers) error {
-	if b.Origin != "cherry" {
-		return errors.New(`origin must be "cherry": the butlers are Cherry-made`)
+	if b.Origin != "mixed" {
+		return errors.New(`origin must be "mixed": the roster is original, the ids, skins, prices and gathering amounts are Cherry-made`)
 	}
 	if strings.TrimSpace(b.Note) == "" {
-		return errors.New("note must say that the butlers are Cherry-made")
+		return errors.New("note must say which fields are original and which are Cherry-made")
 	}
 	if b.FreeDays < 1 {
 		return errors.New("free_days must be at least 1")
@@ -116,13 +144,6 @@ func checkButlers(b *Butlers) error {
 	if g.Gems < 0 || g.GemsCap < 0 || g.GathersPerDay < 0 {
 		return errors.New("gathering: gems, gems_cap and gathers_per_day must not be negative")
 	}
-	kinds := map[string]bool{}
-	for _, k := range g.Kinds {
-		if _, ok := gatherKindOf(k); !ok || kinds[k] {
-			return fmt.Errorf("gathering: kind %q must be fish, essence or ore, listed once", k)
-		}
-		kinds[k] = true
-	}
 	if len(b.Butlers) < 1 {
 		return errors.New("butlers must list at least one butler")
 	}
@@ -131,18 +152,31 @@ func checkButlers(b *Butlers) error {
 		switch {
 		case !IsCherryButler(d.ID):
 			return fmt.Errorf("butler %d is outside the Cherry block %d-%d", d.ID, CherryButlerFirst, CherryButlerLast)
+		case slices.Contains(retiredButlerIDs, d.ID):
+			return fmt.Errorf("butler %d is retired (Hazel, Wren or Oswin): its id is never reused", d.ID)
 		case ids[d.ID]:
 			return fmt.Errorf("butler %d is listed twice", d.ID)
 		case strings.TrimSpace(d.Name) == "":
 			return fmt.Errorf("butler %d: name must not be empty", d.ID)
-		case d.Gender != "MALE" && d.Gender != "FEMALE":
-			return fmt.Errorf(`butler %d: gender must be "MALE" or "FEMALE"`, d.ID)
+		case d.Gender != "MALE" && d.Gender != "FEMALE" && d.Gender != "ANIMAL":
+			return fmt.Errorf(`butler %d: gender must be "MALE", "FEMALE" or "ANIMAL"`, d.ID)
 		case !strings.HasPrefix(d.Skin, "cherry_") || len(d.Skin) == len("cherry_"):
 			return fmt.Errorf(`butler %d: skin must start with "cherry_"`, d.ID)
 		case d.SkinColor < 0:
 			return fmt.Errorf("butler %d: skin_color must not be negative", d.ID)
 		case len(d.Outfit) == 0:
 			return fmt.Errorf("butler %d: outfit must list item codes", d.ID)
+		case len(d.Abilities) == 0:
+			return fmt.Errorf("butler %d: abilities must list fish, essence or ore", d.ID)
+		case d.Art == "":
+			return fmt.Errorf("butler %d: art must name the original portrait slot (b1 to b7)", d.ID)
+		}
+		seen := map[string]bool{}
+		for _, a := range d.Abilities {
+			if _, ok := gatherKindOf(a); !ok || seen[a] {
+				return fmt.Errorf("butler %d: ability %q must be fish, essence or ore, listed once", d.ID, a)
+			}
+			seen[a] = true
 		}
 		for _, code := range d.Outfit {
 			if _, ok := itemcode.ID(code); !ok {
@@ -154,29 +188,29 @@ func checkButlers(b *Butlers) error {
 	return nil
 }
 
-// verifyButlers runs at load (not for the embedded default alone): every outfit code must be a fashion item of the
-// shop catalog (so it has art), and each outfit needs hair (HA), shoes (SH) and a one-piece (ON) or a top and a
-// bottom (TO, PA). The archive is read here, as the shop catalog reads it.
+// verifyButlers runs at load (not for the embedded default alone): every outfit code must be a fashion item of the shop
+// catalog (so it has art), and every portrait must be in the archive. No outfit slot is required: an archive without an
+// item for a slot leaves it empty. The archive is read here, as the shop catalog reads it.
 func verifyButlers(b *Butlers) error {
 	catalog := map[string]bool{}
 	for _, it := range loadCatalog().fashion {
 		catalog[it.Code] = true
 	}
 	for _, d := range b.Butlers {
-		var cats []string
 		for _, code := range d.Outfit {
 			if !catalog[code] {
 				return fmt.Errorf("butler %d: outfit item %s is not a shop item with art", d.ID, code)
 			}
-			cats = append(cats, code[2:4])
 		}
-		hasCat := func(c string) bool { return slices.Contains(cats, c) }
-		if !hasCat("HA") || !hasCat("SH") || !(hasCat("ON") || hasCat("TO") && hasCat("PA")) {
-			return fmt.Errorf("butler %d: outfit needs hair, shoes and a one-piece or a top and a bottom", d.ID)
+		if _, err := fs.Stat(butlerArtFS, butlerArtFile(d)); err != nil {
+			return fmt.Errorf("butler %d: portrait %s is not in the archive", d.ID, butlerArtFile(d))
 		}
 	}
 	return nil
 }
+
+// butlerArtFile is the original portrait file of a roster butler.
+func butlerArtFile(d ButlerDef) string { return "butler_event_profile_" + d.Art + ".png" }
 
 // ButlerOutfitIDs returns the numeric item ids of d's outfit, in the outfit's order.
 func ButlerOutfitIDs(d ButlerDef) []int64 {
@@ -189,39 +223,19 @@ func ButlerOutfitIDs(d ButlerDef) []int64 {
 	return ids
 }
 
-// butlerItemDir is the item folder of numeric id under the archive's dress or custom tree, with its kind.
-func butlerItemDir(id int64) (dir, kind string, ok bool) {
-	for _, k := range []string{"dress", "custom"} {
-		dir = filepath.Join(thumbs.DpItemRoot, k, strconv.FormatInt(id, 10))
-		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
-			return dir, k, true
-		}
-	}
-	return "", "", false
-}
-
-// ButlerPortrait returns the portrait PNG of roster butler id: its outfit on the idle rig (thumbs.RenderButler), keyed
-// by the outfit so a changed outfit gets a new cache file. ok is false for a butler outside the roster or an outfit
-// item whose folder is missing.
+// ButlerPortrait returns the portrait of roster butler id: the original art, read as it is from the archive. ok is false
+// for a butler outside the roster or a missing file. Nothing is generated.
 func ButlerPortrait(id int64) ([]byte, bool) {
 	d, ok := ButlerByID(id)
 	if !ok {
 		return nil, false
 	}
-	var parts []thumbs.ButlerPart
-	h := fnv.New32a()
-	fmt.Fprintf(h, "%d|%s", d.SkinColor, strings.Join(d.Outfit, ","))
-	for _, item := range ButlerOutfitIDs(d) {
-		dir, kind, ok := butlerItemDir(item)
-		if !ok {
-			return nil, false
-		}
-		parts = append(parts, thumbs.ButlerPart{Dir: dir, Kind: kind})
-	}
-	return thumbs.RenderButler(fmt.Sprintf("%d_%08x", id, h.Sum32()), parts)
+	b, err := fs.ReadFile(butlerArtFS, butlerArtFile(d))
+	return b, err == nil
 }
 
-// HandleButlerImage serves GET /cherry/butler/<id>.png: the butler's portrait (ButlerPortrait). It is Cherry-made.
+// HandleButlerImage serves GET /cherry/butler/<id>.png: the roster butler's original portrait (ButlerPortrait). The
+// route is Cherry's; the picture is the client's.
 func HandleButlerImage(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/cherry/butler/"), ".png"), 10, 64)
 	if err != nil || r.Method != http.MethodGet {
@@ -247,15 +261,15 @@ func ButlerByID(id int64) (ButlerDef, bool) {
 	return ButlerDef{}, false
 }
 
-// ButlerGatherType is the client's GatheringType of a butler's gathering: the first configured kind (1 fish,
-// 2 essence, 3 ore), or 0 when none is configured.
-func ButlerGatherType() int64 {
-	kinds := ActiveButlers().Gathering.Kinds
-	if len(kinds) == 0 {
-		return 0
+// ButlerAbilities returns the client's GatheringType (1 fish, 2 essence, 3 ore) of each ability of d, in the data's order.
+func ButlerAbilities(d ButlerDef) []GatherKind {
+	out := make([]GatherKind, 0, len(d.Abilities))
+	for _, name := range d.Abilities {
+		if k, ok := gatherKindOf(name); ok {
+			out = append(out, k)
+		}
 	}
-	k, _ := gatherKindOf(kinds[0])
-	return int64(k)
+	return out
 }
 
 // gatherKindOf maps a data key ("fish", "essence", "ore") to its GatherKind.
@@ -509,22 +523,22 @@ func ButlerChief(aid string, now time.Time) (ButlerDef, store.ButlerHire, bool) 
 	return d, h, ok
 }
 
-// ButlerGathered is one butler gathering: the Garden materials paid into the Bag (one per configured kind) and
-// the Gems paid.
+// ButlerGathered is one butler gathering: the Garden materials paid into the Bag (one per ability) and the Gems paid.
 type ButlerGathered struct {
 	Drops []GatherDrop
 	Gems  int64
 }
 
-// GatherButler pays one gathering of butler id for aid: one drop of each configured kind into the Bag, and Gems
-// up to gems_cap a game day. The butler must be under contract and today's gathers below gathers_per_day, else
-// ErrButlerRefused with nothing changed. The Gems go through the ledger (reason butler:gather:<date>) and the
-// save happens before the reply. roll is math/rand/v2.IntN in production.
+// GatherButler pays one gathering of butler id for aid: one drop of each of the butler's abilities into the Bag, and
+// Gems up to gems_cap a game day. The butler must be under contract and today's gathers below gathers_per_day, else
+// ErrButlerRefused with nothing changed. The Gems go through the ledger (reason butler:gather:<date>) and the save
+// happens before the reply. roll is math/rand/v2.IntN in production.
 func GatherButler(aid string, id int64, now time.Time, roll func(n int) int) (ButlerGathered, error) {
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
 	acc := store.AccountByAidLocked(aid)
-	if acc == nil {
+	d, ok := ButlerByID(id)
+	if acc == nil || !ok {
 		return ButlerGathered{}, ErrButlerRefused
 	}
 	book := butlerBookOf(acc)
@@ -536,8 +550,7 @@ func GatherButler(aid string, id int64, now time.Time, roll func(n int) int) (Bu
 	}
 	var got ButlerGathered
 	bag := acc.GardenBag
-	for _, name := range g.Kinds {
-		kind, _ := gatherKindOf(name)
+	for _, kind := range ButlerAbilities(d) {
 		if pick, ok := PickGather(kind, roll); ok {
 			got.Drops = append(got.Drops, pick.Drop)
 			bag = gardenBagChange(bag, pick.Drop.Item, 1, now)
@@ -559,4 +572,147 @@ func GatherButler(aid string, id int64, now time.Time, roll func(n int) int) (Bu
 	}
 	store.FlushLedgerLocked(lines)
 	return got, nil
+}
+
+// butlerDebit is one Cash charge of a butler hire: when (epoch ms; the ledger keeps whole seconds) and how much.
+type butlerDebit struct {
+	at, amount int64
+}
+
+// butlerHireDebits reads the butler hire charges of every account from ledger.jsonl next to the account store, by
+// account and butler id. A missing ledger has none.
+func butlerHireDebits() (map[string]map[int64][]butlerDebit, error) {
+	out := map[string]map[int64][]butlerDebit{}
+	if store.AccountStorePath == "" {
+		return out, nil
+	}
+	raw, err := os.ReadFile(filepath.Join(filepath.Dir(store.AccountStorePath), "ledger.jsonl"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return out, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		var l store.LedgerLine
+		if json.Unmarshal([]byte(line), &l) != nil || l.Currency != "cash" || l.Delta >= 0 {
+			continue
+		}
+		rest, ok := strings.CutPrefix(l.Reason, "butler:hire:")
+		if !ok {
+			continue
+		}
+		idText, _, _ := strings.Cut(rest, ":")
+		id, idErr := strconv.ParseInt(idText, 10, 64)
+		at, timeErr := time.Parse(time.RFC3339, l.Time)
+		if idErr != nil || timeErr != nil {
+			continue
+		}
+		if out[l.Aid] == nil {
+			out[l.Aid] = map[int64][]butlerDebit{}
+		}
+		out[l.Aid][id] = append(out[l.Aid][id], butlerDebit{at: at.UnixMilli(), amount: -l.Delta})
+	}
+	return out, nil
+}
+
+// paidSince is the Cash that the hires of one butler charged for a contract beginning at begin (epoch ms): the charges
+// at or after begin, with begin cut to the second the ledger keeps. An earlier contract of the same butler is not counted.
+func paidSince(ds []butlerDebit, begin int64) int64 {
+	var sum int64
+	for _, d := range ds {
+		if d.at >= begin/1000*1000 {
+			sum += d.amount
+		}
+	}
+	return sum
+}
+
+// MigrateButlerRoster retires the butlers that left the roster (data/butlers.json) from every account, once. Their
+// contracts are dropped, and a chief among them is re-picked from the contracts left (the one that ends last, as at
+// expiry). An unexpired contract is refunded the Cash its hires charged, as the ledger shows (reason butler:refund:<id>):
+// a free hire charged nothing and refunds nothing, and an expired contract refunds nothing. The free-hire flag stays
+// as it is. An account with no retired contract is not written, so a second run refunds nothing. cmd/cherry calls it at
+// startup, after the operator data loads. A failed save restores every account and returns the error.
+func MigrateButlerRoster(now time.Time) error {
+	debits, err := butlerHireDebits()
+	if err != nil {
+		return err
+	}
+	store.AccountsMu.Lock()
+	defer store.AccountsMu.Unlock()
+	retired := func(id int64) bool { _, ok := ButlerByID(id); return !ok }
+	type change struct {
+		acc  *store.Account
+		prev store.Account
+	}
+	var changes []change
+	var lines []store.LedgerLine
+	restore := func() {
+		for _, c := range changes {
+			*c.acc = c.prev
+		}
+	}
+	seen := map[*store.Account]bool{} // token aliases share one account
+	for _, acc := range store.Accounts {
+		if seen[acc] || acc.Butlers == nil {
+			seen[acc] = true
+			continue
+		}
+		seen[acc] = true
+		book := butlerBookOf(acc)
+		changed := slices.ContainsFunc(acc.Butlers.Free, retired)
+		var keep []store.ButlerHire
+		var gone []int64
+		type refundOf struct{ id, amount int64 }
+		var refunds []refundOf
+		for _, h := range book.Hired {
+			if !retired(h.ID) {
+				keep = append(keep, h)
+				continue
+			}
+			changed = true
+			gone = append(gone, h.ID)
+			if h.End > now.UnixMilli() {
+				if amount := paidSince(debits[acc.Aid][h.ID], h.Begin); amount > 0 {
+					refunds = append(refunds, refundOf{h.ID, amount})
+				}
+			}
+		}
+		if !changed {
+			continue
+		}
+		changes = append(changes, change{acc, *acc})
+		var refund int64
+		for _, r := range refunds {
+			ls, err := store.SpendLocked(acc, store.LedgerDeltas{Cash: r.amount}, fmt.Sprintf("butler:refund:%d", r.id))
+			if err != nil {
+				restore()
+				return fmt.Errorf("butler roster: refund to aid %s: %w", acc.Aid, err)
+			}
+			lines = append(lines, ls...)
+			refund += r.amount
+		}
+		var running []store.ButlerHire
+		for _, h := range keep {
+			if h.End > now.UnixMilli() {
+				running = append(running, h)
+			}
+		}
+		book.Hired = keep
+		if _, ok := butlerHireOf(&book, book.Leader, now); !ok {
+			book.Leader = latestEnding(running)
+		}
+		acc.Butlers = &book
+		log.Printf("cherry: butler roster: aid=%s retired contracts %v, refund %d Cash", acc.Aid, gone, refund)
+	}
+	if len(changes) == 0 {
+		return nil
+	}
+	if err := store.SaveAccountsLocked(); err != nil {
+		restore()
+		return err
+	}
+	store.FlushLedgerLocked(lines)
+	return nil
 }
