@@ -16,7 +16,7 @@ func LoadOperatorData() error {
 		pricesFile.Load, gachaFile.Load, gatheringFile.Load, fishingFile.Load, fishbossFile.Load,
 		calendarsFile.Load, exchangeFile.Load, rewardsFile.Load, atelierFile.Load, racingFile.Load, rideShopFile.Load,
 		gardensFile.Load, modelHouseFile.Load, cherryTipsFile.Load, remodelFile.Load, butlersFile.Load, dyesFile.Load,
-		spinFile.Load,
+		spinFile.Load, loungeFile.Load,
 	} {
 		if err := load(); err != nil {
 			return err

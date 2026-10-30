@@ -265,11 +265,12 @@ func TestSpinPlayRefusesWithoutChange(t *testing.T) {
 func TestSpinMenuRowsAndPictures(t *testing.T) {
 	rows := homeIconRows()
 	n := len(rows)
-	if n < 2 || rows[n-2].LinkType != "goSomewhere(luckyspin)" || rows[n-2].Name != "Lucky Spin" ||
-		rows[n-1].LinkType != "goSomewhere(jackpotspin)" || rows[n-1].Name != "Jackpot Spin" {
-		t.Fatalf("the last two rows are %v, want Lucky Spin then Jackpot Spin", rows[n-2:])
+	// The spin rows were appended last; Lounge Chat was appended after them (the last row).
+	if n < 3 || rows[n-3].LinkType != "goSomewhere(luckyspin)" || rows[n-3].Name != "Lucky Spin" ||
+		rows[n-2].LinkType != "goSomewhere(jackpotspin)" || rows[n-2].Name != "Jackpot Spin" {
+		t.Fatalf("the spin rows are %v, want Lucky Spin then Jackpot Spin before the last row", rows[n-3:])
 	}
-	for _, row := range rows[n-2:] {
+	for _, row := range rows[n-3 : n-1] {
 		if row.Image == "" {
 			t.Fatalf("%s has no picture", row.LinkType)
 		}

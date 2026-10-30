@@ -59,7 +59,7 @@ func serveSessionConn(conn net.Conn, logger *log.Logger) {
 	logger.Printf("SESSION connect remote=%s", remote)
 	c := &lockedConn{Conn: conn} // pushes from other connections' goroutines write through the same lock
 	defer func() {
-		unbindSession(c)
+		themeChatUnbound(unbindSession(c), logger)
 		_ = conn.Close()
 		logger.Printf("SESSION disconnect remote=%s", remote)
 	}()
@@ -123,6 +123,9 @@ func handleSessionFrame(conn *lockedConn, remote string, payload []byte, logger 
 			return true
 		}
 		logger.Printf("SESSION lo remote=%s op=0x%02x txn=%d len=%d", remote, op, txn, len(body)) // the sendInit body holds the sessionKey
+		if op == loOpThemeChatReq {
+			return handleThemeChat(conn, remote, txn, body, logger)
+		}
 		if op != loOpSendInit {
 			return true
 		}
@@ -178,15 +181,30 @@ func SessionOnline(aid uint64) bool {
 	return sessionConns[aid] != nil
 }
 
-// unbindSession forgets the accounts whose live session was c.
-func unbindSession(c *lockedConn) {
+// unbindSession forgets the accounts whose live session was c and returns them.
+func unbindSession(c *lockedConn) []uint64 {
+	sessionConnsMu.Lock()
+	defer sessionConnsMu.Unlock()
+	var aids []uint64
+	for aid, o := range sessionConns {
+		if o == c {
+			delete(sessionConns, aid)
+			aids = append(aids, aid)
+		}
+	}
+	return aids
+}
+
+// sessionAidOf is the account whose live session is c (false when c never bound one).
+func sessionAidOf(c *lockedConn) (uint64, bool) {
 	sessionConnsMu.Lock()
 	defer sessionConnsMu.Unlock()
 	for aid, o := range sessionConns {
 		if o == c {
-			delete(sessionConns, aid)
+			return aid, true
 		}
 	}
+	return 0, false
 }
 
 // sessionPush writes one LO frame (op, txn 0, payload) to aid's live :10123 session. sent is false when the account

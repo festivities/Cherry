@@ -153,3 +153,8 @@ var DyesJSON []byte
 //
 //go:embed spin.json
 var SpinJSON []byte
+
+// LoungeJSON is the Lounge Chat category and its rooms, the history limit and the text limit (economy/lounge.go).
+//
+//go:embed lounge.json
+var LoungeJSON []byte

@@ -1,0 +1,25 @@
+{
+  "origin": "cherry",
+  "note": "Cherry-made: the Lounge Chat category and its rooms, their names and member limits, the message history kept per room and the text limit. The client has no lounge names or category pictures (string table and archives checked 2026-10-30), so nothing here is original LINE PLAY text. Ids are in Cherry's block 1930000000-1930000999 (economy.CherryLoungeFirst/Last). Messages live in memory only.",
+  "catgId": 1930000001,
+  "catgName": "Lounge",
+  "historyLimit": 200,
+  "maxTextChars": 200,
+  "rooms": [
+    {
+      "roomId": 1930000101,
+      "roomName": "Cozy Corner",
+      "limitMemberCnt": 20
+    },
+    {
+      "roomId": 1930000102,
+      "roomName": "Sunny Terrace",
+      "limitMemberCnt": 20
+    },
+    {
+      "roomId": 1930000103,
+      "roomName": "Night Lounge",
+      "limitMemberCnt": 20
+    }
+  ]
+}
