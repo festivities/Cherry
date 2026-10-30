@@ -524,14 +524,20 @@ func handleDiaryLook(w http.ResponseWriter, r *http.Request) {
 		httpx.ServeNotFound(w)
 		return
 	}
-	data, err := json.Marshal(map[string]any{"result": map[string]any{
+	result := map[string]any{
 		"diaryNo": found.DiaryNo, "avatarId": found.AvatarID, "nickname": found.Nickname,
 		"regDate": found.RegDate, "title": found.Title, "openState": found.OpenState,
 		"content": found.Content, "imageTypeKind": found.ImageTypeKind,
 		"imageLocationType": found.ImageLocationType, "feelingState": found.FeelingState,
 		"commentCount": found.CommentCount, "likeCount": found.LikeCount, "myLikeType": found.MyLikeType,
 		"blind": found.Blind, "images": found.Images,
-	}})
+	}
+	if found.AchieveType != "" {
+		result["achieveType"], result["achieveTypeLevel"] = found.AchieveType, found.AchieveTypeLevel
+		result["achieveDataType"], result["achieveData"] = found.AchieveDataType, found.AchieveData
+		result["achieveLinkValue"], result["achieveDataDetail"] = found.AchieveLinkValue, found.AchieveDataDetail
+	}
+	data, err := json.Marshal(map[string]any{"result": result})
 	if err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
@@ -598,27 +604,16 @@ func handleDiaryWrite(w http.ResponseWriter, r *http.Request) {
 	if nickname == "" {
 		nickname = "guest"
 	}
-	store.SocialMu.Lock()
-	if store.NextDiaryNo == ^uint64(0) {
-		store.SocialMu.Unlock()
-		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
-		return
-	}
-	store.NextDiaryNo++
 	post := store.DiaryPost{
-		DiaryNo: strconv.FormatUint(store.NextDiaryNo, 10), AvatarID: req.AvatarID, Nickname: nickname,
+		AvatarID: req.AvatarID, Nickname: nickname,
 		RegDate: strconv.FormatInt(time.Now().UnixMilli(), 10), Title: req.Title, OpenState: openState,
 		Content: req.Content, ImageTypeKind: req.ImageTypeKind,
 		ImageLocationType: store.DiaryImageLocationType(images), FeelingState: feeling, Images: images,
 	}
-	store.DiaryPosts = append([]store.DiaryPost{post}, store.DiaryPosts...)
-	err = store.SaveSocialLocked()
-	if err != nil {
-		store.DiaryPosts = store.DiaryPosts[1:]
-		store.NextDiaryNo--
-	}
+	store.SocialMu.Lock()
+	stored := insertDiaryPostLocked(&post)
 	store.SocialMu.Unlock()
-	if err != nil {
+	if !stored {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
 	}
@@ -628,6 +623,108 @@ func handleDiaryWrite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	markDiaryQuest(actor.Aid)
+	httpx.WriteJSON(w, http.StatusOK, string(body))
+}
+
+// insertDiaryPostLocked numbers post, puts it first and saves. A failed save restores the list and the
+// number. The caller holds SocialMu; false means the number space is full or the save failed.
+func insertDiaryPostLocked(post *store.DiaryPost) bool {
+	if store.NextDiaryNo == ^uint64(0) {
+		return false
+	}
+	store.NextDiaryNo++
+	post.DiaryNo = strconv.FormatUint(store.NextDiaryNo, 10)
+	store.DiaryPosts = append([]store.DiaryPost{*post}, store.DiaryPosts...)
+	if err := store.SaveSocialLocked(); err != nil {
+		store.DiaryPosts = store.DiaryPosts[1:]
+		store.NextDiaryNo--
+		return false
+	}
+	return true
+}
+
+var (
+	achieveTypeLevels = []string{"", "N", "N2", "N3", "R", "S", "U", "E", "C", "P"}
+	achieveDataTypes  = []string{"", "item", "heart", "gem", "cash"}
+)
+
+// handleAchieveWrite is POST /v4/achieve/write, the Share to Diary request for a spin result
+// (client ReqDiaryAchieveWriteURL 0x1bd20c4). Each request stores a new public diary post; a repeated
+// send of the same result stores another post. The reply {"result":{"diaryNo":"<n>"}} is all the client reads.
+//
+// Row shape the client's parsers read (libgame.so arm64, 10.1.0.0; unfold items[] and look result use the same keys):
+//   - unfold items[]: NaDiaryData::SetDiaryPostMainListData 0x1e8dd94; look result: NaDiaryData::SetDiaryPostDetail 0x1e925a8.
+//   - diaryNo: non-empty string, else the unfold list skips the row. avatarId, nickname, regDate, title, openState,
+//     content: strings. feelingState, commentCount, likeCount, myLikeType: ints. blind: bool.
+//   - imageTypeKind "achieve": exact match to index 5 of the 17-entry image type table (sub_1505E28). Only this key
+//     selects the achieve cell (NaDiaryPostAchieveContentCell, tableCellCreate type 6 in the list; type 20 in the detail):
+//     NaDiaryMainView::AddTableViewDataForMain 0x1d78394, NaDiaryPostDetailView::InitTableViewData 0x1e5e704.
+//   - achieveType "spin" (index 2) or "jackpotspin" (index 5) of kAchieveTypeCode: the index picks the background art
+//     (InitBgImage 0x1e537c8). An unknown name gives -1 and the cell draws no achieve content.
+//   - achieveTypeLevel "N","N2","N3","R","S","U","E","C","P": grade icon via NaRareManager::ConvertStringToRareType
+//     0x20f9fc4 (R=1 ... P=6, others no icon). achieveDataType "item","heart","gem","cash" (kAchieveDataTypeCode 1-4);
+//     "" is -1 and draws no grade icon.
+//   - title (drawn) = the client's achieveDataDetail (locale title, e.g. "Lucky Spin"); content "" (the client sends no prize text).
+//   - images []: no picture. The list picture key (images[0]) is empty and SetDPImage returns without a sprite (0x1d69ecc).
+//   - achieveData (cash amount), achieveLinkValue (rank): strings, stored and returned; not drawn for spin.
+//     achieveLink is omitted, so the list link button stays hidden.
+func handleAchieveWrite(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		httpx.ServeNotFound(w)
+		return
+	}
+	actor, ok := store.AccountForRequest(r)
+	if !ok {
+		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
+		return
+	}
+	raw, err := httpx.ReadNativeBody(r)
+	if err != nil {
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
+	var req struct {
+		AvatarID          string `json:"avatarId"`
+		AchieveType       string `json:"achieveType"`
+		AchieveTypeLevel  string `json:"achieveTypeLevel"`
+		AchieveDataType   string `json:"achieveDataType"`
+		AchieveData       string `json:"achieveData"`
+		AchieveLinkValue  string `json:"achieveLinkValue"`
+		AchieveDataDetail string `json:"achieveDataDetail"`
+	}
+	if _, err = httpx.UnmarshalNativeJSON(raw, &req); err != nil {
+		log.Printf("cherry: achieve write reject aid=%s bytes=%d err=%v", actor.Aid, len(raw), err)
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
+	if req.AvatarID != actor.Aid || (req.AchieveType != "spin" && req.AchieveType != "jackpotspin") || !slices.Contains(achieveTypeLevels, req.AchieveTypeLevel) || !slices.Contains(achieveDataTypes, req.AchieveDataType) || len(req.AchieveData) > 32 || len(req.AchieveLinkValue) > 32 || len(req.AchieveDataDetail) > 200 || !utf8.ValidString(req.AchieveData) || !utf8.ValidString(req.AchieveDataDetail) {
+		log.Printf("cherry: achieve write reject aid=%s avatarId=%q type=%q level=%q data=%q", actor.Aid, req.AvatarID, req.AchieveType, req.AchieveTypeLevel, req.AchieveDataType)
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
+	nickname := actor.Name
+	if nickname == "" {
+		nickname = "guest"
+	}
+	post := store.DiaryPost{
+		AvatarID: actor.Aid, Nickname: nickname,
+		RegDate: strconv.FormatInt(time.Now().UnixMilli(), 10), Title: req.AchieveDataDetail, OpenState: "public",
+		ImageTypeKind: "achieve", ImageLocationType: "none", FeelingState: -1, Images: []store.DiaryImage{},
+		AchieveType: req.AchieveType, AchieveTypeLevel: req.AchieveTypeLevel, AchieveDataType: req.AchieveDataType,
+		AchieveData: req.AchieveData, AchieveLinkValue: req.AchieveLinkValue, AchieveDataDetail: req.AchieveDataDetail,
+	}
+	store.SocialMu.Lock()
+	stored := insertDiaryPostLocked(&post)
+	store.SocialMu.Unlock()
+	if !stored {
+		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
+		return
+	}
+	body, err := json.Marshal(map[string]any{"result": map[string]string{"diaryNo": post.DiaryNo}})
+	if err != nil {
+		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
+		return
+	}
 	httpx.WriteJSON(w, http.StatusOK, string(body))
 }
 

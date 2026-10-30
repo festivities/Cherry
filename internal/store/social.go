@@ -95,6 +95,13 @@ type DiaryPost struct {
 	MyLikeType        int          `json:"myLikeType"`
 	Blind             bool         `json:"blind"`
 	Images            []DiaryImage `json:"images"`
+	// Achieve fields are set only on Share to Diary posts (POST /v4/achieve/write); omitted otherwise.
+	AchieveType       string `json:"achieveType,omitempty"`
+	AchieveTypeLevel  string `json:"achieveTypeLevel,omitempty"`
+	AchieveDataType   string `json:"achieveDataType,omitempty"`
+	AchieveData       string `json:"achieveData,omitempty"`
+	AchieveLinkValue  string `json:"achieveLinkValue,omitempty"`
+	AchieveDataDetail string `json:"achieveDataDetail,omitempty"`
 }
 
 type savedSocial struct {

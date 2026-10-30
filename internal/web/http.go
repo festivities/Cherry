@@ -332,6 +332,7 @@ func NewMux() http.Handler {
 	mux.HandleFunc("/v4/diary2/ext/checkExist/", handleDiaryCheckExist)
 	mux.HandleFunc("/v4/diary2/intro/", handleDiaryIntro)
 	mux.HandleFunc("/v4/diary2/ext/write", handleDiaryWrite)
+	mux.HandleFunc("/v4/achieve/write", handleAchieveWrite)
 	mux.HandleFunc("/v4/diary2/ext/unfold/photo/", handleDiaryPhotoAlbum)
 	mux.HandleFunc("/v4/diary2/ext/unfold/", handleDiaryUnfold)
 	mux.HandleFunc("/v4/diary2/ext/look/", handleDiaryLook)
