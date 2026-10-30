@@ -178,6 +178,11 @@ func TestSpinCheckRefusesBadData(t *testing.T) {
 		{"tier 2 not CASH", func(s *Spin) { s.Jackpot.Tiers[1].Currency = "GEM" }, "currency must be CASH"},
 		{"pet item", func(s *Spin) { s.Lucky.Tiers[0].Slots[5].Item = "PUPE0000G" }, "not a clothing or room item code"},
 		{"no en locale", func(s *Spin) { s.Lucky.Locales = s.Lucky.Locales[1:] }, "locales must include en"},
+		{"tier of hair only", func(s *Spin) {
+			for j := range s.Lucky.Tiers[0].Slots {
+				s.Lucky.Tiers[0].Slots[j] = SpinSlot{Item: "CUHA00001", Weight: 1}
+			}
+		}, "no slot an animal can win"},
 	} {
 		s := spinDefault(t)
 		c.mutate(s)
@@ -241,6 +246,56 @@ func TestSpinDrawFollowsTheWeights(t *testing.T) {
 		if got := spinDraw(slots); got != c.want {
 			t.Errorf("roll %d: slot index %d, want %d", c.roll, got, c.want)
 		}
+	}
+}
+
+// TestSpinAnimalNeverDrawsAHumanOnlyItem: an animal's copy of a table gives hair no weight, so every draw lands on the
+// Gem slot at its own index, while a human's draws reach the hair. The table keeps its weights.
+func TestSpinAnimalNeverDrawsAHumanOnlyItem(t *testing.T) {
+	table := []SpinSlot{{Item: "CUHA00001", Weight: 100}, {Gems: 20, Weight: 1}}
+	old := spinRoll
+	t.Cleanup(func() { spinRoll = old })
+	draws := func(animal bool) (hair, gem int) {
+		var r int64
+		spinRoll = func(n int64) int64 { return r % n }
+		for ; r < 1000; r++ {
+			switch spinDraw(spinSlotsFor(table, animal)) {
+			case 0:
+				hair++
+			case 1:
+				gem++
+			default:
+				t.Fatal("the draw left the wheel")
+			}
+		}
+		return hair, gem
+	}
+	if hair, gem := draws(true); hair != 0 || gem != 1000 {
+		t.Fatalf("animal: hair %d gem %d, want 0 and 1000", hair, gem)
+	}
+	if hair, _ := draws(false); hair == 0 {
+		t.Fatal("human never drew the hair")
+	}
+	if table[0].Weight != 100 {
+		t.Fatalf("the table's hair weight became %d", table[0].Weight)
+	}
+}
+
+// TestSpinAnimalPlayNeverWinsHair: on the default Lucky wheel roll 92 is hair for a human (slot 7). With the hair weight
+// zeroed for an animal the same roll lands on slot 8 (RUBE000KH, 3 units), still at the wheel's own index.
+func TestSpinAnimalPlayNeverWinsHair(t *testing.T) {
+	acc, _ := spinSetup(t, 500, 0)
+	store.AccountsMu.Lock()
+	acc.Gender = "ANIMAL"
+	store.AccountsMu.Unlock()
+	spinRollAt(t, 92)
+	rec := spinCall(t, spinLuckyBody(100, 0), "gtok")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("animal play: %d %s", rec.Code, rec.Body)
+	}
+	hist := spinReply(t, rec)["historyList"].([]any)[0].(map[string]any)
+	if hist["itemCode"] != "RUBE000KH" || hist["showPriority"] != float64(8) {
+		t.Fatalf("animal history %v, want slot 8 RUBE000KH", hist)
 	}
 }
 

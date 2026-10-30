@@ -145,6 +145,10 @@ func checkSpinGame(name string, g *SpinGame, tiers int) error {
 				}
 			}
 		}
+		// An animal's draw needs weight somewhere (spinSlotsFor zeroes the human-only items); a Gem slot has no item.
+		if !slices.ContainsFunc(t.Slots, func(s SpinSlot) bool { return !spinHumanOnly(s.Item) }) {
+			return fmt.Errorf("%s tier %d: no slot an animal can win (every slot is a hair or face item)", name, i+1)
+		}
 	}
 	return nil
 }
@@ -203,6 +207,27 @@ func spinDraw(slots []SpinSlot) int {
 		r -= s.Weight
 	}
 	return len(slots) - 1
+}
+
+// spinHumanOnly reports whether an animal avatar cannot wear code: a hair item or a human face (CU HA, HE, EB, EY, NO,
+// MO). isHumanFace is the Face Shop's human face check; the species rule itself is faceshop.go (CA for animals only).
+func spinHumanOnly(code string) bool {
+	return isHumanFace(code) || len(code) == 9 && strings.HasPrefix(code, "CUHA")
+}
+
+// spinSlotsFor is the wheel as the account can win it. An animal's copy gives each human-only item weight 0, so spinDraw
+// never lands on one; the indexes stay the wheel's (showPriority). A human gets the wheel itself.
+func spinSlotsFor(slots []SpinSlot, animal bool) []SpinSlot {
+	if !animal {
+		return slots
+	}
+	out := slices.Clone(slots)
+	for i := range out {
+		if spinHumanOnly(out[i].Item) {
+			out[i].Weight = 0
+		}
+	}
+	return out
 }
 
 // spinKey is the reward key of a tier: Lucky's tier is 1, the Jackpot's tiers 2 and 3.
@@ -461,7 +486,8 @@ type spinPlayReq struct {
 // handleSpinPlay serves luckyspin/purchasenplay for both spins; spinType JACKPOT selects the Jackpot and isHighPrice its
 // tier 2. The spin id, coin unit and price must match the data (else 61003). A free play (freeChance above 0) costs nothing
 // only while the account's free Lucky Spin of today is unused; any other free request is refused, never charged. Gems or
-// Cash are spent, and the prize paid or granted, in one save before the reply.
+// Cash are spent, and the prize paid or granted, in one save before the reply. An animal account never draws a hair or
+// human face item (spinSlotsFor).
 func handleSpinPlay(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		httpx.ServeNotFound(w)
@@ -528,7 +554,7 @@ func handleSpinPlay(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	idx := spinDraw(t.Slots)
+	idx := spinDraw(spinSlotsFor(t.Slots, acc.Gender == "ANIMAL"))
 	slot := t.Slots[idx]
 	previous := *acc
 	reason := "spin:lucky"
