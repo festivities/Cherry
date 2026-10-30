@@ -366,18 +366,32 @@ func TestDyeApplyRandomDrawsOneOfItsColours(t *testing.T) {
 	}
 }
 
-// TestDyeApplyCustomUsesThePalette: a CUSTOM dye applies a palette colour with the requested transparency to both layers.
-func TestDyeApplyCustomUsesThePalette(t *testing.T) {
+// TestDyeApplyCustomTakesAnyHexColour: a CUSTOM dye applies the #RRGGBB the player picks, palette or not, upper-cased, with
+// the requested transparency on both layers. A colour that is not #RRGGBB answers 400 and uses no dye.
+func TestDyeApplyCustomTakesAnyHexColour(t *testing.T) {
 	face := dyeCodeOf(t, 224102309)
-	acc, _ := dyeSetup(t, 0, []string{face}, []string{face}, map[string]int{"9510": 1})
-	rec := decorReq(t, dyeToken, http.MethodPost, "/v4/inven/dye/item/use/custom", dyeUseBody(9510, 1, []bool{true, true}, 30, true, "#8e24aa"))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	acc, _ := dyeSetup(t, 0, []string{face}, []string{face}, map[string]int{"9510": 3})
+	layers := func(c string) []store.DyeColor {
+		return []store.DyeColor{{ColorCode: c, Transparency: 30}, {ColorCode: c, Transparency: 30}}
 	}
-	_, _, colors := dyeState(t, acc)
-	want := []store.DyeColor{{ColorCode: "#8E24AA", Transparency: 30}, {ColorCode: "#8E24AA", Transparency: 30}}
-	if !slices.Equal(colors[face], want) {
-		t.Fatalf("colours = %v, want %v", colors[face], want)
+	for _, c := range []struct{ sent, applied string }{{"#8e24aa", "#8E24AA"}, {"#fbd7d7", "#FBD7D7"}} {
+		rec := decorReq(t, dyeToken, http.MethodPost, "/v4/inven/dye/item/use/custom", dyeUseBody(9510, 1, []bool{true, true}, 30, true, c.sent))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status %d: %s", c.sent, rec.Code, rec.Body.String())
+		}
+		if _, _, colors := dyeState(t, acc); !slices.Equal(colors[face], layers(c.applied)) {
+			t.Fatalf("%s: colours = %v, want %v", c.sent, colors[face], layers(c.applied))
+		}
+	}
+	for _, bad := range []string{"FBD7D7", "#FBD7D", "#GG0000", "#FBD7D7F"} {
+		rec := decorReq(t, dyeToken, http.MethodPost, "/v4/inven/dye/item/use/custom", dyeUseBody(9510, 1, []bool{true, true}, 30, true, bad))
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: status %d, want 400: %s", bad, rec.Code, rec.Body.String())
+		}
+		_, dyes, colors := dyeState(t, acc)
+		if dyes["9510"] != 1 || !slices.Equal(colors[face], layers("#FBD7D7")) {
+			t.Errorf("%s: changed the account (dyes %v, colours %v)", bad, dyes, colors[face])
+		}
 	}
 }
 
@@ -392,7 +406,7 @@ func TestDyeApplyRefusals(t *testing.T) {
 		{"dye not owned", dyeUseBody(9502, 2, []bool{true, true}, 0, false, "")},
 		{"three layer flags", dyeUseBody(9510, 2, []bool{true, true, true}, 0, true, "#E53935")},
 		{"no layer flagged", dyeUseBody(9510, 2, []bool{false, false}, 0, true, "#E53935")},
-		{"colour not in the palette", dyeUseBody(9510, 2, []bool{true, true}, 0, true, "#123456")},
+		{"colour not #rrggbb", dyeUseBody(9510, 2, []bool{true, true}, 0, true, "#12345")},
 		{"custom flag missing", dyeUseBody(9510, 2, []bool{true, true}, 0, false, "#E53935")},
 		{"transparency above 100", dyeUseBody(9510, 2, []bool{true, true}, 101, true, "#E53935")},
 	} {

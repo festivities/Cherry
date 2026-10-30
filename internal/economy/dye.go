@@ -57,10 +57,10 @@ const dyeSaleEnd = "20991231235959"
 //	origin, note  Cherry-made (opdata.Provenance)
 //	dyeable       numeric item ids of the garments that can be dyed; each must be one of the 15 flagged garments
 //	              (dyeFlagged), so an operator can only narrow the list (itemcode decodes each id to its item code)
-//	palette       the custom dye's colours, "#RRGGBB" (shop/dye/preview)
+//	palette       "#RRGGBB" colours that shop/dye/preview serves and the CUSTOM dye picture is drawn in
 //	dyes          the catalog: item_no inside 9501-9599 and unique; name; kind SINGLE, RANDOM or CUSTOM; price in Gems
 //	              (above 0); colors: SINGLE one colour, RANDOM two or more colours drawn by prob (each above 0, summing
-//	              to 1), CUSTOM none (the palette is its colours)
+//	              to 1), CUSTOM none (the player picks any #RRGGBB colour when applying)
 type DyeCatalog struct {
 	opdata.Provenance
 	Dyeable []int64   `json:"dyeable"`
@@ -155,7 +155,7 @@ func checkDyeColors(it DyeItem) error {
 		}
 	case "CUSTOM":
 		if len(it.Colors) != 0 {
-			return errors.New("kind CUSTOM takes its colours from the palette, not from colors")
+			return errors.New("kind CUSTOM takes the player's colour, so colors must be empty")
 		}
 		return nil
 	default:
@@ -300,7 +300,7 @@ func handleDyeInvenList(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, string(body))
 }
 
-// handleDyePreview serves GET shop/dye/preview: the custom dye's palette, an array of colour strings.
+// handleDyePreview serves GET shop/dye/preview: the dye palette (data/dyes.json), an array of colour strings.
 func handleDyePreview(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		httpx.ServeNotFound(w)
@@ -432,8 +432,9 @@ func drawDyeColor(colors []DyeColorDef, f float64) string {
 	return colors[len(colors)-1].Color
 }
 
-// dyeChoice is the colour and transparency a dye applies: SINGLE its colour, RANDOM a drawn one, CUSTOM the picked palette
-// colour with the requested transparency (0-100). ok is false for a request the dye cannot take.
+// dyeChoice is the colour and transparency a dye applies: SINGLE its colour, RANDOM a drawn one, CUSTOM the picked #RRGGBB
+// colour (upper-cased, any colour the client's picker can send) with the requested transparency (0-100). ok is false for a
+// request the dye cannot take.
 func dyeChoice(it DyeItem, req dyeUseReq) (colorCode string, transparency int, ok bool) {
 	switch it.Kind {
 	case "SINGLE":
@@ -445,11 +446,10 @@ func dyeChoice(it DyeItem, req dyeUseReq) (colorCode string, transparency int, o
 		if !req.Custom || !tOK || t < 0 || t > 100 {
 			return "", 0, false
 		}
-		i := slices.IndexFunc(ActiveDyes().Palette, func(c string) bool { return strings.EqualFold(c, req.ColorCode) })
-		if i < 0 {
+		if _, err := parseHexColor(req.ColorCode); err != nil {
 			return "", 0, false
 		}
-		return ActiveDyes().Palette[i], int(t), true
+		return strings.ToUpper(req.ColorCode), int(t), true
 	}
 	return "", 0, false
 }
