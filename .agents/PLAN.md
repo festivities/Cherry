@@ -38,6 +38,8 @@ You are the receiving agent with **zero context**. Read all of [AGENTS.md](AGENT
   - **Testers:** the Butler Shop strip scrolls by swipe (`input swipe 1120 1800 1120 900 800`), not its arrow; after a client crash the next tap can land on the Android launcher — confirm LINE PLAY is in front before each tap.
   - **Worker reports can be wrong in details** (e.g. "3 items lack a mask" was 11; a "likely" earring was a different design; the main agent's own eye override was heterochromatic): spot-check counts on disk and view key images before deploying.
 
+**HANDOFF ACCEPTED — 2026-10-30 ~13:12 host time (new Claude Code session):** context loaded. Confirmed: `main` clean and level with origin, HEAD `78becce` (code `820b1b2`), `cherry.exe` SHA-256 prefix `7201932f20b40238`, emulator-5554 = AVD Cherry, emulator-5556 = AVD Jerry, LAN 192.168.1.7. **Corrections:** Cherry PID 30544 was gone (log ends 2026-10-29 03:05; YunDetect restarted 2026-10-30 12:31, so probably a host reboot); restarted the same binary, no code or data change: PID **3640**, log `…\fresh-entry-20260926\cherry-accept-20261030-private.log`. YunDetectService is now PID **28452**. A cold start takes ~40 s (item archive scan after `fishboss.json`, ports closed until then; 2 s when the disk cache is warm). The host also has Radmin VPN (26.166.223.104, metric 1, default gateway); `lanIP()` still picks WiFi 192.168.1.7. Continuing at Next steps 1 (Story Gacha).
+
 ## Status (2026-10-29)
 
 | Milestone | Scope | Status |
