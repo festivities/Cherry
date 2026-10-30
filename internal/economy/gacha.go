@@ -155,6 +155,20 @@ func (p gachaPool) pick(rare bool) gachaEntry {
 	return tier[gachaRoll(len(tier))]
 }
 
+// animalPool is the pool an animal avatar draws from: both tiers without the hair and human-face items (spinHumanOnly).
+func (p gachaPool) animalPool() gachaPool {
+	keep := func(es []gachaEntry) []gachaEntry {
+		var out []gachaEntry
+		for _, e := range es {
+			if !spinHumanOnly(e.code) {
+				out = append(out, e)
+			}
+		}
+		return out
+	}
+	return gachaPool{normal: keep(p.normal), rare: keep(p.rare)}
+}
+
 // rollGacha draws n pulls: each is RARE with rare_percent odds, then uniform in its tier.
 // guaranteed (the 10-pull) re-rolls the last pull from the RARE tier when no pull was RARE.
 func rollGacha(p gachaPool, n int, guaranteed bool) []gachaEntry {
@@ -525,6 +539,13 @@ func handleGachaPurchase(bundle bool) http.HandlerFunc {
 		if acc == nil {
 			httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
 			return
+		}
+		if acc.Gender == "ANIMAL" { // an animal never draws hair or a human face; refused before any charge if none is left
+			pool = pool.animalPool()
+			if len(pool.normal)+len(pool.rare) == 0 {
+				shopError(w, r, raw, errUpdated, "shop updated")
+				return
+			}
 		}
 		if acc.Gems < cost {
 			shopError(w, r, raw, errNoMoney, "insufficient balance")

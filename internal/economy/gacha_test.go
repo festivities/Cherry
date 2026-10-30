@@ -658,3 +658,54 @@ func TestGachaOddsPage(t *testing.T) {
 		t.Errorf("unknown odds id = %d, want 404", rec.Code)
 	}
 }
+
+// An animal never draws the hair or human-face item (spinHumanOnly): 200 pulls see only the other five items, while a
+// human with the same seed draws CUHA00001 (hair). With every non-hair item excluded, an animal's pull is refused unpaid.
+func TestGachaAnimalNeverDrawsHumanOnly(t *testing.T) {
+	gachaFixture(t)
+	acc := gachaAccount(t, 30000, nil)
+	gachaLedgerDir(t)
+	old := gachaRoll
+	t.Cleanup(func() { gachaRoll = old })
+	pulls := func(gender string) map[string]int {
+		store.AccountsMu.Lock()
+		acc.Gender = gender
+		store.AccountsMu.Unlock()
+		rng := rand.New(rand.NewPCG(20261030, 1))
+		gachaRoll = func(n int) int { return rng.IntN(n) }
+		seen := map[string]int{}
+		for range 200 {
+			rec := gachaCall(t, http.MethodPost, "/v4/purchase/gacha/coin", gachaBody("1001", "100"), "gtok")
+			var env struct {
+				Result gachaSingleReply `json:"result"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &env); rec.Code != 200 || err != nil {
+				t.Fatalf("pull = %d %s", rec.Code, rec.Body)
+			}
+			seen[env.Result.ItemCode]++
+		}
+		return seen
+	}
+	if seen := pulls("ANIMAL"); seen["CUHA00001"] != 0 || len(seen) != 5 {
+		t.Errorf("animal pulls = %v, want the five non-hair items only", seen)
+	}
+	if seen := pulls("FEMALE"); seen["CUHA00001"] == 0 {
+		t.Errorf("human pulls = %v, want CUHA00001 drawn", seen)
+	}
+
+	// Every non-hair item excluded: the animal's pool is empty, so the pull is refused and nothing is charged.
+	g := ActiveGacha()
+	oldExclude := g.Exclude
+	t.Cleanup(func() { g.Exclude = oldExclude })
+	g.Exclude = []string{"CUTO00001", "RUTD00005", "RUWA000HR", "CUON004TV", "RUGO00002"}
+	store.AccountsMu.Lock()
+	acc.Gender = "ANIMAL"
+	store.AccountsMu.Unlock()
+	before := gachaGems(acc)
+	rec := gachaCall(t, http.MethodPost, "/v4/purchase/gacha/coin", gachaBody("1001", "100"), "gtok")
+	var out map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	if rec.Code != 400 || out["errorCode"] != "61003" || gachaGems(acc) != before {
+		t.Errorf("animal with no item left = %d %s, gems %d, want 400 61003 and no charge", rec.Code, rec.Body, gachaGems(acc))
+	}
+}
