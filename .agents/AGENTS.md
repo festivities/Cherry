@@ -242,6 +242,8 @@ Dependency order (no cycles): `httpx`, `store`, `opdata`, `itemcode` (leaf: item
 
 - **Home MENU (2026-10-28 audit, PLAN "Home menu"):** many 10.1 link types have no dispatcher case or need a real `link` (URL, brand id, square/friend id, video URL…) the client never gets; some open WebViews on sunk hosts (self-signed cert) or work only inside a Square — those rows were removed. Client-side traps found: `billPackageDay30` shows a spinner and never sends anything; `eventRanking` raises "Broken files has been downloaded…" (arts string 44, from `NaExceptionManager` state, raiser unlocated) and its CONFIRM wipes the downloaded client files; Model House throws on an empty set list; the Pet Book and Remodeling Shop leave the system indicator up (blocking back) on an error/empty reply; a Bag opened while its icons download keeps spinners until reopened; every refused gift send reads "Please check your network."; the Invite button needs a LINE invite URL.
 
+- **Story Gacha (2026-10-30, `menu-audit-20261028\storygacha-sweep.md`):** story text, choices, scene pictures and banners are server data, and no copy exists in the archives or host dumps (Wayback unchecked: offline). The three MENU rows stay hidden by user decision; do not write stand-in stories without asking.
+
 ## Evidence levels
 
 `reported` → `static-confirmed` [S] (symbol/address verified) → `runtime-confirmed` (observed with the real client) → `user-verified` (the user tested it on a device). [I] = inferred, [?] = unverified.
