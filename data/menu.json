@@ -50,7 +50,9 @@
     "goSomewhere(butlerBook)": "Butler Book",
     "goSomewhere(butlerSkinSelect)": "Butler Skins",
     "goSomewhere(colorantShop)": "Dye Shop",
-    "goSomewhere(colorantInven)": "Dye Inventory"
+    "goSomewhere(colorantInven)": "Dye Inventory",
+    "goSomewhere(luckyspin)": "Lucky Spin",
+    "goSomewhere(jackpotspin)": "Jackpot Spin"
   },
   "icons": {
     "goSomewhere(closet)": "shirt.png",
@@ -101,6 +103,8 @@
     "goSomewhere(butlerBook)": "book-2.png",
     "goSomewhere(butlerSkinSelect)": "palette.png",
     "goSomewhere(colorantShop)": "droplet.png",
-    "goSomewhere(colorantInven)": "color-swatch.png"
+    "goSomewhere(colorantInven)": "color-swatch.png",
+    "goSomewhere(luckyspin)": "rotate-clockwise-2.png",
+    "goSomewhere(jackpotspin)": "coins.png"
   }
 }

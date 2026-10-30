@@ -43,6 +43,7 @@ func TestOperatorFilesNeedOriginAndNote(t *testing.T) {
 		{"racing.json", data.RacingJSON, decodeWith(checkRacing)},
 		{"racing_exchange.json", data.RacingExchangeJSON, decodeWith(checkRideShop)},
 		{"rewards.json", data.RewardsJSON, decodeWith(checkRewards)},
+		{"spin.json", data.SpinJSON, decodeWith(checkSpin)},
 	} {
 		if err := f.decode(f.raw); err != nil {
 			t.Fatalf("%s: embedded default refused: %v", f.name, err)

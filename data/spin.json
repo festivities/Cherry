@@ -1,0 +1,56 @@
+{
+  "origin": "cherry",
+  "note": "Cherry-made: the spin ids (1920000001 Lucky, 1920000002 Jackpot; the block CherrySpinFirst/Last), the titles and locale texts, the prices and currencies, the free play, every odds weight, the Gem prize amounts and which items are prizes. The item codes are original items with archive art and a catalog price; the Gem and Cash pictures are the client's own UI art read in place (economy/spinart.go); the wheel and panel pictures are drawn by Cherry. Each slot is a Gem prize (gems) or an item (item); slot n is showPriority n, and the wheel stops on the slot the server drew. Jackpot tier 1 is priced in Gems, tier 2 in earned Cash (the client's High tier); no tier pays Cash.",
+  "lucky": {
+    "id": 1920000001,
+    "title": "Lucky Spin",
+    "free_daily": true,
+    "tiers": [
+      {"currency": "GEM", "price": 100, "slots": [
+        {"gems": 20, "weight": 35},
+        {"gems": 40, "weight": 25},
+        {"gems": 60, "weight": 15},
+        {"gems": 100, "weight": 9},
+        {"gems": 200, "weight": 2},
+        {"item": "CUTO0007B", "weight": 6},
+        {"item": "CUHA00001", "weight": 5},
+        {"item": "RUBE000KH", "weight": 3}
+      ]}
+    ],
+    "locales": [
+      {"language": "en", "title": "Lucky Spin", "description": "Spin the wheel for Gems. One free spin every day."},
+      {"language": "ja", "title": "ラッキースピン", "description": "ホイールを回してジェムを獲得。毎日1回無料。"}
+    ]
+  },
+  "jackpot": {
+    "id": 1920000002,
+    "title": "Jackpot Spin",
+    "free_daily": false,
+    "tiers": [
+      {"currency": "GEM", "price": 100, "slots": [
+        {"gems": 20, "weight": 35},
+        {"gems": 40, "weight": 25},
+        {"gems": 60, "weight": 15},
+        {"gems": 100, "weight": 9},
+        {"gems": 500, "weight": 2},
+        {"item": "CUTO0007B", "weight": 6},
+        {"item": "CUHA00001", "weight": 5},
+        {"item": "RUBE000KH", "weight": 3}
+      ]},
+      {"currency": "CASH", "price": 10, "slots": [
+        {"gems": 100, "weight": 55},
+        {"gems": 200, "weight": 22},
+        {"gems": 300, "weight": 10},
+        {"gems": 500, "weight": 8},
+        {"gems": 1000, "weight": 2},
+        {"item": "CUAE00307", "weight": 1},
+        {"item": "CUAE0030F", "weight": 1},
+        {"item": "RUBE000Z9", "weight": 1}
+      ]}
+    ],
+    "locales": [
+      {"language": "en", "title": "Jackpot Spin", "description": "Big Gem prizes on the Gem wheel, bigger ones for 10 Cash."},
+      {"language": "ja", "title": "ジャックポットスピン", "description": "ジェムの大当たり。10キャッシュで更に大きな当たり。"}
+    ]
+  }
+}

@@ -34,7 +34,7 @@ named by `icons` in `data/menu.json`. They are not game assets.
 | `cloud-upload.png` | `cloud-upload` | `#6CC650` | `goSomewhere(gardeneditcloud)` |
 | `clover.png` | `clover` | `#6D7CFF` | `goSomewhere(eventLottoDetail)` |
 | `code.png` | `code` | `#6D7CFF` | `html` |
-| `coins.png` | `coins` | `#E9B824` | `goSomewhere(goldenChance)` |
+| `coins.png` | `coins` | `#E9B824` | `goSomewhere(jackpotspin)` |
 | `color-swatch.png` | `color-swatch` | `#FF7FA8` | `goSomewhere(colorantInven)` |
 | `confetti.png` | `confetti` | `#FF7FA8` | `goSomewhere(roompartyInvite)` |
 | `credit-card.png` | `credit-card` | `#FF9F43` | `goSomewhere(cashShop)` |
@@ -71,7 +71,7 @@ named by `icons` in `data/menu.json`. They are not game assets.
 | `photo.png` | `photo` | `#FF7FA8` | `goSomewhere(imagePopupDetail)` |
 | `plant-2.png` | `plant-2` | `#6CC650` | `goSomewhere(myGarden)` |
 | `player-play.png` | `player-play` | `#6D7CFF` | `goSomewhere(videoplay)` |
-| `rotate-clockwise-2.png` | `rotate-clockwise-2` | `#F2545B` | `goSomewhere(luckyspin)`, `goSomewhere(jackpotspin)` |
+| `rotate-clockwise-2.png` | `rotate-clockwise-2` | `#F2545B` | `goSomewhere(luckyspin)` |
 | `settings.png` | `settings` | `#8393A7` | `goSomewhere(setting)` |
 | `shirt.png` | `shirt` | `#A77BFF` | `goSomewhere(closet)` |
 | `shopping-bag.png` | `shopping-bag` | `#FF9F43` | `goSomewhere(giftShop)`, `goSomewhere(giftShopDetail)` |

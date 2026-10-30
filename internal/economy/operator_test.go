@@ -210,6 +210,9 @@ func TestOperatorOverridesReplaceDefaults(t *testing.T) {
 	write("gacha.json", mutateDefault(t, data.GachaJSON, `"name": "Cherry Gacha"`, `"name": "Operator Gacha"`, `"exclude": []`, `"exclude": ["CUON004TV"]`))
 	write("prices.json", mutateDefault(t, data.PricesJSON, `"HA": 200`, `"HA": 999`))
 	write("calendars.json", mutateDefault(t, data.CalendarsJSON, `{"gems": 90},`, `{"gems": 91},`))
+	// The default spin prices its hair prize from clothing_prices.HA. At HA 999 its expected Gem payout passes the Lucky
+	// price, and startup refuses that (spin.json EV rule), so this override points the prize at a room item instead.
+	write("spin.json", strings.ReplaceAll(string(data.SpinJSON), `"item": "CUHA00001"`, `"item": "RUAB00002"`))
 	if err := LoadOperatorData(); err != nil {
 		t.Fatalf("overrides: %v", err)
 	}

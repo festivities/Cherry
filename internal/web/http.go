@@ -125,6 +125,8 @@ var homeLinks = []string{
 	"goSomewhere(butlerSkinSelect)",
 	"goSomewhere(colorantShop)",
 	"goSomewhere(colorantInven)",
+	"goSomewhere(luckyspin)",
+	"goSomewhere(jackpotspin)",
 }
 
 // homeMenuIconPrefix is the picture path of a home menu row. It is RELATIVE on purpose: the client's
@@ -296,6 +298,7 @@ func NewMux() http.Handler {
 	mux.HandleFunc("/cherry/fish/", economy.HandleFishImage)
 	mux.HandleFunc("/cherry/fishing/", economy.HandleFishingItemImage)
 	mux.HandleFunc("/cherry/butler/", economy.HandleButlerImage)
+	mux.HandleFunc("/cherry/spin/", economy.HandleSpinImage)
 	mux.HandleFunc("/cherry/dye/", economy.HandleDyeImage)
 	mux.HandleFunc("/cherry/menu/", handleMenuIcon)
 	mux.HandleFunc("/cherry/garden/items/", economy.HandleGatherImage)
@@ -366,6 +369,7 @@ func NewMux() http.Handler {
 	economy.RegisterEconomyRoutes(mux)
 	economy.RegisterModelHouseRoutes(mux)
 	economy.RegisterDyeRoutes(mux)
+	economy.RegisterSpinRoutes(mux)
 	economy.RegisterRemodelRoutes(mux)
 	registerDeleteAccountRoutes(mux)
 	mux.HandleFunc("/v4/items/dress/some", economy.HandleItemsSome)

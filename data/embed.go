@@ -148,3 +148,8 @@ var ButlersJSON []byte
 //
 //go:embed dyes.json
 var DyesJSON []byte
+
+// SpinJSON is the Lucky Spin and Jackpot Spin: ids, prices, the free play, the wheel slots and their odds (economy/spin.go).
+//
+//go:embed spin.json
+var SpinJSON []byte
