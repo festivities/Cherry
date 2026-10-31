@@ -26,13 +26,13 @@ func TestLoungeFileValidation(t *testing.T) {
 		{"category id 0 (the hot list)", `"catgId": 1930000001`, `"catgId": 0`, "catgId"},
 		{"blank category name", `"catgName": "Lounge"`, `"catgName": " "`, "catgName"},
 		{"history limit 0", `"historyLimit": 200`, `"historyLimit": 0`, "historyLimit"},
-		{"text cap 501", `"maxTextChars": 200`, `"maxTextChars": 501`, "maxTextChars"},
+		{"text cap 501", `"maxTextChars": 500`, `"maxTextChars": 501`, "maxTextChars"},
 		{"room outside the block", `"roomId": 1930000102`, `"roomId": 1900000102`, "roomId"},
 		{"duplicate room", `"roomId": 1930000102`, `"roomId": 1930000101`, "unique"},
 		{"room equal to the category", `"roomId": 1930000101`, `"roomId": 1930000001`, "unique"},
 		{"blank room name", `"roomName": "Cozy Corner"`, `"roomName": ""`, "roomName"},
 		{"room limit 0", `"limitMemberCnt": 20`, `"limitMemberCnt": 0`, "limitMemberCnt"},
-		{"unknown key", `"maxTextChars": 200`, `"maxTextChars": 200, "bogus": 1`, "bogus"},
+		{"unknown key", `"maxTextChars": 500`, `"maxTextChars": 500, "bogus": 1`, "bogus"},
 	} {
 		raw := noteValue.ReplaceAllString(base, `"note": " "`) // the blank-note case
 		if c.old != "" {

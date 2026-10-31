@@ -4,7 +4,7 @@
   "catgId": 1930000001,
   "catgName": "Lounge",
   "historyLimit": 200,
-  "maxTextChars": 200,
+  "maxTextChars": 500,
   "rooms": [
     {
       "roomId": 1930000101,

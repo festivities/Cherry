@@ -73,4 +73,16 @@ func TestAchieveShareToDiary(t *testing.T) {
 	if reloaded.DiaryNo != reply.Result.DiaryNo || reloaded.AchieveType != "spin" || reloaded.ImageTypeKind != "achieve" {
 		t.Fatalf("reloaded post = %+v", reloaded)
 	}
+
+	// The dye share sends its colours as the detail; the post shows the garment instead.
+	if dye := socialTestRequest(t, http.MethodPost, "/v4/achieve/write", `{"avatarId":"1","achieveType":"colorshop_complete","achieveTypeLevel":"","achieveDataType":"item","achieveData":"CUTO0019U","achieveLinkValue":"","achieveDataDetail":"#E53935_#FFFFFF"}`); dye.Code != http.StatusOK {
+		t.Fatalf("dye share = %d %s, want 200", dye.Code, dye.Body.String())
+	}
+	store.SocialMu.Lock()
+	defer store.SocialMu.Unlock()
+	for _, p := range store.DiaryPosts {
+		if p.AchieveType == "colorshop_complete" && p.Title != "Top 0019U" {
+			t.Fatalf("dye post title = %q, want the garment's name", p.Title)
+		}
+	}
 }

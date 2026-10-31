@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"cherry/internal/economy"
 	"cherry/internal/httpx"
 	"cherry/internal/lpn"
 	"cherry/internal/store"
@@ -644,6 +645,11 @@ func insertDiaryPostLocked(post *store.DiaryPost) bool {
 }
 
 var (
+	// achieveTypes are the kAchieveTypeCode names with a caller of RequestShareAchievement in the client
+	// (achieve-share-spec.md); a name outside them draws an empty diary cell. Only spins fill the other fields.
+	achieveTypes = []string{"gacha", "spin", "jackpotspin", "minipet", "minipet_levelup", "fashion_request", "fashion_complete",
+		"remodeling", "fashion_brand", "item_composite", "super_upgrade", "storygacha_item", "factory_cmplt_rwrd", "factory_craft_end",
+		"cf_request", "cf_brand", "cf_complete", "colorshop_complete"}
 	achieveTypeLevels = []string{"", "N", "N2", "N3", "R", "S", "U", "E", "C", "P"}
 	achieveDataTypes  = []string{"", "item", "heart", "gem", "cash"}
 )
@@ -697,10 +703,15 @@ func handleAchieveWrite(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
 	}
-	if req.AvatarID != actor.Aid || (req.AchieveType != "spin" && req.AchieveType != "jackpotspin") || !slices.Contains(achieveTypeLevels, req.AchieveTypeLevel) || !slices.Contains(achieveDataTypes, req.AchieveDataType) || len(req.AchieveData) > 32 || len(req.AchieveLinkValue) > 32 || len(req.AchieveDataDetail) > 200 || !utf8.ValidString(req.AchieveData) || !utf8.ValidString(req.AchieveDataDetail) {
+	if req.AvatarID != actor.Aid || !slices.Contains(achieveTypes, req.AchieveType) || !slices.Contains(achieveTypeLevels, req.AchieveTypeLevel) || !slices.Contains(achieveDataTypes, req.AchieveDataType) || len(req.AchieveData) > 32 || len(req.AchieveLinkValue) > 32 || len(req.AchieveDataDetail) > 200 || !utf8.ValidString(req.AchieveData) || !utf8.ValidString(req.AchieveDataDetail) {
 		log.Printf("cherry: achieve write reject aid=%s avatarId=%q type=%q level=%q data=%q", actor.Aid, req.AvatarID, req.AchieveType, req.AchieveTypeLevel, req.AchieveDataType)
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
+	}
+	// The dye result sends the colours ("#E53935_#FFFFFF") as its detail, and the diary cell draws the detail as its title
+	// (device 2026-10-31): the garment's name reads better.
+	if req.AchieveType == "colorshop_complete" && req.AchieveDataType == "item" && req.AchieveData != "" {
+		req.AchieveDataDetail = economy.ItemName(req.AchieveData)
 	}
 	nickname := actor.Name
 	if nickname == "" {
@@ -854,6 +865,9 @@ func handleFriendSearch(w http.ResponseWriter, r *http.Request) {
 		if match {
 			matches = append(matches, item)
 		}
+	}
+	if len(matches) == 0 {
+		log.Printf("cherry: friend search no match type=%q query=%q country=%q bytes=%d", req.SearchType, req.CaricNickName, req.Country, len(raw))
 	}
 	start := len(matches)
 	if page <= len(matches)/size {
