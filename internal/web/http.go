@@ -991,7 +991,8 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 	if streaming.ServeRoute(w, r) {
 		return
 	}
-	// Streaming off: the Garden craft art is read in place from the archive (streaming on: R2 alone answers it).
+	// Streaming off: the static-base craft art and photozone frames are read in place from the archive
+	// (streaming on: R2 alone answers them).
 	if streaming == nil && economy.ServeGardenCraftArt(w, r) {
 		return
 	}

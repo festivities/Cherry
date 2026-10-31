@@ -15,7 +15,10 @@ func TestCraftObjects(t *testing.T) {
 		"cache/garden01/npc/npc_portrait/npc_portrait_01.png",
 		"cache/garden01/quest_symbol/readme.txt", // not a PNG: not listed
 		"cache/craft01/1012/craft_1012_home_banner.png",
-		"cache/other/x.png", // not a craft folder
+		"cache/photozone/frame/031/bg.png",            // an Avatar Pic frame file
+		"cache/photozone/frame/031/animation.aniproj", // the frame's animation
+		"cache/photozone/other/x.png",                 // not a frame folder
+		"cache/other/x.png",                           // not a craft folder
 	)
 	objs, err := craftObjects(root)
 	if err != nil {
@@ -26,6 +29,8 @@ func TestCraftObjects(t *testing.T) {
 		"static/garden01/items/item210000.png":                 filepath.Join("cache", "garden01", "items", "item210000.png"),
 		"static/garden01/npc/npc_portrait/npc_portrait_01.png": filepath.Join("cache", "garden01", "npc", "npc_portrait", "npc_portrait_01.png"),
 		"static/craft01/1012/craft_1012_home_banner.png":       filepath.Join("cache", "craft01", "1012", "craft_1012_home_banner.png"),
+		"static/photozone/frame/031/bg.png":                    filepath.Join("cache", "photozone", "frame", "031", "bg.png"),
+		"static/photozone/frame/031/animation.aniproj":         filepath.Join("cache", "photozone", "frame", "031", "animation.aniproj"),
 	}
 	if len(objs) != len(want) {
 		t.Fatalf("%d objects, want %d", len(objs), len(want))
@@ -39,7 +44,7 @@ func TestCraftObjects(t *testing.T) {
 		t.Fatalf("checkOrigins: %v", err)
 	}
 	g := summarize(objs)
-	if g.count["craft:garden01"] != 3 || g.count["craft:craft01"] != 1 {
+	if g.count["craft:garden01"] != 3 || g.count["craft:craft01"] != 1 || g.count["craft:photozone"] != 2 {
 		t.Fatalf("groups = %v", g.count)
 	}
 }

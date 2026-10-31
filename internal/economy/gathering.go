@@ -356,10 +356,10 @@ func HandleGatherImage(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, filepath.Join(thumbs.DpItemRoot, "craftitem", "garden01", "items", file))
 }
 
-// ServeGardenCraftArt answers GET /garden01/… and /craft01/… (the Bag and Factory art the client downloads from the
-// static base) from the archive, in place, when streaming is off. The craft folder is read first, then the download
-// cache: the uploader (cmd/cherry-assets) takes the same order, so the two never disagree. A miss returns false, so
-// the caller's 404 applies.
+// ServeGardenCraftArt answers GET /garden01/…, /craft01/… and /photozone/frame/… (the static-base files of
+// assets.CraftDirs: the Bag and Factory art, the Avatar Pic frames) from the archive, in place, when streaming is
+// off. The craft folder is read first, then the download cache: the uploader (cmd/cherry-assets) takes the same
+// order, so the two never disagree. A miss returns false, so the caller's 404 applies.
 func ServeGardenCraftArt(w http.ResponseWriter, r *http.Request) bool {
 	rel, ok := assets.CraftRel(r.URL.Path)
 	if !ok || r.Method != http.MethodGet {

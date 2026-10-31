@@ -69,7 +69,7 @@ var bulkSources = []bulkSource{
 
 // object is one R2 object to upload. Bulk objects also feed their category's index.
 type object struct {
-	key  string // static/<cat>/<rel>, static/item/<kind>/<id>/<rel>, static/<dir>/<name> (map pack), static/chatting/action_hd/<name>, static/garden01|craft01/<rel> (craft art), or cherry/... when generated
+	key  string // static/<cat>/<rel>, static/item/<kind>/<id>/<rel>, static/<dir>/<name> (map pack), static/chatting/action_hd/<name>, static/garden01|craft01|photozone/frame/<rel> (craft art, frames), or cherry/... when generated
 	path string // local file
 	size int64
 	cat  string // bulk category; "" for item and pack files
@@ -316,10 +316,10 @@ func listRoot(dataset string, first bool) ([]*object, error) {
 	return objs, nil
 }
 
-// craftObjects lists the Garden craft art of one dataset root (assets.CraftRel): the craft folder item/craftitem/ first,
-// then the download cache cache/, both at the same relative path. A path both folders hold is listed once, from the
-// craft folder, which is what cherry-assets serves in place when streaming is off (ServeGardenCraftArt). A missing
-// folder contributes nothing.
+// craftObjects lists the static-base folders of assets.CraftDirs in one dataset root (assets.CraftRel): the craft
+// folder item/craftitem/ first, then the download cache cache/, both at the same relative path. A path both folders
+// hold is listed once, from the craft folder, which is what cherry-assets serves in place when streaming is off
+// (ServeGardenCraftArt). A missing folder contributes nothing.
 func craftObjects(dataset string) ([]*object, error) {
 	var objs []*object
 	seen := map[string]bool{}

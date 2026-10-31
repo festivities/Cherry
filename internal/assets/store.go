@@ -33,11 +33,15 @@ var langs = []string{"en", "tw", "cn", "kr", "jp", "th", "ja"}
 // ItemKinds are the item folders the client requests by id (craftitem holds no numeric ids and is never requested).
 var ItemKinds = []string{"custom", "dress", "interior", "tile", "pet", "garden"}
 
-// CraftDirs are the Garden craft folders the client downloads from the static base: garden01 (the item icons
-// the Bag and Factory cells read, plus the quest and NPC pictures) and craft01 (the Factory theme art). The
-// client asks for each file by its relative path ("garden01/items/item110000.png"); the archive keeps the same
-// path under files/item/craftitem/ or files/cache/.
-var CraftDirs = []string{"garden01", "craft01"}
+// CraftDirs are the static-base folders outside the update lists that the client downloads by relative path:
+// garden01 (the item icons the Bag and Factory cells read, plus the quest and NPC pictures), craft01 (the Factory
+// theme art) and photozone/frame (the Avatar Pic frames, five files per frame). The client asks for each file by its
+// relative path ("garden01/items/item110000.png"); the archive keeps the same path under files/item/craftitem/ or
+// files/cache/.
+var CraftDirs = []string{"garden01", "craft01", "photozone/frame"}
+
+// craftExts are the file kinds served under CraftDirs: PNG art and the .aniproj animation of a photozone frame.
+var craftExts = []string{".png", ".aniproj"}
 
 // missTTL is how long a 404 from R2 is remembered, so a missing dp.png is not fetched on every request.
 const missTTL = 10 * time.Minute
@@ -407,16 +411,20 @@ func animationDir(head string) bool {
 	return ok && slices.Contains(langs, lang) && isDigits(ver)
 }
 
-// CraftRel maps a request path to its relative path under the static base when it names a PNG in one of
+// CraftRel maps a request path to its relative path under the static base when it names a craftExts file in one of
 // CraftDirs ("/garden01/items/item110000.png" -> "garden01/items/item110000.png"). The R2 key is static/<rel>, and
 // the archive file is the same path (see CraftDirs). The uploader lists the same set.
 func CraftRel(p string) (string, bool) {
 	rel, ok := strings.CutPrefix(p, "/")
-	if !ok || !safeRel(rel) || path.Ext(rel) != ".png" {
+	if !ok || !safeRel(rel) || !slices.Contains(craftExts, path.Ext(rel)) {
 		return "", false
 	}
-	dir, _, _ := strings.Cut(rel, "/")
-	return rel, slices.Contains(CraftDirs, dir)
+	for _, dir := range CraftDirs {
+		if strings.HasPrefix(rel, dir+"/") {
+			return rel, true
+		}
+	}
+	return "", false
 }
 
 // ChatActionFile reports whether name is a chat action icon, chatting_deco_action_<name>.png, as one file name.
