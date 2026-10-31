@@ -95,15 +95,29 @@ func butlerInfo(b economy.ButlerDef, hire *store.ButlerHire, chief bool, now tim
 	return body
 }
 
+// butlerGatherState is the gathering status and end time the card shows at now (ButlerDetailInfo f4 and f5, hc 59 f2
+// and f3; spec section 2.2): 1 idle (no gathering), 3 in progress until the end, 5 collect once the end has passed. The
+// end is epoch seconds, and the client reads it only at 3.
+func butlerGatherState(g *store.ButlerGather, now time.Time) (status, end uint64) {
+	switch {
+	case g == nil:
+		return 1, 0
+	case economy.ButlerGatherDone(*g, now):
+		return 5, butlerSeconds(g.End)
+	}
+	return 3, butlerSeconds(g.End)
+}
+
 // butlerDetail is ButlerDetailInfo (spec 3.3): the info (with the employment when hire is a contract), the gathering
-// state (idle [I]) and one ability per gathering type of the butler: the type, today's gathers against the cap.
+// state (butlerGatherState) and one ability per gathering type of the butler: the type, today's gathers against the cap.
 // vipGrade (f2) is left unset on purpose: a grade would trigger the client's VIP gate (spec 12.3) and its "Become VIP"
 // route, which is real money. Without a grade the line "Hiring available for  and above." reads blank. That is
 // client-inherent, not a bug.
-func butlerDetail(b economy.ButlerDef, hire *store.ButlerHire, chief bool, gathers int64, now time.Time) []byte {
+func butlerDetail(b economy.ButlerDef, hire *store.ButlerHire, chief bool, gathers int64, gather *store.ButlerGather, now time.Time) []byte {
 	body := pbLen(nil, 1, butlerInfo(b, hire, chief, now))
-	body = pbVar(body, 4, 0) // gatheringStatus [I]
-	body = pbVar(body, 5, 0) // gatheringRemainTime
+	status, end := butlerGatherState(gather, now)
+	body = pbVar(body, 4, status) // gatheringStatus
+	body = pbVar(body, 5, end)    // gatheringRemainTime: an absolute end time, epoch seconds
 	perDay := uint64(economy.ActiveButlers().Gathering.GathersPerDay)
 	for _, kind := range economy.ButlerAbilities(b) {
 		ability := pbVar(nil, 1, uint64(kind))
@@ -169,13 +183,24 @@ func butlerBuyBody(got economy.ButlerHired, now time.Time) []byte {
 
 // butlerBookBody is the Book list (hc 63): result 0 (explicit, the expiry notice reads it), one ButlerDetailInfo
 // per contract, and the butlers that just ran out (name of the first, ids of all) for the expiry notice.
+//
+// The Book pairs the entries into rows: entry 2k is the left card, 2k+1 the right. Only the left card can show the
+// gather button (spec section 2.4: the right card's AUTO button stays hidden, device check section 7.1), so every
+// contract takes a left card. An empty ButlerDetailInfo (id 0, so its card stays hidden) fills an odd slot before it.
+// Roster order is kept otherwise.
 func butlerBookBody(v economy.ButlerView, expired []economy.ButlerDef, now time.Time) []byte {
 	body := pbVar(nil, 1, 0)
 	_, gathers := v.Today()
 	chief := v.Chief()
+	entries := 0
 	for _, b := range economy.ActiveButlers().Butlers {
 		if h, ok := v.Hire(b.ID); ok {
-			body = pbLen(body, 2, butlerDetail(b, &h, b.ID == chief, gathers, now))
+			if entries%2 == 1 {
+				body = pbLen(body, 2, nil)
+				entries++
+			}
+			body = pbLen(body, 2, butlerDetail(b, &h, b.ID == chief, gathers, v.Gathering(b.ID), now))
+			entries++
 		}
 	}
 	if len(expired) > 0 {
@@ -197,14 +222,42 @@ func butlerThumb(b economy.ButlerDef, employed bool) []byte {
 	return pbLen(t, 5, []byte(butlerImageURL(b)))
 }
 
-// butlerGatherBody is the gather reply (hc 59): the result, the request's gathering status echoed [I], no time
-// left and an empty butler icon.
-func butlerGatherBody(result, status uint64) []byte {
+// butlerGatherBody is the gather reply (hc 59): the result, the NEW gathering status, its absolute end time in epoch
+// seconds (0 when idle) and an empty butler icon (ButlerIconInfo, icon status 0).
+func butlerGatherBody(result, status, end uint64) []byte {
 	body := pbVar(nil, 1, result)
 	body = pbVar(body, 2, status)
-	body = pbVar(body, 3, 0)
+	body = pbVar(body, 3, end)
 	return pbLen(body, 6, nil)
 }
+
+// butlerRewardBody is the reward popup (hc 64) of a ready gathering: result 0 and one ButlerRewardInfo of reward type 1
+// (the gathering layer). Each rolled item is a ButlerRewardItemInfo with a numeric itemCode, its count 1, the Bag's
+// craft picture and grade 1. The Gems are paid at the claim but not listed (they are not an item). The sub id is the
+// start in epoch seconds; it comes back in ch 55.
+func butlerRewardBody(b economy.ButlerDef, g store.ButlerGather) []byte {
+	var list []byte
+	for _, it := range g.Items {
+		row := pbLen(nil, 1, []byte(strconv.FormatInt(it.Item, 10)))
+		row = pbLen(row, 2, []byte(it.Name))
+		row = pbVar(row, 3, 1)                                         // itemCount
+		row = pbVar(row, 4, uint64(it.Item/100000))                    // itemType: the Bag's filter tab (1 fish, 2 essence, 3 ore)
+		row = pbLen(row, 6, []byte(economy.GatherCraftImage(it.Item))) // imgUrl: the Bag's craft picture
+		row = pbVar(row, 7, 1)                                         // itemGrade
+		list = pbLen(list, 1, row)
+	}
+	info := pbVar(nil, 1, uint64(b.ID))
+	info = pbVar(info, 2, 1)                            // rewardType: gathering
+	info = pbLen(info, 3, []byte(butlerImageURL(b)))    // butlerRewardImg: the portrait
+	info = pbLen(info, 4, list)                         // itemList
+	info = pbVar(info, 7, uint64((g.End-g.Begin)/1000)) // gatheringIngTime: the gathering's length in seconds
+	info = pbVar(info, 8, uint64(len(g.Items)))         // totalRewardCount
+	info = pbVar(info, 9, butlerSeconds(g.Begin))       // rewardSubId, echoed by ch 55
+	return pbLen(pbVar(nil, 1, 0), 2, info)
+}
+
+// butlerClaimBody is the claim reply (hc 65): result 0 and an empty butlerIconInfo.
+func butlerClaimBody() []byte { return pbLen(pbVar(nil, 1, 0), 2, nil) }
 
 // butlerChangeLeader is the chief push (hc 68): the new chief's ButlerInfo and its icon.
 func butlerChangeLeader(b economy.ButlerDef, h store.ButlerHire, now time.Time) []byte {
@@ -241,16 +294,50 @@ func gardenButlerRelay(owner uint64, now time.Time) []byte {
 func gardenButlerReply(msgid uint16, viewer uint64, data []byte, now time.Time, logger *log.Logger) []gardenMsg {
 	aid := strconv.FormatUint(viewer, 10)
 	switch msgid {
-	case 50: // do_gathering {butler_id, gathering_status, gathering_req_type}
+	case 50: // do_gathering {butler_id, gathering_status: 2 start, 4 stop, gathering_req_type}
 		id, _ := protobufUintField(data, 1)
 		status, _ := protobufUintField(data, 2)
-		got, err := economy.GatherButler(aid, int64(id), now, rand.IntN)
-		if err != nil {
-			logger.Printf("BUTLER gather aid=%s butler=%d result=217095 err=%v", aid, id, err)
-			return []gardenMsg{{59, butlerGatherBody(217095, status)}} // "Collecting currently unavailable."
+		switch status {
+		case 2:
+			g, err := economy.StartButlerGather(aid, int64(id), now, rand.IntN)
+			if err != nil {
+				logger.Printf("BUTLER gather start aid=%s butler=%d result=217095 err=%v", aid, id, err)
+				return []gardenMsg{{59, pbVar(nil, 1, 217095)}} // "Collecting currently unavailable."
+			}
+			logger.Printf("BUTLER gather start aid=%s butler=%d items=%d gems=%d result=0", aid, id, len(g.Items), g.Gems)
+			return []gardenMsg{{59, butlerGatherBody(0, 3, butlerSeconds(g.End))}}
+		case 4:
+			if err := economy.StopButlerGather(aid, int64(id), now); err != nil {
+				logger.Printf("BUTLER gather stop aid=%s butler=%d result=217095 err=%v", aid, id, err)
+				return []gardenMsg{{59, pbVar(nil, 1, 217095)}}
+			}
+			logger.Printf("BUTLER gather stop aid=%s butler=%d result=0", aid, id)
+			return []gardenMsg{{59, butlerGatherBody(0, 1, 0)}}
 		}
-		logger.Printf("BUTLER gather aid=%s butler=%d materials=%d gems=%d result=0", aid, id, len(got.Drops), got.Gems)
-		return []gardenMsg{{59, butlerGatherBody(0, status)}}
+		logger.Printf("BUTLER gather aid=%s butler=%d status=%d result=217095", aid, id, status)
+		return []gardenMsg{{59, pbVar(nil, 1, 217095)}}
+	case 54: // reward_info {butler_id, reward_type: 1 gathering}: the popup, only once the gathering is ready
+		id, _ := protobufUintField(data, 1)
+		rewardType, _ := protobufUintField(data, 2)
+		g := economy.ButlerViewOf(aid, now).Gathering(int64(id))
+		if b, known := economy.ButlerByID(int64(id)); known && rewardType == 1 && g != nil && economy.ButlerGatherDone(*g, now) {
+			logger.Printf("BUTLER reward aid=%s butler=%d items=%d result=0", aid, id, len(g.Items))
+			return []gardenMsg{{64, butlerRewardBody(b, *g)}}
+		}
+		logger.Printf("BUTLER reward refused aid=%s butler=%d type=%d", aid, id, rewardType)
+	case 55: // reward {butler_id, reward_type, reward_sub_id}: the claim pays the ready gathering once
+		id, _ := protobufUintField(data, 1)
+		rewardType, _ := protobufUintField(data, 2)
+		sub, _ := protobufUintField(data, 3)
+		if rewardType == 1 {
+			g, err := economy.ClaimButlerGather(aid, int64(id), int64(sub), now)
+			if err == nil {
+				logger.Printf("BUTLER claim aid=%s butler=%d items=%d gems=%d result=0", aid, id, len(g.Items), g.Gems)
+				return []gardenMsg{{65, butlerClaimBody()}}
+			}
+			logger.Printf("BUTLER claim aid=%s butler=%d sub=%d err=%v", aid, id, sub, err)
+		}
+		return []gardenMsg{{65, pbVar(nil, 1, butlerRefused)}}
 	case 51: // shop {}
 		return []gardenMsg{{60, butlerShopBody(economy.ButlerViewOf(aid, now), now)}}
 	case 57: // profile_info {butler_id}: the Profile popup shows the butler's info and abilities, and its employment if any
@@ -266,7 +353,7 @@ func gardenButlerReply(msgid uint16, viewer uint64, data []byte, now time.Time, 
 		}
 		_, gathers := v.Today()
 		body := pbVar(nil, 1, 0)
-		body = pbLen(body, 2, butlerDetail(b, hire, v.Chief() == b.ID, gathers, now))
+		body = pbLen(body, 2, butlerDetail(b, hire, v.Chief() == b.ID, gathers, v.Gathering(b.ID), now))
 		return []gardenMsg{{67, body}}
 	case 52: // buy {butler_id, cost_type, cost_value (ignored: the server prices it), is_free, employ_days}
 		id, _ := protobufUintField(data, 1)

@@ -60,8 +60,8 @@ var butlerArtFS fs.FS = os.DirFS(filepath.FromSlash(`D:/Dev/projects/Cherry/.ope
 //	free_days   days of the account's first hire, free once per account (a first hire, paid or free, uses it)
 //	hire        the one 30-day period and its earned-Cash price (the client's contract picker offers 30 days only)
 //	gathering   gems: Gems per gather; gems_cap: Gems a game day from butler gathering, per account; gathers_per_day:
-//	            gathers a game day per account (0 turns butler gathering off). A gather pays one drop of each of the
-//	            butler's abilities (ButlerDef.Abilities)
+//	            gathers a game day per account (0 turns butler gathering off); duration_minutes: how long a gather runs
+//	            before it can be collected. A gather pays one drop of each of the butler's abilities (ButlerDef.Abilities)
 //	butlers     one or more roster butlers
 type Butlers struct {
 	Origin    string          `json:"origin"`
@@ -80,9 +80,10 @@ type ButlerPrice struct {
 
 // ButlerGathering is the butler gathering (see Butlers).
 type ButlerGathering struct {
-	Gems          int64 `json:"gems"`
-	GemsCap       int64 `json:"gems_cap"`
-	GathersPerDay int64 `json:"gathers_per_day"`
+	Gems            int64 `json:"gems"`
+	GemsCap         int64 `json:"gems_cap"`
+	GathersPerDay   int64 `json:"gathers_per_day"`
+	DurationMinutes int64 `json:"duration_minutes"`
 }
 
 // ButlerDef is one roster butler.
@@ -151,6 +152,9 @@ func checkButlers(b *Butlers) error {
 	g := b.Gathering
 	if g.Gems < 0 || g.GemsCap < 0 || g.GathersPerDay < 0 {
 		return errors.New("gathering: gems, gems_cap and gathers_per_day must not be negative")
+	}
+	if g.DurationMinutes < 1 {
+		return errors.New("gathering: duration_minutes must be at least 1")
 	}
 	if len(b.Butlers) < 1 {
 		return errors.New("butlers must list at least one butler")
@@ -408,6 +412,27 @@ func (v ButlerView) Chief() int64 {
 // Today returns the Gems and the gathers of the butler gathering on the current game day.
 func (v ButlerView) Today() (gems, gathers int64) { return butlerDayOf(&v.book, AttendDayKey(v.now)) }
 
+// Gathering returns butler id's gathering (running or ready to collect) at the view's time, or nil when it is idle.
+func (v ButlerView) Gathering(id int64) *store.ButlerGather {
+	if g, ok := butlerGatherOf(&v.book, id); ok {
+		return &g
+	}
+	return nil
+}
+
+// butlerGatherOf returns book's gathering of butler id, if there is one.
+func butlerGatherOf(book *store.ButlerBook, id int64) (store.ButlerGather, bool) {
+	for _, g := range book.Gathering {
+		if g.ID == id {
+			return g, true
+		}
+	}
+	return store.ButlerGather{}, false
+}
+
+// ButlerGatherDone reports whether gathering g can be collected at now (its end has passed).
+func ButlerGatherDone(g store.ButlerGather, now time.Time) bool { return now.UnixMilli() >= g.End }
+
 // ExpireButlers drops aid's contracts that ran out by now and the chief if his ran out. It returns the roster
 // butlers that left (the Book's expiry notice) and saves; nothing changes when the save fails.
 func ExpireButlers(aid string, now time.Time) ([]ButlerDef, error) {
@@ -543,55 +568,115 @@ func ButlerChief(aid string, now time.Time) (ButlerDef, store.ButlerHire, bool) 
 	return d, h, ok
 }
 
-// ButlerGathered is one butler gathering: the Garden materials paid into the Bag (one per ability) and the Gems paid.
-type ButlerGathered struct {
-	Drops []GatherDrop
-	Gems  int64
-}
-
-// GatherButler pays one gathering of butler id for aid: one drop of each of the butler's abilities into the Bag, and
-// Gems up to gems_cap a game day. The butler must be under contract and today's gathers below gathers_per_day, else
-// ErrButlerRefused with nothing changed. The Gems go through the ledger (reason butler:gather:<date>) and the save
-// happens before the reply. roll is math/rand/v2.IntN in production.
-func GatherButler(aid string, id int64, now time.Time, roll func(n int) int) (ButlerGathered, error) {
+// StartButlerGather starts butler id's gathering for aid: it runs for gathering.duration_minutes, then can be collected.
+// The butler must be under contract now and idle, and today's gathers below gathers_per_day, else ErrButlerRefused with
+// nothing changed. The reward is rolled now (one drop of each ability; roll is math/rand/v2.IntN in production) and its
+// Gems count against today's Gem cap now, so the start uses the day's allowance whether or not it is stopped. Nothing is
+// paid until ClaimButlerGather.
+func StartButlerGather(aid string, id int64, now time.Time, roll func(n int) int) (store.ButlerGather, error) {
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
 	acc := store.AccountByAidLocked(aid)
 	d, ok := ButlerByID(id)
 	if acc == nil || !ok {
-		return ButlerGathered{}, ErrButlerRefused
+		return store.ButlerGather{}, ErrButlerRefused
 	}
 	book := butlerBookOf(acc)
 	g := ActiveButlers().Gathering
 	day := AttendDayKey(now)
 	gems, gathers := butlerDayOf(&book, day)
 	if _, ok := butlerHireOf(&book, id, now); !ok || gathers >= g.GathersPerDay {
-		return ButlerGathered{}, ErrButlerRefused
+		return store.ButlerGather{}, ErrButlerRefused
 	}
-	var got ButlerGathered
-	bag := acc.GardenBag
+	if _, busy := butlerGatherOf(&book, id); busy {
+		return store.ButlerGather{}, ErrButlerRefused
+	}
+	rec := store.ButlerGather{ID: id, Begin: now.UnixMilli(), End: now.UnixMilli() + g.DurationMinutes*60000}
 	for _, kind := range ButlerAbilities(d) {
 		if pick, ok := PickGather(kind, roll); ok {
-			got.Drops = append(got.Drops, pick.Drop)
-			bag = gardenBagChange(bag, pick.Drop.Item, 1, now)
+			rec.Items = append(rec.Items, store.ButlerGatherItem{Item: pick.Drop.Item, Name: pick.Drop.Name})
 		}
 	}
-	got.Gems = max(min(g.Gems, g.GemsCap-gems), 0)
-	next := store.ButlerBook{Hired: book.Hired, Leader: book.Leader, FreeUsed: book.FreeUsed, Day: day, Gems: gems + got.Gems, Gathers: gathers + 1}
+	rec.Gems = max(min(g.Gems, g.GemsCap-gems), 0)
+	next := book
+	next.Gathering = append(slices.DeleteFunc(slices.Clone(book.Gathering), func(x store.ButlerGather) bool { return x.ID == id }), rec)
+	next.Day, next.Gems, next.Gathers = day, gems+rec.Gems, gathers+1
 	prev := *acc
-	lines, err := store.SpendLocked(acc, store.LedgerDeltas{Gems: got.Gems}, "butler:gather:"+questDate(day))
-	if err != nil {
-		*acc = prev
-		return ButlerGathered{}, ErrButlerRefused
-	}
-	acc.GardenBag = bag
 	acc.Butlers = &next
 	if err := store.SaveAccountsLocked(); err != nil {
 		*acc = prev
-		return ButlerGathered{}, err
+		return store.ButlerGather{}, err
+	}
+	return rec, nil
+}
+
+// StopButlerGather stops butler id's running gathering for aid. It goes idle with no reward. A butler with no gathering
+// is idle already, so nothing changes. A gathering that is ready is refused (ErrButlerRefused): its reward is collected,
+// not dropped.
+func StopButlerGather(aid string, id int64, now time.Time) error {
+	store.AccountsMu.Lock()
+	defer store.AccountsMu.Unlock()
+	acc := store.AccountByAidLocked(aid)
+	if acc == nil {
+		return ErrButlerRefused
+	}
+	book := butlerBookOf(acc)
+	rec, busy := butlerGatherOf(&book, id)
+	if !busy {
+		return nil
+	}
+	if ButlerGatherDone(rec, now) {
+		return ErrButlerRefused
+	}
+	book.Gathering = slices.DeleteFunc(slices.Clone(book.Gathering), func(x store.ButlerGather) bool { return x.ID == id })
+	prev := *acc
+	acc.Butlers = &book
+	if err := store.SaveAccountsLocked(); err != nil {
+		*acc = prev
+		return err
+	}
+	return nil
+}
+
+// ClaimButlerGather pays butler id's finished gathering to aid once: its items into the Bag and its Gems through the
+// ledger (reason butler:gather:<id>:<start day>), then the gathering is cleared and the butler is idle. subID must be the
+// start in epoch seconds (the reward's rewardSubId). A gathering still running, a wrong subID or a failed save refuses
+// with nothing changed. With no gathering the claim is a repeat: it succeeds and pays nothing. The paid gathering is returned.
+func ClaimButlerGather(aid string, id, subID int64, now time.Time) (store.ButlerGather, error) {
+	store.AccountsMu.Lock()
+	defer store.AccountsMu.Unlock()
+	acc := store.AccountByAidLocked(aid)
+	if acc == nil {
+		return store.ButlerGather{}, ErrButlerRefused
+	}
+	book := butlerBookOf(acc)
+	rec, busy := butlerGatherOf(&book, id)
+	if !busy {
+		return store.ButlerGather{}, nil
+	}
+	if !ButlerGatherDone(rec, now) || subID != rec.Begin/1000 {
+		return store.ButlerGather{}, ErrButlerRefused
+	}
+	bag := acc.GardenBag
+	for _, it := range rec.Items {
+		bag = gardenBagChange(bag, it.Item, 1, now)
+	}
+	book.Gathering = slices.DeleteFunc(slices.Clone(book.Gathering), func(x store.ButlerGather) bool { return x.ID == id })
+	reason := fmt.Sprintf("butler:gather:%d:%s", id, questDate(AttendDayKey(time.UnixMilli(rec.Begin))))
+	prev := *acc
+	lines, err := store.SpendLocked(acc, store.LedgerDeltas{Gems: rec.Gems}, reason)
+	if err != nil {
+		*acc = prev
+		return store.ButlerGather{}, ErrButlerRefused
+	}
+	acc.GardenBag = bag
+	acc.Butlers = &book
+	if err := store.SaveAccountsLocked(); err != nil {
+		*acc = prev
+		return store.ButlerGather{}, err
 	}
 	store.FlushLedgerLocked(lines)
-	return got, nil
+	return rec, nil
 }
 
 // butlerDebit is one Cash charge of a butler hire: when (epoch ms; the ledger keeps whole seconds) and how much.

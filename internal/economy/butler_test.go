@@ -195,19 +195,26 @@ func TestGatherPaysCappedGems(t *testing.T) {
 	store.AccountsMu.Unlock()
 	first := func(n int) int { return 0 } // the first drop of each kind
 
+	// Ten gathers start and are collected an hour later (70 minutes apart, all inside the game day); the eleventh start
+	// is refused by gathers_per_day. The Gems are reserved at the start and paid at the claim.
 	var gems []int64
 	for i := range 11 {
-		got, err := GatherButler("3102", ophelia, now.Add(time.Duration(i)*time.Minute), first)
+		at := now.Add(time.Duration(i) * 70 * time.Minute)
+		rec, err := StartButlerGather("3102", ophelia, at, first)
 		if i == 10 {
 			if err == nil {
-				t.Fatal("11th gather of the day accepted")
+				t.Fatal("11th gather of the day started")
 			}
 			break
 		}
-		if err != nil || len(got.Drops) != 3 {
-			t.Fatalf("gather %d: %+v err=%v", i+1, got, err)
+		if err != nil || len(rec.Items) != 3 {
+			t.Fatalf("gather %d: %+v err=%v", i+1, rec, err)
 		}
-		gems = append(gems, got.Gems)
+		paid, err := ClaimButlerGather("3102", ophelia, rec.Begin/1000, at.Add(time.Hour))
+		if err != nil || paid.Gems != rec.Gems {
+			t.Fatalf("claim %d: paid %+v err=%v, want the started gems %d", i+1, paid, err, rec.Gems)
+		}
+		gems = append(gems, paid.Gems)
 	}
 	if want := []int64{3, 3, 3, 1, 0, 0, 0, 0, 0, 0}; !slices.Equal(gems, want) {
 		t.Fatalf("gems per gather = %v, want %v", gems, want)
@@ -218,15 +225,117 @@ func TestGatherPaysCappedGems(t *testing.T) {
 
 	// The next game day (06:00 JST boundary) starts a new cap.
 	next := now.Add(24 * time.Hour)
-	if got, err := GatherButler("3102", ophelia, next, first); err != nil || got.Gems != 3 {
-		t.Fatalf("next day gather: %+v err=%v", got, err)
+	rec, err := StartButlerGather("3102", ophelia, next, first)
+	if err != nil || rec.Gems != 3 {
+		t.Fatalf("next day gather: %+v err=%v", rec, err)
+	}
+	if _, err := ClaimButlerGather("3102", ophelia, rec.Begin/1000, next.Add(time.Hour)); err != nil {
+		t.Fatalf("next day claim: %v", err)
 	}
 	if _, total, _, _ := butlerState(t, "3102"); total != 13 {
 		t.Fatalf("next day gems = %d, want 13", total)
 	}
-	// One ledger line per gather that paid Gems: 3, 3, 3, 1 on the first day and 3 on the next.
-	if reasons := ledgerReasons(t, dir); len(reasons) != 5 || !strings.HasPrefix(reasons[0], "butler:gather:") {
+	// One ledger line per claim that paid Gems: 3, 3, 3, 1 on the first day and 3 on the next, reason
+	// butler:gather:<id>:<start day>.
+	reasons := ledgerReasons(t, dir)
+	if len(reasons) != 5 || !strings.HasPrefix(reasons[0], "butler:gather:1900000004:20261028") {
 		t.Fatalf("gather ledger reasons = %v", reasons)
+	}
+}
+
+// TestGatherClaimPaysOnce: the reward of a gathering is paid by its first claim only. A repeat claim finds the
+// gathering gone and pays nothing; a claim before the end, or with another sub id, is refused and changes nothing.
+func TestGatherClaimPaysOnce(t *testing.T) {
+	dir := butlerAccount(t, "3103", 0, 0)
+	now := time.Date(2026, 10, 28, 3, 0, 0, 0, time.UTC)
+	store.AccountsMu.Lock()
+	store.AccountByAidLocked("3103").Butlers = &store.ButlerBook{Hired: []store.ButlerHire{{ID: ophelia, Begin: now.UnixMilli(), End: now.UnixMilli() + 60*dayMillis}}}
+	store.AccountsMu.Unlock()
+	rec, err := StartButlerGather("3103", ophelia, now, func(n int) int { return 0 })
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub := rec.Begin / 1000
+
+	if _, err := ClaimButlerGather("3103", ophelia, sub, now.Add(59*time.Minute)); err == nil {
+		t.Fatal("claim before the end accepted")
+	}
+	if _, err := ClaimButlerGather("3103", ophelia, sub+1, now.Add(time.Hour)); err == nil {
+		t.Fatal("claim with another sub id accepted")
+	}
+	if _, _, book, bag := butlerState(t, "3103"); len(book.Gathering) != 1 || len(bag) != 0 {
+		t.Fatalf("refused claims changed the state: gathering=%+v bag=%+v", book.Gathering, bag)
+	}
+
+	if _, err := ClaimButlerGather("3103", ophelia, sub, now.Add(time.Hour)); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if _, gems, book, bag := butlerState(t, "3103"); len(book.Gathering) != 0 || gems != rec.Gems || len(bag) != 3 || bag[0].Count != 1 {
+		t.Fatalf("after the claim: gathering=%+v gems=%d bag=%+v", book.Gathering, gems, bag)
+	}
+	if _, err := ClaimButlerGather("3103", ophelia, sub, now.Add(2*time.Hour)); err != nil {
+		t.Fatalf("repeat claim refused: %v", err)
+	}
+	if _, gems, _, bag := butlerState(t, "3103"); gems != rec.Gems || len(bag) != 3 || bag[0].Count != 1 {
+		t.Fatalf("repeat claim paid again: gems=%d bag=%+v", gems, bag)
+	}
+	if reasons := ledgerReasons(t, dir); len(reasons) != 1 {
+		t.Fatalf("ledger reasons = %v, want one claim line", reasons)
+	}
+}
+
+// TestGatherStopGoesIdleWithoutReward: stop ends a running gathering with nothing paid and frees the butler, but the start
+// already used the day's allowance. A ready gathering cannot be stopped; a butler that is idle stops as a no-op.
+func TestGatherStopGoesIdleWithoutReward(t *testing.T) {
+	butlerAccount(t, "3104", 0, 0)
+	now := time.Date(2026, 10, 28, 3, 0, 0, 0, time.UTC)
+	store.AccountsMu.Lock()
+	store.AccountByAidLocked("3104").Butlers = &store.ButlerBook{Hired: []store.ButlerHire{{ID: ophelia, Begin: now.UnixMilli(), End: now.UnixMilli() + 60*dayMillis}}}
+	store.AccountsMu.Unlock()
+
+	if err := StopButlerGather("3104", ophelia, now); err != nil {
+		t.Fatalf("stop of an idle butler: %v", err)
+	}
+	if _, err := StartButlerGather("3104", ophelia, now, func(n int) int { return 0 }); err != nil {
+		t.Fatal(err)
+	}
+	if err := StopButlerGather("3104", ophelia, now.Add(time.Minute)); err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	if _, gems, book, bag := butlerState(t, "3104"); len(book.Gathering) != 0 || gems != 0 || len(bag) != 0 || book.Gathers != 1 {
+		t.Fatalf("after stop: gathering=%+v gems=%d bag=%+v gathers=%d", book.Gathering, gems, bag, book.Gathers)
+	}
+	if _, err := StartButlerGather("3104", ophelia, now.Add(2*time.Minute), func(n int) int { return 0 }); err != nil {
+		t.Fatalf("restart after stop: %v", err)
+	}
+	if err := StopButlerGather("3104", ophelia, now.Add(2*time.Hour)); err == nil {
+		t.Fatal("stop of a ready gathering accepted")
+	}
+}
+
+// TestGatherRefusesUnemployedAndBusy: a butler without a running contract cannot gather, and a second start of a
+// gathering already running (or ready) is refused.
+func TestGatherRefusesUnemployedAndBusy(t *testing.T) {
+	butlerAccount(t, "3105", 0, 0)
+	now := time.Date(2026, 10, 28, 3, 0, 0, 0, time.UTC)
+	first := func(n int) int { return 0 }
+	if _, err := StartButlerGather("3105", ophelia, now, first); err == nil {
+		t.Fatal("unemployed butler started a gathering")
+	}
+	store.AccountsMu.Lock()
+	store.AccountByAidLocked("3105").Butlers = &store.ButlerBook{Hired: []store.ButlerHire{{ID: ophelia, Begin: now.UnixMilli(), End: now.UnixMilli() + 60*dayMillis}}}
+	store.AccountsMu.Unlock()
+	if _, err := StartButlerGather("3105", ophelia, now, first); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := StartButlerGather("3105", ophelia, now.Add(time.Minute), first); err == nil {
+		t.Fatal("second start of a running gathering accepted")
+	}
+	if _, err := StartButlerGather("3105", ophelia, now.Add(2*time.Hour), first); err == nil {
+		t.Fatal("start of a ready gathering accepted")
+	}
+	if _, gems, book, _ := butlerState(t, "3105"); gems != 0 || book.Gathers != 1 {
+		t.Fatalf("refused starts changed the state: gems=%d gathers=%d", gems, book.Gathers)
 	}
 }
 
@@ -246,12 +355,19 @@ func TestButlerConfigRefusesIdOutsideCherryBlock(t *testing.T) {
 
 	valid := func(id int64) *Butlers {
 		return &Butlers{Origin: "mixed", Note: "n", FreeDays: 3, Hire: []ButlerPrice{{Days: 30, Cash: 30}},
-			Gathering: ButlerGathering{Gems: 3, GemsCap: 10, GathersPerDay: 10},
+			Gathering: ButlerGathering{Gems: 3, GemsCap: 10, GathersPerDay: 10, DurationMinutes: 60},
 			Butlers: []ButlerDef{{ID: id, Name: "X", Gender: "FEMALE", Skin: "cherry_x", Outfit: []string{"CUON004BH"},
 				Abilities: []string{"essence"}, Art: "b1"}}}
 	}
 	if err := checkButlers(valid(CherryButlerFirst)); err != nil {
 		t.Fatalf("first id of the block: %v", err)
+	}
+	for _, minutes := range []int64{0, -5} {
+		b := valid(CherryButlerFirst)
+		b.Gathering.DurationMinutes = minutes
+		if err := checkButlers(b); err == nil || !strings.Contains(err.Error(), "duration_minutes") {
+			t.Fatalf("duration_minutes %d: err = %v", minutes, err)
+		}
 	}
 	if err := checkButlers(valid(CherryButlerLast + 1)); err == nil || !strings.Contains(err.Error(), "outside the Cherry block") {
 		t.Fatalf("id after the block: err = %v", err)
@@ -364,7 +480,7 @@ func TestButlerLookalikesAndSkins(t *testing.T) {
 func TestButlerOutfitRefusesTwoOfASlotAndUnlistedLookalike(t *testing.T) {
 	valid := func(outfit, lookalikes []string) *Butlers {
 		return &Butlers{Origin: "mixed", Note: "n", FreeDays: 3, Hire: []ButlerPrice{{Days: 30, Cash: 30}},
-			Gathering: ButlerGathering{Gems: 3, GemsCap: 10, GathersPerDay: 10},
+			Gathering: ButlerGathering{Gems: 3, GemsCap: 10, GathersPerDay: 10, DurationMinutes: 60},
 			Butlers: []ButlerDef{{ID: CherryButlerFirst, Name: "X", Gender: "FEMALE", Skin: "cherry_x", Outfit: outfit,
 				Lookalikes: lookalikes, Abilities: []string{"essence"}, Art: "b1"}}}
 	}
