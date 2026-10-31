@@ -53,7 +53,8 @@
     "goSomewhere(colorantInven)": "Dye Inventory",
     "goSomewhere(luckyspin)": "Lucky Spin",
     "goSomewhere(jackpotspin)": "Jackpot Spin",
-    "goSomewhere(loungeChat)": "Lounge Chat"
+    "goSomewhere(loungeChat)": "Lounge Chat",
+    "goSomewhere(colorantBaseShop)": "Dye Base Shop"
   },
   "icons": {
     "goSomewhere(closet)": "shirt.png",
@@ -107,6 +108,7 @@
     "goSomewhere(colorantInven)": "color-swatch.png",
     "goSomewhere(luckyspin)": "rotate-clockwise-2.png",
     "goSomewhere(jackpotspin)": "coins.png",
-    "goSomewhere(loungeChat)": "messages.png"
+    "goSomewhere(loungeChat)": "messages.png",
+    "goSomewhere(colorantBaseShop)": "palette.png"
   }
 }

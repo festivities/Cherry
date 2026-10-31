@@ -23,6 +23,7 @@ func TestDyeCatalogRefusesBadFiles(t *testing.T) {
 		{"colour not #rrggbb", `{"color": "#E53935", "prob": 1}`, `{"color": "red", "prob": 1}`, "must be #rrggbb"},
 		{"palette colour not #rrggbb", `"#90A4AE"`, `"#90A4AEZ"`, "palette"},
 		{"custom dye with its own colours", `"kind": "CUSTOM", "price": 200, "colors": []`, `"kind": "CUSTOM", "price": 200, "colors": [{"color": "#E53935", "prob": 1}]`, "CUSTOM"},
+		{"bleach that is not SINGLE", `"item_no": 9511, "name": "Bleach", "kind": "SINGLE", "price": 60, "bleach": true, "colors": [{"color": "#FFFFFF", "prob": 1}]`, `"item_no": 9511, "name": "Bleach", "kind": "RANDOM", "price": 60, "bleach": true, "colors": [{"color": "#FFFFFF", "prob": 0.5}, {"color": "#FFFFFF", "prob": 0.5}]`, "must be kind SINGLE"},
 	} {
 		if !strings.Contains(good, c.old) {
 			t.Fatalf("%s: the edit target %q is not in dyes.json", c.name, c.old)

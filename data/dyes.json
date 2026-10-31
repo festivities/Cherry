@@ -1,6 +1,6 @@
 {
   "origin": "cherry",
-  "note": "Cherry-made Colorant (dye) catalog: the dye names, prices (Gems), colours, the random draw, the custom palette and the shop picture set are Cherry's own, not original game data. The dyeable garments are the 15 client items whose artsitem carries the dye flag and a <part>_mask.png (spec colorant-spec.md 16.B); dyeable may only list a subset of them. Dye item numbers lie in the Cherry block 9501-9599 (economy.CherryDyeFirst/Last). Pictures are served by Cherry at /cherry/dye/<itemNo>.png.",
+  "note": "Cherry-made Colorant (dye) catalog: the dye names, prices (Gems), colours, the random draw, the custom palette and the shop picture set are Cherry's own, not original game data. The dyeable garments are the 15 client items whose artsitem carries the dye flag and a <part>_mask.png (spec colorant-spec.md 16.B); dyeable may only list a subset of them. Dye item numbers lie in the Cherry block 9501-9599 (economy.CherryDyeFirst/Last). Pictures are served by Cherry at /cherry/dye/<itemNo>.png. The Bleach (9511) is Cherry-made too: it takes a garment's dye away (bleach true, kind SINGLE, colour white = no tint); its price is Cherry's.",
   "dyeable": [
     224102309, 224102378, 224102536, 224102579, 224102653, 224102775, 224102816, 224102858, 224102932, 224103060,
     224406975, 224407224,
@@ -23,6 +23,7 @@
       {"color": "#E53935", "prob": 0.125}, {"color": "#FB8C00", "prob": 0.125}, {"color": "#FDD835", "prob": 0.125},
       {"color": "#43A047", "prob": 0.125}, {"color": "#1E88E5", "prob": 0.125}, {"color": "#8E24AA", "prob": 0.125},
       {"color": "#EC407A", "prob": 0.125}, {"color": "#212121", "prob": 0.125}]},
-    {"item_no": 9510, "name": "Custom Dye", "kind": "CUSTOM", "price": 200, "colors": []}
+    {"item_no": 9510, "name": "Custom Dye", "kind": "CUSTOM", "price": 200, "colors": []},
+    {"item_no": 9511, "name": "Bleach", "kind": "SINGLE", "price": 60, "bleach": true, "colors": [{"color": "#FFFFFF", "prob": 1}]}
   ]
 }

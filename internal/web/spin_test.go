@@ -261,16 +261,17 @@ func TestSpinPlayRefusesWithoutChange(t *testing.T) {
 	}
 }
 
-// TestSpinMenuRowsAndPictures: the two MENU rows come last, with their Cherry-made labels and existing icons.
+// TestSpinMenuRowsAndPictures: the two spin rows come after the Dye Shop rows, with their Cherry-made labels and existing
+// icons. Lounge Chat and the Dye Base Shop were appended after them, in that order (the last two rows).
 func TestSpinMenuRowsAndPictures(t *testing.T) {
 	rows := homeIconRows()
 	n := len(rows)
-	// The spin rows were appended last; Lounge Chat was appended after them (the last row).
-	if n < 3 || rows[n-3].LinkType != "goSomewhere(luckyspin)" || rows[n-3].Name != "Lucky Spin" ||
-		rows[n-2].LinkType != "goSomewhere(jackpotspin)" || rows[n-2].Name != "Jackpot Spin" {
-		t.Fatalf("the spin rows are %v, want Lucky Spin then Jackpot Spin before the last row", rows[n-3:])
+	if n < 4 || rows[n-4].LinkType != "goSomewhere(luckyspin)" || rows[n-4].Name != "Lucky Spin" ||
+		rows[n-3].LinkType != "goSomewhere(jackpotspin)" || rows[n-3].Name != "Jackpot Spin" ||
+		rows[n-2].LinkType != "goSomewhere(loungeChat)" || rows[n-1].LinkType != "goSomewhere(colorantBaseShop)" {
+		t.Fatalf("the tail rows are %v, want Lucky Spin, Jackpot Spin, Lounge Chat, Dye Base Shop", rows[n-4:])
 	}
-	for _, row := range rows[n-3 : n-1] {
+	for _, row := range rows[n-4 : n-2] {
 		if row.Image == "" {
 			t.Fatalf("%s has no picture", row.LinkType)
 		}

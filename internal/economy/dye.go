@@ -60,7 +60,8 @@ const dyeSaleEnd = "20991231235959"
 //	palette       "#RRGGBB" colours that shop/dye/preview serves and the CUSTOM dye picture is drawn in
 //	dyes          the catalog: item_no inside 9501-9599 and unique; name; kind SINGLE, RANDOM or CUSTOM; price in Gems
 //	              (above 0); colors: SINGLE one colour, RANDOM two or more colours drawn by prob (each above 0, summing
-//	              to 1), CUSTOM none (the player picks any #RRGGBB colour when applying)
+//	              to 1), CUSTOM none (the player picks any #RRGGBB colour when applying); bleach (optional): applying
+//	              it removes the garment's dye instead of recolouring it, so it must be kind SINGLE
 type DyeCatalog struct {
 	opdata.Provenance
 	Dyeable []int64   `json:"dyeable"`
@@ -74,6 +75,7 @@ type DyeItem struct {
 	Name   string        `json:"name"`
 	Kind   string        `json:"kind"`
 	Price  int64         `json:"price"`
+	Bleach bool          `json:"bleach"`
 	Colors []DyeColorDef `json:"colors"`
 }
 
@@ -133,6 +135,8 @@ func checkDyes(d *DyeCatalog) error {
 			return fmt.Errorf("dye %d: name must not be empty", it.ItemNo)
 		case it.Price < 1:
 			return fmt.Errorf("dye %d: price must be at least 1 Gem", it.ItemNo)
+		case it.Bleach && it.Kind != "SINGLE":
+			return fmt.Errorf("dye %d: a bleach must be kind SINGLE", it.ItemNo)
 		}
 		nos[it.ItemNo] = true
 		if err := checkDyeColors(it); err != nil {
@@ -255,7 +259,7 @@ func dyeRow(it DyeItem, count int) map[string]any {
 	return map[string]any{
 		"itemNo": it.ItemNo, "itemName": it.Name, "coinUnit": dyeCoinUnit, "originalPrice": it.Price, "price": it.Price,
 		"count": count, "image1Path": dyeImagePath(it.ItemNo), "image2Path": dyeImagePath(it.ItemNo),
-		"saleEndYmdt": dyeSaleEnd, "event": false, "newItem": false, "bleach": false, "dyeItemType": it.Kind,
+		"saleEndYmdt": dyeSaleEnd, "event": false, "newItem": false, "bleach": it.Bleach, "dyeItemType": it.Kind,
 		"dyeItemColorList": colors, "discountRate": 0, "discountStartYmdt": "0", "discountEndYmdt": "0",
 	}
 }
@@ -338,6 +342,49 @@ func handleDyeBaseItems(w http.ResponseWriter, r *http.Request) {
 	}
 	body, _ := json.Marshal(map[string]any{"result": lists})
 	httpx.WriteJSON(w, http.StatusOK, string(body))
+}
+
+// handleDyeBaseShop serves GET shop/dye/baseitem/list/DRESS/<any>, the Dye Base Shop (goSomewhere(colorantBaseShop)): the
+// dyeable garments the requester does not own and purchase/dress/buy sells. The rows are sShopItem (the shop list reads
+// result.items, colorant-spec.md 3.7) and use the Fashion Shop's price, deal and limited-sale keys, so a row is only
+// listed when the buy would accept it: a garment with no clothing price (the eyes) or no art is left out, and an animal
+// is not offered human-only items. The FACE category has no rows.
+func handleDyeBaseShop(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		httpx.ServeNotFound(w)
+		return
+	}
+	if !strings.HasPrefix(r.URL.Path, "/v4/shop/dye/baseitem/list/DRESS/") {
+		httpx.WriteJSON(w, http.StatusOK, emptyItems)
+		return
+	}
+	store.AccountsMu.Lock()
+	var owned []string
+	animal := false
+	if acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]; acc != nil {
+		owned, animal = store.AccountOwnedCodes(acc), acc.Gender == "ANIMAL"
+	}
+	store.AccountsMu.Unlock()
+	c := loadCatalog()
+	now := NowFunc()
+	deals := dealsOn(now)
+	rows := []map[string]any{}
+	for _, id := range ActiveDyes().Dyeable {
+		code, ok := itemcode.Code(id)
+		if !ok || slices.Contains(owned, code) || animal && itemcode.HumanOnly(code) {
+			continue
+		}
+		it := c.byCode[code]
+		if _, kind := classify(code); it == nil || kind != kindFashion || !onSale(code, now) {
+			continue // the buy refuses it: no clothing price, no art, or a limited item out of season
+		}
+		row := priceKeys(*it, deals, now)
+		row["itemID"], row["name"], row["representImageURL"], row["bigRepresentImageURL"] = it.ID, ItemName(code), "", ""
+		row["roomSize"], row["elementItems"], row["elementItemCodes"] = 0, []any{}, []any{}
+		row["dyeType"] = store.DyeTypeTwoLayers
+		rows = append(rows, row)
+	}
+	httpx.WriteJSON(w, http.StatusOK, itemsBody(rows))
 }
 
 // dyeBuyReq is the part of the purchase/dye/item body the server reads; deviceType and cpId price nothing.
@@ -491,8 +538,9 @@ func handleDyeUse(w http.ResponseWriter, r *http.Request) {
 	case !seqOK:
 		shopError(w, r, raw, errUnknown, "garment not named")
 		return
-	case len(req.SelectedLayer) < 1 || len(req.SelectedLayer) > store.DyeTypeTwoLayers || !slices.Contains(req.SelectedLayer, true):
-		// one flag when the client treats the garment as one layer (dyeType != 2, spec 6.1), else one per layer
+	case !it.Bleach && (len(req.SelectedLayer) < 1 || len(req.SelectedLayer) > store.DyeTypeTwoLayers || !slices.Contains(req.SelectedLayer, true)):
+		// one flag when the client treats the garment as one layer (dyeType != 2, spec 6.1), else one per layer.
+		// A bleach takes every layer, so its flags are not checked.
 		shopError(w, r, raw, errUnknown, "select a layer")
 		return
 	}
@@ -518,16 +566,25 @@ func handleDyeUse(w http.ResponseWriter, r *http.Request) {
 		shopError(w, r, raw, errUnknown, "garment cannot be dyed")
 		return
 	}
-	colorCode, transparency, ok := dyeChoice(it, req)
-	if !ok {
-		shopError(w, r, raw, errUnknown, "colour not allowed")
-		return
-	}
-
-	layers := store.DyeLayers(acc.DyeColors[code])
-	for i, on := range req.SelectedLayer {
-		if on {
-			layers[i] = store.DyeColor{ColorCode: colorCode, Transparency: transparency}
+	var layers []store.DyeColor
+	if it.Bleach {
+		// the garment goes back to undyed: no colour, and its entry is removed below (empty colours in the reply)
+		if _, dyed := acc.DyeColors[code]; !dyed {
+			shopError(w, r, raw, errUnknown, "garment has no dye")
+			return
+		}
+		layers = []store.DyeColor{{}, {}}
+	} else {
+		colorCode, transparency, ok := dyeChoice(it, req)
+		if !ok {
+			shopError(w, r, raw, errUnknown, "colour not allowed")
+			return
+		}
+		layers = store.DyeLayers(acc.DyeColors[code])
+		for i, on := range req.SelectedLayer {
+			if on {
+				layers[i] = store.DyeColor{ColorCode: colorCode, Transparency: transparency}
+			}
 		}
 	}
 	dyes := make(map[string]int, len(acc.Dyes))
@@ -540,7 +597,11 @@ func handleDyeUse(w http.ResponseWriter, r *http.Request) {
 	}
 	colors := make(map[string][]store.DyeColor, len(acc.DyeColors)+1)
 	maps.Copy(colors, acc.DyeColors)
-	colors[code] = layers
+	if it.Bleach {
+		delete(colors, code)
+	} else {
+		colors[code] = layers
+	}
 
 	prev := *acc
 	acc.Dyes, acc.DyeColors = dyes, colors
@@ -606,8 +667,11 @@ func dyeIconPNG(hexes []string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// bleachPictureColor is the grey the bleach's picture is drawn in (its own colour is white, so it would not show).
+const bleachPictureColor = "#B0BEC5"
+
 // HandleDyeImage serves GET /cherry/dye/<itemNo>.png: the dye's picture, drawn in its colours (RANDOM and CUSTOM in bands
-// of all their colours). The archive has no dye pictures.
+// of all their colours; a bleach in bleachPictureColor). The archive has no dye pictures.
 // ponytail: drawn shapes, not art; swap in real icons if the archive ever has them.
 func HandleDyeImage(w http.ResponseWriter, r *http.Request) {
 	no, err := strconv.ParseInt(strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/cherry/dye/"), ".png"), 10, 64)
@@ -617,7 +681,10 @@ func HandleDyeImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hexes := ActiveDyes().Palette
-	if it.Kind != "CUSTOM" {
+	switch {
+	case it.Bleach: // its colour is white (no tint), which would draw an empty picture
+		hexes = []string{bleachPictureColor}
+	case it.Kind != "CUSTOM":
 		hexes = nil
 		for _, c := range it.Colors {
 			hexes = append(hexes, c.Color)
@@ -662,10 +729,11 @@ func ServeDyeMask(w http.ResponseWriter, r *http.Request) bool {
 	return thumbs.ServeDyeMask(w, kind, idText)
 }
 
-// RegisterDyeRoutes serves the Dye Shop and Dye Inventory lists, the palette, the dyeable garment list of the dye popups,
-// the dye purchase and the apply. Routes under /cherry/dye/ are registered with the other Cherry pictures.
+// RegisterDyeRoutes serves the Dye Shop, the Dye Base Shop and Dye Inventory lists, the palette, the dyeable garment list of
+// the dye popups, the dye purchase and the apply. Routes under /cherry/dye/ are registered with the other Cherry pictures.
 func RegisterDyeRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/v4/shop/dye/item/list", handleDyeShopList)
+	mux.HandleFunc("/v4/shop/dye/baseitem/list/", handleDyeBaseShop)
 	mux.HandleFunc("/v4/shop/dye/preview", handleDyePreview)
 	mux.HandleFunc("/v4/inven/dye/item/list", handleDyeInvenList)
 	mux.HandleFunc("/v4/inven/closet/baseitem", handleDyeBaseItems)

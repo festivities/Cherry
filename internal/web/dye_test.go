@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -121,7 +122,7 @@ func TestDyeShopListShape(t *testing.T) {
 			t.Fatalf("list.%s is null, want an array", k)
 		}
 	}
-	if n := len(out.Result.List["ALL"]); n != 10 || len(out.Result.List["SINGLE"]) != 8 || len(out.Result.List["RANDOM"]) != 1 || len(out.Result.List["CUSTOM"]) != 1 {
+	if n := len(out.Result.List["ALL"]); n != 11 || len(out.Result.List["SINGLE"]) != 9 || len(out.Result.List["RANDOM"]) != 1 || len(out.Result.List["CUSTOM"]) != 1 {
 		t.Fatalf("kind counts ALL %d SINGLE %d RANDOM %d CUSTOM %d", n, len(out.Result.List["SINGLE"]), len(out.Result.List["RANDOM"]), len(out.Result.List["CUSTOM"]))
 	}
 	for _, row := range out.Result.List["ALL"] {
@@ -465,5 +466,300 @@ func TestDyeImageIsAPicture(t *testing.T) {
 	}
 	if rec := decorReq(t, "", http.MethodGet, "/cherry/dye/9599.png", ""); rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown dye status %d", rec.Code)
+	}
+}
+
+// dyeBaseFixture installs the garments the Dye Base Shop can list: a top, an accessory, a CA accessory and two hairs, plus
+// an eye. The eye has no clothing price (its category is not in data/prices.json), so the buy refuses it and it is never listed.
+func dyeBaseFixture(t *testing.T) {
+	t.Helper()
+	root, _ := thumbFixture(t)
+	for _, f := range [][2]string{{"dress", "225001650"}, {"dress", "225409234"}, {"dress", "235411996"},
+		{"custom", "224406975"}, {"custom", "224407224"}, {"custom", "224102309"}} {
+		writeThumbItem(t, root, f[0], f[1], "a.png", []byte("x"))
+		writeThumbItem(t, root, f[0], f[1], "dp.png", []byte("x")) // art marker
+	}
+}
+
+// dyeBaseRow is one sShopItem row of the Dye Base Shop (the fields the client reads; colorant-spec.md 3.7).
+type dyeBaseRow struct {
+	ItemID       int64  `json:"itemID"`
+	ItemCode     string `json:"itemCode"`
+	Price        int64  `json:"price"`
+	Discounted   int64  `json:"discountedPrice"`
+	Discount     bool   `json:"discount"`
+	PaymentType  string `json:"paymentType"`
+	Selling      bool   `json:"selling"`
+	DyeType      int    `json:"dyeType"`
+	Name         string `json:"name"`
+	Elements     []any  `json:"elementItems"`
+	ElementCodes []any  `json:"elementItemCodes"`
+}
+
+// dyeBaseRows reads a Dye Base Shop list: result.items must be an array.
+func dyeBaseRows(t *testing.T, path string) []dyeBaseRow {
+	t.Helper()
+	rec := decorReq(t, dyeToken, http.MethodGet, path, "")
+	var out struct {
+		Result struct {
+			Items []dyeBaseRow `json:"items"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || rec.Code != http.StatusOK {
+		t.Fatalf("GET %s: status %d err %v: %s", path, rec.Code, err, rec.Body.String())
+	}
+	if out.Result.Items == nil {
+		t.Fatalf("GET %s: items is not an array: %s", path, rec.Body.String())
+	}
+	return out.Result.Items
+}
+
+// dyeBaseBuyBody is the purchase/dress/buy body the Dye Base Shop sends for one row (SendPurchaseItem; colorant-open-routes.md 1.4).
+func dyeBaseBuyBody(code string, price int64) string {
+	return `{"deviceType":"android","itemType":"DRESS","coinUnit":"GEM","items":[{"itemCode":"` + code +
+		`","price":` + strconv.FormatInt(price, 10) + `}],"brandShopId":"","brandShopNo":"","cpId":"avtplay","language":"en"}` + "\x00"
+}
+
+// TestDyeBaseShopListsWhatTheBuyWouldSell: the unowned dyeable garments the buy sells, in sShopItem shape with the price the
+// buy charges; the owned hat, the eye (no clothing price) and any other garment are left out.
+func TestDyeBaseShopListsWhatTheBuyWouldSell(t *testing.T) {
+	dyeBaseFixture(t)
+	dyeSetup(t, 0, []string{dyeCodeOf(t, 225409234)}, nil, nil)
+	rows := dyeBaseRows(t, "/v4/shop/dye/baseitem/list/DRESS/all")
+	want := map[string]int64{dyeCodeOf(t, 224406975): 224406975, dyeCodeOf(t, 224407224): 224407224,
+		dyeCodeOf(t, 225001650): 225001650, dyeCodeOf(t, 235411996): 235411996}
+	if len(rows) != len(want) {
+		t.Fatalf("%d rows, want %d: %+v", len(rows), len(want), rows)
+	}
+	for _, row := range rows {
+		id, ok := want[row.ItemCode]
+		if !ok || row.ItemID != id {
+			t.Fatalf("unexpected row %+v", row)
+		}
+		price, _, _, _ := economy.ItemPrice(row.ItemCode)
+		if row.PaymentType != "GEM" || !row.Selling || row.DyeType != 2 || row.Name == "" || row.Elements == nil ||
+			row.ElementCodes == nil || row.Price != price || (!row.Discount && row.Discounted != price) {
+			t.Fatalf("row %+v: want GEM at table price %d, two layers, arrays for the element lists", row, price)
+		}
+	}
+	// the other categories have no rows (the client's FACE tab)
+	if face := dyeBaseRows(t, "/v4/shop/dye/baseitem/list/FACE/all"); len(face) != 0 {
+		t.Fatalf("FACE rows = %+v", face)
+	}
+}
+
+// TestDyeBaseShopAnimalsAndBuy: an animal is not offered the human hair; the base body buys a listed garment through
+// purchase/dress/buy (balance, resultCode and buyItems as the client reads them), a second buy is refused as owned, a
+// stale price is refused, and every refusal leaves the Gems alone.
+func TestDyeBaseShopAnimalsAndBuy(t *testing.T) {
+	dyeBaseFixture(t)
+	acc, _ := dyeSetup(t, 500, nil, nil, nil)
+	store.AccountsMu.Lock()
+	acc.Gender = "ANIMAL"
+	store.AccountsMu.Unlock()
+	rows := dyeBaseRows(t, "/v4/shop/dye/baseitem/list/DRESS/all")
+	for _, row := range rows {
+		if row.ItemCode == dyeCodeOf(t, 224406975) || row.ItemCode == dyeCodeOf(t, 224407224) {
+			t.Fatalf("an animal is offered human hair: %+v", row)
+		}
+	}
+	if len(rows) != 3 {
+		t.Fatalf("animal rows = %d, want 3 (top, accessory, CA accessory)", len(rows))
+	}
+	hair := dyeCodeOf(t, 224406975)
+	if rec := decorReq(t, dyeToken, http.MethodPost, "/v4/purchase/dress/buy", dyeBaseBuyBody(hair, 200)); rec.Code != http.StatusBadRequest {
+		t.Fatalf("animal bought human hair: status %d: %s", rec.Code, rec.Body.String())
+	}
+
+	store.AccountsMu.Lock()
+	acc.Gender = "FEMALE"
+	store.AccountsMu.Unlock()
+	rows = dyeBaseRows(t, "/v4/shop/dye/baseitem/list/DRESS/all")
+	var top dyeBaseRow
+	for _, row := range rows {
+		if row.ItemCode == dyeCodeOf(t, 225001650) {
+			top = row
+		}
+	}
+	effective := top.Price
+	if top.Discount {
+		effective = top.Discounted
+	}
+	if rec := decorReq(t, dyeToken, http.MethodPost, "/v4/purchase/dress/buy", dyeBaseBuyBody(top.ItemCode, effective+1)); rec.Code != http.StatusBadRequest {
+		t.Fatalf("stale price: status %d", rec.Code)
+	}
+	rec := decorReq(t, dyeToken, http.MethodPost, "/v4/purchase/dress/buy", dyeBaseBuyBody(top.ItemCode, effective))
+	var out struct {
+		Result struct {
+			Balance    *float64 `json:"balance"`
+			ResultCode *int     `json:"resultCode"`
+			BuyItems   []string `json:"buyItems"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || rec.Code != http.StatusOK {
+		t.Fatalf("buy: status %d err %v: %s", rec.Code, err, rec.Body.String())
+	}
+	if out.Result.Balance == nil || *out.Result.Balance != float64(500-effective) || out.Result.ResultCode == nil ||
+		*out.Result.ResultCode != 0 || !slices.Equal(out.Result.BuyItems, []string{top.ItemCode}) {
+		t.Fatalf("buy reply = %s", rec.Body.String())
+	}
+	if gems, _, _ := dyeState(t, acc); gems != 500-effective {
+		t.Fatalf("gems %d after the buy", gems)
+	}
+	if rec := decorReq(t, dyeToken, http.MethodPost, "/v4/purchase/dress/buy", dyeBaseBuyBody(top.ItemCode, effective)); rec.Code != http.StatusBadRequest ||
+		!strings.Contains(rec.Body.String(), `"errorCode":"61009"`) {
+		t.Fatalf("second buy: status %d: %s", rec.Code, rec.Body.String())
+	}
+	for _, row := range dyeBaseRows(t, "/v4/shop/dye/baseitem/list/DRESS/all") {
+		if row.ItemCode == top.ItemCode {
+			t.Fatalf("a bought garment is still listed: %+v", row)
+		}
+	}
+}
+
+// TestDyeBaseShopMenuRow: the Dye Base Shop row is the last MENU row, labelled and pictured.
+func TestDyeBaseShopMenuRow(t *testing.T) {
+	rows := homeIconRows()
+	last := rows[len(rows)-1]
+	if last.LinkType != "goSomewhere(colorantBaseShop)" || last.Name != "Dye Base Shop" || last.Image != "cherry/menu/palette.png" {
+		t.Fatalf("last menu row = %+v", last)
+	}
+	if rec := serve(t, http.MethodGet, "/"+last.Image); rec.Code != http.StatusOK {
+		t.Fatalf("GET /%s: %d", last.Image, rec.Code)
+	}
+}
+
+// TestBleachIsAOneColourDyeInTheLists: the bleach is a 60-Gem row with bleach true and one colour (no RANDOM padding, so the
+// client's colour preview reads one entry), it is owned by count, and its picture is served.
+func TestBleachIsAOneColourDyeInTheLists(t *testing.T) {
+	dyeSetup(t, 0, nil, nil, map[string]int{"9511": 2})
+	shop := decorReq(t, dyeToken, http.MethodGet, "/v4/shop/dye/item/list", "")
+	var list struct {
+		Result struct {
+			List map[string][]struct {
+				ItemNo int64      `json:"itemNo"`
+				Price  int64      `json:"price"`
+				Bleach bool       `json:"bleach"`
+				Kind   string     `json:"dyeItemType"`
+				Colors []dyeLayer `json:"dyeItemColorList"`
+				Count  int        `json:"count"`
+			} `json:"list"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(shop.Body.Bytes(), &list); err != nil || shop.Code != http.StatusOK {
+		t.Fatalf("shop list: status %d err %v", shop.Code, err)
+	}
+	found := false
+	for _, row := range list.Result.List["ALL"] {
+		if row.ItemNo == 9511 {
+			found = true
+			if row.Price != 60 || !row.Bleach || row.Kind != "SINGLE" || len(row.Colors) != 1 || row.Count != 2 {
+				t.Fatalf("bleach row = %+v", row)
+			}
+		} else if row.Bleach {
+			t.Fatalf("dye %d is marked bleach", row.ItemNo)
+		}
+	}
+	if !found {
+		t.Fatal("the bleach is not in the shop list")
+	}
+	inven := decorReq(t, dyeToken, http.MethodGet, "/v4/inven/dye/item/list", "")
+	if body := inven.Body.String(); !strings.Contains(body, `"itemName":"Bleach"`) || !strings.Contains(body, `"itemNo":9511`) ||
+		!strings.Contains(body, `"count":2`) || !strings.Contains(body, `"bleach":true`) {
+		t.Fatalf("inventory = %s", inven.Body.String())
+	}
+	if rec := decorReq(t, "", http.MethodGet, "/cherry/dye/9511.png", ""); rec.Code != http.StatusOK {
+		t.Fatalf("bleach picture: status %d", rec.Code)
+	}
+}
+
+// dyeBleachState sets the account's dyes and dyed colours (the test setup of a dyed garment or a bleach count).
+func dyeBleachState(t *testing.T, acc *store.Account, dyes map[string]int, colors map[string][]store.DyeColor) {
+	t.Helper()
+	store.AccountsMu.Lock()
+	defer store.AccountsMu.Unlock()
+	acc.Dyes, acc.DyeColors = dyes, colors
+}
+
+// TestBleachApplyRemovesTheDye: a bleach on a dyed garment uses one bleach, removes the garment's colour (empty colour
+// arrays in the reply, as the client reads them), the closet shows the garment undyed, and the other layers' flags are not
+// needed.
+func TestBleachApplyRemovesTheDye(t *testing.T) {
+	top := dyeCodeOf(t, 225001650)
+	acc, _ := dyeSetup(t, 0, []string{top}, []string{top}, map[string]int{"9511": 2})
+	dyeBleachState(t, acc, map[string]int{"9511": 2}, map[string][]store.DyeColor{top: {{ColorCode: "#E53935"}, {ColorCode: "#FFFFFF"}}})
+	rec := decorReq(t, dyeToken, http.MethodPost, "/v4/inven/dye/item/use/custom", dyeUseBody(9511, 1, []bool{true, false}, 0, false, ""))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	var reply struct {
+		Result struct {
+			Count      *int       `json:"count"`
+			Before     string     `json:"beforeInvenSeq"`
+			After      string     `json:"afterInvenSeq"`
+			Layers     []dyeLayer `json:"colorAndTransparencies"`
+			ColorCodes []string   `json:"colorCodes"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &reply); err != nil {
+		t.Fatal(err)
+	}
+	r := reply.Result
+	if r.Count == nil || *r.Count != 1 || r.Before != "1" || r.After != "1" || !slices.Equal(r.ColorCodes, []string{"", ""}) ||
+		len(r.Layers) != 2 || r.Layers[0] != (dyeLayer{}) || r.Layers[1] != (dyeLayer{}) {
+		t.Fatalf("reply = %s", rec.Body.String())
+	}
+	gems, dyes, colors := dyeState(t, acc)
+	if _, has := colors[top]; has || dyes["9511"] != 1 || gems != 0 || len(colors) != 0 {
+		t.Fatalf("after the bleach: dyes %v colours %v", dyes, colors)
+	}
+	closet := decorReq(t, dyeToken, http.MethodPost, "/v4/inven/closet/items/all", "")
+	if strings.Contains(closet.Body.String(), `"dyeType":2`) || strings.Contains(closet.Body.String(), `"colorAndTransparencies"`) {
+		t.Fatalf("the closet still shows the dye: %s", closet.Body.String())
+	}
+	// the last bleach is used up and the dye count leaves the inventory
+	dyeBleachState(t, acc, map[string]int{"9511": 1}, map[string][]store.DyeColor{top: {{ColorCode: "#1E88E5"}, {ColorCode: "#FFFFFF"}}})
+	if rec := decorReq(t, dyeToken, http.MethodPost, "/v4/inven/dye/item/use/custom", dyeUseBody(9511, 1, []bool{true, true}, 0, false, "")); rec.Code != http.StatusOK ||
+		!strings.Contains(rec.Body.String(), `"count":0`) {
+		t.Fatalf("last bleach: status %d: %s", rec.Code, rec.Body.String())
+	}
+	if _, dyes, _ := dyeState(t, acc); len(dyes) != 0 {
+		t.Fatalf("dyes after the last bleach = %v", dyes)
+	}
+}
+
+// TestBleachRefusals: a bleach on an undyed garment, or with no bleach owned, answers 400 and changes nothing.
+func TestBleachRefusals(t *testing.T) {
+	top := dyeCodeOf(t, 225001650)
+	acc, _ := dyeSetup(t, 0, []string{top}, []string{top}, map[string]int{"9511": 1})
+	if rec := decorReq(t, dyeToken, http.MethodPost, "/v4/inven/dye/item/use/custom", dyeUseBody(9511, 1, []bool{true, false}, 0, false, "")); rec.Code != http.StatusBadRequest {
+		t.Fatalf("bleach on an undyed garment: status %d: %s", rec.Code, rec.Body.String())
+	}
+	if _, dyes, colors := dyeState(t, acc); dyes["9511"] != 1 || len(colors) != 0 {
+		t.Fatalf("refused bleach changed the account: dyes %v colours %v", dyes, colors)
+	}
+	dyeBleachState(t, acc, map[string]int{"9502": 1}, map[string][]store.DyeColor{top: {{ColorCode: "#E53935"}, {ColorCode: "#FFFFFF"}}})
+	if rec := decorReq(t, dyeToken, http.MethodPost, "/v4/inven/dye/item/use/custom", dyeUseBody(9511, 1, []bool{true, false}, 0, false, "")); rec.Code != http.StatusBadRequest {
+		t.Fatalf("bleach with none owned: status %d: %s", rec.Code, rec.Body.String())
+	}
+	if _, dyes, colors := dyeState(t, acc); dyes["9502"] != 1 || len(colors[top]) != 2 || colors[top][0].ColorCode != "#E53935" {
+		t.Fatalf("refused bleach changed the account: dyes %v colours %v", dyes, colors)
+	}
+}
+
+// TestBleachBuysLikeADye: a bleach costs 60 Gems through purchase/dye/item and is logged as a dye purchase.
+func TestBleachBuysLikeADye(t *testing.T) {
+	acc, dir := dyeSetup(t, 60, nil, nil, nil)
+	rec := decorReq(t, dyeToken, http.MethodPost, "/v4/purchase/dye/item",
+		`{"deviceType":"android","coinUnit":"GEM","itemNo":9511,"itemCount":1,"price":60,"cpId":"avtplay"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	gems, dyes, _ := dyeState(t, acc)
+	if gems != 0 || dyes["9511"] != 1 {
+		t.Fatalf("gems %d dyes %v", gems, dyes)
+	}
+	if lines := readLedger(t, dir); len(lines) != 1 || lines[0].Reason != "dye:buy:9511" || lines[0].Delta != -60 {
+		t.Fatalf("ledger = %+v", lines)
 	}
 }
