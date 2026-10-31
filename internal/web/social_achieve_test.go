@@ -78,11 +78,16 @@ func TestAchieveShareToDiary(t *testing.T) {
 	if dye := socialTestRequest(t, http.MethodPost, "/v4/achieve/write", `{"avatarId":"1","achieveType":"colorshop_complete","achieveTypeLevel":"","achieveDataType":"item","achieveData":"CUTO0019U","achieveLinkValue":"","achieveDataDetail":"#E53935_#FFFFFF"}`); dye.Code != http.StatusOK {
 		t.Fatalf("dye share = %d %s, want 200", dye.Code, dye.Body.String())
 	}
+	// The craft result sends no detail; the post takes the Atelier design's name (data/atelier.json 101301).
+	if craft := socialTestRequest(t, http.MethodPost, "/v4/achieve/write", `{"avatarId":"1","achieveType":"factory_craft_end","achieveTypeLevel":"","achieveDataType":"item","achieveData":"CUAH0066I","achieveLinkValue":"","achieveDataDetail":""}`); craft.Code != http.StatusOK {
+		t.Fatalf("craft share = %d %s, want 200", craft.Code, craft.Body.String())
+	}
 	store.SocialMu.Lock()
 	defer store.SocialMu.Unlock()
+	want := map[string]string{"colorshop_complete": "Top 0019U", "factory_craft_end": "Pond Charm Hat"}
 	for _, p := range store.DiaryPosts {
-		if p.AchieveType == "colorshop_complete" && p.Title != "Top 0019U" {
-			t.Fatalf("dye post title = %q, want the garment's name", p.Title)
+		if w, ok := want[p.AchieveType]; ok && p.Title != w {
+			t.Fatalf("%s post title = %q, want %q", p.AchieveType, p.Title, w)
 		}
 	}
 }

@@ -155,6 +155,12 @@ func (a *Atelier) ProductName(d AtelierDesign) string {
 	return d.ProductName
 }
 
+// ClothesName is the name of the clothes design that makes code ("" when none does).
+func (a *Atelier) ClothesName(code string) string {
+	d, _ := findFirst(a.Designs, func(d AtelierDesign) bool { return d.ProductClothes == code })
+	return d.ProductName
+}
+
 func findFirst[T any](xs []T, match func(T) bool) (T, bool) {
 	for _, x := range xs {
 		if match(x) {

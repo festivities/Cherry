@@ -709,9 +709,13 @@ func handleAchieveWrite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The dye result sends the colours ("#E53935_#FFFFFF") as its detail, and the diary cell draws the detail as its title
-	// (device 2026-10-31): the garment's name reads better.
-	if req.AchieveType == "colorshop_complete" && req.AchieveDataType == "item" && req.AchieveData != "" {
-		req.AchieveDataDetail = economy.ItemName(req.AchieveData)
+	// (device 2026-10-31): the garment's name reads better. The craft result sends no detail at all, which leaves the post
+	// untitled (device 2026-10-31): name the item, by its Atelier design when one makes it.
+	if req.AchieveDataType == "item" && req.AchieveData != "" && (req.AchieveType == "colorshop_complete" || req.AchieveDataDetail == "") {
+		req.AchieveDataDetail = economy.ActiveAtelier().ClothesName(req.AchieveData)
+		if req.AchieveDataDetail == "" {
+			req.AchieveDataDetail = economy.ItemName(req.AchieveData)
+		}
 	}
 	log.Printf("cherry: achieve write aid=%s type=%q level=%q dataType=%q data=%q link=%q detail=%q", actor.Aid, req.AchieveType, req.AchieveTypeLevel, req.AchieveDataType, req.AchieveData, req.AchieveLinkValue, req.AchieveDataDetail)
 	nickname := actor.Name
