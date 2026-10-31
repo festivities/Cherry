@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"cherry/internal/economy"
+	"cherry/internal/store"
 )
 
 // Lounge Chat: the theme chat on the session channel (:10123). The client sends one request per command with op 0x0A
@@ -59,10 +60,11 @@ const (
 // errThemeChatPayload is a payload that does not match its command: the request is dropped without a reply.
 var errThemeChatPayload = errors.New("payload malformed")
 
-// loungeMember is one member of a room: the account and the name its messages carry.
+// loungeMember is one member of a room: the account, and the name and profile picture its messages carry.
 type loungeMember struct {
 	aid      uint64
 	nickname string
+	profile  string // profileUrl, from loungeProfileURL when the member joined
 }
 
 // loungeMessage is one stored message (sDataChatMsg, spec 4.4).
@@ -403,13 +405,24 @@ func loungeRoomList(catgID int64) tcReply {
 	return tcReply{result: map[string]any{"roomList": rows}}
 }
 
-// msgRows converts stored messages to reply rows (never nil). The profile picture and background stay empty: the client
-// then draws its default head.
+// loungeProfileURL is the profile picture path a member's rows carry: the account's saved picture ("" when it has none),
+// with the leading slash trimmed. The client prefixes its static base to a path without a scheme, so "/lineplay/pr/x"
+// would reach it as "//lineplay/pr/x"; the Go mux answers that with a 307 to "/lineplay/pr/x".
+func loungeProfileURL(aid uint64) string {
+	acc, ok := store.AccountByAvatarID(strconv.FormatUint(aid, 10))
+	if !ok {
+		return ""
+	}
+	return strings.TrimPrefix(acc.ProfileImage.Image, "/")
+}
+
+// msgRows converts stored messages to reply rows (never nil). A message carries the picture its sender had when joining
+// (loungeMember.profile); the background stays empty.
 func msgRows(msgs []loungeMessage) []tcMsgRow {
 	rows := make([]tcMsgRow, 0, len(msgs))
 	for _, m := range msgs {
 		rows = append(rows, tcMsgRow{
-			SenderID: strconv.FormatUint(m.sender.aid, 10), Nickname: m.sender.nickname,
+			SenderID: strconv.FormatUint(m.sender.aid, 10), Nickname: m.sender.nickname, ProfileURL: m.sender.profile,
 			MsgSn: m.sn, MsgTimeSec: m.sec, MsgType: m.msgType, Msg: m.text,
 		})
 	}
@@ -426,7 +439,7 @@ func loungeJoin(roomID int64, aid uint64, bound bool) tcReply {
 	if !bound {
 		return tcReply{code: tcInternal, result: map[string]any{}}
 	}
-	name := squareAccountName(aid)
+	name, pic := squareAccountName(aid), loungeProfileURL(aid)
 	loungeMu.Lock()
 	defer loungeMu.Unlock()
 	r := loungeRoomLocked(roomID)
@@ -436,7 +449,7 @@ func loungeJoin(roomID int64, aid uint64, bound bool) tcReply {
 			return tcReply{code: tcFull, result: map[string]any{}}
 		}
 		pushes = loungeLeaveLocked(aid)
-		r.members = append(r.members, loungeMember{aid: aid, nickname: name})
+		r.members = append(r.members, loungeMember{aid: aid, nickname: name, profile: pic})
 		loungeIn[aid] = roomID
 		pushes = append(pushes, loungePushesLocked(roomID, r, aid, r.lastSn, tcTypeText)...)
 	}
@@ -469,19 +482,19 @@ func loungeMembers(roomID int64, aid uint64, bound bool) tcReply {
 	if !bound {
 		return tcReply{code: tcInternal, result: map[string]any{}}
 	}
-	name := squareAccountName(aid)
+	name, pic := squareAccountName(aid), loungeProfileURL(aid)
 	rows := []tcMemberRow{}
 	self := false
 	loungeMu.Lock()
 	if r := loungeRooms[roomID]; r != nil {
 		for _, m := range r.members {
-			rows = append(rows, tcMemberRow{MemberID: strconv.FormatUint(m.aid, 10), Nickname: m.nickname})
+			rows = append(rows, tcMemberRow{MemberID: strconv.FormatUint(m.aid, 10), Nickname: m.nickname, ProfileURL: m.profile})
 			self = self || m.aid == aid
 		}
 	}
 	loungeMu.Unlock()
 	if !self {
-		rows = append(rows, tcMemberRow{MemberID: strconv.FormatUint(aid, 10), Nickname: name})
+		rows = append(rows, tcMemberRow{MemberID: strconv.FormatUint(aid, 10), Nickname: name, ProfileURL: pic})
 	}
 	return tcReply{result: map[string]any{"memberList": rows}}
 }
@@ -505,9 +518,51 @@ func loungeGetMsgs(roomID, start, end int64) tcReply {
 	return tcReply{result: map[string]any{"msgList": msgRows(msgs)}}
 }
 
+// stickerSetSize is how many stickers the client has in set t: the sticker key is ls_<t>_<i> with 1 <= i <= size (the
+// client's table, lounge-sticker-init.md 1.2). A set the client does not have has size 0.
+func stickerSetSize(t int) int {
+	switch t {
+	case 10:
+		return 350
+	case 20:
+		return 88
+	case 30:
+		return 96
+	case 40, 50:
+		return 16
+	case 60, 70:
+		return 40
+	}
+	return 0
+}
+
+// canonicalNum is the number s spells when s is written the way Cherry writes one ("10", not "+10", "010" or "1x"), else 0.
+func canonicalNum(s string) int {
+	n, err := strconv.Atoi(s)
+	if err != nil || strconv.Itoa(n) != s {
+		return 0
+	}
+	return n
+}
+
+// validStickerKey reports whether key is ls_<t>_<i> for a set t and an index i the client has.
+func validStickerKey(key string) bool {
+	rest, ok := strings.CutPrefix(key, "ls_")
+	if !ok {
+		return false
+	}
+	setKey, idxKey, ok := strings.Cut(rest, "_")
+	if !ok {
+		return false
+	}
+	set, idx := canonicalNum(setKey), canonicalNum(idxKey)
+	return idx >= 1 && idx <= stickerSetSize(set)
+}
+
 // loungeSend stores one message from aid in roomID (3002) and pushes it to the room's other members, never to the sender.
 // It is refused with 402 when the type is neither text nor sticker, the text is blank or longer than maxTextChars
-// characters, or the sender is not in the room. The oldest messages go once the room holds historyLimit.
+// characters, a sticker's key is not one the client has, or the sender is not in the room. The oldest messages go once
+// the room holds historyLimit.
 func loungeSend(roomID, msgType int64, text string, aid uint64, bound bool) tcReply {
 	if !bound {
 		return tcReply{code: tcInternal, result: map[string]any{}}
@@ -518,6 +573,9 @@ func loungeSend(roomID, msgType int64, text string, aid uint64, bound bool) tcRe
 		return refused
 	}
 	if (msgType != tcTypeText && msgType != tcTypeSticker) || strings.TrimSpace(text) == "" || utf8.RuneCountInString(text) > l.MaxTextChars {
+		return refused
+	}
+	if msgType == tcTypeSticker && !validStickerKey(text) {
 		return refused
 	}
 	loungeMu.Lock()

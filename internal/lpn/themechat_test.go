@@ -242,7 +242,7 @@ func TestThemeChatRoomFlow(t *testing.T) {
 	assertNoReply(t, ann)
 
 	// A sticker is relayed as sent: the key goes in msg.
-	_, _, body = tcCall(t, ann, 5, tcSend, fmt.Sprintf(`{"roomId":%d,"msgType":205,"msg":"00005_hello.png","msgFilter":0}`, room.RoomID))
+	_, _, body = tcCall(t, ann, 5, tcSend, fmt.Sprintf(`{"roomId":%d,"msgType":205,"msg":"ls_10_5","msgFilter":0}`, room.RoomID))
 	if code, payload = tcReplyOf(t, body); code != tcOK || payload["msgSn"] != float64(2) {
 		t.Fatalf("sticker send resultCode=%d payload=%v", code, payload)
 	}
@@ -477,5 +477,79 @@ func TestThemeChatHotListSortsByCount(t *testing.T) {
 	plain := loungeRoomList(cat.CatgID).result.(map[string]any)["roomList"].([]tcRoomRow)
 	if plain[0].RoomID != cat.Rooms[0].RoomID {
 		t.Fatalf("category list starts with room %d, want the data order", plain[0].RoomID)
+	}
+}
+
+// TestThemeChatProfilePathRows: a member's and a message's profileUrl is the saved picture path with its leading slash
+// trimmed, and "" for an account with no saved picture. The picture rows include the viewer's own fallback row.
+func TestThemeChatProfilePathRows(t *testing.T) {
+	inviteAccounts(t, map[string]*store.Account{
+		"tc-9961": {AccessToken: "tc-9961", SessionKey: "sk-tc-9961", Aid: "9961", Name: "Pia", ProfileImage: store.ProfileImage{Image: "/lineplay/pr/9961_1700000001"}},
+		"tc-9962": {AccessToken: "tc-9962", SessionKey: "sk-tc-9962", Aid: "9962", Name: "Ned"},
+	})
+	resetLounge(t)
+	pia := inviteeSession(t, "sk-tc-9961")
+	ned := inviteeSession(t, "sk-tc-9962")
+	cat := economy.ActiveLounge()
+	room, other := cat.Rooms[0].RoomID, cat.Rooms[1].RoomID
+	join := fmt.Sprintf(`{"roomId":%d}`, room)
+
+	tcCall(t, pia, 1, tcJoin, join)
+	tcCall(t, pia, 2, tcSend, fmt.Sprintf(`{"roomId":%d,"msgType":0,"msg":"hi","msgFilter":0}`, room))
+	_, _, body := tcCall(t, ned, 3, tcJoin, join)
+	_, payload := tcReplyOf(t, body)
+	first := wantList(t, payload, "msgList", 1)[0].(map[string]any)
+	wantStr(t, first, "senderId", "9961")
+	wantStr(t, first, "profileUrl", "lineplay/pr/9961_1700000001")
+
+	_, _, body = tcCall(t, ned, 4, tcSend, fmt.Sprintf(`{"roomId":%d,"msgType":0,"msg":"yo","msgFilter":0}`, room))
+	if code, _ := tcReplyOf(t, body); code != tcOK {
+		t.Fatalf("Ned send resultCode = %d", code)
+	}
+	_, _, body = tcCall(t, ned, 5, tcMembers, join)
+	_, payload = tcReplyOf(t, body)
+	members := wantList(t, payload, "memberList", 2)
+	wantStr(t, members[0].(map[string]any), "profileUrl", "lineplay/pr/9961_1700000001")
+	wantStr(t, members[1].(map[string]any), "profileUrl", "")
+	_, _, body = tcCall(t, ned, 6, tcGetMsgs, fmt.Sprintf(`{"roomId":%d,"startMsgSn":1,"endMsgSn":2}`, room))
+	_, payload = tcReplyOf(t, body)
+	msgs := wantList(t, payload, "msgList", 2)
+	wantStr(t, msgs[0].(map[string]any), "profileUrl", "lineplay/pr/9961_1700000001")
+	wantStr(t, msgs[1].(map[string]any), "profileUrl", "")
+
+	// Pia's pending pushes (Ned's join and Ned's message) come before her reply: read them, then the fallback row of a room
+	// she is not in.
+	readLOPush(t, pia)
+	readLOPush(t, pia)
+	_, _, body = tcCall(t, pia, 7, tcMembers, fmt.Sprintf(`{"roomId":%d}`, other))
+	_, payload = tcReplyOf(t, body)
+	self := wantList(t, payload, "memberList", 1)[0].(map[string]any)
+	wantStr(t, self, "memberId", "9961")
+	wantStr(t, self, "profileUrl", "lineplay/pr/9961_1700000001")
+}
+
+// TestThemeChatStickerKeys: a sticker (205) is accepted only when its key is ls_<t>_<i> for a set and an index the client
+// has. Both ends of each set are accepted; anything else is refused with 402 and changes nothing.
+func TestThemeChatStickerKeys(t *testing.T) {
+	resetLounge(t)
+	room := economy.ActiveLounge().Rooms[0].RoomID
+	const sender uint64 = 9972
+	if code, _ := joinAs(t, room, sender); code != tcOK {
+		t.Fatalf("join resultCode = %d", code)
+	}
+	for _, key := range []string{"ls_10_1", "ls_10_350", "ls_20_88", "ls_30_96", "ls_40_16", "ls_50_16", "ls_60_40", "ls_70_40"} {
+		if got := loungeSend(room, tcTypeSticker, key, sender, true).code; got != tcOK {
+			t.Errorf("sticker %q: code %d, want 0", key, got)
+		}
+	}
+	for _, key := range []string{"ls_10_351", "ls_15_1", "ls_10_0", "ls_10_01", "ls_10_1x", "ls_20_89", "ls_80_1", "ls_+10_1", "ls_10_1_2", "10_1", "ls_10_", "ls_10_1 ", ""} {
+		if got := loungeSend(room, tcTypeSticker, key, sender, true).code; got != tcRefused {
+			t.Errorf("sticker %q: code %d, want 402", key, got)
+		}
+	}
+	loungeMu.Lock()
+	defer loungeMu.Unlock()
+	if last := loungeRooms[room].lastSn; last != 8 {
+		t.Fatalf("lastSn = %d after 8 accepted stickers, want 8", last)
 	}
 }

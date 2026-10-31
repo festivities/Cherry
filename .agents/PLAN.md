@@ -42,6 +42,14 @@ You are the receiving agent with **zero context**. **Your focus (user): the open
 - **A worker's "gate green" does not excuse your own run,** and a worker's "fails without the fix" was not verified for `42f0486`'s new tests.
 - **Saved test frames stay in `%TEMP%\opencode\cherry\`:** `lounge-test-20261031\`, `share-animal-test-20261031\`, `retest-20261031\`, `friend-gift-20261031\`.
 
+### HANDOFF ACCEPTED — 2026-10-31 evening (new Claude Code session)
+
+Read AGENTS, JICAMA and PLAN in full; of HISTORY only the latest handoff pair (the file is ~130k tokens, too large for this session's context; HISTORY never overrides AGENTS/PLAN). Lab rechecked, no corrections: `main` clean and level with origin at `5dd6411`; Cherry PID 38744, repo-root `cherry.exe` SHA-256 prefix `00c598fdc833501e`, log `cherry-codesearch-20261031-private.log`, `lan=192.168.1.7`; YunDetectService PID 3616; emulator-5554 = AVD Cherry, emulator-5556 = AVD Jerry; `config\` holds only `streaming.json`. Working through "Open tasks" in order.
+
+**Progress 2026-10-31 night (Cherry PID 18312, `cherry.exe` prefix `9c016483519e864e`, log `…\cherry-loungefinal-20261031-private.log`; frames `%TEMP%\opencode\cherry\{cancel-test-20261031,lounge-test-20261031b}\`):**
+- **Task 1 closed: no original stickers found.** Paths and results: `menu-audit-20261028\lounge-sticker-sweep.md`; client facts: `lounge-sticker-init.md`; limit recorded in AGENTS. Corrections: `init` 0x171d368 holds the 35 chat actions, not the stickers; the device always takes `sticker_hd`, `ver` = `00005` (observed, 241 requests, 31 keys, all 404); `cache/actionsticker` = LINE Camera action stamps, not portraits.
+- **Task 2 closed.** Cancel is an intermittent client touch loss, not position (AGENTS). Device with a temporary override, since removed: room full gives "This chatroom is full. Please try again later.", OK, another room joins, retry after a leave joins; history limit 3 keeps the last 3 on re-entry. Members' heads fixed (`profileUrl` = saved picture without its leading slash; viewed on Jerry). `loungeSend` validates sticker keys, unit-tested only (no sticker can be sent without art). `fontColor` classified. The row keeps its Tabler icon like every other MENU row (`home_380_playsub_btn_lounge.png` is original and unused; user's call if wanted). Text cut at 500 stays inferred; harmless, since Cherry's cap equals it. The GLThread SIGSEGVs on record (Cherry 11:50:41 UTC, Jerry 12:15:02 UTC) predate these runs; none since; cause not established. Next: task 3.
+
 ## Status (2026-10-31 evening)
 
 | Milestone | Scope | Status |
