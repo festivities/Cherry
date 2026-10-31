@@ -713,6 +713,7 @@ func handleAchieveWrite(w http.ResponseWriter, r *http.Request) {
 	if req.AchieveType == "colorshop_complete" && req.AchieveDataType == "item" && req.AchieveData != "" {
 		req.AchieveDataDetail = economy.ItemName(req.AchieveData)
 	}
+	log.Printf("cherry: achieve write aid=%s type=%q level=%q dataType=%q data=%q link=%q detail=%q", actor.Aid, req.AchieveType, req.AchieveTypeLevel, req.AchieveDataType, req.AchieveData, req.AchieveLinkValue, req.AchieveDataDetail)
 	nickname := actor.Name
 	if nickname == "" {
 		nickname = "guest"
