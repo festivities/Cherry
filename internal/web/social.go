@@ -858,7 +858,7 @@ func handleFriendSearch(w http.ResponseWriter, r *http.Request) {
 	sort.Slice(items[1:], func(i, j int) bool { return items[i+1].AvatarID < items[j+1].AvatarID })
 	matches := make([]friendSearchItem, 0, len(items))
 	for _, item := range items {
-		match := item.AvatarID == query
+		match := item.AvatarID == strings.ReplaceAll(query, "-", "") // the client groups a typed code: 1001 arrives as "10-01"
 		if searchType == "NICK" {
 			match = strings.Contains(strings.ToLower(item.CaricNickName), strings.ToLower(query))
 		}

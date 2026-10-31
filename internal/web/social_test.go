@@ -554,6 +554,9 @@ func TestRealFriendships(t *testing.T) {
 		t.Fatalf("profile = %s", p)
 	}
 	search := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/square/friends/search", `{"country":"JP","caricNickName":"2","searchType":"CODE"}`).Body.String()
+	if grouped := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/square/friends/search", `{"country":"JP","caricNickName":"-2","searchType":"CODE"}`).Body.String(); grouped != search {
+		t.Fatalf("grouped code search = %s, want %s", grouped, search)
+	}
 	if !strings.Contains(search, `"friendStatus":"1"`) {
 		t.Fatalf("search = %s", search)
 	}
