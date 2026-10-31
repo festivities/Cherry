@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -1007,5 +1008,43 @@ func TestCreateAvatarNumericItemCodes(t *testing.T) {
 	}
 	if body.Result.Items[0].CD != "1001" || body.Result.Items[1].CD != "CUON001CH" {
 		t.Errorf("items = %+v, want numeric 1001 then CUON001CH", body.Result.Items)
+	}
+}
+
+// TestCreateAvatarDropsCodesOfTheOtherSpecies: creation keeps the sex's own parts and drops the others instead of failing.
+// An ANIMAL keeps no hair or human face (itemcode.HumanOnly); a human keeps no animal face, ear or tail part
+// (itemcode.AnimalOnly). Clothes stay for both.
+func TestCreateAvatarDropsCodesOfTheOtherSpecies(t *testing.T) {
+	accessToken := guestGenerate(t)
+	token := avAuthValue(t, createSession(t, accessToken))
+	for _, c := range []struct {
+		name, avatarType string
+		sent, kept       []string
+	}{
+		{"ANIMAL", "ANIMAL", []string{"CUHA00001", "CUHE0000M", "CUEY0000Q", "CAFA0000S", "CATO000GR"}, []string{"CAFA0000S", "CATO000GR"}},
+		{"FEMALE", "FEMALE", []string{"CUHA0003L", "CAEY0000D", "CATL00006", "CUON001CH"}, []string{"CUHA0003L", "CUON001CH"}},
+		{"MALE", "MALE", []string{"CUEY0000Q", "CAMO00002", "CANO00001", "CATO000IU"}, []string{"CUEY0000Q", "CATO000IU"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			payload, err := json.Marshal(map[string]any{"name": "Fit", "avatarType": c.avatarType, "nationCode": "JP", "skinColor": 1, "itemCodes": c.sent, "useMid": true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			rec := createAvatar(t, token, nativeAvatarBody(string(payload)), "")
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, body = %q", rec.Code, rec.Body.String())
+			}
+			var body avatarResponse
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil || body.Result == nil {
+				t.Fatalf("body = %q (%v)", rec.Body.String(), err)
+			}
+			var got []string
+			for _, item := range body.Result.Items {
+				got = append(got, item.CD)
+			}
+			if !slices.Equal(got, c.kept) {
+				t.Errorf("items = %v, want %v", got, c.kept)
+			}
+		})
 	}
 }

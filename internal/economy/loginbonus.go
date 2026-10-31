@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"cherry/internal/httpx"
+	"cherry/internal/itemcode"
 	"cherry/internal/store"
 )
 
@@ -70,8 +71,9 @@ func AttendState(acc *store.Account, t time.Time) (todayCount int, attendable bo
 }
 
 // attendRows builds bonus[] for the calendar in force. An item day the account does not own
-// shows the item (bonusType ITEM, itemCd) with its Gems; an owned one shows the day's Gems plus the
-// item's sell-back Gems; a missing item shows the day's normal reward.
+// shows the item (bonusType ITEM, itemCd) with its Gems; an owned one, or one an ANIMAL cannot wear
+// (itemcode.HumanOnly), shows the day's Gems plus the item's sell-back Gems; a missing item shows the
+// day's normal reward.
 func attendRows(acc *store.Account, sched calSchedule, todayCount int, attendable bool) []map[string]any {
 	rows := make([]map[string]any, 0, len(sched.Cycle))
 	for i, r := range sched.Cycle {
@@ -80,7 +82,7 @@ func attendRows(acc *store.Account, sched calSchedule, todayCount int, attendabl
 		case r.Item == "":
 		case !seasonItemAvailable(r.Item):
 			r.Type, r.Item = "GEM", ""
-		case itemOwnedLocked(acc, r.Item):
+		case itemOwnedLocked(acc, r.Item) || acc.Gender == "ANIMAL" && itemcode.HumanOnly(r.Item):
 			r.Type, r.Gems, r.Item = "GEM", r.Gems+sellBackGems(r.Item), ""
 		}
 		row := map[string]any{

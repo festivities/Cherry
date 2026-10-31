@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"cherry/data"
+	"cherry/internal/itemcode"
 	"cherry/internal/opdata"
 	"cherry/internal/store"
 	"cherry/internal/thumbs"
@@ -497,7 +498,8 @@ func AtelierMakeMaterial(aid string, design, count int64, now time.Time) (int64,
 }
 
 // AtelierMakeClothes makes one clothing item of a clothes design (ch 35) into the Closet, for the
-// stamina and inputs. Clothing the account already owns is refused: no re-craft, no Gem payout.
+// stamina and inputs. Clothing the account already owns, or hair and a human face for an ANIMAL, is
+// refused: no re-craft, no Gem payout, and no inputs spent.
 func AtelierMakeClothes(aid string, design int64, now time.Time) (int64, AtelierSnap) {
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
@@ -511,7 +513,7 @@ func AtelierMakeClothes(aid string, design int64, now time.Time) (int64, Atelier
 	switch {
 	case !snap.Unlocked(d):
 		return AtelierLockDesign, snap
-	case itemOwnedLocked(acc, d.ProductClothes):
+	case itemOwnedLocked(acc, d.ProductClothes) || acc.Gender == "ANIMAL" && itemcode.HumanOnly(d.ProductClothes):
 		return AtelierInvalid, snap
 	case snap.Stamina < d.Stamina:
 		return AtelierStamina, snap

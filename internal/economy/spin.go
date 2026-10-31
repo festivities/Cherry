@@ -12,6 +12,7 @@ import (
 
 	"cherry/data"
 	"cherry/internal/httpx"
+	"cherry/internal/itemcode"
 	"cherry/internal/opdata"
 	"cherry/internal/store"
 )
@@ -146,7 +147,7 @@ func checkSpinGame(name string, g *SpinGame, tiers int) error {
 			}
 		}
 		// An animal's draw needs weight somewhere (spinSlotsFor zeroes the human-only items); a Gem slot has no item.
-		if !slices.ContainsFunc(t.Slots, func(s SpinSlot) bool { return !spinHumanOnly(s.Item) }) {
+		if !slices.ContainsFunc(t.Slots, func(s SpinSlot) bool { return !itemcode.HumanOnly(s.Item) }) {
 			return fmt.Errorf("%s tier %d: no slot an animal can win (every slot is a hair or face item)", name, i+1)
 		}
 	}
@@ -209,21 +210,15 @@ func spinDraw(slots []SpinSlot) int {
 	return len(slots) - 1
 }
 
-// spinHumanOnly reports whether an animal avatar cannot wear code: a hair item or a human face (CU HA, HE, EB, EY, NO,
-// MO). isHumanFace is the Face Shop's human face check; the species rule itself is faceshop.go (CA for animals only).
-func spinHumanOnly(code string) bool {
-	return isHumanFace(code) || len(code) == 9 && strings.HasPrefix(code, "CUHA")
-}
-
-// spinSlotsFor is the wheel as the account can win it. An animal's copy gives each human-only item weight 0, so spinDraw
-// never lands on one; the indexes stay the wheel's (showPriority). A human gets the wheel itself.
+// spinSlotsFor is the wheel as the account can win it. An animal's copy gives each human-only item (itemcode.HumanOnly)
+// weight 0, so spinDraw never lands on one; the indexes stay the wheel's (showPriority). A human gets the wheel itself.
 func spinSlotsFor(slots []SpinSlot, animal bool) []SpinSlot {
 	if !animal {
 		return slots
 	}
 	out := slices.Clone(slots)
 	for i := range out {
-		if spinHumanOnly(out[i].Item) {
+		if itemcode.HumanOnly(out[i].Item) {
 			out[i].Weight = 0
 		}
 	}
@@ -278,10 +273,14 @@ func spinPrizeOf(s SpinSlot) spinPrize {
 }
 
 // spinGroups is a tier's rewardList: one group per reward type (Gems, items), each slot a child whose showPriority is its
-// slot. A group's probability is the sum of its weights.
-func spinGroups(key int64, t SpinTier) []spinGroup {
+// slot. A group's probability is the sum of its weights. An animal's list leaves out the human-only items its draw can
+// never win (spinSlotsFor); the slot numbers stay the wheel's, so the stop and the list still agree.
+func spinGroups(key int64, t SpinTier, animal bool) []spinGroup {
 	var gems, items spinGroup
 	for i, s := range t.Slots {
+		if animal && itemcode.HumanOnly(s.Item) {
+			continue
+		}
 		slot := i + 1
 		p := spinPrizeOf(s)
 		g := &gems
@@ -454,6 +453,7 @@ func spinFreeChance(r *http.Request, g SpinGame) int {
 }
 
 // handleSpinList serves luckyspin/list/inprogress and luckyspin/jackpot/list/inprogress: always one spin in progress, no end.
+// The reward lists are built per request, so an animal requester gets its own (spinGroups).
 func handleSpinList(jackpot bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -461,15 +461,16 @@ func handleSpinList(jackpot bool) http.HandlerFunc {
 			return
 		}
 		sp := ActiveSpin()
+		animal := requesterAnimal(r)
 		if !jackpot {
 			g := sp.Lucky
-			row := spinLuckyList{spinListBase: spinListBaseOf(g, false, spinFreeChance(r, g)), RewardList: spinGroups(spinKey(false, 0), g.Tiers[0])}
+			row := spinLuckyList{spinListBase: spinListBaseOf(g, false, spinFreeChance(r, g)), RewardList: spinGroups(spinKey(false, 0), g.Tiers[0], animal)}
 			httpx.WriteObj(w, spinEnvelope[[]spinLuckyList]{Result: []spinLuckyList{row}})
 			return
 		}
 		g := sp.Jackpot
-		row := spinJackpotList{spinListBase: spinListBaseOf(g, true, 0), RewardList: spinGroups(spinKey(true, 0), g.Tiers[0]),
-			PaymentTypeHigh: g.Tiers[1].Currency, PriceHigh: g.Tiers[1].Price, RewardListHigh: spinGroups(spinKey(true, 1), g.Tiers[1])}
+		row := spinJackpotList{spinListBase: spinListBaseOf(g, true, 0), RewardList: spinGroups(spinKey(true, 0), g.Tiers[0], animal),
+			PaymentTypeHigh: g.Tiers[1].Currency, PriceHigh: g.Tiers[1].Price, RewardListHigh: spinGroups(spinKey(true, 1), g.Tiers[1], animal)}
 		httpx.WriteObj(w, spinEnvelope[[]spinJackpotList]{Result: []spinJackpotList{row}})
 	}
 }

@@ -233,3 +233,60 @@ func TestNoArtItemsNotSoldOrGranted(t *testing.T) {
 		t.Errorf("admin mail of no-art item = %d, want 400", rec.Code)
 	}
 }
+
+// TestShopHumanOnlyRefusedForAnimal: hair is a human item. An animal's crafted buy of it is refused as an unknown item
+// (61001) before any Gem moves, and an animal's M-tab list has no hair, while its clothes still buy and a human still buys hair.
+func TestShopHumanOnlyRefusedForAnimal(t *testing.T) {
+	shopFixture(t, map[string][]string{"dress/225000001": {"dp.png"}, "custom/224400001": {"dp.png"}})
+	for _, c := range []struct {
+		name, gender, code string
+		ok                 bool
+	}{
+		{"hair, human", "FEMALE", "CUHA00001", true},
+		{"hair, animal", "ANIMAL", "CUHA00001", false},
+		{"top, animal", "ANIMAL", "CUTO00001", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			acc, _ := phaseEAccount(t, 1000, nil)
+			store.AccountsMu.Lock()
+			acc.Gender = c.gender
+			store.AccountsMu.Unlock()
+			want, _, _, _ := ItemPrice(c.code)
+			if d, deal := dealsOn(NowFunc())[c.code]; deal {
+				want = d
+			}
+			rec := postAs(handleShopBuy(kindFashion), buyBody(c.code, want))
+			if c.ok {
+				if rec.Code != http.StatusOK || acc.Gems != 1000-want {
+					t.Fatalf("buy = %d %s, gems %d: want 200 and %d gems", rec.Code, rec.Body, acc.Gems, 1000-want)
+				}
+				return
+			}
+			if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"errorCode":"61001"`) || acc.Gems != 1000 || len(acc.InventoryCodes) != 0 {
+				t.Fatalf("buy = %d %s, gems %d, inventory %v: want 400 61001, no charge, nothing granted", rec.Code, rec.Body, acc.Gems, acc.InventoryCodes)
+			}
+		})
+	}
+
+	// The M tab lists hair for a human; an animal asking for the same tab gets none of it.
+	list := func(token string) []string {
+		req := httptest.NewRequest(http.MethodGet, "/v4/shop/fashion/itemlist/MHAIR", nil)
+		req.Header.Set("Cookie", `AV_AUTH="`+token+`"`)
+		rec := httptest.NewRecorder()
+		handleShopList(kindFashion)(rec, req)
+		return listedCodes(t, rec)
+	}
+	phaseEAccount(t, 1000, nil)
+	store.AccountsMu.Lock()
+	store.AccountByAidLocked("9901").Gender = "ANIMAL"
+	store.AccountsMu.Unlock()
+	if got := list("ptok"); slices.Contains(got, "CUHA00001") {
+		t.Fatalf("animal hair tab = %v, want no CUHA00001", got)
+	}
+	store.AccountsMu.Lock()
+	store.AccountByAidLocked("9901").Gender = "FEMALE"
+	store.AccountsMu.Unlock()
+	if got := list("ptok"); !slices.Contains(got, "CUHA00001") {
+		t.Fatalf("human hair tab = %v, want CUHA00001", got)
+	}
+}

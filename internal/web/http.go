@@ -25,6 +25,7 @@ import (
 	"cherry/internal/assets"
 	"cherry/internal/economy"
 	"cherry/internal/httpx"
+	"cherry/internal/itemcode"
 	"cherry/internal/lpn"
 	"cherry/internal/opdata"
 	"cherry/internal/room"
@@ -688,6 +689,20 @@ func itemCodesFromJSON(raws []json.RawMessage) ([]string, string, bool) {
 	return codes, "", true
 }
 
+// fitSpecies drops the creation codes the sex cannot wear, instead of failing the creation: an ANIMAL keeps no hair or
+// human face (itemcode.HumanOnly), a human keeps no animal face, ear or tail part (itemcode.AnimalOnly). The creation
+// catalogs in data/dressup.json offer each sex only its own parts, so a real client should not send any of these.
+func fitSpecies(gender string, codes []string) []string {
+	out := make([]string, 0, len(codes))
+	for _, c := range codes {
+		if gender == "ANIMAL" && itemcode.HumanOnly(c) || gender != "ANIMAL" && itemcode.AnimalOnly(c) {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
 // jsonValueKind names the top-level JSON kind of raw without decoding it.
 func jsonValueKind(raw json.RawMessage) string {
 	s := strings.TrimSpace(string(raw))
@@ -767,6 +782,7 @@ func handleCreateAvatar(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
 	}
+	itemCodes = fitSpecies(gender, itemCodes)
 	skin, ok := skinColorString(req.SkinColor)
 	if !ok {
 		logCreateAvatarReject("skinColor", len(raw), "")

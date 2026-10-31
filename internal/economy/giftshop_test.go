@@ -14,12 +14,13 @@ import (
 	"cherry/internal/testutil"
 )
 
-// giftFixture: CUTO00001 (tops) and RUCH00001 (chair) with art. Sender 9601 (Gems) and receiver 9602, linked by a
-// friendship in state relation ("" = none). Ledger lines go to the returned dir.
+// giftFixture: CUTO00001 (tops), CUHA00001 (hair) and RUCH00001 (chair) with art. Sender 9601 (Gems) and receiver 9602,
+// linked by a friendship in state relation ("" = none). Ledger lines go to the returned dir.
 func giftFixture(t *testing.T, gems int64, relation string) (dir string) {
 	t.Helper()
 	shopFixture(t, map[string][]string{
 		"dress/225000001":    {"dp.png"},
+		"custom/224400001":   {"dp.png"},
 		"interior/120400001": {"dp.png"},
 	})
 	testutil.InstallAccounts(t, map[string]*store.Account{
@@ -232,5 +233,39 @@ func TestGiftOwnedItemSellsBackOnReceive(t *testing.T) {
 	}
 	if got := store.AccountOwnedCodes(recv); len(got) != 1 {
 		t.Errorf("owned = %v, want the one code it had", got)
+	}
+}
+
+// TestGiftSendRefusesHumanOnlyToAnimal: an animal friend cannot wear hair, so a gift of it is refused before any Gem
+// moves (the receiver gets nothing); a top to the same animal friend goes through, and hair to a human does too.
+func TestGiftSendRefusesHumanOnlyToAnimal(t *testing.T) {
+	phaseEClock(t, time.Date(2026, time.October, 28, 12, 0, 0, 0, time.UTC))
+	for _, c := range []struct {
+		name, gender, code string
+		ok                 bool
+	}{
+		{"hair to a human friend", "MALE", "CUHA00001", true},
+		{"hair to an animal friend", "ANIMAL", "CUHA00001", false},
+		{"top to an animal friend", "ANIMAL", "CUTO00001", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			giftFixture(t, 1000, "accepted")
+			store.AccountsMu.Lock()
+			store.AccountByAidLocked("9602").Gender = c.gender
+			store.AccountsMu.Unlock()
+			want := giftPrice(c.code, dealsOn(NowFunc()))
+			res := giftReply(t, giftPost("gs-send", giftBody("9602", c.code, want, "GEM", "hi")))
+			gems, mail := giftState("9601")
+			_, recvMail := giftState("9602")
+			if c.ok {
+				if res["errorCode"] != nil || gems != 1000-want || len(recvMail) != 1 {
+					t.Fatalf("send = %v, sender gems %d, receiver mail %d: want the gift through", res, gems, len(recvMail))
+				}
+				return
+			}
+			if res["errorCode"] != errUnknown || gems != 1000 || len(mail) != 0 || len(recvMail) != 0 {
+				t.Fatalf("send = %v, sender gems %d, receiver mail %d: want errorCode %s, no charge, no mail", res, gems, len(recvMail), errUnknown)
+			}
+		})
 	}
 }

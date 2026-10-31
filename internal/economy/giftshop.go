@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"cherry/internal/httpx"
+	"cherry/internal/itemcode"
 	"cherry/internal/store"
 )
 
@@ -216,6 +217,14 @@ func HandleGiftSend(w http.ResponseWriter, r *http.Request) {
 	if !friends {
 		giftError(w, r, errUnknown, "not a friend")
 		return
+	}
+	if recv.Gender == "ANIMAL" { // an animal friend cannot wear hair or a human face: refused before any Gem moves
+		for _, code := range codes {
+			if itemcode.HumanOnly(code) {
+				giftError(w, r, errUnknown, "receiver cannot wear item")
+				return
+			}
+		}
 	}
 
 	prevSender, prevRecv := *acc, *recv

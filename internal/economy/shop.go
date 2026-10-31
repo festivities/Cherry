@@ -423,6 +423,14 @@ func requesterOwned(r *http.Request) (rooms, pets, landscapes map[string]bool) {
 	return
 }
 
+// requesterAnimal reports whether the request's account is an ANIMAL avatar (false without an account).
+func requesterAnimal(r *http.Request) bool {
+	store.AccountsMu.Lock()
+	defer store.AccountsMu.Unlock()
+	acc := store.SessionAccountLocked(r)
+	return acc != nil && acc.Gender == "ANIMAL"
+}
+
 func handleShopList(kind byte) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -437,8 +445,9 @@ func handleShopList(kind byte) http.HandlerFunc {
 		switch kind {
 		case kindFashion:
 			prefix, slots := fashionSlots(cat)
+			animal := requesterAnimal(r) // the M and F tabs carry human hair: an animal sees none of it
 			for _, it := range c.fashion {
-				if it.Code[:2] == prefix && slices.Contains(slots, it.Code[2:4]) && onSale(it.Code, now) {
+				if it.Code[:2] == prefix && slices.Contains(slots, it.Code[2:4]) && onSale(it.Code, now) && !(animal && itemcode.HumanOnly(it.Code)) {
 					row := priceKeys(it, deals, now)
 					row["itemID"], row["representImageURL"], row["bigRepresentImageURL"] = it.ID, "", ""
 					rows = append(rows, row)
@@ -639,6 +648,11 @@ func handleShopBuy(kind byte) http.HandlerFunc {
 		case kindFashion:
 			owned := store.AccountOwnedCodes(acc)
 			for i, code := range codes {
+				// A crafted buy of hair or a human face by an animal: refused as an unknown item, before any spend.
+				if acc.Gender == "ANIMAL" && itemcode.HumanOnly(code) {
+					shopError(w, r, raw, errUnknown, "unknown item")
+					return
+				}
 				if slices.Contains(owned, code) || slices.Contains(codes[:i], code) {
 					shopError(w, r, raw, errOwned, "already owned")
 					return

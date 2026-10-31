@@ -659,7 +659,7 @@ func TestGachaOddsPage(t *testing.T) {
 	}
 }
 
-// An animal never draws the hair or human-face item (spinHumanOnly): 200 pulls see only the other five items, while a
+// An animal never draws the hair or human-face item (itemcode.HumanOnly): 200 pulls see only the other five items, while a
 // human with the same seed draws CUHA00001 (hair). With every non-hair item excluded, an animal's pull is refused unpaid.
 func TestGachaAnimalNeverDrawsHumanOnly(t *testing.T) {
 	gachaFixture(t)
@@ -707,5 +707,47 @@ func TestGachaAnimalNeverDrawsHumanOnly(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &out)
 	if rec.Code != 400 || out["errorCode"] != "61003" || gachaGems(acc) != before {
 		t.Errorf("animal with no item left = %d %s, gems %d, want 400 61003 and no charge", rec.Code, rec.Body, gachaGems(acc))
+	}
+}
+
+// TestGachaListsHideHumanOnlyFromAnimal: the gacha detail and odds page are built per request. An animal's pool has no
+// hair (itemcode.HumanOnly): its collection drops CUHA00001 (a human's keeps it) and its odds page counts one normal item
+// fewer. The list row shows a RARE item first, so it is the same for both.
+func TestGachaListsHideHumanOnlyFromAnimal(t *testing.T) {
+	gachaFixture(t)
+	acc := gachaAccount(t, 0, nil)
+	odds := map[string]string{}
+	for _, c := range []struct {
+		gender string
+		hair   bool
+	}{{"FEMALE", true}, {"ANIMAL", false}} {
+		store.AccountsMu.Lock()
+		acc.Gender = c.gender
+		store.AccountsMu.Unlock()
+
+		rec := gachaCall(t, http.MethodGet, "/v4/shop/gacha/detail/target/1001", "", "gtok")
+		var detail struct {
+			Result struct {
+				Items []struct {
+					Collection struct {
+						CollectionItems []gachaCollectionItem `json:"collectionItems"`
+					} `json:"collection"`
+				} `json:"items"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &detail); rec.Code != http.StatusOK || err != nil || len(detail.Result.Items) != 1 {
+			t.Fatalf("%s detail = %d %s", c.gender, rec.Code, rec.Body)
+		}
+		var codes []string
+		for _, it := range detail.Result.Items[0].Collection.CollectionItems {
+			codes = append(codes, it.ItemCode)
+		}
+		if got := slices.Contains(codes, "CUHA00001"); got != c.hair {
+			t.Errorf("%s collection = %v, hair %v want %v", c.gender, codes, got, c.hair)
+		}
+		odds[c.gender] = gachaCall(t, http.MethodGet, "/web/probability/item/gacha/1001", "", "gtok").Body.String()
+	}
+	if odds["ANIMAL"] == odds["FEMALE"] {
+		t.Errorf("animal odds page = human odds page, want one normal item fewer: %q", odds["ANIMAL"])
 	}
 }

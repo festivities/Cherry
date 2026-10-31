@@ -2,9 +2,11 @@ package economy
 
 import (
 	"bytes"
+	"encoding/json"
 	"image"
 	"image/color"
 	"image/png"
+	"maps"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -529,4 +531,68 @@ func containsCode(codes []string, code string) bool {
 		}
 	}
 	return false
+}
+
+// spinListSlots maps each item code in a spin list's reward groups (rewardList or rewardListHigh) to the wheel slot the
+// group child carries (showPriority), for the account token.
+func spinListSlots(t *testing.T, target, token, key string) map[string]float64 {
+	t.Helper()
+	mux := http.NewServeMux()
+	RegisterSpinRoutes(mux)
+	req := httptest.NewRequest(http.MethodGet, target, nil)
+	req.Header.Set("Cookie", `AV_AUTH="`+token+`"`)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	var env struct {
+		Result []map[string]any `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); rec.Code != http.StatusOK || err != nil || len(env.Result) != 1 {
+		t.Fatalf("%s: %d %s", target, rec.Code, rec.Body)
+	}
+	out := map[string]float64{}
+	groups, _ := env.Result[0][key].([]any)
+	for _, g := range groups {
+		children, _ := g.(map[string]any)["detailList"].([]any)
+		for _, c := range children {
+			child := c.(map[string]any)
+			if code, _ := child["itemCd"].(string); code != "" {
+				out[code] = child["showPriority"].(float64)
+			}
+		}
+	}
+	return out
+}
+
+// TestSpinListsHideHumanOnlyFromAnimal: both spin lists are built per request. An animal's reward lists drop the hair
+// its draw can never win (CUHA00001 on Lucky and Jackpot tier 1), keep every other item at the slot a human sees, and
+// leave the Jackpot's tier 2 list (no hair) as it is for a human.
+func TestSpinListsHideHumanOnlyFromAnimal(t *testing.T) {
+	acc, _ := spinSetup(t, 0, 0)
+	for _, c := range []struct {
+		name, target, key string
+		hair              bool
+	}{
+		{"lucky", "/v4/luckyspin/list/inprogress", "rewardList", true},
+		{"jackpot tier 1", "/v4/luckyspin/jackpot/list/inprogress", "rewardList", true},
+		{"jackpot tier 2", "/v4/luckyspin/jackpot/list/inprogress", "rewardListHigh", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			setGender := func(g string) {
+				store.AccountsMu.Lock()
+				acc.Gender = g
+				store.AccountsMu.Unlock()
+			}
+			setGender("FEMALE")
+			human := spinListSlots(t, c.target, "gtok", c.key)
+			if _, ok := human["CUHA00001"]; ok != c.hair {
+				t.Fatalf("human list has hair %v, want %v: %v", ok, c.hair, human)
+			}
+			setGender("ANIMAL")
+			animal := spinListSlots(t, c.target, "gtok", c.key)
+			delete(human, "CUHA00001")
+			if !maps.Equal(animal, human) {
+				t.Errorf("animal list = %v, want the human list without hair = %v", animal, human)
+			}
+		})
+	}
 }

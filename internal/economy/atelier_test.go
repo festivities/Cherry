@@ -380,3 +380,40 @@ func TestAtelierGoodIconRoute(t *testing.T) {
 		t.Fatalf("unknown good icon: status %d, want 404", rec.Code)
 	}
 }
+
+// TestAtelierMakeClothesRefusesHumanOnlyForAnimal: a clothes design whose product is hair is made for a human only. For an
+// ANIMAL the make is refused before any stamina or input is spent (the owned-clothing rule), and the human still makes it.
+func TestAtelierMakeClothesRefusesHumanOnlyForAnimal(t *testing.T) {
+	requireArchive(t)
+	t.Cleanup(func() { atelierFile.Reset() })
+	hair := strings.Replace(string(data.AtelierJSON), `"product_clothes": "CUAH0066I"`, `"product_clothes": "CUHA00001"`, 1)
+	path := filepath.Join(t.TempDir(), "atelier.json")
+	if err := os.WriteFile(path, []byte(hair), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := atelierFile.LoadFrom(path); err != nil {
+		t.Fatalf("hair design: %v", err)
+	}
+	for _, c := range []struct {
+		name, gender string
+		code         int64
+	}{{"human", "FEMALE", AtelierOK}, {"animal", "ANIMAL", AtelierInvalid}} {
+		t.Run(c.name, func(t *testing.T) {
+			bag := []store.GardenBagStack{{Item: 490000, Count: 4}, {Item: 490001, Count: 2}}
+			atelierAccount(t, "9605", 15, bag, nil)
+			if code, _ := AtelierOpenDesign("9605", 101301, atelierNow); code != AtelierOK {
+				t.Fatalf("open = %d", code)
+			}
+			store.AccountsMu.Lock()
+			store.AccountByAidLocked("9605").Gender = c.gender
+			store.AccountsMu.Unlock()
+			code, s := AtelierMakeClothes("9605", 101301, atelierNow)
+			if code != c.code {
+				t.Fatalf("make = %d, want %d (%+v)", code, c.code, s)
+			}
+			if c.code == AtelierInvalid && (s.Stamina != 100 || atelierBag(t, "9605")[490000] != 4) {
+				t.Fatalf("refused make spent stamina %d or inputs %v", s.Stamina, atelierBag(t, "9605"))
+			}
+		})
+	}
+}

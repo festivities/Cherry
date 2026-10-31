@@ -13,6 +13,7 @@ import (
 	"strconv"
 
 	"cherry/internal/assets"
+	"cherry/internal/itemcode"
 	"cherry/internal/room"
 	"cherry/internal/store"
 	"cherry/internal/thumbs"
@@ -67,8 +68,9 @@ func seasonItemAvailable(code string) bool {
 }
 
 // itemGrantLocked gives one item to acc. An item already owned grants nothing: its sell-back Gems
-// (the table price, 100%) are returned for the caller to credit in its own save. It moves no
-// currency itself, so callers can add the Gems to other credits in one ledger line.
+// (the table price, 100%) are returned for the caller to credit in its own save. An item an ANIMAL
+// cannot wear (itemcode.HumanOnly) is paid the same way. It moves no currency itself, so callers can
+// add the Gems to other credits in one ledger line.
 func itemGrantLocked(acc *store.Account, code string) (sellBack int64, err error) {
 	if !itemAvailable(code) {
 		return 0, errItemUnknown
@@ -84,7 +86,7 @@ func itemGrantLocked(acc *store.Account, code string) (sellBack int64, err error
 			return 0, err
 		}
 	}
-	if itemOwnedLocked(acc, code) {
+	if itemOwnedLocked(acc, code) || acc.Gender == "ANIMAL" && itemcode.HumanOnly(code) {
 		return sellBackGems(code), nil
 	}
 	switch kind {

@@ -13,6 +13,7 @@ import (
 
 	"cherry/data"
 	"cherry/internal/httpx"
+	"cherry/internal/itemcode"
 	"cherry/internal/opdata"
 	"cherry/internal/room"
 	"cherry/internal/store"
@@ -155,12 +156,12 @@ func (p gachaPool) pick(rare bool) gachaEntry {
 	return tier[gachaRoll(len(tier))]
 }
 
-// animalPool is the pool an animal avatar draws from: both tiers without the hair and human-face items (spinHumanOnly).
+// animalPool is the pool an animal avatar draws from: both tiers without the hair and human-face items (itemcode.HumanOnly).
 func (p gachaPool) animalPool() gachaPool {
 	keep := func(es []gachaEntry) []gachaEntry {
 		var out []gachaEntry
 		for _, e := range es {
-			if !spinHumanOnly(e.code) {
+			if !itemcode.HumanOnly(e.code) {
 				out = append(out, e)
 			}
 		}
@@ -214,6 +215,15 @@ func gachaRowFor(p gachaPool) gachaRow {
 		Selling: true, Display: true,
 		GachaKindFlagNewTypes: []string{}, GachaKeywords: []string{},
 	}
+}
+
+// gachaPoolFor is the pool a request sees: an animal requester gets animalPool, anyone else the whole pool.
+func gachaPoolFor(r *http.Request) gachaPool {
+	p := gachaPoolNow()
+	if requesterAnimal(r) {
+		p = p.animalPool()
+	}
+	return p
 }
 
 // gachaCollectionFor lists the RARE tier, then a normal sample, up to collection_max rows.
@@ -431,7 +441,7 @@ func handleGachaList(top bool) http.HandlerFunc {
 		rep := gachaListReply{NextCursor: "0", PreviousCursor: "0", TotalCount: "0", VipGrade: "NONE",
 			Items: []gachaRow{}, BannerList: []any{}}
 		if top {
-			rep.TotalCount, rep.Items = "1", []gachaRow{gachaRowFor(gachaPoolNow())}
+			rep.TotalCount, rep.Items = "1", []gachaRow{gachaRowFor(gachaPoolFor(r))}
 		}
 		httpx.WriteObj(w, gachaResult[gachaListReply]{rep})
 	}
@@ -445,7 +455,7 @@ func handleGachaDetail(w http.ResponseWriter, r *http.Request) {
 	rep := gachaDetailReply{NextCursor: "0", PreviousCursor: "0", TotalCount: "0",
 		Items: []gachaDetailItem{}, NewUpgradeItems: []any{}, SimilarGachas: []any{}}
 	if strings.TrimPrefix(r.URL.Path, "/v4/shop/gacha/detail/target/") == strconv.FormatInt(ActiveGacha().ID, 10) {
-		p := gachaPoolNow()
+		p := gachaPoolFor(r)
 		rep.TotalCount = "1"
 		rep.Items = []gachaDetailItem{{gachaRow: gachaRowFor(p), Collection: gachaCollectionFor(p)}}
 	}
@@ -488,7 +498,7 @@ func handleGachaOdds(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(gachaOddsHTML(gachaPoolNow())))
+	_, _ = w.Write([]byte(gachaOddsHTML(gachaPoolFor(r))))
 }
 
 type gachaPurchaseReq struct {
