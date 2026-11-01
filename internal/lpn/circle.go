@@ -28,7 +28,8 @@ const (
 	circleMaxChatLen = 512 // bytes, as Square's chat
 	circleChatCap    = 200 // messages kept per circle
 	circleChatPage   = 50  // messages in one old-chat reply
-	circleSpawnRow   = 30  // ponytail: the spawn steps wrap after 30 avatars so they stay on the spawn row (as Square)
+	circleSpawnTiles = 3   // tiles between spawn slots: one tile drew two avatars on top of each other (device 2026-11-01)
+	circleSpawnRow   = 8   // ponytail: slots wrap after 8 (24 tiles) to stay near the spawn; a 9th avatar shares a slot
 )
 
 // Outbound (client to server) msgids, cs_* GetIndex (appendix B).
@@ -217,7 +218,8 @@ func (r *circleRoom) join(p *circlePlayer, spawnX, spawnY uint64) (roster []byte
 		// The first spawn slot nobody stands on: counting players reused an occupied slot after someone left and came
 		// back, and the two avatars stacked exactly (the bear vanished behind the other avatar, device 2026-11-01).
 		for n := uint64(0); n <= uint64(len(r.players)); n++ {
-			x, y := spawnX+(n%circleSpawnRow)*squareSpawnStepX, spawnY-(n%circleSpawnRow)*squareSpawnStepY
+			k := (n % circleSpawnRow) * circleSpawnTiles
+			x, y := spawnX+k*squareSpawnStepX, spawnY-k*squareSpawnStepY
 			taken := false
 			for _, o := range r.players {
 				if o.x == x && o.y == y {
