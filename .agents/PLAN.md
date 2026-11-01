@@ -42,6 +42,8 @@ You are the receiving agent with **zero context**. The user ran low on usage, so
 
 Read AGENTS, PLAN (Status, Roadmap 7, the start of Feature reference) and JICAMA in full; of HISTORY the last handoff pair with its progress log. Lab rechecked, no corrections: `main` clean and level with origin at `5f9d8da`; Cherry PID 41592 (`D:\Dev\projects\Cherry\cherry.exe`, started 01:34:25), SHA-256 prefix `6954258245e75ae1`, log `cherry-circlemission-20261102-private.log`, `lan=192.168.1.7`; YunDetectService PID 2480; emulator-5554 = AVD Cherry, emulator-5556 = AVD Jerry. Working through "Open tasks" in order.
 
+**Progress 2026-11-02 ~02:30:** Task 1 (spec `%TEMP%\opencode\cherry\circle-20261101\mission-popup.md`): (b) fixed: SubQuestInfo f7 Extra = ParamData {1 Name "target" (required; a missing Name drops the whole sc 52 frame), 2 IntValue = target}; device-verified on AVD Cherry (bar ~45% at 130/300, frames `circle-gauge-20261102\`); (a) and (c) classified as client limits (AGENTS limits "Circle"); (d) traced: sc 52 Result 720897 → arts 5453 + `NotifyQuestEnded` (clears a flag the room never reads [I]) + close; sc 53 success is 0 only, 720897 there → arts 5471. Decline, all-claimed and the mid-season joiner still lack a device run. Task 2: first spec `treasure-20261102\treasure-spec.md` + `appendix.md` (agent 9, tunnel "1.1.114.0", board cells from `sc_room_enter_res` f4, no map pack, art present); second pass running on its section-8 blockers. User-supplied wiki page saved in `treasure-20261102\wiki\` (text `treasure-world-wiki.txt`: seasons Queen's Jewel Box / Meow Pirates / Swan Twins, Ranking Points, secret quests, buff gacha, mailbox rewards).
+
 ## Status (2026-11-02)
 
 | Milestone | Scope | Status |

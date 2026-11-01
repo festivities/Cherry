@@ -946,6 +946,9 @@ func circleQuestBytes(q economy.CircleMissionRow) []byte {
 	sub = pbVar(sub, 3, circleQuestTypeStage)
 	sub = pbLen(sub, 4, []byte(strconv.FormatInt(q.Target, 10)))
 	sub = pbLen(sub, 6, []byte(strconv.FormatInt(q.Stage, 10)))
+	// Extra = ParamData {1 Name (required: an empty or missing one drops the whole sc 52 frame), 2 IntValue}: the
+	// gauge's target (ParseData 0x25033dc reads it for type 2); its current value is PointInfo f5 from relaystart.
+	sub = pbLen(sub, 7, pbVar(pbLen(nil, 1, []byte("target")), 2, uint64(q.Target)))
 	sub = pbVar(sub, 8, boolUint(q.Done))
 	b := pbVar(nil, 1, uint64(q.StartMs))
 	b = pbVar(b, 2, uint64(q.EndMs))

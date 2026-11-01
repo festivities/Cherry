@@ -957,6 +957,10 @@ func TestCircleMissionPopupOverTheWire(t *testing.T) {
 		string(cirBytes(sub, 4)) != "100" || string(cirBytes(sub, 6)) != "1" || cirVar(sub, 8) != 1 {
 		t.Fatalf("stage 1 at 110 points: result %d, info %x", res, q)
 	}
+	// The gauge target: ParamData with a non-empty Name (required, else the client drops the frame) and IntValue 100.
+	if extra := cirBytes(sub, 7); len(cirBytes(extra, 1)) == 0 || cirVar(extra, 2) != 100 {
+		t.Fatalf("stage 1 Extra = %x, want ParamData{Name, IntValue 100}", extra)
+	}
 	leader.send(circleCsQuestReward, nil)
 	if body := leader.expectID(circleRcQuestReward); cirVar(body, 1) != 0 {
 		t.Fatalf("claim result = %d, want 0 (body %x)", cirVar(body, 1), body)
