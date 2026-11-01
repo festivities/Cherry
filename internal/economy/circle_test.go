@@ -134,7 +134,7 @@ func TestCircleDataFileValidation(t *testing.T) {
 		{"logo outside the block", `"id": 1940001001`, `"id": 1940000001`, "logos id 1940000001"},
 		{"background id reused", `"id": 1940001101`, `"id": 1940001001`, "must be unique"},
 		{"art with a slash", `"art": "circle_logo_sd_dp.png"`, `"art": "x/circle_logo_sd_dp.png"`, "art must be"},
-		{"room map not digits", `"map": "2202250100"`, `"map": "2202-250100"`, "room.map must"},
+		{"room map not digits", `"map": "../world/2202250100"`, `"map": "../world/2202-250100"`, "room.map must"},
 		{"room map size 0", `"map_size": 160`, `"map_size": 0`, "room.map_size"},
 		{"room spawn outside the map", `"x": 87`, `"x": 160`, "room.spawn"},
 		{"unknown key", `"max_members": 30`, `"max_members": 30, "bogus": 1`, "bogus"},

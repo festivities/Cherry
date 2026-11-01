@@ -247,7 +247,7 @@ func checkCircleData(c *CircleData) error {
 	case p.MaxMembers < 1 || p.MaxMembers > 100:
 		return errors.New("product.max_members must be 1 to 100")
 	case !circleMapID(c.Room.Map):
-		return errors.New("room.map must be a map folder id (digits only)")
+		return errors.New("room.map must be \"../world/<digits>\" or \"../garden/<digits>\" (or bare digits)")
 	case c.Room.MapSize < 1 || c.Room.MapSize > 1000:
 		return errors.New("room.map_size must be 1 to 1000")
 	case c.Room.Spawn.X >= c.Room.MapSize || c.Room.Spawn.Y >= c.Room.MapSize:
@@ -936,7 +936,18 @@ func CloseCircle(token string, id int64) error {
 }
 
 // circleMapID reports whether s is a map folder id (digits only, as the Square maps are).
+//
+// The circle room loader (NaLayerCircleRoomLoading::InitLoader 0x25f9758) opens files/circle/<map>.mworldpack only, and
+// the client never downloads a circle pack; a missing pack silently returns the player to the Garden (12693 -> 12694,
+// device 2026-11-01). So room.map is a pack name RELATIVE to files/circle/ that names a pack the device already has:
+// "../world/<id>" (Square worlds) or "../garden/<id>" (Garden packs); spec room-enter-bounce.md.
 func circleMapID(s string) bool {
+	for _, dir := range []string{"../world/", "../garden/"} {
+		if rest, ok := strings.CutPrefix(s, dir); ok {
+			s = rest
+			break
+		}
+	}
 	if s == "" {
 		return false
 	}

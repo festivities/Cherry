@@ -362,8 +362,8 @@ func TestCircleLoginAndEnterRules(t *testing.T) {
 	leader := newCirClient(t, rooms, chats, 1101, 4)
 	leader.login()
 	body := leader.enter()
-	if cirVar(body, 1) != circleEnterResult || string(cirBytes(body, 4)) != "2202250100" || cirVar(body, 5) != 2 {
-		t.Fatalf("enter = %x, want result 196609, map 2202250100, PlayerType 2", body)
+	if cirVar(body, 1) != circleEnterResult || string(cirBytes(body, 4)) != "../world/2202250100" || cirVar(body, 5) != 2 {
+		t.Fatalf("enter = %x, want result 196609, map ../world/2202250100, PlayerType 2", body)
 	}
 	members := cirMembers(cirList(body, 6))
 	if len(members) != 4 || members[0].aid != 1101 || members[0].role != 2 || members[1].role != 1 || members[2].role != 0 {
