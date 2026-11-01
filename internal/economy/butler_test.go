@@ -284,31 +284,49 @@ func TestGatherClaimPaysOnce(t *testing.T) {
 	}
 }
 
-// TestGatherStopGoesIdleWithoutReward: stop ends a running gathering with nothing paid and frees the butler, but the start
-// already used the day's allowance. A ready gathering cannot be stopped; a butler that is idle stops as a no-op.
-func TestGatherStopGoesIdleWithoutReward(t *testing.T) {
+// TestGatherStopPaysThePartThatRan: stop ends a running gathering, pays the share of the duration that passed (rounded
+// down) of the items and Gems, returns the unpaid Gems to the day's cap and frees the butler; the day's gather stays
+// used. A ready gathering cannot be stopped; a butler that is idle stops as a no-op.
+func TestGatherStopPaysThePartThatRan(t *testing.T) {
 	butlerAccount(t, "3104", 0, 0)
 	now := time.Date(2026, 10, 28, 3, 0, 0, 0, time.UTC)
 	store.AccountsMu.Lock()
 	store.AccountByAidLocked("3104").Butlers = &store.ButlerBook{Hired: []store.ButlerHire{{ID: ophelia, Begin: now.UnixMilli(), End: now.UnixMilli() + 60*dayMillis}}}
 	store.AccountsMu.Unlock()
 
-	if err := StopButlerGather("3104", ophelia, now); err != nil {
-		t.Fatalf("stop of an idle butler: %v", err)
+	if part, err := StopButlerGather("3104", ophelia, now); err != nil || len(part.Items) != 0 || part.Gems != 0 {
+		t.Fatalf("stop of an idle butler: %+v %v", part, err)
 	}
-	if _, err := StartButlerGather("3104", ophelia, now, func(n int) int { return 0 }); err != nil {
+	rec, err := StartButlerGather("3104", ophelia, now, func(n int) int { return 0 })
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := StopButlerGather("3104", ophelia, now.Add(time.Minute)); err != nil {
-		t.Fatalf("stop: %v", err)
+	if len(rec.Items) != 3 || rec.Gems != 3 {
+		t.Fatalf("rolled %+v, want 3 items and 3 Gems (defaults)", rec)
 	}
-	if _, gems, book, bag := butlerState(t, "3104"); len(book.Gathering) != 0 || gems != 0 || len(bag) != 0 || book.Gathers != 1 {
-		t.Fatalf("after stop: gathering=%+v gems=%d bag=%+v gathers=%d", book.Gathering, gems, bag, book.Gathers)
+	// One minute of sixty pays nothing (rounded down).
+	if part, err := StopButlerGather("3104", ophelia, now.Add(time.Minute)); err != nil || len(part.Items) != 0 || part.Gems != 0 {
+		t.Fatalf("early stop: %+v %v", part, err)
 	}
-	if _, err := StartButlerGather("3104", ophelia, now.Add(2*time.Minute), func(n int) int { return 0 }); err != nil {
+	if _, gems, book, bag := butlerState(t, "3104"); len(book.Gathering) != 0 || gems != 0 || len(bag) != 0 || book.Gathers != 1 || book.Gems != 0 {
+		t.Fatalf("after early stop: gathering=%+v gems=%d bag=%+v gathers=%d dayGems=%d", book.Gathering, gems, bag, book.Gathers, book.Gems)
+	}
+	// Half way pays one of three items and one of three Gems; two Gems go back to the cap.
+	start := now.Add(2 * time.Minute)
+	if _, err := StartButlerGather("3104", ophelia, start, func(n int) int { return 0 }); err != nil {
 		t.Fatalf("restart after stop: %v", err)
 	}
-	if err := StopButlerGather("3104", ophelia, now.Add(2*time.Hour)); err == nil {
+	part, err := StopButlerGather("3104", ophelia, start.Add(30*time.Minute))
+	if err != nil || len(part.Items) != 1 || part.Gems != 1 {
+		t.Fatalf("half-way stop: %+v %v", part, err)
+	}
+	if _, gems, book, bag := butlerState(t, "3104"); len(book.Gathering) != 0 || gems != 1 || len(bag) != 1 || book.Gathers != 2 || book.Gems != 1 {
+		t.Fatalf("after half-way stop: gathering=%+v gems=%d bag=%+v gathers=%d dayGems=%d", book.Gathering, gems, bag, book.Gathers, book.Gems)
+	}
+	if _, err := StartButlerGather("3104", ophelia, start.Add(time.Hour), func(n int) int { return 0 }); err != nil {
+		t.Fatalf("third start: %v", err)
+	}
+	if _, err := StopButlerGather("3104", ophelia, start.Add(3*time.Hour)); err == nil {
 		t.Fatal("stop of a ready gathering accepted")
 	}
 }

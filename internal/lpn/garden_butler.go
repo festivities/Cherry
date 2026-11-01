@@ -307,12 +307,18 @@ func gardenButlerReply(msgid uint16, viewer uint64, data []byte, now time.Time, 
 			logger.Printf("BUTLER gather start aid=%s butler=%d items=%d gems=%d result=0", aid, id, len(g.Items), g.Gems)
 			return []gardenMsg{{59, butlerGatherBody(0, 3, butlerSeconds(g.End))}}
 		case 4:
-			if err := economy.StopButlerGather(aid, int64(id), now); err != nil {
+			part, err := economy.StopButlerGather(aid, int64(id), now)
+			if err != nil {
 				logger.Printf("BUTLER gather stop aid=%s butler=%d result=217095 err=%v", aid, id, err)
 				return []gardenMsg{{59, pbVar(nil, 1, 217095)}}
 			}
-			logger.Printf("BUTLER gather stop aid=%s butler=%d result=0", aid, id)
-			return []gardenMsg{{59, butlerGatherBody(0, 1, 0)}}
+			logger.Printf("BUTLER gather stop aid=%s butler=%d items=%d gems=%d result=0", aid, id, len(part.Items), part.Gems)
+			// The part that ran is paid silently (no popup exists for a stop); hc 28 refreshes the Gem HUD.
+			msgs := []gardenMsg{{59, butlerGatherBody(0, 1, 0)}}
+			if part.Gems > 0 {
+				msgs = append(msgs, gardenMsg{28, pbVar(nil, 2, 0)})
+			}
+			return msgs
 		}
 		logger.Printf("BUTLER gather aid=%s butler=%d status=%d result=217095", aid, id, status)
 		return []gardenMsg{{59, pbVar(nil, 1, 217095)}}
@@ -333,7 +339,8 @@ func gardenButlerReply(msgid uint16, viewer uint64, data []byte, now time.Time, 
 			g, err := economy.ClaimButlerGather(aid, int64(id), int64(sub), now)
 			if err == nil {
 				logger.Printf("BUTLER claim aid=%s butler=%d items=%d gems=%d result=0", aid, id, len(g.Items), g.Gems)
-				return []gardenMsg{{65, butlerClaimBody()}}
+				// hc 28 (quest call-npc reply) makes the client refetch coin/balance, as after a gather.
+				return []gardenMsg{{65, butlerClaimBody()}, {28, pbVar(nil, 2, 0)}}
 			}
 			logger.Printf("BUTLER claim aid=%s butler=%d sub=%d err=%v", aid, id, sub, err)
 		}

@@ -429,6 +429,9 @@ func TestButlerGatherSequence(t *testing.T) {
 	msgs = request(55, now.Add(time.Hour), 1, ophelia, 2, 1, 3, uint64(now.Unix()))
 	checkButlerWire(t, "claim", msgs[0].body)
 	expectResult(msgs[0], 65, 0)
+	if len(msgs) != 2 || msgs[1].id != 28 {
+		t.Fatalf("claim: want hc 65 then the coin refresh hc 28, got %d messages", len(msgs))
+	}
 	if gems, bag, stacks := state(); gems != 3 || bag != 3 || stacks != 3 {
 		t.Fatalf("claim: gems=%d bag=%d stacks=%d, want 3 gems, 3 materials in 3 stacks", gems, bag, stacks)
 	}
