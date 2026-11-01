@@ -38,6 +38,10 @@ You are the receiving agent with **zero context**. The user ran low on usage, so
 - **A stopped `reverse-engineer` leaves its IDA session open and its copy on disk:** `mcp__ida-mcp__list_databases`, close it, delete `libgame-<job>.*` (done for this session's jobs).
 - **Saved frames:** `%TEMP%\opencode\cherry\circle-flows-20261101\`, `circle-icons-20261101\`, `circle-{claim,reward,upclose,mission}-20261102\`. New specs in `circle-20261101\`: `room-buttons.md` (section 8 corrects the earlier sections), `manage-applications.md`, `missions-ranking.md`, `point-reward.md`.
 
+### HANDOFF ACCEPTED — 2026-11-02 (new Claude Code session)
+
+Read AGENTS, PLAN (Status, Roadmap 7, the start of Feature reference) and JICAMA in full; of HISTORY the last handoff pair with its progress log. Lab rechecked, no corrections: `main` clean and level with origin at `5f9d8da`; Cherry PID 41592 (`D:\Dev\projects\Cherry\cherry.exe`, started 01:34:25), SHA-256 prefix `6954258245e75ae1`, log `cherry-circlemission-20261102-private.log`, `lan=192.168.1.7`; YunDetectService PID 2480; emulator-5554 = AVD Cherry, emulator-5556 = AVD Jerry. Working through "Open tasks" in order.
+
 ## Status (2026-11-02)
 
 | Milestone | Scope | Status |
