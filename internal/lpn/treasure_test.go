@@ -36,7 +36,7 @@ var (
 	treReward  = lpMsg{1: {wire: 0}, 2: {wire: 2, rep: true, msg: treItem}, 5: {wire: 2}}
 	treCoin    = lpMsg{1: {wire: 0, req: true}}
 	treBonus   = lpMsg{1: {wire: 0, req: true}, 3: {wire: 2}, 4: {wire: 0}}
-	treRanking = lpMsg{1: {wire: 0}, 2: {wire: 0}, 3: {wire: 0}, 4: {wire: 0}, 5: {wire: 0}, 10: {wire: 0}}
+	treRanking = lpMsg{1: {wire: 0}, 2: {wire: 0}, 3: {wire: 0}, 4: {wire: 0}, 5: {wire: 0}, 6: {wire: 0}, 7: {wire: 0}, 10: {wire: 0}}
 	treDetail  = lpMsg{1: {wire: 2, msg: treReward}, 3: {wire: 2, msg: treCoin}, 4: {wire: 2, msg: treRanking}, 6: {wire: 2, msg: treBonus}}
 	treRoll    = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 0, req: true}, 4: {wire: 0, req: true}, 5: {wire: 0, req: true}, 6: {wire: 2, req: true, msg: treCell}, 7: {wire: 2, msg: treDetail}, 8: {wire: 0, req: true}, 9: {wire: 2, msg: treReward}}
 	treRollNo  = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0}, 3: {wire: 0}, 4: {wire: 0}, 5: {wire: 0}}

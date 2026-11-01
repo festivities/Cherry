@@ -66,7 +66,7 @@ func (s *treasureSession) questList(frame []byte) error {
 		body = pbLen(body, 3, treasureMissionRow(m))
 	}
 	body = pbVar(body, 4, boolUint(lists.FreeRefresh))
-	body = pbVar(body, 5, uint64(lists.ResetMs))
+	body = pbVar(body, 5, uint64(lists.ResetMs/1000)) // Unix seconds: the client shows QuestResetTime - time(NULL) (slice2-fixes.md C)
 	s.logger.Printf("TREASURE msgid=16 quest list aid=%d quests=%d missions=%d free=%v result=0", s.aid, len(lists.Quests), len(lists.Missions), lists.FreeRefresh)
 	return s.reply(frame, treasureRcQuestList, body)
 }
@@ -113,7 +113,7 @@ func (s *treasureSession) questClaim(frame, data []byte) error {
 	body = pbVar(body, 6, uint64(claim.View.RemainSeconds))
 	body = pbVar(body, 7, uint64(claim.View.ChargeSeconds))
 	body = pbVar(body, 8, boolUint(claim.Lists.FreeRefresh))
-	body = pbVar(body, 9, uint64(claim.Lists.ResetMs))
+	body = pbVar(body, 9, uint64(claim.Lists.ResetMs/1000)) // Unix seconds
 	for _, q := range treasureQuestRows(claim.Lists) {
 		body = pbLen(body, 10, q)
 	}
@@ -139,7 +139,7 @@ func (s *treasureSession) questRefresh(frame, data []byte) error {
 		body = pbLen(body, 2, q)
 	}
 	body = pbVar(body, 3, boolUint(lists.FreeRefresh))
-	body = pbVar(body, 4, uint64(lists.ResetMs))
+	body = pbVar(body, 4, uint64(lists.ResetMs/1000)) // Unix seconds: the client shows QuestResetTime - time(NULL) (slice2-fixes.md C)
 	s.logger.Printf("TREASURE msgid=19 quest refresh aid=%d quests=%d result=0", s.aid, len(lists.Quests))
 	return s.reply(frame, treasureRcQuestRefresh, body)
 }

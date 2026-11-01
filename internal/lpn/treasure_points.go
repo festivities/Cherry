@@ -43,6 +43,10 @@ func treasureRankingDetail(v economy.TreasureView) []byte {
 	b = pbVar(b, 3, uint64(v.ExchangeLeft))
 	b = pbVar(b, 4, uint64(v.ExchangeRate))
 	b = pbVar(b, 5, uint64(v.ExchangeMax))
+	// VipMultiple (6) and VipMaxChangeCoinCount (7): without them the popup reads "Up to 0 for VIPs" (slice2-fixes.md A).
+	// Cherry has no VIP, so a VIP gets the same rate and limit.
+	b = pbVar(b, 6, uint64(v.ExchangeRate))
+	b = pbVar(b, 7, uint64(v.ExchangeMax))
 	return pbVar(b, 10, boolUint(v.ExchangeReset))
 }
 

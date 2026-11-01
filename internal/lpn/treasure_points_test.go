@@ -193,7 +193,7 @@ func TestTreasureRewardsAndQuestsOverTheGateway(t *testing.T) {
 		t.Fatalf("quest list = %x", lists)
 	}
 	if cirVar(missions[0], 1) != 101 || cirVar(missions[0], 6) != 3 || cirVar(lists, 4) != 0 ||
-		cirVar(lists, 5) != uint64(treTime.Add(24*time.Hour).UnixMilli()) {
+		cirVar(lists, 5) != uint64(treTime.Add(24*time.Hour).Unix()) {
 		t.Fatalf("mission list = %x, free refresh and reset time", missions[0])
 	}
 
