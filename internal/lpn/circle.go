@@ -23,7 +23,7 @@ const (
 	circleLoginResult = 131073 // sc_login_res: the client then sends cs_room_enter_req; anything else is its error path
 	circleEnterResult = 196609 // sc_room_enter_res: any other result is the client's error path (12702) [S]
 	circleRelayResult = 196865 // sc_room_relaystart_res: any other result is an error (12704/12705) [S]
-	circleRefused     = 1      // ponytail: one refusal result for every member and purchase refusal; the client's text is not traced [I]
+	circleRefused     = 1      // ponytail: one refusal result for every member and purchase refusal; sc 52 and 53 show the network-error text for it (0x25237bc, 0x24c53bc) [S]
 
 	// circlePointRefused is the sc_point_reward_res refusal: 655363, the client's "unexpected error" row (arts 5367). The
 	// table's other rows are 655361 "invalid request" (5366), 655362 "already received" (5365), 655364 "season ended" (5409).
@@ -113,7 +113,8 @@ const (
 	circleRcQuestList      = 52
 	circleRcQuestReward    = 53
 	circleRcPetRide        = 54
-	circleQuestNextResult  = 720897 // sc_quest_list_res Result with no missions: "The next mission's now underway" [S], then the popup closes
+	circleQuestNextResult  = 720897 // sc_quest_list_res Result with no mission left: "The next mission's now underway" (arts 5453) [S], then the popup closes
+	circleQuestTypeStage   = 2      // SubQuestInfo Type of "Clear Stage %s for Circle points!" (arts 5485): SetCellLayer case 2 [S]
 )
 
 // circlePlayer is one avatar in a circle room.
@@ -571,7 +572,9 @@ func (s *circleSession) relayStart(frame []byte) error {
 	// sc 48 (the relay does not post it), so the same PointInfo follows the reply at once (room-buttons.md 1.3, 3.2).
 	points := economy.CirclePointInfoOf(s.aidText(), economy.NowFunc())
 	body := append(pbVar(nil, 1, circleRelayResult), roster...)
-	// No mission button: the fashion-quest popup is a fixed template and cannot show Cherry's missions (circle-20261101\missions-ranking.md A).
+	// The mission button comes first (index 0), the gacha second (room-buttons.md 8.6). The f3 keys are the world_icon.aniproj
+	// keys (the bare names draw nothing, 8.4). The button stays whether or not a mission is left.
+	body = pbLen(body, 6, circleButtonBytes("world_icon/72_circle_mission", "goSomewhere(circleFashionQuest)", "0,0,0"))
 	if economy.ActiveCircleData().Gacha.Enabled {
 		body = pbLen(body, 6, circleButtonBytes("world_icon/66_circle_gacha", "goSomewhere(gachaMain)", "0,0,0"))
 	}
@@ -849,18 +852,23 @@ func (s *circleSession) pointReward(frame, data []byte) error {
 	return s.reply(frame, circleRcPointReward, pbLen(body, 3, circlePointInfoBytes(info)))
 }
 
-// questList answers cs_quest_list_req (msgid 34) with sc_quest_list_res (52) and no missions: Result 720897 is the client's
-// "next mission" text, so a stale request does not show "Done" (circle-20261101\missions-ranking.md A.4). A player in no
-// circle is refused.
+// questList answers cs_quest_list_req (msgid 34) with sc_quest_list_res (52): the member's current mission as one QuestInfo,
+// or Result 720897 with no Info once every mission is claimed (the client shows arts 5453 and closes the popup). A player
+// in no circle is refused.
 func (s *circleSession) questList(frame []byte) error {
 	if _, _, ok := economy.CircleOf(s.aidText()); !ok {
 		return s.reply(frame, circleRcQuestList, pbVar(nil, 1, circleRefused))
 	}
-	return s.reply(frame, circleRcQuestList, pbVar(nil, 1, circleQuestNextResult))
+	row, ok := economy.CircleMissionCurrent(s.aidText(), economy.NowFunc())
+	if !ok {
+		return s.reply(frame, circleRcQuestList, pbVar(nil, 1, circleQuestNextResult))
+	}
+	return s.reply(frame, circleRcQuestList, pbLen(pbVar(nil, 1, 0), 2, circleQuestBytes(row)))
 }
 
-// questReward answers cs_quest_reward_req (msgid 35, no fields) with sc_quest_reward_res (53): the current mission's
-// reward is paid when its goals are met. The request names no mission, so the server claims the current one.
+// questReward answers cs_quest_reward_req (msgid 35, no fields) with sc_quest_reward_res (53): the current mission's Gems
+// are paid once the circle has reached its step. The request names no mission, so the server claims the current one. A
+// refusal is circleRefused, which the client shows as its network-error text (ShowErrorMessage 0x24c53bc) [S].
 func (s *circleSession) questReward(frame []byte) error {
 	gems, points, err := economy.CircleMissionClaim(s.aidText(), economy.NowFunc())
 	if err != nil {
@@ -868,6 +876,7 @@ func (s *circleSession) questReward(frame []byte) error {
 		return s.reply(frame, circleRcQuestReward, pbVar(nil, 1, circleRefused))
 	}
 	s.logger.Printf("CIRCLE mission claim aid=%d gems=%d points=%d", s.aid, gems, points)
+	queueMoneySync(uint64(s.aid)) // the balance is refetched on the next Garden, as after a point step
 	return s.reply(frame, circleRcQuestReward, pbVar(nil, 1, 0))
 }
 
@@ -924,27 +933,28 @@ func circleUpgradeShopBytes(row economy.CircleUpgradeRow) []byte {
 	return pbVar(b, 14, boolUint(row.Purchasable))
 }
 
-// circleQuestBytes encodes one mission as QuestInfo: 1 Startdate, 2 Enddate (ms), 3 Subquest (one SubQuestInfo per goal:
-// 1 Complete = the member's count, 2 Index, 3 Type, 4 TargetValue = the goal count, 6 Msg, 8 Status), 4 Reward (a Gem
-// row and, when the mission pays points, a points row), 5 RewardState. [I] the meanings of Complete and Status and the
-// reward rows' rendering are not traced.
-func circleQuestBytes(q economy.CircleQuestRow) []byte {
+// circleQuestBytes encodes the current mission as QuestInfo (sCircleQuestInfo::ParseData 0x2521fac [S]): 1 Startdate and
+// 2 Enddate (ms), 3 Subquest (one SubQuestInfo, sCircleSubQuestInfo::ParseData 0x25033dc [S]): 1 Complete (a bool, set when
+// done), 2 Index (1-based: the client stores the sub-quest at Index-1 and skips an Index of 0), 3 Type 2 (the "Clear Stage"
+// template, SetCellLayer 0x24c6d50 [S]), 4 TargetValue (the step's points: the target number, SetTargetCirclePointImageNum
+// 0x24c7710 [S]), 6 Msg (the stage number, SetMissionRichText 0x24c6e34 [S]), 8 Status (1 only when done: it shows the Done
+// stamp, InitUI 0x24fd010 [S]); 4 Reward (the Gem row first, the only row the reward popup draws, then a points row); 5
+// RewardState (0 not claimable, 1 claimable: tags 54 and 53 of the reward cell, SetRewardButtonState 0x24c861c [S]).
+func circleQuestBytes(q economy.CircleMissionRow) []byte {
+	sub := pbVar(nil, 1, boolUint(q.Done))
+	sub = pbVar(sub, 2, 1)
+	sub = pbVar(sub, 3, circleQuestTypeStage)
+	sub = pbLen(sub, 4, []byte(strconv.FormatInt(q.Target, 10)))
+	sub = pbLen(sub, 6, []byte(strconv.FormatInt(q.Stage, 10)))
+	sub = pbVar(sub, 8, boolUint(q.Done))
 	b := pbVar(nil, 1, uint64(q.StartMs))
 	b = pbVar(b, 2, uint64(q.EndMs))
-	for i, g := range q.Goals {
-		sub := pbVar(nil, 1, uint64(g.Progress))
-		sub = pbVar(sub, 2, uint64(i))
-		sub = pbVar(sub, 3, 0)
-		sub = pbLen(sub, 4, []byte(strconv.FormatInt(g.Count, 10)))
-		sub = pbLen(sub, 6, []byte(g.Text))
-		sub = pbVar(sub, 8, boolUint(g.Done))
-		b = pbLen(b, 3, sub)
-	}
+	b = pbLen(b, 3, sub)
 	b = pbLen(b, 4, circleQuestReward("+"+strconv.FormatInt(q.Gems, 10)+" Gems", q.Gems))
 	if q.Points > 0 {
 		b = pbLen(b, 4, circleQuestReward("+"+strconv.FormatInt(q.Points, 10)+" Circle points", q.Points))
 	}
-	return pbVar(b, 5, uint64(q.RewardState))
+	return pbVar(b, 5, boolUint(q.Claimable))
 }
 
 // circleQuestReward encodes a QuestReward row: 6 ItemAmount, 3 ItemCode (empty), 4 ItemName (the text the row shows).

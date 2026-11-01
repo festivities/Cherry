@@ -136,20 +136,13 @@ type CircleStep struct {
 	Gems   int64 `json:"gems"`
 }
 
-// CircleMission is one link of the mission chain: each goal is a season count of one trigger kind. Gems go to the
-// member who claims it, and Points to the circle's season total.
+// CircleMission is one link of the mission chain, the client's mission type 2 ("Clear Stage %s for Circle points!"): the
+// circle clears it when its season total reaches point step Stage (1-based, into points.steps). Gems go to the member who
+// claims it, and Points to the circle's season total.
 type CircleMission struct {
-	Name   string       `json:"name"`
-	Goals  []CircleGoal `json:"goals"`
-	Gems   int64        `json:"gems"`
-	Points int64        `json:"points"`
-}
-
-// CircleGoal is one goal of a mission: Count credits of Kind in the season, text is shown on the goal's row.
-type CircleGoal struct {
-	Kind  string `json:"kind"`
-	Count int64  `json:"count"`
-	Text  string `json:"text"`
+	Stage  int64 `json:"stage"`
+	Gems   int64 `json:"gems"`
+	Points int64 `json:"points"`
 }
 
 // CircleUpgrade is a member-cap step: the cap becomes To, for PriceGems Gems. Code is the product code the client sends
@@ -307,13 +300,13 @@ func checkCircleRules(c *CircleData) error {
 		}
 	}
 	for i, m := range c.Missions {
-		if m.Name == "" || len(m.Goals) == 0 || m.Gems < 0 || m.Gems > 100000 || m.Points < 0 || m.Points > 100000 {
-			return fmt.Errorf("missions[%d]: needs a name, at least one goal, and gems and points of 0 to 100000", i)
-		}
-		for _, g := range m.Goals {
-			if !slices.Contains(circleKinds, g.Kind) || g.Count < 1 || g.Count > 100000 || g.Text == "" {
-				return fmt.Errorf("missions[%d]: each goal needs a trigger kind, a count of 1 to 100000 and a text", i)
-			}
+		switch {
+		case m.Stage < 1 || m.Stage > int64(len(p.Steps)):
+			return fmt.Errorf("missions[%d]: stage %d is not a point step (points.steps has %d)", i, m.Stage, len(p.Steps))
+		case i > 0 && m.Stage <= c.Missions[i-1].Stage:
+			return fmt.Errorf("missions[%d]: stages must rise", i)
+		case m.Gems < 0 || m.Gems > 100000 || m.Points < 0 || m.Points > 100000:
+			return fmt.Errorf("missions[%d]: gems and points must be 0 to 100000", i)
 		}
 	}
 	base := int64(c.Product.MaxMembers)

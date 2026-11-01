@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -73,7 +74,14 @@ func cptEarnDay(aid string, now time.Time) {
 // cptCircle is a fixture: a circle led by 3001 (Gems 8000) with members 3002 and 3003, all formed before season 1.
 func cptCircle(t *testing.T) int64 {
 	t.Helper()
-	circFixture(t, map[string]int64{"3001": 8000, "3002": 0, "3003": 0, "3004": 0})
+	id, _ := cptCircleDir(t)
+	return id
+}
+
+// cptCircleDir is cptCircle, and also the directory its ledger and circles.json are written to.
+func cptCircleDir(t *testing.T) (int64, string) {
+	t.Helper()
+	dir := circFixture(t, map[string]int64{"3001": 8000, "3002": 0, "3003": 0, "3004": 0})
 	c, err := CreateCircle("ctok-3001", circValidCreate("Points"), cptFounded())
 	if err != nil {
 		t.Fatal(err)
@@ -83,7 +91,7 @@ func cptCircle(t *testing.T) int64 {
 			t.Fatal(err)
 		}
 	}
-	return c.ID
+	return c.ID, dir
 }
 
 // TestCirclePointsDailyCap: a member's day is capped at points.daily_cap, each once-a-day trigger counts once, and a
@@ -107,8 +115,8 @@ func TestCirclePointsDailyCap(t *testing.T) {
 	if n := CirclePointEarn("3002", "chat", d); n != 0 {
 		t.Fatalf("a credit past the cap gave %d points", n)
 	}
-	if ms := cptMember(t, id, 1, "3002"); ms.Points != 60 || ms.Progress["chat"] != 1 {
-		t.Fatalf("member after the cap = %+v (a capped event still counts for missions)", ms)
+	if ms := cptMember(t, id, 1, "3002"); ms.Points != 60 {
+		t.Fatalf("member after the cap = %+v", ms)
 	}
 	if n := CirclePointEarn("3002", "garden", d.Add(time.Hour)); n != 0 {
 		t.Fatalf("a second garden credit on the same day gave %d", n)
@@ -214,43 +222,114 @@ func TestCirclePointStepClaimOnce(t *testing.T) {
 	}
 }
 
-// TestCircleMissionClaimOnce: missions come in order. Each pays its Gems and points once per member per season; the
-// next one needs its own goals met.
+// cptSetTotal sets the circle's total in season n (the mission tests need more points than a few days of play give).
+func cptSetTotal(t *testing.T, id, n, total int64) {
+	t.Helper()
+	store.CirclesMu.Lock()
+	defer store.CirclesMu.Unlock()
+	for i := range store.CircleState.Circles {
+		if c := &store.CircleState.Circles[i]; c.ID == id {
+			circleSeasonRec(c, n, true).Total = total
+			return
+		}
+	}
+	t.Fatalf("circle %d is missing", id)
+}
+
+// cptJoinLate moves aid's join time to an hour after season 1 starts: aid may earn and claim nothing this season.
+func cptJoinLate(t *testing.T, aid string) {
+	t.Helper()
+	store.CirclesMu.Lock()
+	defer store.CirclesMu.Unlock()
+	for i := range store.CircleState.Circles {
+		for j := range store.CircleState.Circles[i].Members {
+			if m := &store.CircleState.Circles[i].Members[j]; m.Aid == aid {
+				m.Joined = cptSeasonStart(1).Add(time.Hour).UnixMilli()
+			}
+		}
+	}
+}
+
+// TestCircleMissionClaimOnce: the current mission is stage 1 until the circle reaches its step (100 points). Its Gems are
+// paid once through the ledger as circle:mission:1:1, the mission's 20 points join the circle, and stage 2 (300 points)
+// becomes the current mission, not done.
 func TestCircleMissionClaimOnce(t *testing.T) {
-	id := cptCircle(t)
-	for d := 0; d < 3; d++ { // garden on three days: mission 1
+	id, dir := cptCircleDir(t)
+	if row, ok := CircleMissionCurrent("3002", cptDay(0)); !ok || row.Stage != 1 || row.Target != 100 || row.Done || row.Claimable {
+		t.Fatalf("mission before any points = %+v", row)
+	}
+	if _, _, err := CircleMissionClaim("3002", cptDay(0)); !isRefusal(err, circleErrGeneric) {
+		t.Fatalf("claim before the step was reached: %v", err)
+	}
+	for d := 0; d < 10; d++ { // the garden once a day: 10 points a day, 100 in all
 		CirclePointEarn("3002", "garden", cptDay(d))
 	}
-	if _, _, err := CircleMissionClaim("3002", cptDay(2)); err != nil {
-		t.Fatalf("mission 1 claim: %v", err)
+	if row, _ := CircleMissionCurrent("3002", cptDay(9)); !row.Done || !row.Claimable || row.Stage != 1 {
+		t.Fatalf("mission at the step = %+v", row)
+	}
+	gems, points, err := CircleMissionClaim("3002", cptDay(9))
+	if err != nil || gems != 100 || points != 20 {
+		t.Fatalf("mission 1 claim: gems %d points %d err %v", gems, points, err)
 	}
 	if got := gemsOf(t, "3002"); got != 100 {
 		t.Fatalf("mission 1 Gems = %d, want 100", got)
 	}
-	if cptTotal(t, id, 1) != 30+20 { // three gardens (30) and the mission's 20 points
-		t.Fatalf("circle total after mission 1 = %d, want 50", cptTotal(t, id, 1))
+	// the fixture's circle creation is the first line; the mission's +100 Gems is the second
+	if lines := ledgerLines(t, dir); len(lines) != 2 || !strings.Contains(lines[1], `"delta":100`) || !strings.Contains(lines[1], `"reason":"circle:mission:1:1"`) {
+		t.Fatalf("ledger after mission 1 = %q", lines)
 	}
-	if _, _, err := CircleMissionClaim("3002", cptDay(2)); !isRefusal(err, circleErrGeneric) {
-		t.Fatalf("mission 1 claimed twice, or mission 2 claimed unmet: %v", err)
+	if got := cptTotal(t, id, 1); got != 120 { // 100 from the garden days and the mission's 20 points
+		t.Fatalf("circle total after mission 1 = %d, want 120", got)
 	}
-	rows, ok := CircleMissionRows("3002", cptDay(2))
-	if !ok || rows[0].RewardState != 2 || rows[1].RewardState != 0 {
-		t.Fatalf("mission rows after the claim = %+v", rows)
+	if _, _, err := CircleMissionClaim("3002", cptDay(9)); !isRefusal(err, circleErrGeneric) {
+		t.Fatalf("mission 1 claimed twice, or stage 2 claimed unmet: %v", err)
 	}
-	for d := 3; d < 6; d++ { // square on three days and five gathers: mission 2
-		CirclePointEarn("3002", "square", cptDay(d))
+	if got := gemsOf(t, "3002"); got != 100 {
+		t.Fatalf("a refused claim paid Gems: %d", got)
 	}
-	for i := 0; i < 5; i++ {
-		CirclePointEarn("3002", "gather", cptDay(3))
+	if row, ok := CircleMissionCurrent("3002", cptDay(9)); !ok || row.Stage != 2 || row.Target != 300 || row.Done || row.Claimable {
+		t.Fatalf("next mission = %+v, want stage 2 not done", row)
 	}
-	if _, _, err := CircleMissionClaim("3002", cptDay(5)); err != nil {
-		t.Fatalf("mission 2 claim: %v", err)
+}
+
+// TestCircleMissionsAllClaimed: with the circle past every step, the three missions pay in order (450 Gems), and then no
+// mission is current and a further claim is refused.
+func TestCircleMissionsAllClaimed(t *testing.T) {
+	id := cptCircle(t)
+	cptSetTotal(t, id, 1, 1000)
+	for i, want := range []int64{100, 150, 200} {
+		if gems, _, err := CircleMissionClaim("3002", cptDay(0)); err != nil || gems != want {
+			t.Fatalf("mission %d claim: gems %d err %v, want %d", i+1, gems, err, want)
+		}
 	}
-	if got := gemsOf(t, "3002"); got != 250 {
-		t.Fatalf("Gems after mission 2 = %d, want 250", got)
+	if _, ok := CircleMissionCurrent("3002", cptDay(0)); ok {
+		t.Fatal("a mission is still current after all three were claimed")
 	}
-	if rows, _ := CircleMissionRows("3002", cptDay(5)); rows[2].RewardState != 0 || rows[2].Goals[0].Progress != 0 {
-		t.Fatalf("mission 3 before its goals = %+v", rows[2])
+	if _, _, err := CircleMissionClaim("3002", cptDay(0)); !isRefusal(err, circleErrGeneric) {
+		t.Fatalf("claim after all missions: %v", err)
+	}
+	if got := gemsOf(t, "3002"); got != 450 {
+		t.Fatalf("Gems after all missions = %d, want 450", got)
+	}
+}
+
+// TestCircleMissionLateJoinerGetsNoRewards: a member who joined after the season started sees the same mission, done once
+// the circle reaches the step, but cannot claim it (arts 5464 and 5479), and a refused claim leaves the total as it is.
+func TestCircleMissionLateJoinerGetsNoRewards(t *testing.T) {
+	id := cptCircle(t)
+	cptJoinLate(t, "3003")
+	cptSetTotal(t, id, 1, 300)
+	if row, ok := CircleMissionCurrent("3003", cptDay(0)); !ok || row.Stage != 1 || !row.Done || row.Claimable {
+		t.Fatalf("late member's mission = %+v, want stage 1 done and not claimable", row)
+	}
+	if _, _, err := CircleMissionClaim("3003", cptDay(0)); !isRefusal(err, circleErrGeneric) {
+		t.Fatalf("late member claimed: %v", err)
+	}
+	if got := gemsOf(t, "3003"); got != 0 {
+		t.Fatalf("late member Gems = %d, want 0", got)
+	}
+	if got := cptTotal(t, id, 1); got != 300 {
+		t.Fatalf("circle total after a refused claim = %d, want 300", got)
 	}
 }
 
@@ -353,7 +432,7 @@ func circleMembersForTest(t *testing.T, id int64) []store.CircleMember {
 }
 
 // TestCircleSeasonStartRules: the data is checked at startup: a bad season start, steps that do not rise, an upgrade
-// that does not rise, and a goal with no trigger kind are refused.
+// that does not rise, and a mission that names no point step (or out of order, or negative Gems) are refused.
 func TestCircleSeasonStartRules(t *testing.T) {
 	base := *ActiveCircleData()
 	if err := checkCircleRules(&base); err != nil {
@@ -376,10 +455,20 @@ func TestCircleSeasonStartRules(t *testing.T) {
 		t.Fatal("an upgrade that does not rise passed")
 	}
 	bad = base
-	bad.Missions = slices.Clone(base.Missions)
-	bad.Missions[0].Goals = []CircleGoal{{Kind: "fishing", Count: 1, Text: "x"}}
+	bad.Missions = []CircleMission{{Stage: 9, Gems: 1, Points: 1}}
 	if checkCircleRules(&bad) == nil {
-		t.Fatal("an unknown goal kind passed")
+		t.Fatal("a stage that is not a point step passed")
+	}
+	bad.Missions = []CircleMission{{Stage: 2, Gems: 1}, {Stage: 2, Gems: 1}}
+	if checkCircleRules(&bad) == nil {
+		t.Fatal("stages that do not rise passed")
+	}
+	bad.Missions = []CircleMission{{Stage: 1, Gems: -1}}
+	if checkCircleRules(&bad) == nil {
+		t.Fatal("negative Gems passed")
+	}
+	if err := checkCircleRules(&base); err != nil {
+		t.Fatalf("the shipped missions fail the check: %v", err)
 	}
 }
 

@@ -106,9 +106,8 @@ func circlePointsOf(c *store.Circle, n int64, aid string) (total int64, ms store
 
 // CirclePointEarn credits one event of kind trigger to aid's circle in the current season. The credit is the trigger's
 // points, cut to what is left of the member's daily cap (points.daily_cap per game day), and it is refused past the
-// trigger's per_day count (a refused credit gives nothing and counts for no mission); an event past the daily cap still
-// counts for missions. A member who joined after the
-// season started, or who is in no circle, gets nothing. It returns the points given.
+// trigger's per_day count. A member who joined after the season started, or who is in no circle, gets nothing. It
+// returns the points given.
 func CirclePointEarn(aid, kind string, now time.Time) int64 {
 	store.CirclesMu.Lock()
 	defer store.CirclesMu.Unlock()
@@ -151,15 +150,10 @@ func creditCirclePoints(b *store.CircleBook, aid, kind string, now time.Time) (i
 	if t.PerDay > 0 && ms.DayKinds[kind] >= t.PerDay {
 		return 0, false
 	}
-	// Mission progress counts every event within per_day, even past the daily point cap; only the points are capped.
 	if ms.DayKinds == nil {
 		ms.DayKinds = map[string]int64{}
 	}
 	ms.DayKinds[kind]++
-	if ms.Progress == nil {
-		ms.Progress = map[string]int64{}
-	}
-	ms.Progress[kind]++
 	pts := max(min(t.Points, d.DailyCap-ms.DayPts), 0)
 	ms.Points += pts
 	ms.DayPts += pts
@@ -273,72 +267,52 @@ func CirclePointClaim(aid string, seq int64, now time.Time) (int64, error) {
 	return gems, err
 }
 
-// CircleQuestRow is one mission as the client reads a QuestInfo: its season bounds, its goals with the member's
-// progress, its Gems and points, and RewardState (0 not yet complete, 1 claimable now, 2 claimed).
-type CircleQuestRow struct {
-	Index       int
-	StartMs     int64
-	EndMs       int64
-	Goals       []CircleGoalRow
-	Gems        int64
-	Points      int64
-	RewardState int64
+// CircleMissionRow is the current mission of one member as the client reads a QuestInfo: the point step it names (Stage)
+// and that step's points (Target), the season's bounds, its Gems and points, whether the circle has reached the step
+// (Done) and whether this member may claim it now (Claimable: done, eligible and not claimed yet).
+type CircleMissionRow struct {
+	Stage, Target  int64
+	StartMs, EndMs int64
+	Gems, Points   int64
+	Done           bool
+	Claimable      bool
 }
 
-// CircleGoalRow is one goal with the member's count (capped at the goal's count).
-type CircleGoalRow struct {
-	Kind     string
-	Text     string
-	Count    int64
-	Progress int64
-	Done     bool
-}
-
-// circleMissionRows lists the missions of the current season for aid's circle (nil when aid is in no circle).
-func circleMissionRows(b *store.CircleBook, aid string, now time.Time) ([]CircleQuestRow, bool) {
+// circleMissionCurrent returns aid's current mission: the first one this member has not claimed this season. ok is false
+// for a player in no circle and for a member who has claimed every mission.
+func circleMissionCurrent(b *store.CircleBook, aid string, now time.Time) (CircleMissionRow, bool) {
 	ci := circleOf(b, aid)
 	if ci < 0 {
-		return nil, false
+		return CircleMissionRow{}, false
 	}
 	c := &b.Circles[ci]
 	season := circleSeasonAt(now)
-	_, ms := circlePointsOf(c, season, aid)
-	start, end := circleSeasonBounds(season)
-	rows := []CircleQuestRow{}
-	for i, m := range ActiveCircleData().Missions {
-		row := CircleQuestRow{Index: i, StartMs: start, EndMs: end, Gems: m.Gems, Points: m.Points}
-		done := true
-		for _, g := range m.Goals {
-			p := min(ms.Progress[g.Kind], g.Count)
-			ok := p >= g.Count
-			done = done && ok
-			row.Goals = append(row.Goals, CircleGoalRow{Kind: g.Kind, Text: g.Text, Count: g.Count, Progress: p, Done: ok})
-		}
-		switch {
-		case int64(i) < ms.Missions:
-			row.RewardState = 2
-		case int64(i) == ms.Missions && done:
-			row.RewardState = 1
-		}
-		rows = append(rows, row)
+	total, ms := circlePointsOf(c, season, aid)
+	missions := ActiveCircleData().Missions
+	if ms.Missions >= int64(len(missions)) {
+		return CircleMissionRow{}, false
 	}
-	return rows, true
+	m := missions[ms.Missions]
+	target := ActiveCircleData().Points.Steps[m.Stage-1].Points
+	start, end := circleSeasonBounds(season)
+	done := total >= target
+	return CircleMissionRow{Stage: m.Stage, Target: target, StartMs: start, EndMs: end, Gems: m.Gems, Points: m.Points,
+		Done: done, Claimable: done && circleEligible(c.Members[memberIndex(c, aid)], season)}, true
 }
 
-// CircleMissionRows is circleMissionRows for LPN (aid's circle, locked here). ok is false for a player in no circle.
-func CircleMissionRows(aid string, now time.Time) ([]CircleQuestRow, bool) {
-	var rows []CircleQuestRow
-	ok := false
+// CircleMissionCurrent is circleMissionCurrent for LPN (aid's circle, locked here).
+func CircleMissionCurrent(aid string, now time.Time) (row CircleMissionRow, ok bool) {
 	_ = circleBookTx(false, func(b *store.CircleBook) error {
-		rows, ok = circleMissionRows(b, aid, now)
+		row, ok = circleMissionCurrent(b, aid, now)
 		return nil
 	})
-	return rows, ok
+	return row, ok
 }
 
-// CircleMissionClaim pays the reward of aid's current mission when all its goals are met, then moves the member to the
-// next mission. Each mission pays once per member per season; the circle total gets the mission's points. It returns
-// the Gems and points paid.
+// CircleMissionClaim pays the Gems of aid's current mission once the circle has reached its point step, then moves the
+// member to the next mission. Each mission pays once per member per season, through the ledger as
+// circle:mission:<season>:<stage>; the circle total gets the mission's points. A member who joined mid-season gets no
+// rewards (arts 5464, 5479). It returns the Gems and points paid.
 func CircleMissionClaim(aid string, now time.Time) (gems, points int64, err error) {
 	err = circleTxAid(aid, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
 		ci := circleOf(b, aid)
@@ -357,12 +331,10 @@ func CircleMissionClaim(aid string, now time.Time) (gems, points int64, err erro
 			return nil, circleRefuse(circleErrGeneric)
 		}
 		m := missions[ms.Missions]
-		for _, g := range m.Goals {
-			if ms.Progress[g.Kind] < g.Count {
-				return nil, circleRefuse(circleErrGeneric)
-			}
+		if s.Total < ActiveCircleData().Points.Steps[m.Stage-1].Points {
+			return nil, circleRefuse(circleErrGeneric)
 		}
-		lines, err := store.SpendLocked(acc, store.LedgerDeltas{Gems: m.Gems}, fmt.Sprintf("circle:mission:%d:%d", season, ms.Missions+1))
+		lines, err := store.SpendLocked(acc, store.LedgerDeltas{Gems: m.Gems}, fmt.Sprintf("circle:mission:%d:%d", season, m.Stage))
 		if err != nil {
 			return nil, circleRefuse(circleErrGeneric)
 		}

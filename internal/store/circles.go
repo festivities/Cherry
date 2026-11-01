@@ -45,7 +45,7 @@ type CircleSeason struct {
 }
 
 // CircleMemberSeason is one member's season: the points earned, the game day and the per-kind credits that the daily
-// caps read, the mission progress per trigger kind, the point steps claimed and the number of missions claimed.
+// caps read, the old mission progress per trigger kind (no longer written), the point steps claimed and the number of missions claimed.
 type CircleMemberSeason struct {
 	Points   int64            `json:"points"`
 	Day      int64            `json:"day,omitempty"`       // AttendDayKey of the day the counters below belong to
