@@ -158,3 +158,9 @@ var SpinJSON []byte
 //
 //go:embed lounge.json
 var LoungeJSON []byte
+
+// CircleJSON is the Circle creation product, its price and member cap, and the logo and background ids with their
+// original pictures (economy/circle.go).
+//
+//go:embed circle.json
+var CircleJSON []byte

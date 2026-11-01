@@ -1,0 +1,689 @@
+package economy
+
+import (
+	"errors"
+	"fmt"
+	"io/fs"
+	"math/rand/v2"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"cherry/data"
+	"cherry/internal/opdata"
+	"cherry/internal/store"
+)
+
+// Circle (player clubs; spec %TEMP%\opencode\cherry\circle-20261101\circle-spec.md, client 10.1.0.0). This file holds the
+// rules: creation, the membership, invitations and closing. circle_http.go serves them. The state is store.CircleState
+// (circles.json). Slice 1 is HTTP only: the room, chat, points, missions and gacha come later, so the circle book
+// keeps what they need (members with roles, applications, invitations, leave times) and nothing more.
+//
+// Refusals carry the client's error code (NaDispatcherCircle::ErrorProcess 0x1ab5ec8 [S]); see circleErr*.
+
+// CherryCircleFirst and CherryCircleLast bound the circle ids Cherry makes (circles are numbered from first+1).
+// CherryCircleArtFirst and CherryCircleArtLast bound the logo and background ids in data/circle.json. checkCircleData
+// refuses an id outside its block. The blocks sit above the lounge block (1930000000).
+const (
+	CherryCircleFirst    int64 = 1940000000
+	CherryCircleLast     int64 = 1940000999
+	CherryCircleArtFirst int64 = 1940001000
+	CherryCircleArtLast  int64 = 1940001999
+)
+
+// circleLeaveCooldown is the client's rule (arts 5214 and 5312): after leaving a circle, a player waits 24 hours before
+// joining or starting another.
+const circleLeaveCooldown = 24 * time.Hour
+
+// Client limits (NaCreateCircleLayer::IsValidCircleName 0x24d375c: 20; IsValidIntroduce 0x24d3954: 50), counted in
+// characters (code points). The client's unit is not traced; a character count never refuses what a byte or UTF-16
+// count allows.
+const (
+	circleNameMax  = 20
+	circleIntroMax = 50
+	circleListMax  = 50 // rows in the recruit list
+	circlePageMax  = 50 // rows in a search page
+)
+
+const (
+	circleOpen   = "OPEN"
+	circleInvite = "INVITE"
+)
+
+// Roles in the book. The client's memberLevel strings are circleWireLevel.
+const (
+	roleLeader = "leader"
+	roleVice   = "vice"
+	roleMember = "member"
+)
+
+// Refusal codes. Each maps to the client's text in ErrorProcess: 190201 "no longer valid" (5258), 190202 "belongs to
+// another Circle" (5253), 190002 "cannot be invited" (5263), 190208 "already invited" (5262), 190212 "rights have
+// changed" (5273), 190215 "24-hour wait" (5241). circleErrGeneric (10077) covers the cases with no native text (the
+// circle is full, the ids are used up, a leader leaves); the client's approval screen shows its own "member limit" text
+// (5331) for a full circle. 400 is a malformed or refused request; 60001 is a short Gem balance (gacha's code).
+const (
+	circleErrNotFound       = 190201
+	circleErrInCircle       = 190202
+	circleErrCannotInvite   = 190002
+	circleErrAlreadyInvited = 190208
+	circleErrRights         = 190212
+	circleErrCooldown       = 190215
+	circleErrGeneric        = 10077
+	circleErrBadRequest     = 400
+	circleErrNoGems         = 60001
+)
+
+// circleInterestCodes is the client's interest table: four groups and their options. It is hard-coded in the client
+// (NaCircleDataManager::InitData 0x24e1228 [S]), so Cherry takes it as it is. Names are arts strings (santi
+// arts_strings.ast): groups 100 "Every day" (5422), 200 "N/A" (5426), 300 "All" (5433), 400 "Friends" (5440); options
+// 101 "Age" (5425), 102 "Pretty often" (5423), 103 "Occasionally" (5424), 201-206 (5427-5432), 301-306 (5434-5439),
+// 401-404 (5441-5444). Code 404's text (5444) is a notice, not an interest; the table lists it, so it is accepted.
+var circleInterestCodes = []int64{
+	100, 101, 102, 103, 200, 201, 202, 203, 204, 205, 206, 300, 301, 302, 303, 304, 305, 306, 400, 401, 402, 403, 404,
+}
+
+// CircleData is data/circle.json: the creation product, the member cap and the logo and background art.
+//
+//	origin, note  mixed: the ids and the product are Cherry-made, the pictures are the client's (opdata.Provenance)
+//	product       code (the create request must send it), name, price_gems (Gems; paymentType GEM), max_members
+//	logos         symbols a circle may use: id in the logo block, art = a file in UIResource/UIImage_hd (read in place)
+//	backgrounds   backgrounds a circle may use: the same rules
+type CircleData struct {
+	opdata.Provenance
+	Product     CircleProduct `json:"product"`
+	Logos       []CircleArt   `json:"logos"`
+	Backgrounds []CircleArt   `json:"backgrounds"`
+}
+
+// CircleProduct is the creation product.
+type CircleProduct struct {
+	Code       string `json:"code"`
+	Name       string `json:"name"`
+	PriceGems  int64  `json:"price_gems"`
+	MaxMembers int    `json:"max_members"`
+}
+
+// CircleArt is one logo or background choice.
+type CircleArt struct {
+	ID  int64  `json:"id"`
+	Art string `json:"art"`
+}
+
+var circleFile = opdata.New("circle.json", data.CircleJSON, checkCircleData, verifyCircleData)
+
+// circleArtFS is the original UI art tree (lpbackup UIResource/UIImage_hd). The logo pictures are read from it in place.
+var circleArtFS fs.FS = os.DirFS(filepath.FromSlash(`D:/Dev/projects/Cherry/.opencode/line-play-artifacts/lpbackup/jp.naver.lineplay.android/files/UIResource/UIImage_hd`))
+
+// ActiveCircleData is data/circle.json in use.
+func ActiveCircleData() *CircleData { return circleFile.Get() }
+
+// loadCircleBook is the startup check of circles.json (LoadOperatorData runs it after store.LoadCircles): every circle
+// id is inside the Cherry block and no id is above nextId.
+func loadCircleBook() error {
+	store.CirclesMu.Lock()
+	defer store.CirclesMu.Unlock()
+	return checkCircleBook(&store.CircleState)
+}
+
+func checkCircleBook(b *store.CircleBook) error {
+	if b.NextID > CherryCircleLast {
+		return fmt.Errorf("circles.json: nextId %d is outside the Cherry block %d-%d", b.NextID, CherryCircleFirst, CherryCircleLast)
+	}
+	for _, c := range b.Circles {
+		if c.ID <= CherryCircleFirst || c.ID > b.NextID {
+			return fmt.Errorf("circles.json: circle %d is outside the Cherry block %d-%d or above nextId", c.ID, CherryCircleFirst, CherryCircleLast)
+		}
+	}
+	return nil
+}
+
+// checkCircleData validates the structure at startup: the origin and note, the product, the member cap, and the logo
+// and background lists (ids in the block, unique, one picture file each).
+func checkCircleData(c *CircleData) error {
+	if err := c.CheckOrigin(opdata.OriginMixed); err != nil {
+		return err
+	}
+	p := c.Product
+	switch {
+	case p.Code == "" || strings.ContainsAny(p.Code, " /\\"):
+		return errors.New("product.code must be a code with no spaces or slashes")
+	case strings.TrimSpace(p.Name) == "":
+		return errors.New("product.name must not be empty")
+	case p.PriceGems < 1 || p.PriceGems > store.MaxBalance:
+		return fmt.Errorf("product.price_gems must be 1 to %d", store.MaxBalance)
+	case p.MaxMembers < 1 || p.MaxMembers > 100:
+		return errors.New("product.max_members must be 1 to 100")
+	case len(c.Logos) < 1 || len(c.Backgrounds) < 1:
+		return errors.New("logos and backgrounds must each list at least one picture")
+	}
+	seen := map[int64]bool{}
+	for _, list := range []struct {
+		name string
+		arts []CircleArt
+	}{{"logos", c.Logos}, {"backgrounds", c.Backgrounds}} {
+		for _, a := range list.arts {
+			where := fmt.Sprintf("%s id %d", list.name, a.ID)
+			switch {
+			case a.ID < CherryCircleArtFirst || a.ID > CherryCircleArtLast:
+				return fmt.Errorf("%s: id must be inside the Cherry block %d-%d", where, CherryCircleArtFirst, CherryCircleArtLast)
+			case seen[a.ID]:
+				return fmt.Errorf("%s: id must be unique", where)
+			case a.Art == "" || strings.ContainsAny(a.Art, `/\`) || !strings.HasSuffix(a.Art, ".png"):
+				return fmt.Errorf("%s: art must be a .png file name", where)
+			}
+			seen[a.ID] = true
+		}
+	}
+	return nil
+}
+
+// verifyCircleData runs at load (not for the embedded default alone): every picture must be in the archive.
+func verifyCircleData(c *CircleData) error {
+	for _, a := range append(append([]CircleArt(nil), c.Logos...), c.Backgrounds...) {
+		if _, err := fs.Stat(circleArtFS, a.Art); err != nil {
+			return fmt.Errorf("art %s is not in the archive", a.Art)
+		}
+	}
+	return nil
+}
+
+// ErrCircleSession is a request whose session has no account with an avatar.
+var ErrCircleSession = errors.New("circle: no avatar for this session")
+
+// CircleError is a refusal. Code is the errorCode the client maps to its text.
+type CircleError struct{ Code int }
+
+func (e *CircleError) Error() string { return "circle: refused " + strconv.Itoa(e.Code) }
+
+func circleRefuse(code int) error { return &CircleError{Code: code} }
+
+// CircleCreateRequest is the body of POST circle/create (NaCreateCircleLayer::ReqCircleMake 0x24ee6fc): coinUnit is an
+// int (0 for Gems, from the default item's paymentType), price the default item's finalPrice, joinType "OPEN" or
+// "INVITE", interestCodeList an array of ints. A non-empty cpId is real money and is refused.
+type CircleCreateRequest struct {
+	CoinUnit         int64   `json:"coinUnit"`
+	DeviceType       string  `json:"deviceType"`
+	CpID             string  `json:"cpId"`
+	ProductCode      string  `json:"productCode"`
+	Price            int64   `json:"price"`
+	CircleName       string  `json:"circleName"`
+	CircleIntroduce  string  `json:"circleIntroduce"`
+	LogoID           int64   `json:"logoId"`
+	LogoBgID         int64   `json:"logoBgId"`
+	JoinType         string  `json:"joinType"`
+	InterestCodeList []int64 `json:"interestCodeList"`
+}
+
+// CircleModifyRequest is the body of POST circle/modify/withint (ReqCircleModify 0x24eed20). The name is sent back
+// unchanged: a circle's name is fixed at creation (wiki; the client only sends the field).
+type CircleModifyRequest struct {
+	CircleID         looseInt `json:"circleId"`
+	CircleName       string   `json:"circleName"`
+	CircleIntroduce  string   `json:"circleIntroduce"`
+	LogoID           int64    `json:"logoId"`
+	LogoBgID         int64    `json:"logoBgId"`
+	JoinType         string   `json:"joinType"`
+	InterestCodeList []int64  `json:"interestCodeList"`
+}
+
+// circleTx runs op for the account behind token, with the account table and the circle book locked. A read (write
+// false) gets the book in use and must not change it. A write gets a copy of the book: when op succeeds, the copy is
+// saved to circles.json first and then the accounts (only when op spent something), and the ledger lines are flushed
+// after both saves. A failed step restores the account and the book.
+func circleTx(token string, write bool, op func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error)) error {
+	store.AccountsMu.Lock()
+	defer store.AccountsMu.Unlock()
+	acc := store.Accounts[token]
+	if acc == nil || !store.ValidAvatarID(acc.Aid) || acc.Aid == "0" {
+		return ErrCircleSession
+	}
+	// ponytail: one global lock for the whole book; per-circle locks if circle traffic ever contends.
+	store.CirclesMu.Lock()
+	defer store.CirclesMu.Unlock()
+	if !write {
+		b := store.CircleState
+		_, err := op(acc, &b)
+		return err
+	}
+	next := store.CircleState.Clone()
+	prevAcc := *acc
+	lines, err := op(acc, &next)
+	if err != nil {
+		*acc = prevAcc
+		return err
+	}
+	prevBook := store.CircleState
+	if err := store.SaveCirclesLocked(next); err != nil {
+		*acc = prevAcc
+		return err
+	}
+	store.CircleState = next
+	if len(lines) > 0 {
+		if err := store.SaveAccountsLocked(); err != nil {
+			*acc = prevAcc
+			store.CircleState = prevBook
+			_ = store.SaveCirclesLocked(prevBook)
+			return err
+		}
+		store.FlushLedgerLocked(lines)
+	}
+	return nil
+}
+
+// circleIndex returns the index of circle id in b, -1 when there is none.
+func circleIndex(b *store.CircleBook, id int64) int {
+	for i := range b.Circles {
+		if b.Circles[i].ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
+// circleOf returns the index of the circle aid belongs to, -1 for none. One circle per player.
+func circleOf(b *store.CircleBook, aid string) int {
+	for i := range b.Circles {
+		if memberIndex(&b.Circles[i], aid) >= 0 {
+			return i
+		}
+	}
+	return -1
+}
+
+func memberIndex(c *store.Circle, aid string) int {
+	return slices.IndexFunc(c.Members, func(m store.CircleMember) bool { return m.Aid == aid })
+}
+
+func inviteIndex(c *store.Circle, aid string) int {
+	return slices.IndexFunc(c.Invites, func(x store.CircleInvite) bool { return x.Aid == aid })
+}
+
+func applyIndex(c *store.Circle, aid string) int {
+	return slices.IndexFunc(c.Applies, func(x store.CircleApply) bool { return x.Aid == aid })
+}
+
+// roleOf returns aid's role in c, "" when aid is not a member.
+func roleOf(c *store.Circle, aid string) string {
+	if i := memberIndex(c, aid); i >= 0 {
+		return c.Members[i].Role
+	}
+	return ""
+}
+
+// canInvite: leaders and vice-leaders invite (arts 5211); only leaders approve and kick (arts 5210).
+func canInvite(c *store.Circle, aid string) bool {
+	r := roleOf(c, aid)
+	return r == roleLeader || r == roleVice
+}
+
+func leaderAid(c *store.Circle) string {
+	for _, m := range c.Members {
+		if m.Role == roleLeader {
+			return m.Aid
+		}
+	}
+	return ""
+}
+
+// cooldownActive reports whether aid left a circle less than circleLeaveCooldown before now.
+func cooldownActive(b *store.CircleBook, aid string, now time.Time) bool {
+	left, ok := b.Leaves[aid]
+	return ok && now.UnixMilli()-left < circleLeaveCooldown.Milliseconds()
+}
+
+// circleCodeOf is the short code a player searches by (Cherry's numbering from the first circle).
+func circleCodeOf(id int64) string { return fmt.Sprintf("%06d", id-CherryCircleFirst) }
+
+// circleCap is the member cap of every circle (data/circle.json max_members).
+func circleCap() int { return ActiveCircleData().Product.MaxMembers }
+
+func checkCircleName(name string) error {
+	if strings.TrimSpace(name) == "" || utf8.RuneCountInString(name) > circleNameMax {
+		return circleRefuse(circleErrBadRequest)
+	}
+	return nil
+}
+
+func checkCircleIntro(intro string) error {
+	if utf8.RuneCountInString(intro) > circleIntroMax {
+		return circleRefuse(circleErrBadRequest)
+	}
+	return nil
+}
+
+// checkCircleSettings checks the fields a leader may change (intro, join type, logo, background, interests).
+func checkCircleSettings(intro, joinType string, logo, bg int64, interests []int64) error {
+	if err := checkCircleIntro(intro); err != nil {
+		return err
+	}
+	if joinType != circleOpen && joinType != circleInvite {
+		return circleRefuse(circleErrBadRequest)
+	}
+	d := ActiveCircleData()
+	if !slices.ContainsFunc(d.Logos, func(a CircleArt) bool { return a.ID == logo }) ||
+		!slices.ContainsFunc(d.Backgrounds, func(a CircleArt) bool { return a.ID == bg }) {
+		return circleRefuse(circleErrBadRequest)
+	}
+	for _, code := range interests {
+		if !slices.Contains(circleInterestCodes, code) {
+			return circleRefuse(circleErrBadRequest)
+		}
+	}
+	return nil
+}
+
+// sortedInterests returns the codes once each, in order.
+func sortedInterests(codes []int64) []int64 {
+	out := slices.Clone(codes)
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// CreateCircle makes a circle for the account behind token, led by it, and charges the creation price in Gems (reason
+// circle:create:<id>). Nothing changes on a refusal, a short balance or a failed save. A real-money id (cpId or a
+// coinUnit other than Gems) and a product other than the default one are refused.
+func CreateCircle(token string, req CircleCreateRequest, now time.Time) (store.Circle, error) {
+	var made store.Circle
+	err := circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
+		product := ActiveCircleData().Product
+		if req.CpID != "" || req.CoinUnit != 0 || req.ProductCode != product.Code || req.Price != product.PriceGems {
+			return nil, circleRefuse(circleErrBadRequest)
+		}
+		if err := checkCircleName(req.CircleName); err != nil {
+			return nil, err
+		}
+		if err := checkCircleSettings(req.CircleIntroduce, req.JoinType, req.LogoID, req.LogoBgID, req.InterestCodeList); err != nil {
+			return nil, err
+		}
+		if circleOf(b, acc.Aid) >= 0 {
+			return nil, circleRefuse(circleErrInCircle)
+		}
+		if cooldownActive(b, acc.Aid, now) {
+			return nil, circleRefuse(circleErrCooldown)
+		}
+		id := max(b.NextID, CherryCircleFirst) + 1
+		if id > CherryCircleLast {
+			return nil, circleRefuse(circleErrGeneric)
+		}
+		lines, err := store.SpendLocked(acc, store.LedgerDeltas{Gems: -product.PriceGems}, fmt.Sprintf("circle:create:%d", id))
+		if err != nil {
+			return nil, circleRefuse(circleErrNoGems)
+		}
+		ms := now.UnixMilli()
+		made = store.Circle{
+			ID: id, Code: circleCodeOf(id), Name: req.CircleName, Intro: req.CircleIntroduce, JoinType: req.JoinType,
+			LogoID: req.LogoID, LogoBgID: req.LogoBgID, Interests: sortedInterests(req.InterestCodeList),
+			Created: ms, Modified: ms,
+			Members: []store.CircleMember{{Aid: acc.Aid, Role: roleLeader, Joined: ms}},
+		}
+		b.NextID = id
+		b.Circles = append(b.Circles, made)
+		return lines, nil
+	})
+	return made, err
+}
+
+// ModifyCircle changes a circle's intro, join type, logo, background and interests. Leaders only; the name must be the
+// stored one.
+func ModifyCircle(token string, req CircleModifyRequest, now time.Time) error {
+	return circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
+		ci := circleIndex(b, int64(req.CircleID))
+		if ci < 0 {
+			return nil, circleRefuse(circleErrNotFound)
+		}
+		c := &b.Circles[ci]
+		if roleOf(c, acc.Aid) != roleLeader {
+			return nil, circleRefuse(circleErrRights)
+		}
+		if req.CircleName != c.Name {
+			return nil, circleRefuse(circleErrBadRequest)
+		}
+		if err := checkCircleSettings(req.CircleIntroduce, req.JoinType, req.LogoID, req.LogoBgID, req.InterestCodeList); err != nil {
+			return nil, err
+		}
+		c.Intro, c.JoinType, c.LogoID, c.LogoBgID = req.CircleIntroduce, req.JoinType, req.LogoID, req.LogoBgID
+		c.Interests = sortedInterests(req.InterestCodeList)
+		c.Modified = now.UnixMilli()
+		return nil, nil
+	})
+}
+
+// JoinCircle is POST circle/apply/join/<id>: an OPEN circle takes the player at once; an INVITE circle takes only an
+// invited player (who thereby uses the invitation). Anything else is refused as not found.
+func JoinCircle(token string, id int64, now time.Time) error {
+	return circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
+		ci := circleIndex(b, id)
+		if ci < 0 {
+			return nil, circleRefuse(circleErrNotFound)
+		}
+		c := &b.Circles[ci]
+		if c.JoinType != circleOpen && inviteIndex(c, acc.Aid) < 0 {
+			return nil, circleRefuse(circleErrNotFound)
+		}
+		return nil, joinCircleAt(b, ci, acc.Aid, now)
+	})
+}
+
+// joinCircleAt adds aid to circle ci as a plain member. It checks the one-circle rule, the 24-hour cooldown and the
+// member cap, and drops aid's invitations and applications everywhere.
+func joinCircleAt(b *store.CircleBook, ci int, aid string, now time.Time) error {
+	if circleOf(b, aid) >= 0 {
+		return circleRefuse(circleErrInCircle)
+	}
+	if cooldownActive(b, aid, now) {
+		return circleRefuse(circleErrCooldown)
+	}
+	c := &b.Circles[ci]
+	if len(c.Members) >= circleCap() {
+		return circleRefuse(circleErrGeneric)
+	}
+	c.Members = append(c.Members, store.CircleMember{Aid: aid, Role: roleMember, Joined: now.UnixMilli()})
+	for i := range b.Circles {
+		b.Circles[i].Invites = slices.DeleteFunc(b.Circles[i].Invites, func(x store.CircleInvite) bool { return x.Aid == aid })
+		b.Circles[i].Applies = slices.DeleteFunc(b.Circles[i].Applies, func(x store.CircleApply) bool { return x.Aid == aid })
+	}
+	return nil
+}
+
+// CancelApply is POST circle/apply/join/cancel/<id>: the player withdraws their own application.
+func CancelApply(token string, id int64) error {
+	return circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
+		ci := circleIndex(b, id)
+		if ci < 0 {
+			return nil, circleRefuse(circleErrNotFound)
+		}
+		c := &b.Circles[ci]
+		ai := applyIndex(c, acc.Aid)
+		if ai < 0 {
+			return nil, circleRefuse(circleErrNotFound)
+		}
+		c.Applies = slices.Delete(c.Applies, ai, ai+1)
+		return nil, nil
+	})
+}
+
+// ApproveApply is POST circle/apply/join/<id>/approval/<aid>: a leader admits an applicant.
+func ApproveApply(token string, id int64, target string, now time.Time) error {
+	return circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
+		ci := circleIndex(b, id)
+		if ci < 0 {
+			return nil, circleRefuse(circleErrNotFound)
+		}
+		c := &b.Circles[ci]
+		if roleOf(c, acc.Aid) != roleLeader {
+			return nil, circleRefuse(circleErrRights)
+		}
+		ai := applyIndex(c, target)
+		if ai < 0 {
+			return nil, circleRefuse(circleErrNotFound)
+		}
+		c.Applies = slices.Delete(c.Applies, ai, ai+1)
+		return nil, joinCircleAt(b, ci, target, now)
+	})
+}
+
+// RefuseApply is POST circle/apply/join/<id>/refuse/<aid>: a leader turns an applicant down.
+func RefuseApply(token string, id int64, target string) error {
+	return circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
+		ci := circleIndex(b, id)
+		if ci < 0 {
+			return nil, circleRefuse(circleErrNotFound)
+		}
+		c := &b.Circles[ci]
+		if roleOf(c, acc.Aid) != roleLeader {
+			return nil, circleRefuse(circleErrRights)
+		}
+		ai := applyIndex(c, target)
+		if ai < 0 {
+			return nil, circleRefuse(circleErrNotFound)
+		}
+		c.Applies = slices.Delete(c.Applies, ai, ai+1)
+		return nil, nil
+	})
+}
+
+// InviteCircle is POST circle/invite/<id>/<aid>: a leader or vice-leader invites an accepted friend who is in no circle.
+func InviteCircle(token string, id int64, target string, now time.Time) error {
+	return circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
+		ci := circleIndex(b, id)
+		if ci < 0 {
+			return nil, circleRefuse(circleErrNotFound)
+		}
+		c := &b.Circles[ci]
+		if !canInvite(c, acc.Aid) {
+			return nil, circleRefuse(circleErrRights)
+		}
+		if !store.ValidAvatarID(target) || store.AccountByAidLocked(target) == nil {
+			return nil, circleRefuse(circleErrNotFound)
+		}
+		if !store.AcceptedFriends(acc.Aid, target) || memberIndex(c, target) >= 0 { // the social lock is taken alone inside
+			return nil, circleRefuse(circleErrCannotInvite)
+		}
+		if circleOf(b, target) >= 0 {
+			return nil, circleRefuse(circleErrInCircle)
+		}
+		if inviteIndex(c, target) >= 0 {
+			return nil, circleRefuse(circleErrAlreadyInvited)
+		}
+		if len(c.Members) >= circleCap() {
+			return nil, circleRefuse(circleErrGeneric)
+		}
+		c.Invites = append(c.Invites, store.CircleInvite{Aid: target, By: acc.Aid, Date: now.UnixMilli()})
+		return nil, nil
+	})
+}
+
+// CancelInvite is POST circle/invite/cancel/<id>/<aid>: a leader or vice-leader withdraws an invitation.
+func CancelInvite(token string, id int64, target string) error {
+	return circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
+		ci := circleIndex(b, id)
+		if ci < 0 {
+			return nil, circleRefuse(circleErrNotFound)
+		}
+		c := &b.Circles[ci]
+		if !canInvite(c, acc.Aid) {
+			return nil, circleRefuse(circleErrRights)
+		}
+		ii := inviteIndex(c, target)
+		if ii < 0 {
+			return nil, circleRefuse(circleErrNotFound)
+		}
+		c.Invites = slices.Delete(c.Invites, ii, ii+1)
+		return nil, nil
+	})
+}
+
+// AcceptInvite is POST circle/invite/approval/<id>: the invitee joins.
+func AcceptInvite(token string, id int64, now time.Time) error {
+	return circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
+		ci := circleIndex(b, id)
+		if ci < 0 {
+			return nil, circleRefuse(circleErrNotFound)
+		}
+		if inviteIndex(&b.Circles[ci], acc.Aid) < 0 {
+			return nil, circleRefuse(circleErrNotFound)
+		}
+		return nil, joinCircleAt(b, ci, acc.Aid, now)
+	})
+}
+
+// RefuseInvite is POST circle/invite/refuse/<id>: the invitee declines.
+func RefuseInvite(token string, id int64) error {
+	return circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
+		ci := circleIndex(b, id)
+		if ci < 0 {
+			return nil, circleRefuse(circleErrNotFound)
+		}
+		c := &b.Circles[ci]
+		ii := inviteIndex(c, acc.Aid)
+		if ii < 0 {
+			return nil, circleRefuse(circleErrNotFound)
+		}
+		c.Invites = slices.Delete(c.Invites, ii, ii+1)
+		return nil, nil
+	})
+}
+
+// LeaveCircle is POST circle/leave/<id>: a member leaves and starts the 24-hour cooldown. A leader cannot leave (the
+// leader transfer is a later slice; a leader closes the circle instead).
+func LeaveCircle(token string, id int64, now time.Time) error {
+	return circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
+		ci := circleIndex(b, id)
+		if ci < 0 {
+			return nil, circleRefuse(circleErrNotFound)
+		}
+		c := &b.Circles[ci]
+		mi := memberIndex(c, acc.Aid)
+		if mi < 0 {
+			return nil, circleRefuse(circleErrNotFound)
+		}
+		if c.Members[mi].Role == roleLeader {
+			return nil, circleRefuse(circleErrGeneric)
+		}
+		c.Members = slices.Delete(c.Members, mi, mi+1)
+		if b.Leaves == nil {
+			b.Leaves = map[string]int64{}
+		}
+		b.Leaves[acc.Aid] = now.UnixMilli()
+		return nil, nil
+	})
+}
+
+// IssueCloseCode is POST circle/close/issue/code/<id>: a leader gets the code and key the close screen shows. Nothing
+// is stored: the close request does not check them (the leader check is the guard).
+func IssueCloseCode(token string, id int64) (key string, code int, err error) {
+	err = circleTx(token, false, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
+		ci := circleIndex(b, id)
+		if ci < 0 {
+			return nil, circleRefuse(circleErrNotFound)
+		}
+		if roleOf(&b.Circles[ci], acc.Aid) != roleLeader {
+			return nil, circleRefuse(circleErrRights)
+		}
+		key = fmt.Sprintf("%08x", rand.Uint32())
+		code = 1000 + rand.IntN(9000)
+		return nil, nil
+	})
+	return key, code, err
+}
+
+// CloseCircle is POST circle/close/<id>/...: a leader closes the circle. Its members, invitations and applications go
+// with it; the id is never reused.
+func CloseCircle(token string, id int64) error {
+	return circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
+		ci := circleIndex(b, id)
+		if ci < 0 {
+			return nil, circleRefuse(circleErrNotFound)
+		}
+		if roleOf(&b.Circles[ci], acc.Aid) != roleLeader {
+			return nil, circleRefuse(circleErrRights)
+		}
+		b.Circles = slices.Delete(b.Circles, ci, ci+1)
+		return nil, nil
+	})
+}

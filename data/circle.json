@@ -1,0 +1,16 @@
+{
+  "origin": "mixed",
+  "note": "Circle (player clubs), slice 1 (HTTP). Cherry-made: the creation product (code and name, both shown only in Cherry's replies), its price (5000 Gems, paymentType GEM, decided by the user 2026-11-01), the member cap (30), and every id in this file (circle ids are in the Cherry block 1940000000-1940000999, economy.CherryCircleFirst/Last; logo and background ids in 1940001000-1940001999, economy.CherryCircleArtFirst/Last). Original: the two pictures, read in place from the read-only archive (UIResource/UIImage_hd/circle_logo_sd_dp.png = the symbol, circle_logo_bg_dp.png = the pink background; the client's own default pair, the only art the archive holds for Circle). The interest categories are not here: the client hard-codes them (NaCircleDataManager::InitData 0x24e1228), so economy/circle.go lists them in code.",
+  "product": {
+    "code": "cherry_circle_create",
+    "name": "Create a Circle",
+    "price_gems": 5000,
+    "max_members": 30
+  },
+  "logos": [
+    {"id": 1940001001, "art": "circle_logo_sd_dp.png"}
+  ],
+  "backgrounds": [
+    {"id": 1940001101, "art": "circle_logo_bg_dp.png"}
+  ]
+}

@@ -1,0 +1,191 @@
+package store
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"maps"
+	"os"
+	"path/filepath"
+	"slices"
+	"sync"
+)
+
+// Circles (player clubs, economy/circle.go): the circles, their members and their pending applications and invites,
+// in %LOCALAPPDATA%\Cherry\circles.json beside accounts.json. Absence means no circles. The rules live in economy;
+// this file only holds the book and saves it.
+
+// CircleMember is one member of a circle. Role is "leader", "vice" or "member" (the client's MASTER, MANAGER and
+// plain member, memberLevel on the wire).
+type CircleMember struct {
+	Aid    string `json:"aid"`
+	Role   string `json:"role"`
+	Joined int64  `json:"joined"` // ms
+}
+
+// CircleApply is a join application waiting for a leader's answer.
+type CircleApply struct {
+	Aid  string `json:"aid"`
+	Date int64  `json:"date"` // ms
+}
+
+// CircleInvite is an invitation waiting for the invitee's answer; By is the inviting member.
+type CircleInvite struct {
+	Aid  string `json:"aid"`
+	By   string `json:"by"`
+	Date int64  `json:"date"` // ms
+}
+
+// Circle is one club. ID is in Cherry's circle block and is never reused. Name and Code are fixed at creation.
+type Circle struct {
+	ID        int64          `json:"id"`
+	Code      string         `json:"code"`
+	Name      string         `json:"name"`
+	Intro     string         `json:"intro"`
+	JoinType  string         `json:"joinType"` // "OPEN" or "INVITE"
+	LogoID    int64          `json:"logoId"`
+	LogoBgID  int64          `json:"logoBgId"`
+	Interests []int64        `json:"interests,omitempty"`
+	Created   int64          `json:"created"`  // ms
+	Modified  int64          `json:"modified"` // ms
+	Members   []CircleMember `json:"members"`
+	Applies   []CircleApply  `json:"applies,omitempty"`
+	Invites   []CircleInvite `json:"invites,omitempty"`
+}
+
+// CircleBook is the whole circle state. Leaves holds, per aid, when that avatar last left a circle (the 24 h
+// cooldown before another join or creation).
+type CircleBook struct {
+	NextID  int64            `json:"nextId"`
+	Circles []Circle         `json:"circles"`
+	Leaves  map[string]int64 `json:"leaves,omitempty"`
+}
+
+type savedCircles struct {
+	Version int `json:"version"`
+	CircleBook
+}
+
+var (
+	// CirclesMu guards CircleState. Lock order: AccountsMu before CirclesMu before SocialMu.
+	CirclesMu sync.Mutex
+	// CirclesStorePath is circles.json ("" in tests: nothing is written).
+	CirclesStorePath string
+	// CircleState is the book in use. Writers copy it (Clone), change the copy and swap it in after the save.
+	CircleState CircleBook
+)
+
+// LoadCircles reads %LOCALAPPDATA%\Cherry\circles.json (none is not an error).
+func LoadCircles() error {
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return err
+	}
+	return LoadCirclesFrom(filepath.Join(dir, "Cherry", "circles.json"))
+}
+
+// LoadCirclesFrom loads the book at path; a missing file is an empty book.
+func LoadCirclesFrom(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	book := CircleBook{NextID: 0, Circles: []Circle{}}
+	if err == nil {
+		var saved savedCircles
+		if err := json.Unmarshal(data, &saved); err != nil {
+			return fmt.Errorf("invalid circle store: %w", err)
+		}
+		if saved.Version != 1 {
+			return errors.New("invalid circle store version")
+		}
+		book = saved.CircleBook
+	}
+	if book.Circles == nil {
+		book.Circles = []Circle{}
+	}
+	seen := map[int64]bool{}
+	members := map[string]bool{}
+	for _, c := range book.Circles {
+		if c.ID <= 0 || seen[c.ID] || c.ID > book.NextID || (c.JoinType != "OPEN" && c.JoinType != "INVITE") || len(c.Members) == 0 {
+			return fmt.Errorf("invalid circle record %d", c.ID)
+		}
+		seen[c.ID] = true
+		for _, m := range c.Members {
+			if members[m.Aid] {
+				return fmt.Errorf("circle %d: avatar %s is a member twice", c.ID, m.Aid)
+			}
+			members[m.Aid] = true
+		}
+	}
+	CirclesMu.Lock()
+	CirclesStorePath = path
+	CircleState = book
+	CirclesMu.Unlock()
+	return nil
+}
+
+// ResetCircles empties the book and forgets its path (tests).
+func ResetCircles() {
+	CirclesMu.Lock()
+	CirclesStorePath = ""
+	CircleState = CircleBook{}
+	CirclesMu.Unlock()
+}
+
+// Clone returns a deep copy of b: the slices and the map are not shared with the original.
+func (b CircleBook) Clone() CircleBook {
+	out := CircleBook{NextID: b.NextID, Circles: make([]Circle, len(b.Circles))}
+	for i, c := range b.Circles {
+		c.Interests = slices.Clone(c.Interests)
+		c.Members = slices.Clone(c.Members)
+		c.Applies = slices.Clone(c.Applies)
+		c.Invites = slices.Clone(c.Invites)
+		out.Circles[i] = c
+	}
+	if b.Leaves != nil {
+		out.Leaves = maps.Clone(b.Leaves)
+	}
+	return out
+}
+
+// SaveCirclesLocked writes b to circles.json (temp file, then rename). Caller holds CirclesMu. Nothing is written when
+// CirclesStorePath is "".
+func SaveCirclesLocked(b CircleBook) error {
+	if CirclesStorePath == "" {
+		return nil
+	}
+	data, err := json.Marshal(savedCircles{Version: 1, CircleBook: b})
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(CirclesStorePath)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".circles-*.tmp")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err = tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err = tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err = tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), CirclesStorePath)
+}
+
+// AcceptedFriends reports whether a and b are accepted friends. It takes SocialMu alone, so a caller may hold
+// AccountsMu or CirclesMu around it.
+func AcceptedFriends(a, b string) bool {
+	SocialMu.Lock()
+	defer SocialMu.Unlock()
+	return FriendshipIndex(a, b, "accepted") >= 0
+}

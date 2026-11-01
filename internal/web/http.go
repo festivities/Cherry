@@ -264,6 +264,10 @@ const playDetailLPRmchatBody = `{"result":{"gameInfo":{"gameId":"lp_rmchat","exe
 // ResPlayDetailWithGameID @0x1a84e5c needs a nonempty gameInfo object; dates are ms strings.
 const playDetailLPSquareBody = `{"result":{"gameInfo":{"gameId":"lp_sq","executable":true,"underMaintenance":false,"minLinePlayVersion":"","startDate":"1577836800000","endDate":"4102444800000"}}}`
 
+// lp_cir is the Circle game info (spec circle-spec.md 3.4-3.6): CheckCircleCondition needs executable true,
+// underMaintenance false and a minLinePlayVersion the client meets (empty here), then the video step is skipped.
+const playDetailLPCircleBody = `{"result":{"gameInfo":{"gameId":"lp_cir","executable":true,"underMaintenance":false,"minLinePlayVersion":"","startDate":"1577836800000","endDate":"4102444800000"}}}`
+
 const artsStringsMD5 = "1492F278EC281078AC7F35479A85F197"
 
 // artsStringsPath is the stock string table, read in place from the read-only archive
@@ -380,6 +384,8 @@ func NewMux() http.Handler {
 	mux.HandleFunc("/v4/items/room/some", economy.HandleItemsSome)
 	mux.HandleFunc("/v4/playhome/games/lp_rmchat", handlePlayDetailLPRmchat)
 	mux.HandleFunc("/v4/playhome/games/lp_sq", httpx.HandleJSONBody(playDetailLPSquareBody))
+	mux.HandleFunc("/v4/playhome/games/lp_cir", httpx.HandleJSONBody(playDetailLPCircleBody))
+	economy.RegisterCircleRoutes(mux)
 	mux.HandleFunc("/v4/home/sublist/game/Android", handleMoreGameList)
 	mux.HandleFunc("/v4/home/sublist/shop/10.1.0.0/Android.nhn", handleMoreShopList)
 	mux.HandleFunc("/v4/noti/event/", handleMoreEventList)
