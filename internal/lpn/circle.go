@@ -101,12 +101,14 @@ const (
 	circleRcUpgradeShop  = 40
 	circleRcUpgradeBuy   = 41
 	circleRcAchievements = 42
-	circleRcBuffCopy     = 45
-	circleRcPointRefresh = 48
-	circleRcPointReward  = 49
-	circleRcQuestList    = 52
-	circleRcQuestReward  = 53
-	circleRcPetRide      = 54
+
+	circleAchievementsDone = 590081 // sc_circle_achievements_res Result: nothing (more) to list
+	circleRcBuffCopy       = 45
+	circleRcPointRefresh   = 48
+	circleRcPointReward    = 49
+	circleRcQuestList      = 52
+	circleRcQuestReward    = 53
+	circleRcPetRide        = 54
 )
 
 // circlePlayer is one avatar in a circle room.
@@ -990,10 +992,10 @@ func (s *circleSession) stub(frame []byte, msgid uint16, data []byte) error {
 		}
 		return s.reply(frame, circleRcSkinBuy, pbVar(nil, 1, circleRefused))
 	case circleCsAchievements: // no achievements
-		// AchievementList (f2) is sent as an EMPTY message, never omitted: the bell's list (popup 172) received the reply
-		// without it and the client died with SIGSEGV at address 0 on both device taps (2026-11-01), the pattern of a
-		// missing sub-message read through its pointer. LP_sc_circle_achievements_res 0x24b7f4c hands the message on as is.
-		return s.reply(frame, circleRcAchievements, pbLen(pbVar(nil, 1, 0), 2, nil))
+		// Result 590081 with no list: NaCircleChatMgr::SetCircleAchievementInfo 0x2519604 treats 590081/589831 as done; any
+		// other result (0, with or without an empty item) takes the branch that reads its empty item vector at
+		// [this+0x118] and dies at address 0 (bell crash, device 2026-11-01 x3; bell-crash.md follow-up).
+		return s.reply(frame, circleRcAchievements, pbVar(nil, 1, circleAchievementsDone))
 	case circleCsBuffCopy:
 		target, _ := protobufUintField(data, 1)
 		return s.reply(frame, circleRcBuffCopy, pbVar(pbVar(pbVar(nil, 1, circleRefused), 2, s.aid), 3, target))
