@@ -131,6 +131,7 @@ var homeLinks = []string{
 	"goSomewhere(loungeChat)",
 	"goSomewhere(colorantBaseShop)",
 	"goSomewhere(circle)",
+	"goSomewhere(treasureWorld)",
 }
 
 // homeMenuIconPrefix is the picture path of a home menu row. It is RELATIVE on purpose: the client's
@@ -387,6 +388,7 @@ func NewMux() http.Handler {
 	mux.HandleFunc("/v4/playhome/games/lp_sq", httpx.HandleJSONBody(playDetailLPSquareBody))
 	mux.HandleFunc("/v4/playhome/games/lp_cir", httpx.HandleJSONBody(playDetailLPCircleBody))
 	economy.RegisterCircleRoutes(mux)
+	economy.RegisterTreasureRoutes(mux)
 	mux.HandleFunc("/v4/home/sublist/game/Android", handleMoreGameList)
 	mux.HandleFunc("/v4/home/sublist/shop/10.1.0.0/Android.nhn", handleMoreShopList)
 	mux.HandleFunc("/v4/noti/event/", handleMoreEventList)

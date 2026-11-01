@@ -97,6 +97,7 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 	defer rp.close()
 	circle := &circleSession{rooms: defaultCircleRooms, chats: defaultCircleChats, conn: conn, logger: logger} // agent 8 (circle.go)
 	defer circle.close()
+	treasure := &treasureSession{conn: conn, logger: logger} // agent 9 (treasure.go)
 	hard := time.Now().Add(gatewayTTL)
 	gardenControlSent := false
 	gardenRoomEntered := false
@@ -251,6 +252,12 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 				}
 				continue
 			}
+			if agent == treasureAgent { // the echo only: a subtype 2 here would send the client to the Garden
+				if err := treasure.handleOpen(frame); err != nil {
+					return
+				}
+				continue
+			}
 			ack := make([]byte, 14)
 			binary.BigEndian.PutUint32(ack, 10)
 			ack[4], ack[5] = 'G', frame[1]&0xf8|2
@@ -289,6 +296,15 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 				}
 				if circle.loggedIn {
 					hard = time.Time{} // Keep the circle room connected until the client disconnects.
+				}
+				continue
+			}
+			if agent == treasureAgent {
+				if err := treasure.handleData(frame); err != nil {
+					return
+				}
+				if treasure.loggedIn {
+					hard = time.Time{} // Keep the board connected until the client disconnects.
 				}
 				continue
 			}

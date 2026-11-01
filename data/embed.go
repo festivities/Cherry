@@ -164,3 +164,9 @@ var LoungeJSON []byte
 //
 //go:embed circle.json
 var CircleJSON []byte
+
+// TreasureJSON is the Treasure World board: the season, its names, the tickets, the ring and the rewards
+// (economy/treasure.go).
+//
+//go:embed treasure.json
+var TreasureJSON []byte

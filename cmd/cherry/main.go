@@ -36,6 +36,9 @@ func main() {
 	if err := store.LoadCircles(); err != nil {
 		logger.Fatalf("cherry: load circles: %v", err)
 	}
+	if err := store.LoadTreasure(); err != nil {
+		logger.Fatalf("cherry: load treasure: %v", err)
+	}
 	for _, load := range []func() error{store.LoadOperatorData, room.LoadOperatorData, economy.LoadOperatorData, lpn.LoadOperatorData, web.LoadOperatorData} {
 		if err := load(); err != nil {
 			logger.Fatalf("cherry: operator data: %v", err)

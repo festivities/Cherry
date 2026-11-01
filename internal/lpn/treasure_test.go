@@ -1,0 +1,446 @@
+package lpn
+
+import (
+	"bytes"
+	"encoding/binary"
+	"io"
+	"log"
+	"net"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"cherry/internal/economy"
+	"cherry/internal/store"
+	"cherry/internal/testutil"
+)
+
+// Strict shapes of the Treasure World replies this file reads (lpCheck: unknown fields, wrong wire types and missing
+// required fields fail). Field numbers are treasure-spec 9.1, transport-money 2.3 and 2.4, cells 6.1 to 6.7.
+var (
+	treCell   = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 0, req: true}, 4: {wire: 2, req: true}}
+	treNPC    = lpMsg{2: {wire: 2}, 3: {wire: 0}, 9: {wire: 2}}
+	treSeason = lpMsg{
+		1: {wire: 2, req: true}, 2: {wire: 2, req: true}, 3: {wire: 2, req: true}, 4: {wire: 2, req: true}, 5: {wire: 2, req: true},
+		6: {wire: 2, req: true}, 7: {wire: 0, req: true}, 8: {wire: 2, req: true}, 9: {wire: 2, req: true}, 10: {wire: 2, req: true},
+		11: {wire: 2, req: true}, 12: {wire: 2, req: true, msg: treNPC}, 13: {wire: 2, req: true, msg: treNPC},
+		14: {wire: 2, req: true}, 15: {wire: 2, req: true}, 16: {wire: 2, req: true}, 17: {wire: 2, req: true}, 18: {wire: 2, req: true},
+		19: {wire: 2, req: true}, 20: {wire: 2, req: true}, 21: {wire: 2, req: true}, 22: {wire: 2, req: true},
+		23: {wire: 0, req: true}, 24: {wire: 0, req: true}, 25: {wire: 2, req: true},
+	}
+	treEnter   = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 2, req: true, msg: treSeason}, 4: {wire: 2, rep: true, msg: treCell}, 5: {wire: 0, req: true}}
+	treOwn     = lpMsg{1: {wire: 0}, 2: {wire: 2}, 3: {wire: 0}, 9: {wire: 2}}
+	treRelay   = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 0, req: true}, 4: {wire: 0, req: true}, 5: {wire: 0, req: true}, 6: {wire: 0, req: true}, 8: {wire: 2, msg: treOwn}, 9: {wire: 2, req: true, msg: treCell}}
+	treItem    = lpMsg{1: {wire: 0}, 2: {wire: 2}, 3: {wire: 2}, 4: {wire: 0}}
+	treReward  = lpMsg{1: {wire: 0}, 2: {wire: 2, rep: true, msg: treItem}, 5: {wire: 2}}
+	treCoin    = lpMsg{1: {wire: 0, req: true}}
+	treBonus   = lpMsg{1: {wire: 0, req: true}, 3: {wire: 2}, 4: {wire: 0}}
+	treDetail  = lpMsg{1: {wire: 2, msg: treReward}, 3: {wire: 2, msg: treCoin}, 6: {wire: 2, msg: treBonus}}
+	treRoll    = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 0, req: true}, 4: {wire: 0, req: true}, 5: {wire: 0, req: true}, 6: {wire: 2, req: true, msg: treCell}, 7: {wire: 2, msg: treDetail}, 8: {wire: 0, req: true}, 9: {wire: 2, msg: treReward}}
+	treRollNo  = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0}, 3: {wire: 0}, 4: {wire: 0}, 5: {wire: 0}}
+	treResult  = lpMsg{1: {wire: 0, req: true}}
+	treStatus  = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0}}
+	treCoinRef = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}}
+)
+
+// treLogBuf collects the session's log lines for the tests; the observer writes from its own goroutine.
+type treLogBuf struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *treLogBuf) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *treLogBuf) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// treAt sets the clock for one test.
+func treAt(t *testing.T, ts time.Time) {
+	t.Helper()
+	prev := economy.NowFunc
+	economy.NowFunc = func() time.Time { return ts }
+	t.Cleanup(func() { economy.NowFunc = prev })
+}
+
+// treTime is 2026-11-10 12:00 JST, inside the default season.
+var treTime = time.Date(2026, 11, 10, 12, 0, 0, 0, time.FixedZone("JST", 9*60*60))
+
+// treScene installs two lab accounts, an empty board book and the clock inside the season for one test.
+func treScene(t *testing.T) {
+	t.Helper()
+	testutil.InstallAccounts(t, map[string]*store.Account{
+		"t-1001": {AccessToken: "t-1001", SessionKey: "sk", Aid: "1001", Name: "Cherry", Gender: "FEMALE"},
+		"t-1002": {AccessToken: "t-1002", SessionKey: "sk", Aid: "1002", Name: "Test", Gender: "MALE"},
+	})
+	store.ResetTreasure()
+	t.Cleanup(store.ResetTreasure)
+	treAt(t, treTime)
+}
+
+// treDice makes the die show the given values in turn; the coin amounts take their minimum. Each roll of the test uses
+// one value.
+func treDice(t *testing.T, values ...int) {
+	t.Helper()
+	prev := economy.TreasureRandIntn
+	t.Cleanup(func() { economy.TreasureRandIntn = prev })
+	next := 0
+	economy.TreasureRandIntn = func(n int) int {
+		if n != 6 {
+			return 0
+		}
+		v := values[min(next, len(values)-1)]
+		next++
+		return v - 1
+	}
+}
+
+// treGateway is one gateway connection of a board player: the real observer loop reads the frames the test writes to a
+// pipe, and the test reads every reply.
+type treGateway struct {
+	t    *testing.T
+	peer net.Conn
+	sid  [8]byte
+	logs *treLogBuf
+}
+
+// newTreGateway starts the gateway frame loop on a pipe. The tunnel id is agent 9's, 1.1.114.0 (0x0001000100720000).
+func newTreGateway(t *testing.T) *treGateway {
+	t.Helper()
+	server, client := net.Pipe()
+	logs := &treLogBuf{}
+	t.Cleanup(func() { client.Close(); server.Close() })
+	go observeGatewayFrames(&lockedConn{Conn: server}, GatewayAddr, "pipe", log.New(logs, "", 0))
+	return &treGateway{t: t, peer: client, sid: [8]byte{0x00, 0x01, 0x00, 0x01, 0x00, 0x72, 0x00, 0x00}, logs: logs}
+}
+
+// write sends one frame (without its length prefix) to the gateway.
+func (g *treGateway) write(frame []byte) {
+	g.t.Helper()
+	_ = g.peer.SetWriteDeadline(time.Now().Add(2 * time.Second))
+	out := binary.BigEndian.AppendUint32(nil, uint32(len(frame)))
+	if _, err := g.peer.Write(append(out, frame...)); err != nil {
+		g.t.Fatalf("write: %v", err)
+	}
+}
+
+// open sends the client's subtype-1 open control and checks the echo: exactly 22 bytes, type 0x41, the same session id.
+func (g *treGateway) open() {
+	g.t.Helper()
+	g.write(append([]byte{'G', 0x41}, g.sid[:]...))
+	want := append(append([]byte{0, 0, 0, 18, 'G', 0x41}, g.sid[:]...), make([]byte, 8)...)
+	if got := g.raw(); !bytes.Equal(got, want) {
+		g.t.Fatalf("open echo = %x, want %x", got, want)
+	}
+}
+
+// send sends one data request (type 0x40, the session id, msgid, protobuf).
+func (g *treGateway) send(msgid uint16, body []byte) {
+	g.t.Helper()
+	f := append([]byte{'G', 0x40}, g.sid[:]...)
+	f = binary.BigEndian.AppendUint16(f, msgid)
+	g.write(append(f, body...))
+}
+
+// raw reads one frame from the gateway as it crosses the wire: the 4-byte length prefix and the frame.
+func (g *treGateway) raw() []byte {
+	g.t.Helper()
+	_ = g.peer.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var pre [4]byte
+	if _, err := io.ReadFull(g.peer, pre[:]); err != nil {
+		g.t.Fatalf("read prefix: %v", err)
+	}
+	f := make([]byte, binary.BigEndian.Uint32(pre[:]))
+	if _, err := io.ReadFull(g.peer, f); err != nil {
+		g.t.Fatalf("read frame: %v", err)
+	}
+	return append(pre[:], f...)
+}
+
+// read returns the next reply, a data frame of this session: it must be type 0x40 and msgid, and never subtype 2.
+func (g *treGateway) read(msgid uint16) []byte {
+	g.t.Helper()
+	f := g.raw()[4:]
+	if len(f) < 12 || f[0] != 'G' || !bytes.Equal(f[2:10], g.sid[:]) {
+		g.t.Fatalf("envelope = %x", f)
+	}
+	if f[1]&7 == 2 {
+		g.t.Fatalf("subtype 2 sent to agent 9: %x", f)
+	}
+	if f[1] != 0x40 {
+		g.t.Fatalf("data type = 0x%02x, want 0x40", f[1])
+	}
+	if got := binary.BigEndian.Uint16(f[10:12]); got != msgid {
+		g.t.Fatalf("msgid = %d, want %d", got, msgid)
+	}
+	return f[12:]
+}
+
+// readShape reads one reply and checks its fields against shape.
+func (g *treGateway) readShape(msgid uint16, shape lpMsg) []byte {
+	g.t.Helper()
+	body := g.read(msgid)
+	if err := lpCheck(body, shape, "treasure"); err != nil {
+		g.t.Fatalf("msgid %d shape: %v (body %x)", msgid, err, body)
+	}
+	return body
+}
+
+// control reads the 22-byte control frame of the given type byte for the session.
+func (g *treGateway) control(typ byte) {
+	g.t.Helper()
+	want := append(append([]byte{0, 0, 0, 18, 'G', typ}, g.sid[:]...), make([]byte, 8)...)
+	if got := g.raw(); !bytes.Equal(got, want) {
+		g.t.Fatalf("control = %x, want %x", got, want)
+	}
+}
+
+// login logs aid in and checks Result 0.
+func (g *treGateway) login(aid uint64) {
+	g.t.Helper()
+	g.send(treasureCsLogin, cirLoginBody(aid))
+	if body := g.readShape(treasureRcLogin, treResult); cirVar(body, 1) != 0 {
+		g.t.Fatalf("login result = %d, want 0", cirVar(body, 1))
+	}
+}
+
+// exit leaves the board: the empty exit reply, then the subtype-5 close control with the request's session id.
+func (g *treGateway) exit() {
+	g.t.Helper()
+	g.send(treasureCsRoomExit, nil)
+	if body := g.read(treasureRcRoomExit); len(body) != 0 {
+		g.t.Fatalf("exit reply = %x, want empty", body)
+	}
+	g.control(0x45)
+}
+
+// TestTreasureOpenEchoIsExact: the open control gets exactly one subtype-1 echo, and nothing else follows it.
+func TestTreasureOpenEchoIsExact(t *testing.T) {
+	treScene(t)
+	g := newTreGateway(t)
+	g.open()
+	assertNoReply(t, g.peer)
+}
+
+// TestTreasureBoardOverTheGateway drives one session end to end: login, enter (24 squares, season 1), relay start, six
+// rolls (one with a lap), coin count, the exit with its close control, the tutorial flag and the re-entry.
+func TestTreasureBoardOverTheGateway(t *testing.T) {
+	treScene(t)
+	treDice(t, 3, 2, 6, 6, 6, 6)
+	g := newTreGateway(t)
+	g.open()
+	g.login(1001)
+
+	g.send(treasureCsRoomEnter, nil)
+	enter := g.readShape(treasureRcRoomEnter, treEnter)
+	if cirVar(enter, 1) != 0 || cirVar(enter, 2) != 1 || cirVar(enter, 5) != 0 {
+		t.Fatalf("enter = result %d status %d tutorial %d, want 0, 1, 0", cirVar(enter, 1), cirVar(enter, 2), cirVar(enter, 5))
+	}
+	season := cirBytes(enter, 3)
+	if string(cirBytes(season, 8)) != "Jewel Carriage(s)" || string(cirBytes(season, 9)) != "Jewel(s)" ||
+		string(cirBytes(season, 10)) != "Queen's Jewel Box" || cirVar(season, 7) != 1 {
+		t.Fatalf("season names = %q %q %q, PlayTicketCount %d", cirBytes(season, 8), cirBytes(season, 9), cirBytes(season, 10), cirVar(season, 7))
+	}
+	for _, f := range []uint64{1, 2, 3, 4, 5, 6, 14, 15, 16, 17, 18, 19, 20, 21, 22, 25} {
+		if cirBytes(season, f) == nil || len(cirBytes(season, f)) != 0 {
+			t.Fatalf("season picture field %d = %q, want present and empty", f, cirBytes(season, f))
+		}
+	}
+	cells := cirList(enter, 4)
+	if len(cells) != 24 || cirVar(cells[0], 3) != 0 || string(cirBytes(cells[0], 4)) != "FR" || string(cirBytes(cells[6], 4)) != "BR" {
+		t.Fatalf("ring = %d squares, first %x, sixth %x", len(cells), cells[0], cells[6])
+	}
+
+	g.send(treasureCsRelayStart, nil)
+	relay := g.readShape(treasureRcRelayStart, treRelay)
+	if cirVar(relay, 2) != 10 || cirVar(relay, 3) != 10 || cirVar(relay, 4) != 0 || cirVar(relay, 5) != 600 || cirVar(relay, 6) != 0 {
+		t.Fatalf("relay = %x, want 10/10 tickets, no timer, 600 s charge, 0 jewels", relay)
+	}
+	if own := cirBytes(relay, 8); cirVar(own, 1) != 1001 || string(cirBytes(own, 2)) != "Cherry" {
+		t.Fatalf("own avatar = %x", own)
+	}
+	if cell := cirBytes(relay, 9); cirVar(cell, 1) != 0 || cirVar(cell, 3) != 0 {
+		t.Fatalf("start square = %x, want position 0 type 0", cell)
+	}
+
+	// Roll 1 (die 3): bonus square 3 pays 5 Jewels and the ticket is spent.
+	g.send(treasureCsRolling, pbVar(nil, 1, 0))
+	roll := g.readShape(treasureRcRolling, treRoll)
+	detail := cirBytes(roll, 7)
+	if cirVar(roll, 1) != 0 || cirVar(roll, 2) != 9 || cirVar(roll, 4) != 600 || cirVar(roll, 8) != 3 {
+		t.Fatalf("roll 1 = %x, want result 0, 9 tickets, 600 s, die 3", roll)
+	}
+	if cell := cirBytes(roll, 6); cirVar(cell, 1) != 3 || cirVar(cell, 3) != 4 || string(cirBytes(cell, 4)) != "FR" {
+		t.Fatalf("roll 1 square = %x, want position 3 type 4 FR", cell)
+	}
+	if bonus := cirBytes(detail, 6); cirVar(bonus, 4) != 5 || string(cirBytes(bonus, 3)) != "JEWEL" || string(cirBytes(cirBytes(detail, 1), 5)) != "+5 Jewel(s)" {
+		t.Fatalf("bonus detail = %x", detail)
+	}
+
+	g.send(treasureCsCoinRefresh, nil)
+	if coins := g.readShape(treasureRcCoinRefresh, treCoinRef); cirVar(coins, 2) != 5 {
+		t.Fatalf("coin count = %d, want 5", cirVar(coins, 2))
+	}
+
+	// Roll 2 (die 2): coin square 5 pays one Jewel (the minimum of 1 to 3).
+	g.send(treasureCsRolling, pbVar(nil, 1, 0))
+	roll = g.readShape(treasureRcRolling, treRoll)
+	item := cirBytes(cirBytes(cirBytes(roll, 7), 1), 2)
+	if cirVar(cirBytes(roll, 6), 1) != 5 || cirVar(item, 4) != 1 || cirVar(item, 1) != 10 || cirBytes(cirBytes(roll, 7), 3) == nil {
+		t.Fatalf("roll 2 = %x, want square 5 with a coin view of 1", roll)
+	}
+
+	// Rolls 3 to 6 (die 6 each): the fourth passes the start line, so the lap pays five tickets.
+	for i := 3; i <= 5; i++ {
+		g.send(treasureCsRolling, pbVar(nil, 1, 0))
+		roll = g.readShape(treasureRcRolling, treRoll)
+		if cirVar(roll, 1) != 0 || cirVar(roll, 8) != 6 || cirBytes(roll, 9) != nil {
+			t.Fatalf("roll %d = %x, want result 0 die 6 and no lap", i, roll)
+		}
+	}
+	g.send(treasureCsRolling, pbVar(nil, 1, 0))
+	roll = g.readShape(treasureRcRolling, treRoll)
+	start := cirBytes(roll, 9)
+	if cirVar(cirBytes(roll, 6), 1) != 5 || cirVar(roll, 2) != 9 || string(cirBytes(start, 5)) != "+5 Jewel Carriage(s)" {
+		t.Fatalf("roll 6 = %x, want square 5, 9 tickets after the lap, the lap text", roll)
+	}
+
+	g.send(treasureCsCoinRefresh, nil)
+	if coins := g.readShape(treasureRcCoinRefresh, treCoinRef); cirVar(coins, 2) != 10 {
+		t.Fatalf("coin count after six rolls = %d, want 10", cirVar(coins, 2))
+	}
+
+	// Leave the board: the exit reply and the close control. A request after the close is refused.
+	g.exit()
+	g.send(treasureCsRelayStart, nil)
+	if cirVar(g.readShape(treasureRcRelayStart, treResult), 1) != treasureRefused {
+		t.Fatal("relay start after the exit was not refused")
+	}
+
+	// Back in: the tutorial is still open, the tutorial request answers, and the next enter reports it done with the
+	// same tickets, square and jewels.
+	g.open()
+	g.login(1001)
+	g.send(treasureCsRoomEnter, nil)
+	if enter = g.readShape(treasureRcRoomEnter, treEnter); cirVar(enter, 5) != 0 {
+		t.Fatalf("tutorial flag before the tutorial = %d, want 0", cirVar(enter, 5))
+	}
+	g.send(treasureCsTutorial, nil)
+	if body := g.read(treasureRcTutorial); len(body) != 0 {
+		t.Fatalf("tutorial reply = %x, want empty", body)
+	}
+	g.exit()
+	g.open()
+	g.login(1001)
+	g.send(treasureCsRoomEnter, nil)
+	if enter = g.readShape(treasureRcRoomEnter, treEnter); cirVar(enter, 5) != 1 {
+		t.Fatalf("tutorial flag after the tutorial = %d, want 1", cirVar(enter, 5))
+	}
+	g.send(treasureCsRelayStart, nil)
+	relay = g.readShape(treasureRcRelayStart, treRelay)
+	if cirVar(relay, 2) != 9 || cirVar(relay, 6) != 10 || cirVar(cirBytes(relay, 9), 1) != 5 {
+		t.Fatalf("relay after re-entry = %x, want 9 tickets, 10 jewels, square 5", relay)
+	}
+	if !strings.Contains(g.logs.String(), "TREASURE msgid=4 roll aid=1001 dice=6 from=23 to=5") {
+		t.Fatalf("roll log line missing:\n%s", g.logs.String())
+	}
+}
+
+// TestTreasureRefusals: an unknown account, a closed season and a board that was never entered get Result 1 (the
+// client's way back to the Garden), and a roll without tickets moves nothing.
+func TestTreasureRefusals(t *testing.T) {
+	treScene(t)
+	g := newTreGateway(t)
+	g.open()
+	g.login(9999) // no account: login still answers 0, but the board is refused
+	g.send(treasureCsRoomEnter, nil)
+	if cirVar(g.readShape(treasureRcRoomEnter, treResult), 1) != treasureRefused {
+		t.Fatal("enter for an unknown account was not refused")
+	}
+
+	g.login(1001)
+	g.send(treasureCsRolling, pbVar(nil, 1, 0))
+	if cirVar(g.readShape(treasureRcRolling, treRollNo), 1) != treasureRefused {
+		t.Fatal("roll before enter was not refused")
+	}
+
+	treAt(t, treTime.AddDate(0, 0, -10)) // 2026-10-31: before the season starts (2026-11-01 06:00 JST)
+	g.send(treasureCsRoomEnter, nil)
+	if cirVar(g.readShape(treasureRcRoomEnter, treResult), 1) != treasureRefused {
+		t.Fatal("enter before the season was not refused")
+	}
+}
+
+// TestTreasureNoTicketRoll: with no ticket left the roll is refused with the counts, and the square does not change.
+func TestTreasureNoTicketRoll(t *testing.T) {
+	treScene(t)
+	treDice(t, 1) // one square a roll: no lap, so the ten tickets are the only ones
+	g := newTreGateway(t)
+	g.open()
+	g.login(1001)
+	g.send(treasureCsRoomEnter, nil)
+	g.readShape(treasureRcRoomEnter, treEnter)
+	for i := 0; i < 10; i++ { // the start is ten tickets; the eleventh roll has none
+		g.send(treasureCsRolling, pbVar(nil, 1, 0))
+		g.readShape(treasureRcRolling, treRoll)
+	}
+	g.send(treasureCsRolling, pbVar(nil, 1, 0))
+	refused := g.readShape(treasureRcRolling, treRollNo)
+	if cirVar(refused, 1) != treasureRefused || cirVar(refused, 2) != 0 {
+		t.Fatalf("roll with no tickets = %x, want Result 1 and 0 tickets", refused)
+	}
+}
+
+// TestTreasureLaterSlicesAnswerSafely: the requests of the later slices get the stub answers, each is logged as not
+// built, and the client's own close (subtype 2) gets no reply.
+func TestTreasureLaterSlicesAnswerSafely(t *testing.T) {
+	treScene(t)
+	g := newTreGateway(t)
+	g.open()
+	g.login(1001)
+
+	g.send(20, pbVar(nil, 1, 0)) // ticket limit info: refused, so no max-up popup opens (12863)
+	if cirVar(g.readShape(21, treResult), 1) != treasureRefused {
+		t.Fatal("ticket limit info not refused")
+	}
+	g.send(21, nil) // ticket limit buy: refused, nothing is spent (12865)
+	if cirVar(g.readShape(22, treResult), 1) != treasureRefused {
+		t.Fatal("ticket limit buy not refused")
+	}
+	g.send(7, nil) // ranking point reset: refused (12816)
+	if cirVar(g.readShape(7, treResult), 1) != treasureRefused {
+		t.Fatal("point reset not refused")
+	}
+	g.send(27, nil) // reset info: refused (12884)
+	if cirVar(g.readShape(32, treResult), 1) != treasureRefused {
+		t.Fatal("point reset info not refused")
+	}
+	g.send(5, nil) // buff list: empty, Result 0
+	if cirVar(g.readShape(5, treResult), 1) != 0 {
+		t.Fatal("buff list not an empty success")
+	}
+	g.send(16, nil) // quest and mission list: empty lists, Result 0
+	if cirVar(g.readShape(17, treResult), 1) != 0 {
+		t.Fatal("quest list not an empty success")
+	}
+	g.send(28, nil) // season active state: not active (flag cleared)
+	if cirVar(g.readShape(33, treStatus), 1) != treasureSeasonNotActive {
+		t.Fatal("season state not answered")
+	}
+	g.send(24, nil) // ticket sync: no caller in the client, no reply
+	g.send(0x30, nil)
+	g.write(append([]byte{'G', 0x42}, g.sid[:]...)) // the client's own close (subtype 2): never answered
+	assertNoReply(t, g.peer)
+	for _, msgid := range []string{"msgid=20 not built", "msgid=7 not built", "msgid=27 not built", "msgid=24 not built"} {
+		if !strings.Contains(g.logs.String(), "TREASURE "+msgid) {
+			t.Fatalf("log lacks %q", msgid)
+		}
+	}
+}
