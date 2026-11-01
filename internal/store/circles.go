@@ -36,21 +36,43 @@ type CircleInvite struct {
 	Date int64  `json:"date"` // ms
 }
 
+// CircleSeason is one circle's points in one season (economy/circle_points.go): the circle's total and each member's
+// record. A season with no points is absent.
+type CircleSeason struct {
+	Season  int64                          `json:"season"`
+	Total   int64                          `json:"total"`
+	Members map[string]*CircleMemberSeason `json:"members,omitempty"`
+}
+
+// CircleMemberSeason is one member's season: the points earned, the game day and the per-kind credits that the daily
+// caps read, the mission progress per trigger kind, the point steps claimed and the number of missions claimed.
+type CircleMemberSeason struct {
+	Points   int64            `json:"points"`
+	Day      int64            `json:"day,omitempty"`       // AttendDayKey of the day the counters below belong to
+	DayPts   int64            `json:"dayPoints,omitempty"` // points credited on Day
+	DayKinds map[string]int64 `json:"dayKinds,omitempty"`  // credits per trigger kind on Day
+	Progress map[string]int64 `json:"progress,omitempty"`  // credits per trigger kind this season (missions)
+	Steps    []int64          `json:"steps,omitempty"`     // point steps claimed (1-based seqs)
+	Missions int64            `json:"missions,omitempty"`  // missions claimed, in order
+}
+
 // Circle is one club. ID is in Cherry's circle block and is never reused. Name and Code are fixed at creation.
 type Circle struct {
-	ID        int64          `json:"id"`
-	Code      string         `json:"code"`
-	Name      string         `json:"name"`
-	Intro     string         `json:"intro"`
-	JoinType  string         `json:"joinType"` // "OPEN" or "INVITE"
-	LogoID    int64          `json:"logoId"`
-	LogoBgID  int64          `json:"logoBgId"`
-	Interests []int64        `json:"interests,omitempty"`
-	Created   int64          `json:"created"`  // ms
-	Modified  int64          `json:"modified"` // ms
-	Members   []CircleMember `json:"members"`
-	Applies   []CircleApply  `json:"applies,omitempty"`
-	Invites   []CircleInvite `json:"invites,omitempty"`
+	ID         int64          `json:"id"`
+	Code       string         `json:"code"`
+	Name       string         `json:"name"`
+	Intro      string         `json:"intro"`
+	JoinType   string         `json:"joinType"` // "OPEN" or "INVITE"
+	LogoID     int64          `json:"logoId"`
+	LogoBgID   int64          `json:"logoBgId"`
+	Interests  []int64        `json:"interests,omitempty"`
+	Created    int64          `json:"created"`  // ms
+	Modified   int64          `json:"modified"` // ms
+	Members    []CircleMember `json:"members"`
+	Applies    []CircleApply  `json:"applies,omitempty"`
+	Invites    []CircleInvite `json:"invites,omitempty"`
+	MaxMembers int            `json:"maxMembers,omitempty"` // member cap after upgrades (0: the data's base cap)
+	Seasons    []CircleSeason `json:"seasons,omitempty"`
 }
 
 // CircleBook is the whole circle state. Leaves holds, per aid, when that avatar last left a circle (the 24 h
@@ -133,7 +155,7 @@ func ResetCircles() {
 	CirclesMu.Unlock()
 }
 
-// Clone returns a deep copy of b: the slices and the map are not shared with the original.
+// Clone returns a deep copy of b: the slices and the maps are not shared with the original.
 func (b CircleBook) Clone() CircleBook {
 	out := CircleBook{NextID: b.NextID, Circles: make([]Circle, len(b.Circles))}
 	for i, c := range b.Circles {
@@ -141,10 +163,33 @@ func (b CircleBook) Clone() CircleBook {
 		c.Members = slices.Clone(c.Members)
 		c.Applies = slices.Clone(c.Applies)
 		c.Invites = slices.Clone(c.Invites)
+		c.Seasons = cloneCircleSeasons(c.Seasons)
 		out.Circles[i] = c
 	}
 	if b.Leaves != nil {
 		out.Leaves = maps.Clone(b.Leaves)
+	}
+	return out
+}
+
+// cloneCircleSeasons deep-copies the seasons: each member record is a pointer and each map is copied.
+func cloneCircleSeasons(in []CircleSeason) []CircleSeason {
+	if in == nil {
+		return nil
+	}
+	out := make([]CircleSeason, len(in))
+	for i, s := range in {
+		if s.Members != nil {
+			s.Members = make(map[string]*CircleMemberSeason, len(in[i].Members))
+			for aid, ms := range in[i].Members {
+				cp := *ms
+				cp.DayKinds = maps.Clone(ms.DayKinds)
+				cp.Progress = maps.Clone(ms.Progress)
+				cp.Steps = slices.Clone(ms.Steps)
+				s.Members[aid] = &cp
+			}
+		}
+		out[i] = s
 	}
 	return out
 }

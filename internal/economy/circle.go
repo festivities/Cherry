@@ -20,8 +20,9 @@ import (
 
 // Circle (player clubs; spec %TEMP%\opencode\cherry\circle-20261101\circle-spec.md, client 10.1.0.0). This file holds the
 // rules: creation, the membership, invitations and closing. circle_http.go serves them. The state is store.CircleState
-// (circles.json). Slice 1 is HTTP only: the room, chat, points, missions and gacha come later, so the circle book
-// keeps what they need (members with roles, applications, invitations, leave times) and nothing more.
+// (circles.json). The membership rules are here; the points, seasons, point steps and missions are in circle_points.go,
+// the member-cap upgrades in circle_upgrade.go, and the room (LPN agent 8) in internal/lpn/circle.go, which the
+// membership changes reach through CircleRoomHook.
 //
 // Refusals carry the client's error code (NaDispatcherCircle::ErrorProcess 0x1ab5ec8 [S]); see circleErr*.
 
@@ -87,20 +88,91 @@ var circleInterestCodes = []int64{
 	100, 101, 102, 103, 200, 201, 202, 203, 204, 205, 206, 300, 301, 302, 303, 304, 305, 306, 400, 401, 402, 403, 404,
 }
 
-// CircleData is data/circle.json: the creation product, the member cap, the circle room and the logo and background art.
+// CircleData is data/circle.json: the creation product, the member cap, the circle room, the logo and background art,
+// the points and seasons, the missions, the member-cap upgrades and the circle gacha switch.
 //
 //	origin, note  mixed: the ids and the product are Cherry-made, the pictures are the client's (opdata.Provenance)
 //	product       code (the create request must send it), name, price_gems (Gems; paymentType GEM), max_members
 //	room          the circle room's map and spawn (a Cherry-made stand-in, see note)
 //	logos         symbols a circle may use: id in the logo block, art = a file in UIResource/UIImage_hd (read in place)
 //	backgrounds   backgrounds a circle may use: the same rules
+//	points        season length, triggers, the daily cap and the point steps (circle_points.go)
+//	missions      the mission chain: one mission at a time per member and season (circle_points.go)
+//	upgrades      member-cap steps, each bought with Gems by the leader (circle_upgrade.go)
+//	gacha         whether the circle reward page offers the Cherry Gacha (its pulls use the main gacha route)
 type CircleData struct {
 	opdata.Provenance
-	Product     CircleProduct `json:"product"`
-	Room        CircleRoom    `json:"room"`
-	Logos       []CircleArt   `json:"logos"`
-	Backgrounds []CircleArt   `json:"backgrounds"`
+	Product     CircleProduct   `json:"product"`
+	Room        CircleRoom      `json:"room"`
+	Logos       []CircleArt     `json:"logos"`
+	Backgrounds []CircleArt     `json:"backgrounds"`
+	Points      CirclePoints    `json:"points"`
+	Missions    []CircleMission `json:"missions"`
+	Upgrades    []CircleUpgrade `json:"upgrades"`
+	Gacha       CircleGacha     `json:"gacha"`
 }
+
+// CirclePoints are the circle points rules. SeasonStart is the first season's start day ("2006-01-02", 06:00 JST);
+// seasons are SeasonDays long, and gaining stops at the season's end. Triggers are keyed by the kinds in circleKinds.
+// DailyCap bounds one member's points per game day. Steps are the circle's season targets, in ascending order.
+type CirclePoints struct {
+	SeasonDays  int64                    `json:"season_days"`
+	SeasonStart string                   `json:"season_start"`
+	SeasonName  string                   `json:"season_name"`
+	DailyCap    int64                    `json:"daily_cap"`
+	Triggers    map[string]CircleTrigger `json:"triggers"`
+	Steps       []CircleStep             `json:"steps"`
+}
+
+// CircleTrigger is the points one kind of event gives: Points each time, at most PerDay times a game day (0: no limit).
+type CircleTrigger struct {
+	Points int64 `json:"points"`
+	PerDay int64 `json:"per_day"`
+}
+
+// CircleStep is a season target: Points circle points reached, then each member who claims it gets Gems.
+type CircleStep struct {
+	Points int64 `json:"points"`
+	Gems   int64 `json:"gems"`
+}
+
+// CircleMission is one link of the mission chain: each goal is a season count of one trigger kind. Gems go to the
+// member who claims it, and Points to the circle's season total.
+type CircleMission struct {
+	Name   string       `json:"name"`
+	Goals  []CircleGoal `json:"goals"`
+	Gems   int64        `json:"gems"`
+	Points int64        `json:"points"`
+}
+
+// CircleGoal is one goal of a mission: Count credits of Kind in the season, text is shown on the goal's row.
+type CircleGoal struct {
+	Kind  string `json:"kind"`
+	Count int64  `json:"count"`
+	Text  string `json:"text"`
+}
+
+// CircleUpgrade is a member-cap step: the cap becomes To, for PriceGems Gems. Code is the product code the client sends
+// and Name the title its row shows.
+type CircleUpgrade struct {
+	Code      string `json:"code"`
+	Name      string `json:"name"`
+	To        int64  `json:"to"`
+	PriceGems int64  `json:"price_gems"`
+}
+
+// CircleGacha switches the circle reward page's gacha on. The gacha is the main Cherry Gacha: its pulls use the
+// gacha route, which serves the one active gacha and charges Gems only.
+type CircleGacha struct {
+	Enabled bool `json:"enabled"`
+}
+
+// circleKinds are the trigger kinds: Garden visit, Square visit, gathering, a completed daily quest and a circle chat
+// message. circleQuestKinds maps the quest progress keys (economy.questTriggers) that earn them.
+var circleKinds = []string{"garden", "square", "gather", "quest", "chat"}
+
+// circleQuestKinds maps the quest progress keys that give a trigger kind (the daily quest completion is "quest").
+var circleQuestKinds = map[string]string{"garden-visit": "garden", "garden-own": "garden", "square": "square", "gather3": "gather"}
 
 // CircleProduct is the creation product.
 type CircleProduct struct {
@@ -201,6 +273,71 @@ func checkCircleData(c *CircleData) error {
 			seen[a.ID] = true
 		}
 	}
+	return checkCircleRules(c)
+}
+
+// checkCircleRules checks the points, the missions, the upgrades and the season start at startup.
+func checkCircleRules(c *CircleData) error {
+	p := c.Points
+	if _, err := circleSeasonStartKey(p.SeasonStart); err != nil {
+		return err
+	}
+	switch {
+	case p.SeasonDays < 1 || p.SeasonDays > 365:
+		return errors.New("points.season_days must be 1 to 365")
+	case strings.Count(p.SeasonName, "%d") != 1 || strings.Count(p.SeasonName, "%") != 1:
+		return errors.New("points.season_name must hold one %d")
+	case p.DailyCap < 1 || p.DailyCap > 100000:
+		return errors.New("points.daily_cap must be 1 to 100000")
+	}
+	for kind, t := range p.Triggers {
+		switch {
+		case !slices.Contains(circleKinds, kind):
+			return fmt.Errorf("points.triggers: %q is not a trigger kind", kind)
+		case t.Points < 0 || t.Points > 1000 || t.PerDay < 0 || t.PerDay > 1000:
+			return fmt.Errorf("points.triggers %s: points and per_day must be 0 to 1000", kind)
+		}
+	}
+	for i, s := range p.Steps {
+		switch {
+		case s.Points < 1 || s.Points > 1000000 || s.Gems < 0 || s.Gems > 100000:
+			return fmt.Errorf("points.steps[%d]: points must be 1 to 1000000 and gems 0 to 100000", i)
+		case i > 0 && s.Points <= p.Steps[i-1].Points:
+			return fmt.Errorf("points.steps[%d]: points must rise", i)
+		}
+	}
+	for i, m := range c.Missions {
+		if m.Name == "" || len(m.Goals) == 0 || m.Gems < 0 || m.Gems > 100000 || m.Points < 0 || m.Points > 100000 {
+			return fmt.Errorf("missions[%d]: needs a name, at least one goal, and gems and points of 0 to 100000", i)
+		}
+		for _, g := range m.Goals {
+			if !slices.Contains(circleKinds, g.Kind) || g.Count < 1 || g.Count > 100000 || g.Text == "" {
+				return fmt.Errorf("missions[%d]: each goal needs a trigger kind, a count of 1 to 100000 and a text", i)
+			}
+		}
+	}
+	base := int64(c.Product.MaxMembers)
+	for i, u := range c.Upgrades {
+		prev := base
+		if i > 0 {
+			prev = c.Upgrades[i-1].To
+		}
+		switch {
+		case u.Code == "" || strings.ContainsAny(u.Code, " /\\"):
+			return fmt.Errorf("upgrades[%d]: code must be a code with no spaces or slashes", i)
+		case strings.TrimSpace(u.Name) == "":
+			return fmt.Errorf("upgrades[%d]: name must not be empty", i)
+		case u.To <= prev || u.To > 100:
+			return fmt.Errorf("upgrades[%d]: to must rise above %d and stay at most 100", i, prev)
+		case u.PriceGems < 1 || u.PriceGems > 100000:
+			return fmt.Errorf("upgrades[%d]: price_gems must be 1 to 100000", i)
+		}
+		for _, o := range c.Upgrades[:i] {
+			if o.Code == u.Code {
+				return fmt.Errorf("upgrades[%d]: code %q is used twice", i, u.Code)
+			}
+		}
+	}
 	return nil
 }
 
@@ -260,7 +397,18 @@ type CircleModifyRequest struct {
 func circleTx(token string, write bool, op func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error)) error {
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
-	acc := store.Accounts[token]
+	return circleTxLocked(store.Accounts[token], write, op)
+}
+
+// circleTxAid is circleTx for an avatar id (the LPN side has no token).
+func circleTxAid(aid string, write bool, op func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error)) error {
+	store.AccountsMu.Lock()
+	defer store.AccountsMu.Unlock()
+	return circleTxLocked(store.AccountByAidLocked(aid), write, op)
+}
+
+// circleTxLocked is the body of circleTx; the caller holds AccountsMu.
+func circleTxLocked(acc *store.Account, write bool, op func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error)) error {
 	if acc == nil || !store.ValidAvatarID(acc.Aid) || acc.Aid == "0" {
 		return ErrCircleSession
 	}
@@ -361,8 +509,25 @@ func cooldownActive(b *store.CircleBook, aid string, now time.Time) bool {
 // circleCodeOf is the short code a player searches by (Cherry's numbering from the first circle).
 func circleCodeOf(id int64) string { return fmt.Sprintf("%06d", id-CherryCircleFirst) }
 
-// circleCap is the member cap of every circle (data/circle.json max_members).
-func circleCap() int { return ActiveCircleData().Product.MaxMembers }
+// circleCapOf is the member cap of c: its own cap once it was upgraded, else the product's base cap.
+func circleCapOf(c *store.Circle) int {
+	if c.MaxMembers > 0 {
+		return c.MaxMembers
+	}
+	return ActiveCircleData().Product.MaxMembers
+}
+
+// CircleCapOf is the member cap of circle id (0 when there is no such circle).
+func CircleCapOf(id int64) int {
+	cap := 0
+	_ = circleBookTx(false, func(b *store.CircleBook) error {
+		if ci := circleIndex(b, id); ci >= 0 {
+			cap = circleCapOf(&b.Circles[ci])
+		}
+		return nil
+	})
+	return cap
+}
 
 func checkCircleName(name string) error {
 	if strings.TrimSpace(name) == "" || utf8.RuneCountInString(name) > circleNameMax {
@@ -475,10 +640,31 @@ func ModifyCircle(token string, req CircleModifyRequest, now time.Time) error {
 	})
 }
 
+// CircleRoomHook receives the membership changes made over HTTP (join, approval, invitation accepted, leave, close)
+// once they are saved and no lock is held. internal/lpn sets it to push each change into the circle room. Nil means
+// nobody is listening.
+var CircleRoomHook func(ev CircleRoomEvent)
+
+// CircleRoomEvent is one saved membership change of circle Circle: the avatars that joined, the avatars that left or
+// were removed, and whether the whole circle closed (then Left holds every former member).
+type CircleRoomEvent struct {
+	Circle int64
+	Joined []string
+	Left   []string
+	Closed bool
+}
+
+func notifyCircleRoom(ev CircleRoomEvent) {
+	if CircleRoomHook != nil {
+		CircleRoomHook(ev)
+	}
+}
+
 // JoinCircle is POST circle/apply/join/<id>: an OPEN circle takes the player at once; an INVITE circle takes only an
 // invited player (who thereby uses the invitation). Anything else is refused as not found.
 func JoinCircle(token string, id int64, now time.Time) error {
-	return circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
+	var joined string
+	err := circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
 		ci := circleIndex(b, id)
 		if ci < 0 {
 			return nil, circleRefuse(circleErrNotFound)
@@ -487,8 +673,13 @@ func JoinCircle(token string, id int64, now time.Time) error {
 		if c.JoinType != circleOpen && inviteIndex(c, acc.Aid) < 0 {
 			return nil, circleRefuse(circleErrNotFound)
 		}
+		joined = acc.Aid
 		return nil, joinCircleAt(b, ci, acc.Aid, now)
 	})
+	if err == nil {
+		notifyCircleRoom(CircleRoomEvent{Circle: id, Joined: []string{joined}})
+	}
+	return err
 }
 
 // joinCircleAt adds aid to circle ci as a plain member. It checks the one-circle rule, the 24-hour cooldown and the
@@ -501,7 +692,7 @@ func joinCircleAt(b *store.CircleBook, ci int, aid string, now time.Time) error 
 		return circleRefuse(circleErrCooldown)
 	}
 	c := &b.Circles[ci]
-	if len(c.Members) >= circleCap() {
+	if len(c.Members) >= circleCapOf(c) {
 		return circleRefuse(circleErrGeneric)
 	}
 	c.Members = append(c.Members, store.CircleMember{Aid: aid, Role: roleMember, Joined: now.UnixMilli()})
@@ -531,7 +722,7 @@ func CancelApply(token string, id int64) error {
 
 // ApproveApply is POST circle/apply/join/<id>/approval/<aid>: a leader admits an applicant.
 func ApproveApply(token string, id int64, target string, now time.Time) error {
-	return circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
+	err := circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
 		ci := circleIndex(b, id)
 		if ci < 0 {
 			return nil, circleRefuse(circleErrNotFound)
@@ -547,6 +738,10 @@ func ApproveApply(token string, id int64, target string, now time.Time) error {
 		c.Applies = slices.Delete(c.Applies, ai, ai+1)
 		return nil, joinCircleAt(b, ci, target, now)
 	})
+	if err == nil {
+		notifyCircleRoom(CircleRoomEvent{Circle: id, Joined: []string{target}})
+	}
+	return err
 }
 
 // RefuseApply is POST circle/apply/join/<id>/refuse/<aid>: a leader turns an applicant down.
@@ -592,7 +787,7 @@ func InviteCircle(token string, id int64, target string, now time.Time) error {
 		if inviteIndex(c, target) >= 0 {
 			return nil, circleRefuse(circleErrAlreadyInvited)
 		}
-		if len(c.Members) >= circleCap() {
+		if len(c.Members) >= circleCapOf(c) {
 			return nil, circleRefuse(circleErrGeneric)
 		}
 		c.Invites = append(c.Invites, store.CircleInvite{Aid: target, By: acc.Aid, Date: now.UnixMilli()})
@@ -622,7 +817,8 @@ func CancelInvite(token string, id int64, target string) error {
 
 // AcceptInvite is POST circle/invite/approval/<id>: the invitee joins.
 func AcceptInvite(token string, id int64, now time.Time) error {
-	return circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
+	var joined string
+	err := circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
 		ci := circleIndex(b, id)
 		if ci < 0 {
 			return nil, circleRefuse(circleErrNotFound)
@@ -630,8 +826,13 @@ func AcceptInvite(token string, id int64, now time.Time) error {
 		if inviteIndex(&b.Circles[ci], acc.Aid) < 0 {
 			return nil, circleRefuse(circleErrNotFound)
 		}
+		joined = acc.Aid
 		return nil, joinCircleAt(b, ci, acc.Aid, now)
 	})
+	if err == nil {
+		notifyCircleRoom(CircleRoomEvent{Circle: id, Joined: []string{joined}})
+	}
+	return err
 }
 
 // RefuseInvite is POST circle/invite/refuse/<id>: the invitee declines.
@@ -655,7 +856,8 @@ func RefuseInvite(token string, id int64) error {
 // leader hands the leadership over first (CircleTransferMaster, cs_master_change_req), and then the old leader is a
 // plain member and may leave. A leader who wants out instead closes the circle.
 func LeaveCircle(token string, id int64, now time.Time) error {
-	return circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
+	var left string
+	err := circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
 		ci := circleIndex(b, id)
 		if ci < 0 {
 			return nil, circleRefuse(circleErrNotFound)
@@ -673,8 +875,13 @@ func LeaveCircle(token string, id int64, now time.Time) error {
 			b.Leaves = map[string]int64{}
 		}
 		b.Leaves[acc.Aid] = now.UnixMilli()
+		left = acc.Aid
 		return nil, nil
 	})
+	if err == nil {
+		notifyCircleRoom(CircleRoomEvent{Circle: id, Left: []string{left}})
+	}
+	return err
 }
 
 // IssueCloseCode is POST circle/close/issue/code/<id>: a leader gets the code and key the close screen shows. Nothing
@@ -698,7 +905,8 @@ func IssueCloseCode(token string, id int64) (key string, code int, err error) {
 // CloseCircle is POST circle/close/<id>/...: a leader closes the circle. Its members, invitations and applications go
 // with it; the id is never reused.
 func CloseCircle(token string, id int64) error {
-	return circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
+	var former []string
+	err := circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
 		ci := circleIndex(b, id)
 		if ci < 0 {
 			return nil, circleRefuse(circleErrNotFound)
@@ -706,9 +914,16 @@ func CloseCircle(token string, id int64) error {
 		if roleOf(&b.Circles[ci], acc.Aid) != roleLeader {
 			return nil, circleRefuse(circleErrRights)
 		}
+		for _, m := range b.Circles[ci].Members {
+			former = append(former, m.Aid)
+		}
 		b.Circles = slices.Delete(b.Circles, ci, ci+1)
 		return nil, nil
 	})
+	if err == nil {
+		notifyCircleRoom(CircleRoomEvent{Circle: id, Left: former, Closed: true})
+	}
+	return err
 }
 
 // circleMapID reports whether s is a map folder id (digits only, as the Square maps are).

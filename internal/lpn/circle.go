@@ -90,6 +90,7 @@ const (
 	circleRcAuthority    = 30
 	circleRcFire         = 31
 	circleRcMasterChange = 32
+	circleRcMemberAdd    = 33
 	circleRcMemberDelete = 34
 	circleRcMemberChange = 35
 	circleRcSkinInven    = 36
@@ -100,6 +101,7 @@ const (
 	circleRcUpgradeBuy   = 41
 	circleRcAchievements = 42
 	circleRcBuffCopy     = 45
+	circleRcPointRefresh = 48
 	circleRcPointReward  = 49
 	circleRcQuestList    = 52
 	circleRcQuestReward  = 53
@@ -434,6 +436,18 @@ func (s *circleSession) handleData(frame []byte) error {
 		return s.fire(frame, data)
 	case circleCsMasterChange:
 		return s.masterChange(frame, data)
+	case circleCsUpgradeShop:
+		return s.upgradeShop(frame)
+	case circleCsUpgradeBuy:
+		return s.upgradeBuy(frame, data)
+	case circleCsPointSync:
+		return s.pointSync(frame)
+	case circleCsPointReward:
+		return s.pointReward(frame, data)
+	case circleCsQuestList:
+		return s.questList(frame)
+	case circleCsQuestReward:
+		return s.questReward(frame)
 	default:
 		return s.stub(frame, msgid, data)
 	}
@@ -594,6 +608,7 @@ func (s *circleSession) chat(data []byte) {
 	m.serial = s.chats.add(s.circleID, m)
 	s.logger.Printf("CIRCLE chat aid=%d serial=%d bytes=%d", s.aid, m.serial, len(msg))
 	s.room.broadcast(s.logger, nil, circleRcChat, pbLen(nil, 1, circleChatInfo(m)))
+	economy.CirclePointEarn(s.aidText(), "chat", economy.NowFunc()) // a circle chat message counts toward points and missions
 }
 
 // oldChat answers cs_old_chat_req (msgid 15) with up to circleChatPage messages older than the given serial, oldest
@@ -627,7 +642,7 @@ func (s *circleSession) memberList(frame []byte) error {
 	}
 	body = pbVar(body, 3, aidNum(master))
 	body = pbVar(body, 4, uint64(len(members)))
-	body = pbVar(body, 5, uint64(economy.ActiveCircleData().Product.MaxMembers))
+	body = pbVar(body, 5, uint64(economy.CircleCapOf(id)))
 	return s.reply(frame, circleRcMemberList, body)
 }
 
@@ -725,8 +740,209 @@ func (s *circleSession) fire(frame, data []byte) error {
 	return nil
 }
 
-// stub answers the requests whose features are not built yet (skins, upgrades, achievements, buffs, points, quests,
-// pets) with the empty or refused shape of their reply, so no screen waits forever. Requests with no reply in the
+// upgradeShop answers cs_circle_upgrade_shop_info_req (msgid 28) with sc_circle_upgrade_shop_info_res (40): Result and
+// the next cap step as one SapiUpgradeShopInfo (the client reads a single message, not a list). A player in no circle is
+// refused.
+func (s *circleSession) upgradeShop(frame []byte) error {
+	row, err := economy.CircleUpgradeInfo(s.aidText())
+	if err != nil {
+		return s.reply(frame, circleRcUpgradeShop, pbVar(nil, 1, circleRefused))
+	}
+	return s.reply(frame, circleRcUpgradeShop, pbLen(pbVar(nil, 1, 0), 2, circleUpgradeShopBytes(row)))
+}
+
+// upgradeBuy answers cs_circle_upgrade_buy_req (msgid 29: ItemCode, CoinUnit, Price, Cpid) with sc_circle_upgrade_buy_res
+// (41): Result, the Gem balance after the purchase and its unit. A refusal carries only the result. A real-money id is
+// refused by economy.BuyCircleUpgrade.
+func (s *circleSession) upgradeBuy(frame, data []byte) error {
+	code, _, _ := pbBytesField(data, 1)
+	unit, _, _ := pbBytesField(data, 2)
+	price, _ := protobufUintField(data, 3)
+	cpID, found, _ := pbBytesField(data, 4)
+	if found && len(cpID) > 0 {
+		s.logger.Printf("CIRCLE upgrade buy real-money id refused")
+	}
+	balance, err := economy.BuyCircleUpgrade(s.aidText(), string(code), string(unit), string(cpID), int64(price), economy.NowFunc())
+	if err != nil {
+		s.logger.Printf("CIRCLE upgrade buy aid=%d refused: %v", s.aid, err)
+		return s.reply(frame, circleRcUpgradeBuy, pbVar(nil, 1, circleRefused))
+	}
+	s.logger.Printf("CIRCLE upgrade buy aid=%d code=%s gems balance=%d", s.aid, code, balance)
+	if id, _, ok := economy.CircleOf(s.aidText()); ok {
+		pushCircleChanges(s.logger, s.rooms, id, nil, nil) // the room's count and cap follow the new cap
+	}
+	body := pbVar(nil, 1, 0)
+	body = pbVar(body, 2, uint64(balance))
+	return s.reply(frame, circleRcUpgradeBuy, pbLen(body, 3, []byte("GEM")))
+}
+
+// pointSync answers cs_circle_point_sync_req (msgid 32) with sc_circle_point_refresh_push (48): the circle's point state.
+// The client's sync reply (47) posts nothing, so the push is the answer.
+func (s *circleSession) pointSync(frame []byte) error {
+	info := economy.CirclePointInfoOf(s.aidText(), economy.NowFunc())
+	return s.reply(frame, circleRcPointRefresh, pbLen(nil, 1, circlePointInfoBytes(info)))
+}
+
+// pointReward answers cs_point_reward_req (msgid 33, RewardSeq) with sc_point_reward_res (49): Result 0, the step's Gems
+// as RewardInfo and the point state. A refusal carries only the result.
+func (s *circleSession) pointReward(frame, data []byte) error {
+	seq, _ := protobufUintField(data, 1)
+	gems, err := economy.CirclePointClaim(s.aidText(), int64(seq), economy.NowFunc())
+	if err != nil {
+		s.logger.Printf("CIRCLE point reward aid=%d seq=%d refused: %v", s.aid, seq, err)
+		return s.reply(frame, circleRcPointReward, pbVar(nil, 1, circleRefused))
+	}
+	s.logger.Printf("CIRCLE point reward aid=%d seq=%d gems=%d", s.aid, seq, gems)
+	info := economy.CirclePointInfoOf(s.aidText(), economy.NowFunc())
+	body := pbLen(pbVar(nil, 1, 0), 2, circleGemRewardInfo(gems))
+	return s.reply(frame, circleRcPointReward, pbLen(body, 3, circlePointInfoBytes(info)))
+}
+
+// questList answers cs_quest_list_req (msgid 34) with sc_quest_list_res (52): the circle's missions for the season.
+// A player in no circle is refused.
+func (s *circleSession) questList(frame []byte) error {
+	rows, ok := economy.CircleMissionRows(s.aidText(), economy.NowFunc())
+	if !ok {
+		return s.reply(frame, circleRcQuestList, pbVar(nil, 1, circleRefused))
+	}
+	body := pbVar(nil, 1, 0)
+	for _, q := range rows {
+		body = pbLen(body, 2, circleQuestBytes(q))
+	}
+	return s.reply(frame, circleRcQuestList, body)
+}
+
+// questReward answers cs_quest_reward_req (msgid 35, no fields) with sc_quest_reward_res (53): the current mission's
+// reward is paid when its goals are met. The request names no mission, so the server claims the current one.
+func (s *circleSession) questReward(frame []byte) error {
+	gems, points, err := economy.CircleMissionClaim(s.aidText(), economy.NowFunc())
+	if err != nil {
+		s.logger.Printf("CIRCLE mission claim aid=%d refused: %v", s.aid, err)
+		return s.reply(frame, circleRcQuestReward, pbVar(nil, 1, circleRefused))
+	}
+	s.logger.Printf("CIRCLE mission claim aid=%d gems=%d points=%d", s.aid, gems, points)
+	return s.reply(frame, circleRcQuestReward, pbVar(nil, 1, 0))
+}
+
+// circlePointInfoBytes encodes PointInfo (appendix C): 1 RewardSeq, 2 LastRewardSeq, 3 MaxRewardSeq, 4 LastCirclePoint,
+// 5 CurrentCirclePoint, 6 CurrentMaxCirclePoint, 7 BeforeMaxCirclePoint, 8 SessionState, 9 AvailSessionAttendYn.
+func circlePointInfoBytes(v economy.CirclePointInfoView) []byte {
+	b := pbVar(nil, 1, uint64(v.RewardSeq))
+	b = pbVar(b, 2, uint64(v.LastRewardSeq))
+	b = pbVar(b, 3, uint64(v.MaxRewardSeq))
+	b = pbVar(b, 4, uint64(v.LastCirclePoint))
+	b = pbVar(b, 5, uint64(v.CurrentCirclePoint))
+	b = pbVar(b, 6, uint64(v.CurrentMaxCirclePoint))
+	b = pbVar(b, 7, uint64(v.BeforeMaxCirclePoint))
+	b = pbVar(b, 8, uint64(v.SessionState))
+	return pbVar(b, 9, uint64(v.AvailSessionAttendYn))
+}
+
+// circleGemRewardInfo encodes RewardInfo for a Gem step: 1 RewardType, 2 ItemList (one RewardItemInfo: ViewMessage
+// names the amount, ViewCount is the amount, no item code), 3 TopMessage. The texts are Cherry's [I]: the client's
+// reward popup text for point steps was not traced.
+func circleGemRewardInfo(gems int64) []byte {
+	item := pbVar(nil, 1, 0)
+	item = pbLen(item, 2, []byte("+"+strconv.FormatInt(gems, 10)+" Gems"))
+	item = pbVar(item, 4, uint64(gems))
+	b := pbVar(nil, 1, 1)
+	b = pbLen(b, 2, item)
+	return pbLen(b, 3, []byte("Circle reward"))
+}
+
+// circleUpgradeShopBytes encodes SapiUpgradeShopInfo: 1 ProductCode, 2 ProductName, 3 ProductImagePath, 4 MaxMemberCount
+// (the current cap), 5 UpgradeMaxMemberCount (the cap after the step), 6 FinalMaxMemberCount, 7 PaymentType (GEM),
+// 8 OriginPrice, 9 DiscountPercentage (0), 12 FinalPrice, 14 Purchasable. The billing id (13) is never sent.
+func circleUpgradeShopBytes(row economy.CircleUpgradeRow) []byte {
+	b := pbLen(nil, 1, []byte(row.Code))
+	b = pbLen(b, 2, []byte(row.Name))
+	b = pbLen(b, 3, []byte(row.Image))
+	b = pbVar(b, 4, uint64(row.Current))
+	b = pbVar(b, 5, uint64(row.To))
+	b = pbVar(b, 6, uint64(row.Final))
+	b = pbLen(b, 7, []byte("GEM"))
+	b = pbVar(b, 8, uint64(row.PriceGems))
+	b = pbVar(b, 9, 0)
+	b = pbVar(b, 12, uint64(row.PriceGems))
+	return pbVar(b, 14, boolUint(row.Purchasable))
+}
+
+// circleQuestBytes encodes one mission as QuestInfo: 1 Startdate, 2 Enddate (ms), 3 Subquest (one SubQuestInfo per goal:
+// 1 Complete = the member's count, 2 Index, 3 Type, 4 TargetValue = the goal count, 6 Msg, 8 Status), 4 Reward (a Gem
+// row and, when the mission pays points, a points row), 5 RewardState. [I] the meanings of Complete and Status and the
+// reward rows' rendering are not traced.
+func circleQuestBytes(q economy.CircleQuestRow) []byte {
+	b := pbVar(nil, 1, uint64(q.StartMs))
+	b = pbVar(b, 2, uint64(q.EndMs))
+	for i, g := range q.Goals {
+		sub := pbVar(nil, 1, uint64(g.Progress))
+		sub = pbVar(sub, 2, uint64(i))
+		sub = pbVar(sub, 3, 0)
+		sub = pbLen(sub, 4, []byte(strconv.FormatInt(g.Count, 10)))
+		sub = pbLen(sub, 6, []byte(g.Text))
+		sub = pbVar(sub, 8, boolUint(g.Done))
+		b = pbLen(b, 3, sub)
+	}
+	b = pbLen(b, 4, circleQuestReward("+"+strconv.FormatInt(q.Gems, 10)+" Gems", q.Gems))
+	if q.Points > 0 {
+		b = pbLen(b, 4, circleQuestReward("+"+strconv.FormatInt(q.Points, 10)+" Circle points", q.Points))
+	}
+	return pbVar(b, 5, uint64(q.RewardState))
+}
+
+// circleQuestReward encodes a QuestReward row: 6 ItemAmount, 3 ItemCode (empty), 4 ItemName (the text the row shows).
+func circleQuestReward(name string, amount int64) []byte {
+	return pbVar(pbLen(nil, 4, []byte(name)), 6, uint64(amount))
+}
+
+// boolUint is 1 for true and 0 for false, the protobuf varint of a bool.
+func boolUint(v bool) uint64 {
+	if v {
+		return 1
+	}
+	return 0
+}
+
+// pushCircleEvent pushes a membership change made over HTTP into the room of ev.Circle, as the LPN requests push theirs:
+// sc_circle_memeber_add_push (33) for each joiner, sc_circle_memeber_delete_push (34) for the leavers (the removed ones
+// are taken out of the room, and the rest get deluser), and the member count (35). A closed circle has no members left
+// to count. Nothing happens for a circle nobody has entered.
+func pushCircleEvent(rooms *circleRooms, logger *log.Logger, ev economy.CircleRoomEvent) {
+	room := rooms.find(ev.Circle)
+	if room == nil {
+		return
+	}
+	if len(ev.Left) > 0 {
+		var gone []uint64
+		var list []byte
+		for _, a := range ev.Left {
+			n := aidNum(a)
+			gone = append(gone, n)
+			list = pbVar(list, 1, n)
+		}
+		room.broadcast(logger, nil, circleRcMemberDelete, list)
+		for _, p := range room.remove(gone) {
+			logger.Printf("CIRCLE removed aid=%d from the room (HTTP)", p.aid)
+			room.broadcast(logger, nil, circleRcDelUser, squareDelUser(p.aid))
+		}
+	}
+	if members, _, ok := economy.CircleMembersOf(ev.Circle); ok && len(ev.Joined) > 0 {
+		online := rooms.presence(ev.Circle)
+		for _, m := range members {
+			if slices.Contains(ev.Joined, m.Aid) {
+				room.broadcast(logger, nil, circleRcMemberAdd, pbLen(nil, 1, circleMemberInfo(m, online)))
+			}
+		}
+	}
+	pushCircleChanges(logger, rooms, ev.Circle, nil, nil)
+}
+
+func init() {
+	economy.CircleRoomHook = func(ev economy.CircleRoomEvent) { pushCircleEvent(defaultCircleRooms, log.Default(), ev) }
+}
+
+// stub answers the requests whose features are not built yet (skins, achievements, buffs, pet rides, the button
+// update) with the empty or refused shape of their reply, so no screen waits forever. Requests with no reply in the
 // client's table are dropped. Nothing here spends money: every purchase is refused, and a real-money id (Cpid) is
 // refused with no other check.
 func (s *circleSession) stub(frame []byte, msgid uint16, data []byte) error {
@@ -737,32 +953,21 @@ func (s *circleSession) stub(frame []byte, msgid uint16, data []byte) error {
 		return s.reply(frame, circleRcSkinShop, pbVar(nil, 1, 0))
 	case circleCsSkinChange:
 		return s.reply(frame, circleRcSkinChange, pbVar(nil, 1, circleRefused))
-	case circleCsSkinBuy, circleCsUpgradeBuy:
+	case circleCsSkinBuy: // no skins are made, so every purchase is refused (a Cpid is refused with no other check)
 		if _, found, _ := pbBytesField(data, 4); found {
 			s.logger.Printf("CIRCLE msgid=%d real-money id refused", msgid)
 		}
-		if msgid == circleCsSkinBuy {
-			return s.reply(frame, circleRcSkinBuy, pbVar(nil, 1, circleRefused))
-		}
-		return s.reply(frame, circleRcUpgradeBuy, pbVar(nil, 1, circleRefused))
-	case circleCsUpgradeShop: // no upgrade rows
-		return s.reply(frame, circleRcUpgradeShop, pbVar(nil, 1, 0))
+		return s.reply(frame, circleRcSkinBuy, pbVar(nil, 1, circleRefused))
 	case circleCsAchievements: // no achievements
 		return s.reply(frame, circleRcAchievements, pbVar(nil, 1, 0))
 	case circleCsBuffCopy:
 		target, _ := protobufUintField(data, 1)
 		return s.reply(frame, circleRcBuffCopy, pbVar(pbVar(pbVar(nil, 1, circleRefused), 2, s.aid), 3, target))
-	case circleCsPointReward:
-		return s.reply(frame, circleRcPointReward, pbVar(nil, 1, circleRefused))
-	case circleCsQuestList: // no quests
-		return s.reply(frame, circleRcQuestList, pbVar(nil, 1, 0))
-	case circleCsQuestReward:
-		return s.reply(frame, circleRcQuestReward, pbVar(nil, 1, circleRefused))
 	case circleCsPetRide:
 		return s.reply(frame, circleRcPetRide, pbVar(nil, 1, circleRefused))
 	case circleCsNoticeClose:
 		return s.reply(frame, circleRcNoticeClose, pbVar(nil, 1, 0))
-	case circleCsPointSync, circleCsButtonUpdate, circleCsPlayerActorStatus, circleCsPlayerInteraction,
+	case circleCsButtonUpdate, circleCsPlayerActorStatus, circleCsPlayerInteraction,
 		circleCsPlayerDoInter, circleCsPlayerBeginInter, circleCsPlayerEndInter, circleCsNoticeReq,
 		circleCsReportChat, circleCsPetAction, circleCsPetInteraction, circleCsPetMove:
 		s.logger.Printf("CIRCLE msgid=%d not served (no reply in the client's table)", msgid)
@@ -791,7 +996,7 @@ func pushCircleChanges(logger *log.Logger, rooms *circleRooms, id int64, skip *c
 	}
 	body = pbVar(body, 2, aidNum(master))
 	body = pbVar(body, 3, uint64(len(members)))
-	body = pbVar(body, 4, uint64(economy.ActiveCircleData().Product.MaxMembers))
+	body = pbVar(body, 4, uint64(economy.CircleCapOf(id)))
 	room.broadcast(logger, skip, circleRcMemberChange, body)
 }
 

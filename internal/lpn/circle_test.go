@@ -42,6 +42,19 @@ var (
 	cirMemDelete  = lpMsg{1: {wire: 0, rep: true}}
 	cirMemChange  = lpMsg{1: {wire: 2, rep: true, msg: cirMemberInfo}, 2: {wire: 0, req: true}, 3: {wire: 0, req: true}, 4: {wire: 0, req: true}}
 	cirBuff       = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 0, req: true}}
+	cirMemAdd     = lpMsg{1: {wire: 2, req: true, msg: cirMemberInfo}}
+	cirPoint      = lpMsg{1: {wire: 0}, 2: {wire: 0}, 3: {wire: 0}, 4: {wire: 0}, 5: {wire: 0}, 6: {wire: 0}, 7: {wire: 0}, 8: {wire: 0}, 9: {wire: 0}}
+	cirRefresh    = lpMsg{1: {wire: 2, req: true, msg: cirPoint}}
+	cirRewardRow  = lpMsg{1: {wire: 0}, 2: {wire: 2}, 3: {wire: 2}, 4: {wire: 0}, 5: {wire: 2}, 6: {wire: 2}, 7: {wire: 2}, 8: {wire: 0}, 9: {wire: 0}}
+	cirReward     = lpMsg{1: {wire: 0}, 2: {wire: 2, rep: true, msg: cirRewardRow}, 3: {wire: 2}, 4: {wire: 2}, 5: {wire: 2}}
+	cirPointRwd   = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, msg: cirReward}, 3: {wire: 2, msg: cirPoint}}
+	cirUpgRow     = lpMsg{1: {wire: 2}, 2: {wire: 2}, 3: {wire: 2}, 4: {wire: 0}, 5: {wire: 0}, 6: {wire: 0}, 7: {wire: 2}, 8: {wire: 0}, 9: {wire: 0}, 10: {wire: 2}, 11: {wire: 2}, 12: {wire: 0}, 13: {wire: 2}, 14: {wire: 0}}
+	cirUpgShop    = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, msg: cirUpgRow}}
+	cirUpgBuy     = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0}, 3: {wire: 2}}
+	cirQuestSub   = lpMsg{1: {wire: 0}, 2: {wire: 0}, 3: {wire: 0}, 4: {wire: 2}, 5: {wire: 0}, 6: {wire: 2}, 7: {wire: 2}, 8: {wire: 0}}
+	cirQuestRwd   = lpMsg{1: {wire: 2}, 2: {wire: 0}, 3: {wire: 2}, 4: {wire: 2}, 5: {wire: 2}, 6: {wire: 0}, 7: {wire: 2}, 8: {wire: 0}, 9: {wire: 0}, 10: {wire: 2}}
+	cirQuest      = lpMsg{1: {wire: 0}, 2: {wire: 0}, 3: {wire: 2, rep: true, msg: cirQuestSub}, 4: {wire: 2, rep: true, msg: cirQuestRwd}, 5: {wire: 0}}
+	cirQuestList  = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, rep: true, msg: cirQuest}}
 )
 
 // cirShapes maps each inbound msgid this file reads to its strict shape. The exit reply is empty and is checked by its test.
@@ -51,9 +64,10 @@ var cirShapes = map[uint16]lpMsg{
 	circleRcOldChat: cirOldChat, circleRcNoticeClose: cirResult, circleRcMemberList: cirMemberList,
 	circleRcAuthority: cirChanged, circleRcMasterChange: cirChanged, circleRcFire: cirFire,
 	circleRcMemberDelete: cirMemDelete, circleRcMemberChange: cirMemChange, circleRcSkinInven: cirResult,
-	circleRcSkinChange: cirResult, circleRcSkinShop: cirResult, circleRcSkinBuy: cirResult, circleRcUpgradeShop: cirResult,
-	circleRcUpgradeBuy: cirResult, circleRcAchievements: cirResult, circleRcBuffCopy: cirBuff, circleRcPointReward: cirResult,
-	circleRcQuestList: cirResult, circleRcQuestReward: cirResult, circleRcPetRide: cirResult,
+	circleRcSkinChange: cirResult, circleRcSkinShop: cirResult, circleRcSkinBuy: cirResult, circleRcUpgradeShop: cirUpgShop,
+	circleRcUpgradeBuy: cirUpgBuy, circleRcAchievements: cirResult, circleRcBuffCopy: cirBuff, circleRcPointReward: cirPointRwd,
+	circleRcQuestList: cirQuestList, circleRcQuestReward: cirResult, circleRcPetRide: cirResult,
+	circleRcMemberAdd: cirMemAdd, circleRcPointRefresh: cirRefresh,
 }
 
 // cirClient is one gateway connection of a circle player: the session under test and the peer that reads its frames.
@@ -624,23 +638,19 @@ func TestCircleStubsAreSafe(t *testing.T) {
 	a.expect(circleRcSkinBuy, pbVar(nil, 1, circleRefused))
 	a.send(circleCsUpgradeBuy, pbLen(nil, 4, []byte("cp-real")))
 	a.expect(circleRcUpgradeBuy, pbVar(nil, 1, circleRefused))
-	a.send(circleCsUpgradeShop, nil)
-	a.expect(circleRcUpgradeShop, pbVar(nil, 1, 0))
 	a.send(circleCsAchievements, pbVar(nil, 1, 7))
 	a.expect(circleRcAchievements, pbVar(nil, 1, 0))
 	a.send(circleCsBuffCopy, pbVar(nil, 1, 1103))
 	a.expect(circleRcBuffCopy, pbVar(pbVar(pbVar(nil, 1, circleRefused), 2, 1101), 3, 1103))
 	a.send(circleCsPointReward, pbVar(nil, 1, 1))
 	a.expect(circleRcPointReward, pbVar(nil, 1, circleRefused))
-	a.send(circleCsQuestList, nil)
-	a.expect(circleRcQuestList, pbVar(nil, 1, 0))
-	a.send(circleCsQuestReward, nil)
+	a.send(circleCsQuestReward, nil) // no mission is claimable yet
 	a.expect(circleRcQuestReward, pbVar(nil, 1, circleRefused))
 	a.send(circleCsPetRide, pbVar(nil, 1, 5))
 	a.expect(circleRcPetRide, pbVar(nil, 1, circleRefused))
 	a.send(circleCsNoticeClose, pbVar(nil, 1, 3))
 	a.expect(circleRcNoticeClose, pbVar(nil, 1, 0))
-	for _, msgid := range []uint16{circleCsPointSync, circleCsButtonUpdate, circleCsPlayerActorStatus, circleCsPlayerInteraction,
+	for _, msgid := range []uint16{circleCsButtonUpdate, circleCsPlayerActorStatus, circleCsPlayerInteraction,
 		circleCsPlayerDoInter, circleCsPlayerBeginInter, circleCsPlayerEndInter, circleCsNoticeReq, circleCsReportChat,
 		circleCsPetAction, circleCsPetInteraction, circleCsPetMove, 99} {
 		a.send(msgid, nil)
@@ -692,4 +702,204 @@ func TestCircleShapeCheckerRejectsDrift(t *testing.T) {
 	if err := lpCheck(badMember, cirEnter, "enter"); err == nil {
 		t.Fatal("a member entry sent as a varint was accepted")
 	}
+}
+
+// cirJST is Japan Standard Time for the test clock (the game day starts at 06:00 JST).
+var cirJST = time.FixedZone("JST", 9*3600)
+
+// cirAt fixes the economy clock for one test: 2026-11-02 is in the first season (it starts 2026-11-01 06:00 JST).
+func cirAt(t *testing.T, ts time.Time) {
+	t.Helper()
+	prev := economy.NowFunc
+	economy.NowFunc = func() time.Time { return ts }
+	t.Cleanup(func() { economy.NowFunc = prev })
+}
+
+// cirSetGems sets aid's Gem balance for a test.
+func cirSetGems(t *testing.T, aid string, gems int64) {
+	t.Helper()
+	store.AccountsMu.Lock()
+	defer store.AccountsMu.Unlock()
+	store.AccountByAidLocked(aid).Gems = gems
+}
+
+// cirGems is aid's Gem balance.
+func cirGems(t *testing.T, aid string) int64 {
+	t.Helper()
+	store.AccountsMu.Lock()
+	defer store.AccountsMu.Unlock()
+	return store.AccountByAidLocked(aid).Gems
+}
+
+// cirUpgradeReq is cs_circle_upgrade_buy_req: ItemCode, CoinUnit, Price and (when set) Cpid.
+func cirUpgradeReq(code, unit string, price uint64, cpid string) []byte {
+	b := pbLen(nil, 1, []byte(code))
+	b = pbLen(b, 2, []byte(unit))
+	b = pbVar(b, 3, price)
+	if cpid != "" {
+		b = pbLen(b, 4, []byte(cpid))
+	}
+	return b
+}
+
+// TestCirclePointsOverTheWire: a circle's members earn points from their triggers; the sync answers with the point
+// state (048), a point step is claimed once per member (049), and an outsider or a repeat claim is refused.
+func TestCirclePointsOverTheWire(t *testing.T) {
+	cirScene(t)
+	cirAt(t, time.Date(2026, 11, 2, 12, 0, 0, 0, cirJST))
+	rooms, chats := cirRegistry()
+	leader := newCirClient(t, rooms, chats, 1101, 60)
+	leader.login()
+	member := newCirClient(t, rooms, chats, 1103, 61)
+	member.login()
+	outsider := newCirClient(t, rooms, chats, 1106, 62)
+	outsider.login()
+	// Per member: garden 10, square 10, quest 5, gather 10 x 2 and chat 10 x 1 = 55 (under the daily cap of 60).
+	for _, aid := range []string{"1101", "1103"} {
+		for _, kind := range []string{"garden", "square", "quest"} {
+			economy.CirclePointEarn(aid, kind, economy.NowFunc())
+		}
+		for i := 0; i < 10; i++ {
+			economy.CirclePointEarn(aid, "gather", economy.NowFunc())
+			economy.CirclePointEarn(aid, "chat", economy.NowFunc())
+		}
+	}
+	leader.send(circleCsPointSync, nil)
+	info := cirBytes(leader.expectID(circleRcPointRefresh), 1)
+	if cirVar(info, 5) != 110 || cirVar(info, 1) != 2 || cirVar(info, 9) != 1 {
+		t.Fatalf("point state after 110 points = seq %d total %d avail %d", cirVar(info, 1), cirVar(info, 5), cirVar(info, 9))
+	}
+	leader.send(circleCsPointReward, pbVar(nil, 1, 1))
+	body := leader.expectID(circleRcPointReward)
+	if cirVar(body, 1) != 0 {
+		t.Fatalf("step 1 result = %d, want 0 (body %x)", cirVar(body, 1), body)
+	}
+	if items := cirList(cirBytes(body, 2), 2); len(items) != 1 || cirVar(items[0], 4) != 50 {
+		t.Fatalf("step 1 reward rows = %x, want one row of 50", items)
+	}
+	if g := cirGems(t, "1101"); g != 50 {
+		t.Fatalf("leader gems after step 1 = %d, want 50", g)
+	}
+	leader.send(circleCsPointReward, pbVar(nil, 1, 1))
+	if got := cirVar(leader.expectID(circleRcPointReward), 1); got != circleRefused {
+		t.Fatalf("second claim by the leader result = %d, want refused", got)
+	}
+	member.send(circleCsPointReward, pbVar(nil, 1, 1)) // each member claims a step once per season
+	if got := cirVar(member.expectID(circleRcPointReward), 1); got != 0 {
+		t.Fatalf("member claim result = %d, want 0", got)
+	}
+	if g := cirGems(t, "1103"); g != 50 {
+		t.Fatalf("member gems = %d, want 50", g)
+	}
+	outsider.send(circleCsPointReward, pbVar(nil, 1, 1))
+	if got := cirVar(outsider.expectID(circleRcPointReward), 1); got != circleRefused {
+		t.Fatalf("outsider claim result = %d, want refused", got)
+	}
+	leader.send(circleCsPointReward, pbVar(nil, 1, 9)) // not a step of the season
+	if got := cirVar(leader.expectID(circleRcPointReward), 1); got != circleRefused {
+		t.Fatalf("unknown step result = %d, want refused", got)
+	}
+}
+
+// TestCircleMissionsAndUpgradesOverTheWire: the mission list has the season's missions and none is claimable at first;
+// the leader buys the next member cap with Gems (a real-money id, a wrong price and a non-GEM unit are refused); the
+// shop then offers the step after it, and a member may not buy.
+func TestCircleMissionsAndUpgradesOverTheWire(t *testing.T) {
+	cirScene(t)
+	cirAt(t, time.Date(2026, 11, 2, 12, 0, 0, 0, cirJST))
+	rooms, chats := cirRegistry()
+	leader := newCirClient(t, rooms, chats, 1101, 70)
+	leader.login()
+	leader.send(circleCsQuestList, nil)
+	if n := len(cirList(leader.expectID(circleRcQuestList), 2)); n != 3 {
+		t.Fatalf("missions = %d, want 3", n)
+	}
+	leader.send(circleCsQuestReward, nil)
+	if got := cirVar(leader.expectID(circleRcQuestReward), 1); got != circleRefused {
+		t.Fatalf("claim with no goal met = %d, want refused", got)
+	}
+	leader.send(circleCsUpgradeShop, nil)
+	row := cirBytes(leader.expectID(circleRcUpgradeShop), 2)
+	if string(cirBytes(row, 1)) != "cherry_circle_cap_40" || cirVar(row, 4) != 30 || cirVar(row, 5) != 40 ||
+		cirVar(row, 12) != 1000 || cirVar(row, 14) != 1 {
+		t.Fatalf("upgrade row = %x", row)
+	}
+	cirSetGems(t, "1101", 5000)
+	for _, req := range [][]byte{
+		cirUpgradeReq("cherry_circle_cap_40", "GEM", 1000, "cp-real"), // a real-money id
+		cirUpgradeReq("cherry_circle_cap_40", "GEM", 999, ""),         // not the step's price
+		cirUpgradeReq("cherry_circle_cap_40", "CASH", 1000, ""),       // not Gems
+	} {
+		leader.send(circleCsUpgradeBuy, req)
+		if got := cirVar(leader.expectID(circleRcUpgradeBuy), 1); got != circleRefused {
+			t.Fatalf("refused upgrade result = %d", got)
+		}
+	}
+	if g := cirGems(t, "1101"); g != 5000 {
+		t.Fatalf("refused upgrades spent Gems: %d", g)
+	}
+	leader.send(circleCsUpgradeBuy, cirUpgradeReq("cherry_circle_cap_40", "GEM", 1000, ""))
+	buy := leader.expectID(circleRcUpgradeBuy)
+	if cirVar(buy, 1) != 0 || cirVar(buy, 2) != 4000 || string(cirBytes(buy, 3)) != "GEM" {
+		t.Fatalf("upgrade reply = %x, want result 0, balance 4000, GEM", buy)
+	}
+	if g := cirGems(t, "1101"); g != 4000 {
+		t.Fatalf("leader gems after the upgrade = %d, want 4000", g)
+	}
+	leader.send(circleCsUpgradeShop, nil)
+	if row := cirBytes(leader.expectID(circleRcUpgradeShop), 2); string(cirBytes(row, 1)) != "cherry_circle_cap_50" ||
+		cirVar(row, 4) != 40 || cirVar(row, 12) != 2000 {
+		t.Fatalf("next upgrade row = %x", row)
+	}
+	member := newCirClient(t, rooms, chats, 1103, 71)
+	member.login()
+	member.send(circleCsUpgradeBuy, cirUpgradeReq("cherry_circle_cap_50", "GEM", 2000, ""))
+	if got := cirVar(member.expectID(circleRcUpgradeBuy), 1); got != circleRefused {
+		t.Fatalf("a member bought an upgrade: result %d", got)
+	}
+}
+
+// TestCircleHTTPChangesReachTheRoom: join, leave and close made over HTTP reach the circle room as the LPN requests do:
+// the joiner is added to the members of the room (033) with the new count (035); a leaver is taken out of the room
+// (034, deluser for the rest); a closed circle empties its room.
+func TestCircleHTTPChangesReachTheRoom(t *testing.T) {
+	cirScene(t)
+	rooms, chats := cirRegistry()
+	prev := economy.CircleRoomHook
+	economy.CircleRoomHook = func(ev economy.CircleRoomEvent) { pushCircleEvent(rooms, log.New(io.Discard, "", 0), ev) }
+	t.Cleanup(func() { economy.CircleRoomHook = prev })
+	a := economy.CherryCircleFirst + 1
+	leader := newCirClient(t, rooms, chats, 1101, 80)
+	leader.joined()
+	member := newCirClient(t, rooms, chats, 1103, 81)
+	member.joined()
+	leader.expectID(circleRcAddUser)
+
+	if err := economy.JoinCircle("t-1106", a, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []*cirClient{leader, member} {
+		c.expectID(circleRcMemberAdd)
+		c.expectID(circleRcMemberChange)
+	}
+	if err := economy.LeaveCircle("t-1103", a, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	member.expectID(circleRcMemberDelete) // the leaver sees its own removal
+	leader.expectID(circleRcMemberDelete)
+	leader.expectID(circleRcDelUser)
+	leader.expectID(circleRcMemberChange)
+	member.none()
+
+	if err := economy.LeaveCircle("t-1104", a, time.Now()); err != nil { // a member who is not in the room
+		t.Fatal(err)
+	}
+	leader.expectID(circleRcMemberDelete)
+	leader.expectID(circleRcMemberChange)
+
+	if err := economy.CloseCircle("t-1101", a); err != nil {
+		t.Fatal(err)
+	}
+	leader.expectID(circleRcMemberDelete)
+	leader.none()
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -199,7 +200,8 @@ func TestCircleArtServesOnlyTheListedPictures(t *testing.T) {
 	}
 }
 
-// TestCirclePointAndRouteShapes: the ranking routes answer empty, shape-correct replies; a wrong method is a 404.
+// TestCirclePointAndRouteShapes: the ranking routes answer empty, shape-correct replies for a player in no circle (its
+// myCircle is an empty object); season info of a circle that does not exist is refused (190201); a wrong method is a 404.
 func TestCirclePointAndRouteShapes(t *testing.T) {
 	token := circleSession(t, "1101", 0)
 	total := decodeResult(t, circleCall(t, http.MethodGet, "/v4/circle/point/rank/total/3", "", token))
@@ -209,8 +211,8 @@ func TestCirclePointAndRouteShapes(t *testing.T) {
 	if _, ok := total["myCircle"].(map[string]any); !ok {
 		t.Fatalf("myCircle must be an object: %v", total["myCircle"])
 	}
-	if info := decodeResult(t, circleCall(t, http.MethodGet, "/v4/circle/point/season/info/3", "", token)); info["rewardReceivable"] != false {
-		t.Fatalf("season info = %v", info)
+	if rec := circleCall(t, http.MethodGet, "/v4/circle/point/season/info/3", "", token); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"190201"`) {
+		t.Fatalf("season info of a missing circle: %d %s", rec.Code, rec.Body.String())
 	}
 	if top := decodeResult(t, circleCall(t, http.MethodGet, "/v4/circle/point/rank/entry/top3", "", token)); top["entryList"] == nil {
 		t.Fatalf("top3 = %v", top)
@@ -220,5 +222,36 @@ func TestCirclePointAndRouteShapes(t *testing.T) {
 	}
 	if rec := circleCall(t, http.MethodPost, "/v4/circle/join/info", "", token); rec.Code != http.StatusNotFound {
 		t.Fatalf("POST join/info: status %d, want 404", rec.Code)
+	}
+}
+
+// TestCirclePointReplyShapesOverHTTP: the season info carries the popup's keys (the step list, the next step and the
+// member rows), and the reward page's gachaDetail is the Cherry Gacha row with its collection.
+func TestCirclePointReplyShapesOverHTTP(t *testing.T) {
+	token := circleSession(t, "1101", 5000)
+	created := circleCall(t, http.MethodPost, "/v4/circle/create", createBody("Points", "OPEN", ""), token)
+	if created.Code != http.StatusOK {
+		t.Fatalf("create: %d %s", created.Code, created.Body.String())
+	}
+	id, _ := decodeResult(t, created)["circleId"].(string)
+	info := decodeResult(t, circleCall(t, http.MethodGet, "/v4/circle/point/season/info/"+id, "", token))
+	if steps, ok := info["seasonRewardList"].([]any); !ok || len(steps) != 4 {
+		t.Fatalf("seasonRewardList = %v", info["seasonRewardList"])
+	}
+	if next, ok := info["currentReward"].(map[string]any); !ok || next["rewardSeq"] != float64(1) || next["rewardType"] != "GEM" {
+		t.Fatalf("currentReward = %v", info["currentReward"])
+	}
+	members, ok := info["memberGainPointList"].([]any)
+	if !ok || len(members) != 1 || members[0].(map[string]any)["memberAid"] != "1101" {
+		t.Fatalf("memberGainPointList = %v", info["memberGainPointList"])
+	}
+	season, _ := info["seasonId"].(float64)
+	reward := decodeResult(t, circleCall(t, http.MethodGet, "/v4/circle/point/season/reward/"+strconv.FormatFloat(season, 'f', 0, 64)+"/1", "", token))
+	if list, ok := reward["rewardAchieveList"].([]any); !ok || len(list) != 1 {
+		t.Fatalf("rewardAchieveList = %v", reward["rewardAchieveList"])
+	}
+	gacha, ok := reward["gachaDetail"].(map[string]any)
+	if !ok || gacha["gachaId"] != float64(1001) || gacha["collection"] == nil {
+		t.Fatalf("gachaDetail = %v", reward["gachaDetail"])
 	}
 }

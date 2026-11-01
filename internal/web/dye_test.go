@@ -617,10 +617,10 @@ func TestDyeBaseShopAnimalsAndBuy(t *testing.T) {
 	}
 }
 
-// TestDyeBaseShopMenuRow: the Dye Base Shop row is the last MENU row, labelled and pictured.
+// TestDyeBaseShopMenuRow: the Dye Base Shop row is the last row but one (Circle follows), labelled and pictured.
 func TestDyeBaseShopMenuRow(t *testing.T) {
 	rows := homeIconRows()
-	last := rows[len(rows)-1]
+	last := rows[len(rows)-2]
 	if last.LinkType != "goSomewhere(colorantBaseShop)" || last.Name != "Dye Base Shop" || last.Image != "cherry/menu/palette.png" {
 		t.Fatalf("last menu row = %+v", last)
 	}

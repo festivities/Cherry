@@ -151,9 +151,11 @@ var questNotices = struct {
 
 // MarkQuest records one progress key for aid (Garden visit, Square enter, diary post, gathering,
 // Atelier make, Square catch: the economy.questTriggers keys) and queues a completion notice when it
-// completed the quest.
+// completed the quest. The same event feeds the circle points (economy.CirclePointsForQuest).
 func MarkQuest(aid uint64, key string) {
-	def, done := economy.MarkQuest(strconv.FormatUint(aid, 10), key, economy.NowFunc())
+	now := economy.NowFunc()
+	def, done := economy.MarkQuest(strconv.FormatUint(aid, 10), key, now)
+	economy.CirclePointsForQuest(strconv.FormatUint(aid, 10), key, done, now)
 	if done {
 		queueQuestNotice(aid, def)
 	}

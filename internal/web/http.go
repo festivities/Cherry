@@ -130,6 +130,7 @@ var homeLinks = []string{
 	"goSomewhere(jackpotspin)",
 	"goSomewhere(loungeChat)",
 	"goSomewhere(colorantBaseShop)",
+	"goSomewhere(circle)",
 }
 
 // homeMenuIconPrefix is the picture path of a home menu row. It is RELATIVE on purpose: the client's

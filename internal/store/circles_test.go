@@ -60,3 +60,18 @@ func TestCircleCloneIsDeep(t *testing.T) {
 		t.Fatalf("original changed: %+v", orig)
 	}
 }
+
+// TestCircleCloneCopiesSeasons: the season records (member records, their maps and their steps) are copied too, so a
+// write on a copy never reaches the book it was copied from.
+func TestCircleCloneCopiesSeasons(t *testing.T) {
+	ms := &CircleMemberSeason{Points: 5, DayKinds: map[string]int64{"chat": 1}, Progress: map[string]int64{"garden": 2}, Steps: []int64{1}}
+	orig := CircleBook{NextID: 1, Circles: []Circle{{ID: 1, Seasons: []CircleSeason{{Season: 1, Total: 5, Members: map[string]*CircleMemberSeason{"1101": ms}}}}}}
+	cp := orig.Clone()
+	got := cp.Circles[0].Seasons[0].Members["1101"]
+	got.Points, got.DayKinds["chat"], got.Progress["garden"], got.Steps[0] = 9, 9, 9, 9
+	cp.Circles[0].Seasons[0].Total = 9
+	cp.Circles[0].Seasons[0].Members["1102"] = &CircleMemberSeason{}
+	if ms.Points != 5 || ms.DayKinds["chat"] != 1 || ms.Progress["garden"] != 2 || ms.Steps[0] != 1 || orig.Circles[0].Seasons[0].Total != 5 || len(orig.Circles[0].Seasons[0].Members) != 1 {
+		t.Fatalf("original season changed: %+v", orig.Circles[0].Seasons[0])
+	}
+}

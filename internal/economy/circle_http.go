@@ -1,6 +1,7 @@
 package economy
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -217,50 +218,99 @@ type circleCreatedJSON struct {
 }
 
 // circleRankJSON is circle/point/rank/total and .../season (ResCircleTotalRank 0x1c19b94 [S]): seasonId an int, myCircle
-// an object, topRankCircleList an array, myCircleRank a string, myCirclePoint an int64.
+// an object (circleInfoJSON, or {} outside a circle), topRankCircleList an array, myCircleRank a string, myCirclePoint
+// an int64.
 type circleRankJSON struct {
 	SeasonID          int64            `json:"seasonId"`
-	MyCircle          struct{}         `json:"myCircle"`
+	MyCircle          any              `json:"myCircle"`
 	TopRankCircleList []circleInfoJSON `json:"topRankCircleList"`
 	MyCircleRank      string           `json:"myCircleRank"`
 	MyCirclePoint     int64            `json:"myCirclePoint"`
 }
 
+// circleHallEntryJSON is one entry of entryList (SetHallOfFameInfo 0x2603e14 [S]): seasonId, rank, memberCount,
+// maxMemberCount and totalGainPoint are ints; circleId and circleName strings.
+type circleHallEntryJSON struct {
+	SeasonID       int64  `json:"seasonId"`
+	Rank           int64  `json:"rank"`
+	CircleID       string `json:"circleId"`
+	CircleName     string `json:"circleName"`
+	MemberCount    int    `json:"memberCount"`
+	MaxMemberCount int    `json:"maxMemberCount"`
+	TotalGainPoint int64  `json:"totalGainPoint"`
+}
+
 // circleHallJSON is circle/point/rank/entry/top3 (ResCircleHallOfFame 0x1a5c478 -> SetHallOfFameInfo 0x2603e14 [S]).
 type circleHallJSON struct {
-	SeasonID        int64  `json:"seasonId"`
-	SeasonName      string `json:"seasonName"`
-	BannerImagePath string `json:"bannerImagePath"`
-	SeasonStartDate string `json:"seasonStartDate"`
-	SeasonEndDate   string `json:"seasonEndDate"`
-	GainEndDate     string `json:"gainEndDate"`
-	EntryList       []any  `json:"entryList"`
+	SeasonID        int64                 `json:"seasonId"`
+	SeasonName      string                `json:"seasonName"`
+	BannerImagePath string                `json:"bannerImagePath"`
+	SeasonStartDate string                `json:"seasonStartDate"`
+	SeasonEndDate   string                `json:"seasonEndDate"`
+	GainEndDate     string                `json:"gainEndDate"`
+	EntryList       []circleHallEntryJSON `json:"entryList"`
+}
+
+// circlePointRewardJSON is one point step as stCirclePointRewardInfo::PaserData reads it (0x250b538 [S], the same keys
+// in rewardAchieveList, seasonRewardList and currentReward): ints for seasonId, rewardSeq, rewardAmount and
+// achievePoint; rewardType and registered (epoch ms, read as seconds) are strings; circleAchieved and memberReceivedYn
+// are bools.
+type circlePointRewardJSON struct {
+	SeasonID         int64  `json:"seasonId"`
+	RewardSeq        int64  `json:"rewardSeq"`
+	RewardType       string `json:"rewardType"`
+	RewardAmount     int64  `json:"rewardAmount"`
+	AchievePoint     int64  `json:"achievePoint"`
+	Registered       string `json:"registered"`
+	CircleAchieved   bool   `json:"circleAchieved"`
+	MemberReceivedYn bool   `json:"memberReceivedYn"`
+}
+
+// circleMemberPointJSON is one entry of memberGainPointList (the season popup's member rows): the avatar's keys
+// (stCircleAvatarInfo) with seasonId, totalGainPoint (int) and availSeasonAttendYn (bool).
+type circleMemberPointJSON struct {
+	circleAvatarJSON
+	SeasonID            int64 `json:"seasonId"`
+	TotalGainPoint      int64 `json:"totalGainPoint"`
+	AvailSeasonAttendYn bool  `json:"availSeasonAttendYn"`
 }
 
 // circlePointSeasonJSON is circle/point/season/info/<id> (stCirclePointSeasonInfo::PaserData 0x24a5a7c [S]): ints and
-// strings as named, bools are asBool.
+// strings as named, bools are asBool. The season popup (entry_core.c, NaCircleManager::MsgProc case 11882) also reads
+// seasonRewardList (the steps), currentReward (the next step) and memberGainPointList from the same reply.
 type circlePointSeasonJSON struct {
-	SeasonID             int64  `json:"seasonId"`
-	SeasonName           string `json:"seasonName"`
-	GachaTicket          int64  `json:"gachaTicket"`
-	SeasonStartDate      string `json:"seasonStartDate"`
-	GainEndDate          string `json:"gainEndDate"`
-	SeasonEndDate        string `json:"seasonEndDate"`
-	CircleTotalGainPoint string `json:"circleTotalGainPoint"`
-	RewardReceivable     bool   `json:"rewardReceivable"`
-	AllReceived          bool   `json:"allReceived"`
-	AvailSeasonAttendYn  bool   `json:"availSeasonAttendYn"`
+	SeasonID             int64                   `json:"seasonId"`
+	SeasonName           string                  `json:"seasonName"`
+	GachaTicket          int64                   `json:"gachaTicket"`
+	SeasonStartDate      string                  `json:"seasonStartDate"`
+	GainEndDate          string                  `json:"gainEndDate"`
+	SeasonEndDate        string                  `json:"seasonEndDate"`
+	CircleTotalGainPoint string                  `json:"circleTotalGainPoint"`
+	RewardReceivable     bool                    `json:"rewardReceivable"`
+	AllReceived          bool                    `json:"allReceived"`
+	AvailSeasonAttendYn  bool                    `json:"availSeasonAttendYn"`
+	SeasonRewardList     []circlePointRewardJSON `json:"seasonRewardList"`
+	CurrentReward        circlePointRewardJSON   `json:"currentReward"`
+	MemberGainPointList  []circleMemberPointJSON `json:"memberGainPointList"`
 }
 
 // circleRewardJSON is circle/point/season/reward/<season>/<seq> (stCirclePointRewardDetailInfo::PaserData 0x250b538 [S]):
-// rewardAchieveList is an array; the strings are gachaDetail, vipGrade and the preview picture paths.
+// rewardAchieveList is an array; gachaDetail is an object (the gacha row, with previewGardenImageUrl, previewImageUrl and
+// collection inside it, as GachaItemInfo::SetData reads it); vipGrade a string and vipGachaDiscountRate an int.
 type circleRewardJSON struct {
-	RewardAchieveList     []any  `json:"rewardAchieveList"`
-	GachaDetail           string `json:"gachaDetail"`
-	VipGrade              string `json:"vipGrade"`
-	VipGachaDiscountRate  int64  `json:"vipGachaDiscountRate"`
-	PreviewGardenImageURL string `json:"previewGardenImageUrl"`
-	PreviewImageURL       string `json:"previewImageUrl"`
+	RewardAchieveList    []circlePointRewardJSON `json:"rewardAchieveList"`
+	GachaDetail          any                     `json:"gachaDetail"`
+	VipGrade             string                  `json:"vipGrade"`
+	VipGachaDiscountRate int64                   `json:"vipGachaDiscountRate"`
+}
+
+// circleGachaJSON is gachaDetail when the circle page offers the Cherry Gacha: its row, then the detail's previews and
+// collection (the same gacha route serves the pulls).
+type circleGachaJSON struct {
+	gachaRow
+	PreviewGardenImageURL string          `json:"previewGardenImageUrl"`
+	PreviewImageURL       string          `json:"previewImageUrl"`
+	Collection            gachaCollection `json:"collection"`
 }
 
 // circleEmpty is the empty object `{}`.
@@ -354,14 +404,25 @@ func handleCircle(w http.ResponseWriter, r *http.Request) {
 		circleSearch(w, r, token, false)
 	case "POST search/interest":
 		circleSearch(w, r, token, true)
-	case "GET point/rank/total/#", "GET point/rank/season/#":
-		writeCircleResult(w, circleRankJSON{TopRankCircleList: []circleInfoJSON{}, SeasonID: nums[0]})
+	case "GET point/rank/total/#":
+		circleReadReply(w, token, func(acc *store.Account, b *store.CircleBook) (any, error) {
+			return circleRankView(acc.Aid, b, nums[0], true), nil
+		})
+	case "GET point/rank/season/#":
+		circleReadReply(w, token, func(acc *store.Account, b *store.CircleBook) (any, error) {
+			return circleRankView(acc.Aid, b, nums[0], false), nil
+		})
 	case "GET point/rank/entry/top3":
-		writeCircleResult(w, circleHallJSON{EntryList: []any{}})
+		circleReadReply(w, token, func(acc *store.Account, b *store.CircleBook) (any, error) { return circleHallView(b, now), nil })
 	case "GET point/season/info/#":
-		writeCircleResult(w, circlePointSeasonJSON{SeasonID: nums[0], CircleTotalGainPoint: "0"})
+		circleReadReply(w, token, func(acc *store.Account, b *store.CircleBook) (any, error) {
+			return circlePointSeasonView(nums[0], acc.Aid, b, now)
+		})
 	case "GET point/season/reward/#/#":
-		writeCircleResult(w, circleRewardJSON{RewardAchieveList: []any{}})
+		gacha := circleGachaDetail() // built before the book lock: the catalog is not read under it
+		circleReadReply(w, token, func(acc *store.Account, b *store.CircleBook) (any, error) {
+			return circleRewardView(acc.Aid, b, nums[0], nums[1], gacha), nil
+		})
 	default:
 		// POST close/<id>/... takes any tail (the code and key the close screen sends are not checked).
 		if r.Method == http.MethodPost && len(p) >= 2 && p[0] == "close" && len(nums) >= 1 && pat[1] == "#" {
@@ -524,7 +585,7 @@ func circleInfoView(c *store.Circle) circleInfoJSON {
 		CircleID: circleIDText(c.ID), CircleCode: c.Code, CircleName: c.Name,
 		LogoID: c.LogoID, LogoImgPath: logo, LogoDpImgPath: logo,
 		LogoBgID: c.LogoBgID, LogoBgImgPath: bg,
-		CircleIntroduce: c.Intro, MemberCount: len(c.Members), MaxMemberCount: circleCap(),
+		CircleIntroduce: c.Intro, MemberCount: len(c.Members), MaxMemberCount: circleCapOf(c),
 		RegistDate: created, MasterAid: leaderAid(c), CreateDate: created,
 		ModifyDate: strconv.FormatInt(c.Modified, 10), JoinType: c.JoinType,
 	}
@@ -597,7 +658,7 @@ func recruitView(b *store.CircleBook) []circleInfoJSON {
 	out := []circleInfoJSON{}
 	for i := len(b.Circles) - 1; i >= 0 && len(out) < circleListMax; i-- {
 		c := &b.Circles[i]
-		if c.JoinType == circleOpen && len(c.Members) < circleCap() {
+		if c.JoinType == circleOpen && len(c.Members) < circleCapOf(c) {
 			out = append(out, circleInfoView(c))
 		}
 	}
@@ -708,6 +769,177 @@ func applyInviteView(viewer string, b *store.CircleBook, id int64) circleApplyIn
 		av.ApplyAid = a.Aid
 		out.ApplyJoinList = append(out.ApplyJoinList, av)
 	}
+	return out
+}
+
+// circleGachaDetail is gachaDetail of the reward page: the Cherry Gacha when the circle data offers it, else {}.
+func circleGachaDetail() any {
+	if !ActiveCircleData().Gacha.Enabled {
+		return circleEmpty{}
+	}
+	pool := gachaPoolNow()
+	return circleGachaJSON{gachaRow: gachaRowFor(pool), Collection: gachaCollectionFor(pool)}
+}
+
+// circleMS is an epoch-millisecond date as the client's string.
+func circleMS(ms int64) string { return strconv.FormatInt(ms, 10) }
+
+// circlePointsTotal is the circle's points in season n, or in all its seasons when all is set.
+func circlePointsTotal(c *store.Circle, n int64, all bool) int64 {
+	if all {
+		var sum int64
+		for _, s := range c.Seasons {
+			sum += s.Total
+		}
+		return sum
+	}
+	if s := circleSeasonRec(c, n, false); s != nil {
+		return s.Total
+	}
+	return 0
+}
+
+// circleRanked is a circle with points in the ranked season.
+type circleRanked struct {
+	c   *store.Circle
+	pts int64
+}
+
+// circleRanking lists the circles with points, most points first (then by id).
+func circleRanking(b *store.CircleBook, season int64, all bool) []circleRanked {
+	var out []circleRanked
+	for i := range b.Circles {
+		c := &b.Circles[i]
+		if pts := circlePointsTotal(c, season, all); pts > 0 {
+			out = append(out, circleRanked{c: c, pts: pts})
+		}
+	}
+	slices.SortStableFunc(out, func(x, y circleRanked) int {
+		if x.pts != y.pts {
+			return cmp.Compare(y.pts, x.pts)
+		}
+		return cmp.Compare(x.c.ID, y.c.ID)
+	})
+	return out
+}
+
+// circleRankView is circle/point/rank/total (all seasons) or .../season for the viewer's season: the top circles, the
+// viewer's circle and its rank ("" when it has no points).
+func circleRankView(viewer string, b *store.CircleBook, season int64, all bool) circleRankJSON {
+	ranked := circleRanking(b, season, all)
+	out := circleRankJSON{SeasonID: season, MyCircle: circleEmpty{}, TopRankCircleList: []circleInfoJSON{}}
+	for i, r := range ranked {
+		if i >= circleListMax {
+			break
+		}
+		out.TopRankCircleList = append(out.TopRankCircleList, circleInfoView(r.c))
+	}
+	if ci := circleOf(b, viewer); ci >= 0 {
+		c := &b.Circles[ci]
+		out.MyCircle = circleInfoView(c)
+		out.MyCirclePoint = circlePointsTotal(c, season, all)
+		for i, r := range ranked {
+			if r.c.ID == c.ID {
+				out.MyCircleRank = strconv.Itoa(i + 1)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// circleHallView is the hall of fame: the top three circles of the last finished season (none in season 1).
+func circleHallView(b *store.CircleBook, now time.Time) circleHallJSON {
+	out := circleHallJSON{EntryList: []circleHallEntryJSON{}}
+	prev := circleSeasonAt(now) - 1
+	if prev < 1 {
+		return out
+	}
+	start, end := circleSeasonBounds(prev)
+	out.SeasonID, out.SeasonName = prev, circleSeasonName(prev)
+	out.SeasonStartDate, out.SeasonEndDate, out.GainEndDate = circleMS(start), circleMS(end), circleMS(end)
+	for i, r := range circleRanking(b, prev, false) {
+		if i >= 3 {
+			break
+		}
+		out.EntryList = append(out.EntryList, circleHallEntryJSON{
+			SeasonID: prev, Rank: int64(i + 1), CircleID: circleIDText(r.c.ID), CircleName: r.c.Name,
+			MemberCount: len(r.c.Members), MaxMemberCount: circleCapOf(r.c), TotalGainPoint: r.pts,
+		})
+	}
+	return out
+}
+
+// circlePointRewardView is one point step of season: its Gems as a GEM reward, reached when the circle total is at the
+// target, claimed when this member has taken it.
+func circlePointRewardView(season, seq int64, s CircleStep, total int64, claimed bool) circlePointRewardJSON {
+	return circlePointRewardJSON{
+		SeasonID: season, RewardSeq: seq, RewardType: "GEM", RewardAmount: s.Gems, AchievePoint: s.Points,
+		CircleAchieved: total >= s.Points, MemberReceivedYn: claimed,
+	}
+}
+
+// circlePointSeasonView is circle/point/season/info/<circleId> for viewer in the current season.
+func circlePointSeasonView(circleID int64, viewer string, b *store.CircleBook, now time.Time) (circlePointSeasonJSON, error) {
+	ci := circleIndex(b, circleID)
+	if ci < 0 {
+		return circlePointSeasonJSON{}, circleRefuse(circleErrNotFound)
+	}
+	c := &b.Circles[ci]
+	season := circleSeasonAt(now)
+	start, end := circleSeasonBounds(season)
+	total, ms := circlePointsOf(c, season, viewer)
+	eligible := false
+	if mi := memberIndex(c, viewer); mi >= 0 {
+		eligible = circleEligible(c.Members[mi], season)
+	}
+	steps := ActiveCircleData().Points.Steps
+	out := circlePointSeasonJSON{
+		SeasonID: season, SeasonName: circleSeasonName(season),
+		SeasonStartDate: circleMS(start), GainEndDate: circleMS(end), SeasonEndDate: circleMS(end),
+		CircleTotalGainPoint: strconv.FormatInt(total, 10), AvailSeasonAttendYn: eligible, AllReceived: len(steps) > 0,
+		SeasonRewardList: []circlePointRewardJSON{}, MemberGainPointList: []circleMemberPointJSON{},
+	}
+	for i, s := range steps {
+		seq := int64(i + 1)
+		claimed := slices.Contains(ms.Steps, seq)
+		out.SeasonRewardList = append(out.SeasonRewardList, circlePointRewardView(season, seq, s, total, claimed))
+		if !claimed {
+			out.AllReceived = false
+		}
+		if eligible && !claimed && total >= s.Points {
+			out.RewardReceivable = true
+		}
+	}
+	if info := circlePointInfo(total, eligible); len(steps) > 0 {
+		out.CurrentReward = circlePointRewardView(season, info.RewardSeq, steps[info.RewardSeq-1], total,
+			slices.Contains(ms.Steps, info.RewardSeq))
+	}
+	for _, m := range c.Members {
+		_, mms := circlePointsOf(c, season, m.Aid)
+		out.MemberGainPointList = append(out.MemberGainPointList, circleMemberPointJSON{
+			circleAvatarJSON: circleAvatarView(m.Aid, m.Role, m.Joined), SeasonID: season,
+			TotalGainPoint: mms.Points, AvailSeasonAttendYn: circleEligible(m, season),
+		})
+	}
+	return out, nil
+}
+
+// circleRewardView is circle/point/season/reward/<season>/<seq> for viewer: the step (none when seq is not a step of the
+// season) and the gacha detail built by the caller.
+func circleRewardView(viewer string, b *store.CircleBook, season, seq int64, gacha any) circleRewardJSON {
+	out := circleRewardJSON{RewardAchieveList: []circlePointRewardJSON{}, GachaDetail: gacha}
+	steps := ActiveCircleData().Points.Steps
+	if seq < 1 || seq > int64(len(steps)) {
+		return out
+	}
+	var total int64
+	var ms store.CircleMemberSeason
+	if ci := circleOf(b, viewer); ci >= 0 {
+		total, ms = circlePointsOf(&b.Circles[ci], season, viewer)
+	}
+	out.RewardAchieveList = append(out.RewardAchieveList,
+		circlePointRewardView(season, seq, steps[seq-1], total, slices.Contains(ms.Steps, seq)))
 	return out
 }
 
