@@ -196,9 +196,14 @@ func lerpByte(a, b uint8, t float64) uint8 {
 // spinPNG returns the PNG named stem: from dp-cache when a copy of the same content is there, else drawn and cached. The
 // key is the stem and what the picture shows, so changed prizes draw anew. A failed cache write still serves the picture.
 func spinPNG(stem, show string, draw func() image.Image) ([]byte, bool) {
+	return cherryPNG(spinCacheVersion, stem, show, draw)
+}
+
+// cherryPNG is spinPNG with the cache prefix as a parameter (the Treasure World buttons use tw1_).
+func cherryPNG(prefix, stem, show string, draw func() image.Image) ([]byte, bool) {
 	var path string
 	if thumbs.DpCacheDir != "" {
-		path = filepath.Join(thumbs.DpCacheDir, fmt.Sprintf("%s%s_%08x.png", spinCacheVersion, stem, crc32.ChecksumIEEE([]byte(show))))
+		path = filepath.Join(thumbs.DpCacheDir, fmt.Sprintf("%s%s_%08x.png", prefix, stem, crc32.ChecksumIEEE([]byte(show))))
 		if b, err := os.ReadFile(path); err == nil {
 			return b, true
 		}

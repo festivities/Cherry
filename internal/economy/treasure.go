@@ -4,18 +4,21 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"strconv"
 	"strings"
 	"time"
 
 	"cherry/data"
+	"cherry/internal/itemcode"
 	"cherry/internal/opdata"
 	"cherry/internal/store"
 )
 
-// Treasure World (Blue Marble board game), slice 1: the solo board of one season. Specs in %TEMP%\opencode\cherry\
-// treasure-20261102 (treasure-spec.md section 9, transport-money.md, cells.md). This file holds the rules and the saved
-// per-account state (store.TreasureRecord, treasure.json); the wire is internal/lpn/treasure.go (gateway agent 9).
-// Slice 1 builds the start line, the coin square and the bonus square; the other cell types are refused in the data.
+// Treasure World (Blue Marble board game), one solo board per season: the board, tickets, the exchange of Jewels for
+// Ranking Points, quests and missions, rankings and rewards. Specs in %TEMP%\opencode\cherry\treasure-20261102
+// (treasure-spec.md section 9, cells.md, transport-money.md, roll-gate.md, arrival.md). This file holds the rules and the
+// per-account state (store.TreasureRecord, treasure.json); the wire is internal/lpn/treasure*.go (gateway agent 9).
+// Gems move only through the ledger (store.SpendLocked) or the Mailbox; nothing here touches CASH or HEART.
 
 // CherryTreasureFirst and CherryTreasureLast bound the ids Cherry makes for Treasure World (the season id in
 // data/treasure.json). checkTreasureData refuses an id outside them.
@@ -24,11 +27,13 @@ const (
 	CherryTreasureLast  int64 = 1950000999
 )
 
-// Cell types of this slice (BlueMarble::eBoardCellType, treasure-spec section 3).
+// Cell types (BlueMarble::eBoardCellType, treasure-spec section 3). This build serves 0, 1, 2 and 4; the other types are
+// refused in the data.
 const (
-	TreasureCellStart = 0
-	TreasureCellCoin  = 1
-	TreasureCellBonus = 4
+	TreasureCellStart    = 0
+	TreasureCellCoin     = 1
+	TreasureCellExchange = 2
+	TreasureCellBonus    = 4
 )
 
 // treasureJST is the season clock: a season starts and ends at 06:00 JST.
@@ -46,25 +51,44 @@ var (
 	ErrTreasureNoSeason = errors.New("treasure: no season is running")
 	// ErrTreasureNoTickets is returned for a roll the account has no tickets for.
 	ErrTreasureNoTickets = errors.New("treasure: not enough tickets")
+	// ErrTreasureNoAccount is returned when an action that pays or delivers needs the account and it is not known.
+	ErrTreasureNoAccount = errors.New("treasure: no account for this board")
+	// ErrTreasureRefused is the generic refusal: the square, the limit, the claim or the purchase is not allowed now.
+	ErrTreasureRefused = errors.New("treasure: refused")
 )
 
-// TreasureData is data/treasure.json: the season, its names, the tickets, the ring and the rewards.
+// TreasureData is data/treasure.json: the season, its names, the tickets, the ring, the rewards and the rules of the
+// exchange, quests, missions, rankings and ticket cap.
 //
-//	origin, note  mixed: the names are the Help Center's, the ids, numbers, dates and the ring are Cherry-made
+//	origin, note  mixed: the names are the Help Center's; the ids, numbers, texts, ring and every Gem amount are Cherry-made
 //	season        id (Cherry block), name, start day (06:00 JST) and length in days
 //	names         the ticket, coin and ranking point names the client shows
 //	tickets       cap, starting tickets, seconds per refill, tickets per roll
 //	board         the ring: cell types in walking order, four equal sides
 //	rewards       coin squares (min to max Jewels), the bonus square, the lap reward (tickets)
 //	npcs          the two portrait names and genders the season sends
+//	exchange      Ranking Points per Jewel, the Jewels a square takes a day, the Gem price of a square's reset
+//	quests        set size, hours before a free refresh, and the pool of quest tasks (tickets as reward)
+//	missions      set size and the pool of mission tasks (Jewels as reward)
+//	ranking       rows per page and the grades by rank
+//	point_rewards Ranking Point thresholds with Gems and an optional dress item, paid by Mailbox
+//	rank_rewards  the claim window after the season and the Gems per rank cutline, paid by Mailbox
+//	ticket_cap    the cap raises: each cap and its Gem price
 type TreasureData struct {
 	opdata.Provenance
-	Season  TreasureSeason  `json:"season"`
-	Names   TreasureNames   `json:"names"`
-	Tickets TreasureTickets `json:"tickets"`
-	Board   TreasureBoard   `json:"board"`
-	Rewards TreasureRewards `json:"rewards"`
-	NPCs    []TreasureNPC   `json:"npcs"`
+	Season       TreasureSeason        `json:"season"`
+	Names        TreasureNames         `json:"names"`
+	Tickets      TreasureTickets       `json:"tickets"`
+	Board        TreasureBoard         `json:"board"`
+	Rewards      TreasureRewards       `json:"rewards"`
+	NPCs         []TreasureNPC         `json:"npcs"`
+	Exchange     TreasureExchangeRules `json:"exchange"`
+	Quests       TreasureTasks         `json:"quests"`
+	Missions     TreasureTasks         `json:"missions"`
+	Ranking      TreasureRanking       `json:"ranking"`
+	PointRewards []TreasurePointReward `json:"point_rewards"`
+	RankRewards  TreasureRankRewards   `json:"rank_rewards"`
+	TicketCap    TreasureTicketCap     `json:"ticket_cap"`
 }
 
 // TreasureSeason is the season's id, its name, its first day ("2006-01-02", 06:00 JST) and its length in days.
@@ -111,7 +135,7 @@ type TreasureRange struct {
 }
 
 // TreasureBonus is a bonus square's amount and the client currency it is named in. CoinUnit must not be a money unit
-// (GEM, CASH, HEART): the client would sync its balances, and this slice pays no earned Gems.
+// (GEM, CASH, HEART): the client would sync its balances, and the bonus pays Jewels only.
 type TreasureBonus struct {
 	Coins    int64  `json:"coins"`
 	CoinUnit string `json:"coin_unit"`
@@ -126,6 +150,81 @@ type TreasureStart struct {
 type TreasureNPC struct {
 	Name   string `json:"name"`
 	Gender string `json:"gender"`
+}
+
+// TreasureExchangeRules: Multiple is the Ranking Points one Jewel gives, DailyMax the Jewels one exchange square takes each
+// day (06:00 JST), ResetGems the Gem price of resetting a full square for the day.
+type TreasureExchangeRules struct {
+	Multiple  int64 `json:"multiple"`
+	DailyMax  int64 `json:"daily_max"`
+	ResetGems int64 `json:"reset_gems"`
+}
+
+// TreasureTasks is a quest or mission list: sets of SetSize tasks rotated through Pool, and (quests only) the hours
+// before a free refresh.
+type TreasureTasks struct {
+	SetSize      int64          `json:"set_size"`
+	RefreshHours int64          `json:"refresh_hours"`
+	Pool         []TreasureTask `json:"pool"`
+}
+
+// TreasureTask is one quest or mission: the event that counts (roll, jewel, lap or exchange), the goal, the reward (tickets
+// for a quest, Jewels for a mission), the picture the client draws for its type (1 to 7 and 9 for a quest, 1 to 5 for a
+// mission) and, for a quest, the icon item code and the text.
+type TreasureTask struct {
+	Kind   string `json:"kind"`
+	Goal   int64  `json:"goal"`
+	Reward int64  `json:"reward"`
+	Type   int64  `json:"type"`
+	Item   string `json:"item"`
+	Text   string `json:"text"`
+}
+
+// TreasureRanking: PageSize rows per page, Grades by rank (the first grade whose MaxRank the rank does not pass; the
+// last grade has MaxRank 0 and takes the rest). Type is the badge class the client draws (1 to 4).
+type TreasureRanking struct {
+	PageSize int64           `json:"page_size"`
+	Grades   []TreasureGrade `json:"grades"`
+}
+
+// TreasureGrade is one ranking grade.
+type TreasureGrade struct {
+	MaxRank int64  `json:"max_rank"`
+	Name    string `json:"name"`
+	Type    int64  `json:"type"`
+}
+
+// TreasurePointReward is one point reward: at Points season Ranking Points it pays Gems and the dress item (empty for none),
+// once per account and season, by Mailbox.
+type TreasurePointReward struct {
+	ID     int64  `json:"id"`
+	Points int64  `json:"points"`
+	Gems   int64  `json:"gems"`
+	Item   string `json:"item"`
+}
+
+// TreasureRankRewards: ClaimDays the window after the season ends in which a rank reward can be claimed, Tiers the Gems by
+// rank cutline (the first tier whose Cutline the rank does not pass).
+type TreasureRankRewards struct {
+	ClaimDays int64              `json:"claim_days"`
+	Tiers     []TreasureRankTier `json:"tiers"`
+}
+
+// TreasureRankTier is one rank reward: the last rank it covers and its Gems.
+type TreasureRankTier struct {
+	Cutline int64 `json:"cutline"`
+	Gems    int64 `json:"gems"`
+}
+
+// TreasureTicketCap is the list of cap raises in order: the first raise sets the cap to Steps[0].Max for Steps[0].Gems.
+type TreasureTicketCap struct {
+	Steps []TreasureCapStep `json:"steps"`
+}
+
+// TreasureCapStep is one cap raise: the new cap and its Gem price.
+type TreasureCapStep struct {
+	Max  int64 `json:"max"`
+	Gems int64 `json:"gems"`
 }
 
 var treasureFile = opdata.New("treasure.json", data.TreasureJSON, checkTreasureData, nil)
@@ -155,8 +254,11 @@ func TreasureSeasonWindow() (start, end time.Time) {
 	return start, end
 }
 
-// checkTreasureData validates the structure at startup: the origin and note, the Cherry id, the season dates, the
-// names, the tickets, the ring (cell types this slice builds only), the rewards and the two portraits.
+// treasureDay is the game day of t: a day turns over at 06:00 JST (21:00 UTC), when the exchange limits reset.
+func treasureDay(t time.Time) int64 { return (t.Unix() + 3*3600) / 86400 }
+
+// checkTreasureData validates the file at startup: the origin and note, the Cherry id, the season, the names, the tickets,
+// the ring, the rewards, the portraits and the rules of the exchange, quests, missions, rankings, rewards and cap.
 func checkTreasureData(t *TreasureData) error {
 	if err := t.CheckOrigin(opdata.OriginMixed); err != nil {
 		return err
@@ -192,9 +294,9 @@ func checkTreasureData(t *TreasureData) error {
 	}
 	for i, c := range ring {
 		switch c {
-		case TreasureCellStart, TreasureCellCoin, TreasureCellBonus:
+		case TreasureCellStart, TreasureCellCoin, TreasureCellExchange, TreasureCellBonus:
 		default:
-			return fmt.Errorf("board.ring[%d]: cell type %d is not built yet (this slice builds 0, 1 and 4)", i, c)
+			return fmt.Errorf("board.ring[%d]: cell type %d is not built yet (this build builds 0, 1, 2 and 4)", i, c)
 		}
 	}
 	if ring[0] != TreasureCellStart {
@@ -209,7 +311,7 @@ func checkTreasureData(t *TreasureData) error {
 	case unit == "":
 		return errors.New("rewards.bonus.coin_unit must not be empty")
 	case unit == "GEM" || unit == "CASH" || unit == "HEART":
-		return fmt.Errorf("rewards.bonus.coin_unit %q is a money unit; this slice refuses it", r.Bonus.CoinUnit)
+		return fmt.Errorf("rewards.bonus.coin_unit %q is a money unit; the board refuses it", r.Bonus.CoinUnit)
 	case r.Start.Tickets < 0 || r.Start.Tickets > 100:
 		return errors.New("rewards.start.tickets must be 0 to 100")
 	}
@@ -224,7 +326,118 @@ func checkTreasureData(t *TreasureData) error {
 			return fmt.Errorf("npcs[%d].gender must be MALE or FEMALE", i)
 		}
 	}
+	return checkTreasureRules(t)
+}
+
+// checkTreasureRules validates the exchange, the quest and mission pools, the rankings, the rewards and the cap raises.
+func checkTreasureRules(t *TreasureData) error {
+	ex := t.Exchange
+	switch {
+	case ex.Multiple < 1 || ex.Multiple > 100:
+		return errors.New("exchange.multiple must be 1 to 100")
+	case ex.DailyMax < 1 || ex.DailyMax > 1000:
+		return errors.New("exchange.daily_max must be 1 to 1000")
+	case ex.ResetGems < 1 || ex.ResetGems > 10000:
+		return errors.New("exchange.reset_gems must be 1 to 10000")
+	}
+	if err := checkTreasureTasks("quests", t.Quests, true); err != nil {
+		return err
+	}
+	if err := checkTreasureTasks("missions", t.Missions, false); err != nil {
+		return err
+	}
+	rk := t.Ranking
+	if rk.PageSize < 1 || rk.PageSize > 100 || len(rk.Grades) == 0 {
+		return errors.New("ranking.page_size must be 1 to 100 and ranking.grades must not be empty")
+	}
+	for i, g := range rk.Grades {
+		last := i == len(rk.Grades)-1
+		switch {
+		case strings.TrimSpace(g.Name) == "":
+			return fmt.Errorf("ranking.grades[%d].name must not be empty", i)
+		case g.Type < 1 || g.Type > 4:
+			return fmt.Errorf("ranking.grades[%d].type must be 1 to 4", i)
+		case last != (g.MaxRank == 0):
+			return errors.New("the last ranking grade must have max_rank 0 and no other may")
+		case i > 0 && g.MaxRank != 0 && g.MaxRank <= rk.Grades[i-1].MaxRank:
+			return errors.New("ranking.grades must rise in max_rank")
+		}
+	}
+	var lastPoints int64
+	for i, p := range t.PointRewards {
+		switch {
+		case p.ID < 1 || (i > 0 && p.ID <= t.PointRewards[i-1].ID):
+			return fmt.Errorf("point_rewards[%d].id must be positive and rise", i)
+		case p.Points < 1 || p.Points <= lastPoints:
+			return fmt.Errorf("point_rewards[%d].points must be positive and rise", i)
+		case p.Gems < 0 || p.Gems > 10000:
+			return fmt.Errorf("point_rewards[%d].gems must be 0 to 10000", i)
+		case p.Gems == 0 && p.Item == "":
+			return fmt.Errorf("point_rewards[%d] pays nothing", i)
+		case p.Item != "" && !validTreasureItem(p.Item):
+			return fmt.Errorf("point_rewards[%d].item %q is not an item code", i, p.Item)
+		}
+		lastPoints = p.Points
+	}
+	rr := t.RankRewards
+	if rr.ClaimDays < 1 || rr.ClaimDays > 60 || len(rr.Tiers) == 0 {
+		return errors.New("rank_rewards.claim_days must be 1 to 60 and rank_rewards.tiers must not be empty")
+	}
+	for i, tier := range rr.Tiers {
+		if tier.Gems < 1 || tier.Gems > 10000 || tier.Cutline < 1 || (i > 0 && tier.Cutline <= rr.Tiers[i-1].Cutline) {
+			return fmt.Errorf("rank_rewards.tiers[%d] must have a rising cutline and 1 to 10000 gems", i)
+		}
+	}
+	var lastMax int64 = t.Tickets.Max
+	for i, s := range t.TicketCap.Steps {
+		if s.Max <= lastMax || s.Max > 99 || s.Gems < 1 || s.Gems > 10000 {
+			return fmt.Errorf("ticket_cap.steps[%d] must raise the cap above %d (up to 99) for 1 to 10000 gems", i, lastMax)
+		}
+		lastMax = s.Max
+	}
 	return nil
+}
+
+// checkTreasureTasks validates one list: its set size against its pool and every task's kind, goal, reward and picture.
+func checkTreasureTasks(name string, l TreasureTasks, quest bool) error {
+	if l.SetSize < 1 || l.SetSize > int64(len(l.Pool)) || l.SetSize > 5 {
+		return fmt.Errorf("%s.set_size must be 1 to 5 and no more than the pool", name)
+	}
+	if quest && (l.RefreshHours < 1 || l.RefreshHours > 720) {
+		return errors.New("quests.refresh_hours must be 1 to 720")
+	}
+	for i, task := range l.Pool {
+		switch task.Kind {
+		case "roll", "jewel", "lap", "exchange":
+		default:
+			return fmt.Errorf("%s.pool[%d].kind %q is not roll, jewel, lap or exchange", name, i, task.Kind)
+		}
+		if task.Goal < 1 || task.Goal > 1000 {
+			return fmt.Errorf("%s.pool[%d].goal must be 1 to 1000", name, i)
+		}
+		if quest {
+			if task.Reward < 1 || task.Reward > 10 || task.Text == "" || !validTreasureItem(task.Item) {
+				return fmt.Errorf("quests.pool[%d] needs 1 to 10 tickets, a text and an item code", i)
+			}
+			if task.Type < 1 || task.Type > 7 && task.Type != 9 {
+				return fmt.Errorf("quests.pool[%d].type must be 1 to 7 or 9 (the quest pictures)", i)
+			}
+		} else {
+			if task.Reward < 1 || task.Reward > 100 {
+				return fmt.Errorf("missions.pool[%d].reward must be 1 to 100 Jewels", i)
+			}
+			if task.Type < 1 || task.Type > 5 {
+				return fmt.Errorf("missions.pool[%d].type must be 1 to 5 (the mission pictures)", i)
+			}
+		}
+	}
+	return nil
+}
+
+// validTreasureItem reports whether code is an item code the numeric id conversion knows.
+func validTreasureItem(code string) bool {
+	_, ok := itemcode.ID(code)
+	return ok
 }
 
 // TreasureCell is one square of the ring: its position, its type and the side it sits on.
@@ -249,10 +462,18 @@ func (d *TreasureData) Cells() []TreasureCell {
 	return out
 }
 
+// treasureCap is the ticket cap of r: the data's tickets.max, raised by the steps r bought.
+func treasureCap(r store.TreasureRecord, d *TreasureData) int64 {
+	if r.CapSteps > 0 && int(r.CapSteps) <= len(d.TicketCap.Steps) {
+		return d.TicketCap.Steps[r.CapSteps-1].Max
+	}
+	return d.Tickets.Max
+}
+
 // treasureRefill adds the tickets whose refill came due since the timer started, up to the cap. At the cap the timer
 // stays idle; it starts again with the next ticket spent below the cap. nowMs and Charged are Unix milliseconds.
 func treasureRefill(r *store.TreasureRecord, nowMs int64, d *TreasureData) {
-	limit, period := d.Tickets.Max, d.Tickets.ChargeSeconds*1000
+	limit, period := treasureCap(*r, d), d.Tickets.ChargeSeconds*1000
 	if r.Tickets >= limit || r.Charged == 0 || r.Charged > nowMs {
 		r.Charged = nowMs
 		return
@@ -271,7 +492,7 @@ func treasureRefill(r *store.TreasureRecord, nowMs int64, d *TreasureData) {
 
 // treasureRemain is the seconds until the next refill (0 at the cap), rounded up.
 func treasureRemain(r store.TreasureRecord, nowMs int64, d *TreasureData) int64 {
-	if r.Tickets >= d.Tickets.Max {
+	if r.Tickets >= treasureCap(r, d) {
 		return 0
 	}
 	left := d.Tickets.ChargeSeconds*1000 - (nowMs - r.Charged)
@@ -279,7 +500,8 @@ func treasureRemain(r store.TreasureRecord, nowMs int64, d *TreasureData) int64 
 }
 
 // treasureOwn makes aid's record current: a record of another season starts over (the first square, the start tickets,
-// no jewels; the tutorial flag stays with the account), and the refill timer catches up with now.
+// no jewels; the tutorial flag stays with the account), the refill timer catches up with now and the exchange counters
+// start a new day when the 06:00 JST day has turned.
 func treasureOwn(r *store.TreasureRecord, now time.Time, d *TreasureData) {
 	nowMs := now.UnixMilli()
 	if r.Season != d.Season.ID {
@@ -288,56 +510,104 @@ func treasureOwn(r *store.TreasureRecord, now time.Time, d *TreasureData) {
 	if r.Position < 0 || r.Position >= len(d.Board.Ring) {
 		r.Position = 0
 	}
+	if day := treasureDay(now); r.ExDay != day {
+		r.ExDay, r.Exchanged = day, nil
+	}
 	treasureRefill(r, nowMs, d)
 }
 
-// TreasureView is one account's board state: the tickets with their refill timer, the jewels, the square the token
-// stands on and the tutorial flag.
+// TreasureView is one account's board state: the tickets with their refill timer and cap, the jewels, the Ranking Points,
+// the square the token stands on, the tutorial flag and the exchange state of that square.
 type TreasureView struct {
 	Tickets       int64
 	Max           int64
 	RemainSeconds int64
 	ChargeSeconds int64
 	Jewels        int64
+	Points        int64
 	Position      int
 	Tutorial      bool
+	// ExchangeLeft is the Jewels the square under the token still takes today (its daily limit less today's exchanges).
+	ExchangeLeft int64
+	// ExchangeMax and ExchangeRate are the daily limit of a square and the Ranking Points per Jewel.
+	ExchangeMax  int64
+	ExchangeRate int64
+	// ExchangeReset is true when the square is full today, so its reset can be bought.
+	ExchangeReset bool
 }
 
+// treasureUsed is the Jewels exchanged today on ring position pos.
+func treasureUsed(r store.TreasureRecord, pos int) int64 { return r.Exchanged[strconv.Itoa(pos)] }
+
 func treasureView(r store.TreasureRecord, nowMs int64, d *TreasureData) TreasureView {
+	used := treasureUsed(r, r.Position)
 	return TreasureView{
 		Tickets:       r.Tickets,
-		Max:           d.Tickets.Max,
+		Max:           treasureCap(r, d),
 		RemainSeconds: treasureRemain(r, nowMs, d),
 		ChargeSeconds: d.Tickets.ChargeSeconds,
 		Jewels:        r.Jewels,
+		Points:        r.Points,
 		Position:      r.Position,
 		Tutorial:      r.Tutorial,
+		ExchangeLeft:  max(0, d.Exchange.DailyMax-used),
+		ExchangeMax:   d.Exchange.DailyMax,
+		ExchangeRate:  d.Exchange.Multiple,
+		ExchangeReset: used >= d.Exchange.DailyMax,
 	}
 }
 
-// treasureUpdate runs fn on aid's current board state under the store's lock and returns the state after it. An error
-// from fn comes back with the state, which keeps the refill that was due. Outside the season nothing is touched.
-func treasureUpdate(aid string, now time.Time, fn func(r *store.TreasureRecord, d *TreasureData) error) (TreasureView, error) {
+// treasureTx is the one way to change a board record. It runs op under AccountsMu, so an account's Gems and Mailbox move
+// together with its board state; op gets the account (nil when the board has none) and the record after the catch-up
+// (refill, day, season). Outside the season nothing changes when seasonOnly is set. A non-nil error from op keeps the
+// catch-up and drops op's changes to the account. A failed save puts the account back.
+func treasureTx(aid string, now time.Time, seasonOnly bool, op func(acc *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error)) (TreasureView, error) {
 	d := ActiveTreasureData()
 	start, end, _ := treasureSeasonWindow(d.Season)
-	if now.Before(start) || !now.Before(end) {
+	if seasonOnly && (now.Before(start) || !now.Before(end)) {
 		return TreasureView{}, ErrTreasureNoSeason
 	}
-	var ferr error
-	rec, err := store.UpdateTreasure(aid, func(r *store.TreasureRecord) {
-		treasureOwn(r, now, d)
-		ferr = fn(r, d)
-	})
+	store.AccountsMu.Lock()
+	defer store.AccountsMu.Unlock()
+	acc := store.AccountByAidLocked(aid)
+	rec, _ := store.TreasureRecordOf(aid)
+	rec = rec.Clone()
+	treasureOwn(&rec, now, d)
+	var prev store.Account
+	if acc != nil {
+		prev = *acc
+	}
+	lines, err := op(acc, &rec, d)
 	if err != nil {
+		if acc != nil {
+			*acc = prev
+		}
+		_, _ = store.UpdateTreasure(aid, func(r *store.TreasureRecord) { *r = rec })
+		return treasureView(rec, now.UnixMilli(), d), err
+	}
+	if acc != nil {
+		if err := store.SaveAccountsLocked(); err != nil {
+			*acc = prev
+			return TreasureView{}, err
+		}
+	}
+	if _, err := store.UpdateTreasure(aid, func(r *store.TreasureRecord) { *r = rec }); err != nil {
+		if acc != nil {
+			*acc = prev
+			_ = store.SaveAccountsLocked()
+		}
 		return TreasureView{}, err
 	}
-	return treasureView(rec, now.UnixMilli(), d), ferr
+	store.FlushLedgerLocked(lines)
+	return treasureView(rec, now.UnixMilli(), d), nil
 }
 
 // TreasureOpen brings aid's board state up to date at now (a new season starts the record over, the refill catches up)
 // and returns it. It serves the room enter and the relay start.
 func TreasureOpen(aid string, now time.Time) (TreasureView, error) {
-	return treasureUpdate(aid, now, func(*store.TreasureRecord, *TreasureData) error { return nil })
+	return treasureTx(aid, now, true, func(*store.Account, *store.TreasureRecord, *TreasureData) ([]store.LedgerLine, error) {
+		return nil, nil
+	})
 }
 
 // TreasureMove is one roll: the die, the squares passed, the square landed on and what it paid. Lap is true when the
@@ -357,9 +627,9 @@ type TreasureMove struct {
 // the square landed on. Without enough tickets nothing moves and ErrTreasureNoTickets comes back with the state.
 func TreasureRollDice(aid string, now time.Time) (TreasureMove, error) {
 	var mv TreasureMove
-	view, err := treasureUpdate(aid, now, func(r *store.TreasureRecord, d *TreasureData) error {
+	view, err := treasureTx(aid, now, true, func(_ *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
 		if r.Tickets < d.Tickets.PerRoll {
-			return ErrTreasureNoTickets
+			return nil, ErrTreasureNoTickets
 		}
 		r.Tickets -= d.Tickets.PerRoll
 		n := len(d.Board.Ring)
@@ -382,7 +652,14 @@ func TreasureRollDice(aid string, now time.Time) (TreasureMove, error) {
 			r.Jewels += mv.Bonus
 		}
 		r.Position = mv.To
-		return nil
+		treasureProgress(r, d, "roll", 1)
+		if got := mv.Coins + mv.Bonus; got > 0 {
+			treasureProgress(r, d, "jewel", got)
+		}
+		if mv.Lap {
+			treasureProgress(r, d, "lap", 1)
+		}
+		return nil, nil
 	})
 	mv.View = view
 	return mv, err
@@ -396,6 +673,8 @@ func TreasureJewels(aid string) int64 {
 
 // TreasureTutorialDone records that aid has seen the board tutorial; every later enter reports it as complete.
 func TreasureTutorialDone(aid string) error {
+	store.AccountsMu.Lock()
+	defer store.AccountsMu.Unlock()
 	_, err := store.UpdateTreasure(aid, func(r *store.TreasureRecord) { r.Tutorial = true })
 	return err
 }

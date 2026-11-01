@@ -1,6 +1,6 @@
 {
   "origin": "mixed",
-  "note": "Treasure World (Blue Marble board game), slice 1: solo board, cells 0, 1 and 4 only. ORIGINAL (LINE PLAY Help Center, user-supplied 2026-11-02, treasure-20261102\\helpcenter): the season name Queen's Jewel Box, the ticket name Jewel Carriage(s) (one per roll, refilled every 10 minutes), the coin name Jewel(s) and the ranking point name (Ranking Point(s)). CHERRY-MADE: every id (season 1950000001, in the Cherry block 1950000000-1950000999, economy.CherryTreasureFirst/Last); the season dates (start 2026-11-01 06:00 JST, 28 days); the ticket numbers (start 10, cap 10, refill 600 s, 1 ticket per roll); the cell types of the ring (the client's board has exactly 28 squares: 4 corners and 6 per side, square 0 the bottom-left corner); the coin range (1 to 3 Jewels per coin square); the bonus square (5 Jewels; CoinUnit JEWEL is not a client currency, so the client draws no amount text for it, and no money moves); the lap reward (5 tickets each time the token passes or lands on the start, the Help Center names a full-turn reward, the amount is Cherry's); the two portrait names and genders. The board picture is NOT in the archive (the local marble_main_board.png is a transparent placeholder): SkinUrl stays empty until the art is made (slice 4). The HUD buttons and icons are original UI art named in code (lpn/treasure.go treasureSeasonImages).",
+  "note": "Treasure World (Blue Marble board game), slices 1 and 2: solo board, cell types 0, 1, 2 and 4 (ring squares 1, 2 and 4 are built; 3, 5 to 11 are refused in code). ORIGINAL (LINE PLAY Help Center, user-supplied 2026-11-02, treasure-20261102\\helpcenter): the season name Queen's Jewel Box, the ticket name Jewel Carriage(s) (one per roll, refilled every 10 minutes), the coin name Jewel(s), the ranking point name Ranking Point(s), the quest set of 5 and mission set of 4, the 24 h quest refresh, the 06:00 JST exchange-limit reset, the point rewards at thresholds and the rank rewards by Mailbox, and the three season dress items (treasureworld_cat_pirate 225408332, Treasurewolrd9_VirtualGirls 225304426, TreasureWorld_Mar 225410737; item codes from internal/itemcode, art checked with thumbs.HasArt). CHERRY-MADE: every id (season 1950000001, in the Cherry block 1950000000-1950000999, economy.CherryTreasureFirst/Last); the season dates (start 2026-11-01 06:00 JST, 28 days); the ticket numbers (start 10, cap 10, refill 600 s, 1 ticket per roll); the ring (the client's board has exactly 28 squares: 4 corners and 6 per side, square 0 the bottom-left corner; exchange squares 2, 8, 15 and 22 are Cherry's choice); the coin range (1 to 3 Jewels per coin square); the bonus square (5 Jewels; CoinUnit JEWEL is not a client currency, so the client draws no amount text for it, and no money moves); the lap reward (5 tickets each time the token passes or lands on the start, the amount is Cherry's); the two portrait names and genders; exchange (10 Ranking Points per Jewel, 30 Jewels a square a day, a full square resets for 30 Gems); the quest and mission texts, kinds, goals and rewards (mission rewards are Jewels; the client draws its own mission wording for each type, so mission text is not sent); the ranking grades (names and badge classes); the point reward thresholds, Gem amounts and the dress item per threshold (300 and 600 Ranking Points get the first two dress items in the order listed; 1000 Ranking Points gets Gems only, because TreasureWorld_Mar 225410737 (code CUAH008A9) has parts in the lpbackup tree but no dp art in Cherry's item root, so it is refused by itemAvailable until thumbs serves it; 100 Ranking Points gets Gems only); the rank tiers, Gem amounts and the 7-day claim window after a season; the ticket cap steps and their Gem prices. The board picture is NOT in the archive (the local marble_main_board.png is a transparent placeholder): SkinUrl stays empty until the art is made (slice 4). The HUD buttons QUEST, help and ranking board are Cherry-drawn pictures (economy/treasure_art.go), the back button and the ticket, jewel and point nodes are original art named in code (economy.TreasureSeasonArt).",
   "season": {
     "id": 1950000001,
     "name": "Queen's Jewel Box",
@@ -19,7 +19,7 @@
     "per_roll": 1
   },
   "board": {
-    "ring": [0, 1, 1, 4, 1, 1, 1, 1, 1, 1, 4, 1, 1, 1, 1, 1, 1, 4, 1, 1, 1, 1, 1, 1, 4, 1, 1, 1]
+    "ring": [0, 1, 2, 4, 1, 1, 1, 1, 2, 1, 4, 1, 1, 1, 1, 2, 1, 4, 1, 1, 1, 1, 2, 1, 4, 1, 1, 1]
   },
   "rewards": {
     "coin": {"min": 1, "max": 3},
@@ -29,5 +29,65 @@
   "npcs": [
     {"name": "Treasure Guide", "gender": "FEMALE"},
     {"name": "Treasure Helper", "gender": "MALE"}
-  ]
+  ],
+  "exchange": {
+    "multiple": 10,
+    "daily_max": 30,
+    "reset_gems": 30
+  },
+  "quests": {
+    "set_size": 5,
+    "refresh_hours": 24,
+    "pool": [
+      {"kind": "roll", "goal": 3, "reward": 2, "type": 1, "item": "CUAH006FG", "text": "Roll the dice 3 times"},
+      {"kind": "roll", "goal": 6, "reward": 3, "type": 1, "item": "CUAH006FG", "text": "Roll the dice 6 times"},
+      {"kind": "jewel", "goal": 4, "reward": 2, "type": 2, "item": "CUAH006FG", "text": "Earn 4 Jewels"},
+      {"kind": "jewel", "goal": 9, "reward": 3, "type": 2, "item": "CUAH006FG", "text": "Earn 9 Jewels"},
+      {"kind": "lap", "goal": 1, "reward": 3, "type": 3, "item": "CUAH006FG", "text": "Pass the start line once"},
+      {"kind": "exchange", "goal": 5, "reward": 2, "type": 4, "item": "CUAH006FG", "text": "Exchange 5 Jewels for Ranking Points"},
+      {"kind": "exchange", "goal": 10, "reward": 3, "type": 4, "item": "CUAH006FG", "text": "Exchange 10 Jewels for Ranking Points"},
+      {"kind": "roll", "goal": 10, "reward": 4, "type": 1, "item": "CUAH006FG", "text": "Roll the dice 10 times"}
+    ]
+  },
+  "missions": {
+    "set_size": 4,
+    "pool": [
+      {"kind": "roll", "goal": 10, "reward": 3, "type": 1},
+      {"kind": "jewel", "goal": 15, "reward": 4, "type": 2},
+      {"kind": "lap", "goal": 2, "reward": 5, "type": 3},
+      {"kind": "exchange", "goal": 15, "reward": 4, "type": 4},
+      {"kind": "roll", "goal": 20, "reward": 6, "type": 1}
+    ]
+  },
+  "ranking": {
+    "page_size": 20,
+    "grades": [
+      {"max_rank": 1, "name": "Gold", "type": 4},
+      {"max_rank": 3, "name": "Silver", "type": 3},
+      {"max_rank": 10, "name": "Bronze", "type": 2},
+      {"max_rank": 0, "name": "Member", "type": 1}
+    ]
+  },
+  "point_rewards": [
+    {"id": 1, "points": 100, "gems": 50, "item": ""},
+    {"id": 2, "points": 300, "gems": 100, "item": "CUAH006FG"},
+    {"id": 3, "points": 600, "gems": 150, "item": "CUSH003EY"},
+    {"id": 4, "points": 1000, "gems": 250, "item": ""}
+  ],
+  "rank_rewards": {
+    "claim_days": 7,
+    "tiers": [
+      {"cutline": 1, "gems": 300},
+      {"cutline": 3, "gems": 150},
+      {"cutline": 10, "gems": 60},
+      {"cutline": 100, "gems": 20}
+    ]
+  },
+  "ticket_cap": {
+    "steps": [
+      {"max": 15, "gems": 40},
+      {"max": 20, "gems": 80},
+      {"max": 25, "gems": 150}
+    ]
+  }
 }

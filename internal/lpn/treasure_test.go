@@ -36,7 +36,8 @@ var (
 	treReward  = lpMsg{1: {wire: 0}, 2: {wire: 2, rep: true, msg: treItem}, 5: {wire: 2}}
 	treCoin    = lpMsg{1: {wire: 0, req: true}}
 	treBonus   = lpMsg{1: {wire: 0, req: true}, 3: {wire: 2}, 4: {wire: 0}}
-	treDetail  = lpMsg{1: {wire: 2, msg: treReward}, 3: {wire: 2, msg: treCoin}, 6: {wire: 2, msg: treBonus}}
+	treRanking = lpMsg{1: {wire: 0}, 2: {wire: 0}, 3: {wire: 0}, 4: {wire: 0}, 5: {wire: 0}, 10: {wire: 0}}
+	treDetail  = lpMsg{1: {wire: 2, msg: treReward}, 3: {wire: 2, msg: treCoin}, 4: {wire: 2, msg: treRanking}, 6: {wire: 2, msg: treBonus}}
 	treRoll    = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 0, req: true}, 4: {wire: 0, req: true}, 5: {wire: 0, req: true}, 6: {wire: 2, req: true, msg: treCell}, 7: {wire: 2, msg: treDetail}, 8: {wire: 0, req: true}, 9: {wire: 2, msg: treReward}}
 	treRollNo  = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0}, 3: {wire: 0}, 4: {wire: 0}, 5: {wire: 0}}
 	treResult  = lpMsg{1: {wire: 0, req: true}}
@@ -249,8 +250,8 @@ func TestTreasureBoardOverTheGateway(t *testing.T) {
 		t.Fatalf("season names = %q %q %q, PlayTicketCount %d", cirBytes(season, 8), cirBytes(season, 9), cirBytes(season, 10), cirVar(season, 7))
 	}
 	for _, f := range []uint64{1, 2, 3, 4, 5, 6, 14, 15, 16, 17, 18, 19, 20, 21, 22, 25} {
-		if got := cirBytes(season, f); got == nil || string(got) != treasureSeasonImages[f] {
-			t.Fatalf("season picture field %d = %q, want present and %q", f, got, treasureSeasonImages[f])
+		if got := cirBytes(season, f); got == nil || string(got) != economy.TreasureSeasonPicture(f) {
+			t.Fatalf("season picture field %d = %q, want present and %q", f, got, economy.TreasureSeasonPicture(f))
 		}
 	}
 	cells := cirList(enter, 4)
@@ -398,47 +399,52 @@ func TestTreasureNoTicketRoll(t *testing.T) {
 	}
 }
 
-// TestTreasureLaterSlicesAnswerSafely: the requests of the later slices get the stub answers, each is logged as not
-// built, and the client's own close (subtype 2) gets no reply.
+// TestTreasureLaterSlicesAnswerSafely: the requests still left to later slices (buff, mini-game, travel, gold key, special
+// missions, season state) get the stub answers, each is logged as not built, and the client's own close (subtype 2) gets no
+// reply. The points, rankings, rewards, quests and cap requests are answered for real (treasure_points_test.go).
 func TestTreasureLaterSlicesAnswerSafely(t *testing.T) {
 	treScene(t)
 	g := newTreGateway(t)
 	g.open()
 	g.login(1001)
 
-	g.send(20, pbVar(nil, 1, 0)) // ticket limit info: refused, so no max-up popup opens (12863)
-	if cirVar(g.readShape(21, treResult), 1) != treasureRefused {
-		t.Fatal("ticket limit info not refused")
-	}
-	g.send(21, nil) // ticket limit buy: refused, nothing is spent (12865)
-	if cirVar(g.readShape(22, treResult), 1) != treasureRefused {
-		t.Fatal("ticket limit buy not refused")
-	}
-	g.send(7, nil) // ranking point reset: refused (12816)
-	if cirVar(g.readShape(7, treResult), 1) != treasureRefused {
-		t.Fatal("point reset not refused")
-	}
-	g.send(27, nil) // reset info: refused (12884)
-	if cirVar(g.readShape(32, treResult), 1) != treasureRefused {
-		t.Fatal("point reset info not refused")
-	}
 	g.send(5, nil) // buff list: empty, Result 0
 	if cirVar(g.readShape(5, treResult), 1) != 0 {
 		t.Fatal("buff list not an empty success")
 	}
-	g.send(16, nil) // quest and mission list: empty lists, Result 0
-	if cirVar(g.readShape(17, treResult), 1) != 0 {
-		t.Fatal("quest list not an empty success")
+	g.send(8, nil) // mini-game: refused
+	if cirVar(g.readShape(treasureRcMiniGame, treResult), 1) != treasureRefused {
+		t.Fatal("mini-game not refused")
+	}
+	g.send(9, nil) // travel: refused
+	if cirVar(g.readShape(treasureRcFlyTravel, treResult), 1) != treasureRefused {
+		t.Fatal("travel not refused")
+	}
+	g.send(10, nil) // gold key: refused
+	if cirVar(g.readShape(treasureRcGoldKey, treResult), 1) != treasureRefused {
+		t.Fatal("gold key not refused")
+	}
+	g.send(22, nil) // buff wear: refused
+	if cirVar(g.readShape(treasureRcBuffWear, treResult), 1) != treasureRefused {
+		t.Fatal("buff wear not refused")
+	}
+	g.send(25, nil) // special mission reward: refused
+	if cirVar(g.readShape(treasureRcSpecialReward, treResult), 1) != treasureRefused {
+		t.Fatal("special mission reward not refused")
+	}
+	g.send(26, nil) // special mission enable: refused
+	if cirVar(g.readShape(treasureRcSpecialEnable, treResult), 1) != treasureRefused {
+		t.Fatal("special mission enable not refused")
 	}
 	g.send(28, nil) // season active state: not active (flag cleared)
-	if cirVar(g.readShape(33, treStatus), 1) != treasureSeasonNotActive {
+	if cirVar(g.readShape(treasureRcSeasonState, treStatus), 1) != treasureSeasonNotActive {
 		t.Fatal("season state not answered")
 	}
 	g.send(24, nil) // ticket sync: no caller in the client, no reply
 	g.send(0x30, nil)
 	g.write(append([]byte{'G', 0x42}, g.sid[:]...)) // the client's own close (subtype 2): never answered
 	assertNoReply(t, g.peer)
-	for _, msgid := range []string{"msgid=20 not built", "msgid=7 not built", "msgid=27 not built", "msgid=24 not built"} {
+	for _, msgid := range []string{"msgid=8 not built", "msgid=22 not built", "msgid=24 not built"} {
 		if !strings.Contains(g.logs.String(), "TREASURE "+msgid) {
 			t.Fatalf("log lacks %q", msgid)
 		}

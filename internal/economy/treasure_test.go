@@ -73,7 +73,7 @@ func TestTreasureDataRefusals(t *testing.T) {
 		{"season length zero", func(d *TreasureData) { d.Season.Days = 0 }},
 		{"ring not in four sides", func(d *TreasureData) { d.Board.Ring = d.Board.Ring[:10] }},
 		{"ring not starting at the start line", func(d *TreasureData) { d.Board.Ring[0] = 1 }},
-		{"cell type not built yet", func(d *TreasureData) { d.Board.Ring[1] = 2 }},
+		{"cell type not built yet", func(d *TreasureData) { d.Board.Ring[1] = 3 }},
 		{"money unit for the bonus", func(d *TreasureData) { d.Rewards.Bonus.CoinUnit = "gem" }},
 		{"empty bonus unit", func(d *TreasureData) { d.Rewards.Bonus.CoinUnit = "" }},
 		{"coin range inverted", func(d *TreasureData) { d.Rewards.Coin = TreasureRange{Min: 3, Max: 1} }},
@@ -173,8 +173,8 @@ func TestTreasureLapPaysTickets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !mv.Lap || mv.To != 2 || mv.View.Tickets != 7 || mv.View.Jewels != 1 {
-		t.Fatalf("pass the start: %+v, want lap, square 2, 7 tickets, 1 jewel", mv)
+	if !mv.Lap || mv.To != 2 || mv.Cell != TreasureCellExchange || mv.View.Tickets != 7 || mv.View.Jewels != 0 {
+		t.Fatalf("pass the start: %+v, want lap, exchange square 2, 7 tickets, no jewels", mv)
 	}
 
 	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Position: 24, Tickets: 10, Charged: treasureNow.UnixMilli()})

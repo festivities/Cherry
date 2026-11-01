@@ -85,27 +85,13 @@ var (
 // treasureStubs maps each outbound msgid of a later slice to its answer. Keys are cs msgids.
 var treasureStubs = map[uint16]treasureStub{
 	5:  {treasureRcBuffList, treasureOK},
-	6:  {treasureRcPointChange, nil},
-	7:  {treasureRcPointReset, treasureNo},
 	8:  {treasureRcMiniGame, treasureNo},
 	9:  {treasureRcFlyTravel, treasureNo},
 	10: {treasureRcGoldKey, treasureNo},
-	11: {treasureRcRankingInfo, treasureOK},
-	12: {treasureRcPointRewardInfo, treasureOK},
-	13: {treasureRcClassRewardInfo, treasureOK},
-	14: {treasureRcPointReward, treasureNo},
-	15: {treasureRcClassReward, treasureOK},
-	16: {treasureRcQuestList, treasureOK},
-	17: {treasureRcAchievementReward, treasureNo},
-	18: {treasureRcQuestReward, treasureNo},
-	19: {treasureRcQuestRefresh, treasureNo},
-	20: {treasureRcLimitInfo, treasureNo},
-	21: {treasureRcLimitBuy, treasureNo},
 	22: {treasureRcBuffWear, treasureNo},
 	24: {treasureRcNoReply, nil}, // cs_playticket_sync_req: no caller in the client
 	25: {treasureRcSpecialReward, treasureNo},
 	26: {treasureRcSpecialEnable, treasureNo},
-	27: {treasureRcResetInfo, treasureNo},
 	28: {treasureRcSeasonState, pbVar(nil, 1, treasureSeasonNotActive)},
 }
 
@@ -164,6 +150,34 @@ func (s *treasureSession) handleData(frame []byte) error {
 		return s.tutorial(frame)
 	case treasureCsCoinRefresh:
 		return s.coinRefresh(frame)
+	case treasureCsPointChange:
+		return s.pointChange(frame, data)
+	case treasureCsPointReset:
+		return s.pointReset(frame, data)
+	case treasureCsRankingInfo:
+		return s.rankingInfo(frame, data)
+	case treasureCsPointRewardInfo:
+		return s.pointRewardInfo(frame)
+	case treasureCsClassRewardInfo:
+		return s.classRewardInfo(frame)
+	case treasureCsPointRewardClaim:
+		return s.pointRewardClaim(frame, data)
+	case treasureCsClassRewardClaim:
+		return s.classRewardClaim(frame)
+	case treasureCsQuestList:
+		return s.questList(frame)
+	case treasureCsMissionClaim:
+		return s.missionClaim(frame, data)
+	case treasureCsQuestClaim:
+		return s.questClaim(frame, data)
+	case treasureCsQuestRefresh:
+		return s.questRefresh(frame, data)
+	case treasureCsCapInfo:
+		return s.capInfo(frame)
+	case treasureCsCapBuy:
+		return s.capBuy(frame)
+	case treasureCsResetInfo:
+		return s.resetInfo(frame)
 	}
 	return s.notBuilt(frame, msgid)
 }
@@ -214,26 +228,15 @@ func treasureEnterBody(d *economy.TreasureData, view economy.TreasureView) []byt
 	return pbVar(body, 5, boolUint(view.Tutorial))
 }
 
-// treasureSeasonImages are the SeasonInfo picture paths: the original HUD art Cherry serves at /cherry/treasure/
-// (economy.TreasureSeasonArt), relative to the static base. A field without art stays empty: the button is invisible
-// (still touchable in a 5x5 box) and the icon blank.
-var treasureSeasonImages = func() map[uint64]string {
-	m := map[uint64]string{}
-	for f, file := range economy.TreasureSeasonArt {
-		m[f] = economy.TreasureArtPath(file)
-	}
-	return m
-}()
-
-// treasureSeasonInfo is SeasonInfo with all 25 fields: the names from the data, the original HUD art
-// (treasureSeasonImages), the other picture paths empty (the client draws nothing for an empty path, treasure-spec 9.2).
-// The dates are Unix milliseconds [I: the unit is not read by any path found].
+// treasureSeasonInfo is SeasonInfo with all 25 fields: the names from the data, the picture paths (economy.TreasureSeasonPicture:
+// the original HUD art and the Cherry-drawn buttons), the other picture paths empty (the client draws nothing for an empty
+// path, treasure-spec 9.2). The dates are Unix milliseconds [I: the unit is not read by any path found].
 func treasureSeasonInfo(d *economy.TreasureData) []byte {
 	start, end := economy.TreasureSeasonWindow()
 	var b []byte
 	text := func(field uint64, v string) { b = pbLen(b, field, []byte(v)) }
 	text(1, "") // SkinUrl: the board picture (not in the archive)
-	text(2, treasureSeasonImages[2])
+	text(2, economy.TreasureSeasonPicture(2))
 	text(3, "") // DiceType (no reader found)
 	text(4, "") // MainBannerNomalUrl
 	text(5, "") // MainBannerRewardUrl
@@ -246,11 +249,11 @@ func treasureSeasonInfo(d *economy.TreasureData) []byte {
 	b = pbLen(b, 12, treasureAvatar(d.NPCs[0]))
 	b = pbLen(b, 13, treasureAvatar(d.NPCs[1]))
 	for f := uint64(14); f <= 22; f++ { // RankingPointOneUrl .. BgImgUrl .. QuestButtonUrl: image paths
-		text(f, treasureSeasonImages[f])
+		text(f, economy.TreasureSeasonPicture(f))
 	}
 	b = pbVar(b, 23, uint64(start.UnixMilli()))
 	b = pbVar(b, 24, uint64(end.UnixMilli()))
-	text(25, treasureSeasonImages[25])
+	text(25, economy.TreasureSeasonPicture(25))
 	return b
 }
 
@@ -369,6 +372,8 @@ func treasureCellDetail(d *economy.TreasureData, mv economy.TreasureMove) []byte
 		bonus = pbLen(bonus, 3, []byte(d.Rewards.Bonus.CoinUnit))
 		bonus = pbVar(bonus, 4, uint64(mv.View.Jewels))
 		return pbLen(detail, 6, bonus) // CellTypeBonus
+	case economy.TreasureCellExchange:
+		return treasureSquareDetail(mv.View) // CellTypeRanking: the exchange popup's counts (cells.md 6.4)
 	}
 	return nil
 }

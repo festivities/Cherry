@@ -27,8 +27,8 @@ const treasurePackageInfoBody = `{"result":{}}`
 // archive like the butler portraits, at /cherry/treasure/<base name>. The season's own files (marble_main_*,
 // marble_common_reward_*, 18 in all) are 1-bit transparent placeholders in both backups — the real ones were season
 // downloads — so the fields take the original season-independent art instead: the board's round back button and the
-// ticket, jewel and point nodes of animation/marble_ef. No original exists for SkinUrl (1), RankingBoardUrl (2), BgImgUrl
-// (20), QuestButtonUrl (22) or HelperButtonUrl (25); they stay empty.
+// ticket, jewel and point nodes of animation/marble_ef. No original exists for SkinUrl (1) or BgImgUrl (20); the QUEST,
+// help and ranking board pictures are Cherry-drawn (treasureDrawnFields).
 var TreasureSeasonArt = map[uint64]string{
 	14: "animation/marble_ef/point_node.png",               // RankingPointOneUrl (tag 94)
 	16: "animation/marble_ef/ticket_node.png",              // TicketOneUrl (tags 91, 80)
@@ -43,21 +43,42 @@ var treasureArtFS fs.FS = os.DirFS(filepath.FromSlash(`D:/Dev/projects/Cherry/.o
 // static base and refuses nothing else, treasure-spec 9.2).
 const treasureArtPrefix = "/cherry/treasure/"
 
-// TreasureArtPath is the SeasonInfo path of an art file: relative to the static base, no leading slash.
+// TreasureArtPath is the SeasonInfo path of an original art file: relative to the static base, no leading slash.
 func TreasureArtPath(file string) string {
 	return strings.TrimPrefix(treasureArtPrefix, "/") + path.Base(file)
 }
 
-// HandleTreasureArt serves GET /cherry/treasure/<base name> for the files TreasureSeasonArt names, as they are.
+// TreasureSeasonPicture is the SeasonInfo path of a picture field: the original art or a Cherry-drawn button, relative to
+// the static base; "" for a field without art (the client draws nothing for an empty path).
+func TreasureSeasonPicture(field uint64) string {
+	if file, ok := TreasureSeasonArt[field]; ok {
+		return TreasureArtPath(file)
+	}
+	if name, ok := treasureDrawnFields[field]; ok {
+		return strings.TrimPrefix(treasureArtPrefix, "/") + name
+	}
+	return ""
+}
+
+// HandleTreasureArt serves GET /cherry/treasure/<name>: a Cherry-drawn picture, or an original file the season art names.
 func HandleTreasureArt(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, treasureArtPrefix)
+	if r.Method != http.MethodGet {
+		httpx.ServeNotFound(w)
+		return
+	}
+	if b, ok := treasureDrawnPicture(name); ok {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(b)
+		return
+	}
 	file := ""
 	for _, f := range TreasureSeasonArt {
 		if path.Base(f) == name {
 			file = f
 		}
 	}
-	if file == "" || r.Method != http.MethodGet {
+	if file == "" {
 		httpx.ServeNotFound(w)
 		return
 	}
