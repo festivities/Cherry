@@ -494,7 +494,7 @@ func (s *circleSession) enter(frame []byte) error {
 	body = pbLen(body, 4, []byte(mapData.Map))
 	body = pbVar(body, 5, economy.CirclePlayerType(role))
 	for _, m := range members {
-		body = pbLen(body, 6, circleMemberInfo(m, online))
+		body = pbLen(body, 6, circleMemberInfo(m, online, true))
 	}
 	s.logger.Printf("CIRCLE enter aid=%d circle=%d members=%d map=%s", s.aid, id, len(members), mapData.Map)
 	return s.reply(frame, circleRcRoomEnter, body)
@@ -638,7 +638,7 @@ func (s *circleSession) memberList(frame []byte) error {
 	online := s.rooms.presence(id)
 	body := pbVar(nil, 1, 0)
 	for _, m := range members {
-		body = pbLen(body, 2, circleMemberInfo(m, online))
+		body = pbLen(body, 2, circleMemberInfo(m, online, true))
 	}
 	body = pbVar(body, 3, aidNum(master))
 	body = pbVar(body, 4, uint64(len(members)))
@@ -663,7 +663,7 @@ func (s *circleSession) authority(frame, data []byte) error {
 	body := pbVar(nil, 1, 0)
 	online := s.rooms.presence(id)
 	for _, m := range changed {
-		body = pbLen(body, 2, circleMemberInfo(m, online))
+		body = pbLen(body, 2, circleMemberInfo(m, online, true))
 	}
 	if err := s.reply(frame, circleRcAuthority, body); err != nil {
 		return err
@@ -689,7 +689,7 @@ func (s *circleSession) masterChange(frame, data []byte) error {
 	body := pbVar(nil, 1, 0)
 	online := s.rooms.presence(id)
 	for _, m := range changed {
-		body = pbLen(body, 2, circleMemberInfo(m, online))
+		body = pbLen(body, 2, circleMemberInfo(m, online, true))
 	}
 	if err := s.reply(frame, circleRcMasterChange, body); err != nil {
 		return err
@@ -931,7 +931,7 @@ func pushCircleEvent(rooms *circleRooms, logger *log.Logger, ev economy.CircleRo
 		online := rooms.presence(ev.Circle)
 		for _, m := range members {
 			if slices.Contains(ev.Joined, m.Aid) {
-				room.broadcast(logger, nil, circleRcMemberAdd, pbLen(nil, 1, circleMemberInfo(m, online)))
+				room.broadcast(logger, nil, circleRcMemberAdd, pbLen(nil, 1, circleMemberInfo(m, online, false)))
 			}
 		}
 	}
@@ -993,7 +993,7 @@ func pushCircleChanges(logger *log.Logger, rooms *circleRooms, id int64, skip *c
 	online := rooms.presence(id)
 	var body []byte
 	for _, m := range changed {
-		body = pbLen(body, 1, circleMemberInfo(m, online))
+		body = pbLen(body, 1, circleMemberInfo(m, online, true))
 	}
 	body = pbVar(body, 2, aidNum(master))
 	body = pbVar(body, 3, uint64(len(members)))
@@ -1026,11 +1026,22 @@ func circleAvatarInfo(aid uint64) []byte {
 // circleMemberInfo encodes one member as CircleMemberInfo: 1 aid, 2 name, 5 PlayerType (the role), 8 Connect (in the
 // room now). [I] Connect's meaning (online flag or a time) is not traced; the member list sends 1 for an avatar in the
 // room.
-func circleMemberInfo(m store.CircleMember, online map[uint64]bool) []byte {
+//
+// f3 Profile is the saved profile picture as a path without the leading slash (the client prefixes its static base,
+// SetPNGImageWithURL 0x1b816a4; the form Lounge Chat draws). f7 CreateDate is the join time in epoch ms as a decimal
+// string (the row's date, TimeToYearMonthDate 0x2b2c7bc; empty drew 1/1/1970); withDate is false for the member-added
+// push, whose parser divides f7 by 1000 (LP_sc_circle_memeber_add_push 0x24fd6c8; member-list.md section 1).
+func circleMemberInfo(m store.CircleMember, online map[uint64]bool, withDate bool) []byte {
 	aid := aidNum(m.Aid)
 	b := pbVar(nil, 1, aid)
 	b = pbLen(b, 2, []byte(circleAccountName(aid)))
+	if pic := loungeProfileURL(aid); pic != "" {
+		b = pbLen(b, 3, []byte(pic))
+	}
 	b = pbVar(b, 5, economy.CirclePlayerType(m.Role))
+	if withDate && m.Joined > 0 {
+		b = pbLen(b, 7, []byte(strconv.FormatInt(m.Joined, 10)))
+	}
 	if online[aid] {
 		b = pbVar(b, 8, 1)
 	}

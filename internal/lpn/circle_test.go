@@ -24,7 +24,7 @@ var (
 	cirAvatar     = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, req: true}, 3: {wire: 0}, 9: {wire: 2}, 14: {wire: 2, rep: true, msg: cirItem}}
 	cirMove       = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 0, req: true}, 4: {wire: 0, req: true}, 5: {wire: 0, req: true}, 6: {wire: 0, req: true}}
 	cirPlayer     = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, req: true, msg: cirAvatar}, 3: {wire: 2, req: true, msg: cirMove}, 7: {wire: 0, req: true}}
-	cirMemberInfo = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2}, 5: {wire: 0, req: true}, 8: {wire: 0}}
+	cirMemberInfo = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2}, 3: {wire: 2}, 5: {wire: 0, req: true}, 7: {wire: 2}, 8: {wire: 0}}
 	cirChatInfo   = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2}, 3: {wire: 0, req: true}, 4: {wire: 0}, 5: {wire: 2, req: true}, 6: {wire: 0}}
 	cirResult     = lpMsg{1: {wire: 0, req: true}}
 	cirLogin      = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0}}
@@ -905,4 +905,16 @@ func TestCircleHTTPChangesReachTheRoom(t *testing.T) {
 	}
 	leader.expectID(circleRcMemberDelete)
 	leader.none()
+}
+
+// TestCircleMemberInfoDate: the member row's date is f7 CreateDate, the join time in epoch ms as a decimal string, and
+// the member-added push leaves it out (its parser divides f7 by 1000).
+func TestCircleMemberInfoDate(t *testing.T) {
+	m := store.CircleMember{Aid: "1101", Role: "member", Joined: 1793480000000}
+	if got := string(cirBytes(circleMemberInfo(m, nil, true), 7)); got != "1793480000000" {
+		t.Fatalf("list row f7 = %q, want the join time in ms", got)
+	}
+	if got := cirBytes(circleMemberInfo(m, nil, false), 7); got != nil {
+		t.Fatalf("add push carries f7 %q", got)
+	}
 }
