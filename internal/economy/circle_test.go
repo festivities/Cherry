@@ -443,7 +443,7 @@ func TestModifyCircleLeaderOnlyAndNameFixed(t *testing.T) {
 
 // circleJoin joins token's avatar to circle id the way the client does: POST apply/join (an OPEN circle records an
 // application; an INVITE circle with an invitation joins at once), then, for an application, the leader's approval
-// (POST apply/join/<id>/approval/<aid>). A refusal of either step is returned.
+// (POST apply/join/approval/<id>/<aid>). A refusal of either step is returned.
 func circleJoin(token string, id int64, now time.Time) error {
 	if err := JoinCircle(token, id, false, now); err != nil {
 		return err

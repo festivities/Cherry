@@ -157,8 +157,18 @@ func TestCirclePointsMidSeasonJoinerEarnsNothing(t *testing.T) {
 	if n := CirclePointEarn("3002", "garden", cptDay(2)); n != 0 {
 		t.Fatalf("mid-season joiner earned %d", n)
 	}
-	if info := circlePointInfo(0, false); info.AvailSessionAttendYn != 0 {
+	if info := circlePointInfo(0, nil, false); info.AvailSessionAttendYn != 0 {
 		t.Fatalf("mid-season joiner shows the season as available: %+v", info)
+	}
+	// The client draws the claim button when RewardSeq > LastRewardSeq, so a step not reached must not show one.
+	if info := circlePointInfo(26, nil, true); info.RewardSeq != 0 || info.LastRewardSeq != 0 || info.CurrentMaxCirclePoint != 100 {
+		t.Fatalf("26 points: %+v", info)
+	}
+	if info := circlePointInfo(350, []int64{1}, true); info.RewardSeq != 2 || info.LastRewardSeq != 1 || info.CurrentMaxCirclePoint != 300 {
+		t.Fatalf("350 points, step 1 claimed: %+v", info)
+	}
+	if info := circlePointInfo(5000, []int64{1, 2, 3, 4}, true); info.RewardSeq != 4 || info.LastRewardSeq != 4 || info.CurrentMaxCirclePoint != 1000 {
+		t.Fatalf("all claimed: %+v", info)
 	}
 	if n := CirclePointEarn("3001", "garden", cptDay(2)); n != 10 {
 		t.Fatalf("founder earned %d", n)

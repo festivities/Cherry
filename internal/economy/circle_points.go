@@ -179,8 +179,9 @@ func CirclePointsForQuest(aid, key string, done bool, now time.Time) {
 }
 
 // CirclePointInfoView is the point state the client reads as PointInfo (appendix C of the spec). The names are the
-// client's; their exact meaning is Cherry's reading [I]: Reward is the next point step (1-based), LastReward the steps
-// reached, Max the step count, and the Current/Before values are the step targets.
+// client's: RewardSeq is the steps the circle reached, LastRewardSeq the steps this member claimed (RewardSeq above it
+// draws the claim button for LastRewardSeq+1, InitCirclePoint 0x25ce674 [S]), Max the step count, and the CurrentMax and
+// BeforeMax values are the targets around the stage being worked on (LastRewardSeq+1).
 type CirclePointInfoView struct {
 	RewardSeq, LastRewardSeq, MaxRewardSeq      int64
 	LastCirclePoint, CurrentCirclePoint         int64
@@ -198,28 +199,33 @@ func CirclePointInfoOf(aid string, now time.Time) CirclePointInfoView {
 		}
 		c := &b.Circles[ci]
 		season := circleSeasonAt(now)
-		total, _ := circlePointsOf(c, season, aid)
-		v = circlePointInfo(total, circleEligible(c.Members[memberIndex(c, aid)], season))
+		total, ms := circlePointsOf(c, season, aid)
+		v = circlePointInfo(total, ms.Steps, circleEligible(c.Members[memberIndex(c, aid)], season))
 		v.SessionState = 1
 		return nil
 	})
 	return v
 }
 
-// circlePointInfo derives the point state from the circle total and whether the viewer earns this season.
-func circlePointInfo(total int64, eligible bool) CirclePointInfoView {
+// circlePointInfo derives the point state from the circle total, the steps the viewer claimed (in claim order; the client
+// always claims LastRewardSeq+1) and whether the viewer earns this season.
+func circlePointInfo(total int64, claimed []int64, eligible bool) CirclePointInfoView {
 	steps := ActiveCircleData().Points.Steps
 	v := CirclePointInfoView{MaxRewardSeq: int64(len(steps)), LastCirclePoint: total, CurrentCirclePoint: total}
 	for i, s := range steps {
 		if total >= s.Points {
-			v.LastRewardSeq = int64(i + 1)
+			v.RewardSeq = int64(i + 1)
 		}
 	}
-	v.RewardSeq = min(v.LastRewardSeq+1, v.MaxRewardSeq)
-	if n := len(steps); n > 0 {
-		v.CurrentMaxCirclePoint = steps[v.RewardSeq-1].Points
-		if v.RewardSeq >= 2 {
-			v.BeforeMaxCirclePoint = steps[v.RewardSeq-2].Points
+	for _, seq := range claimed {
+		if seq == v.LastRewardSeq+1 {
+			v.LastRewardSeq = seq
+		}
+	}
+	if stage := min(v.LastRewardSeq+1, v.MaxRewardSeq); stage > 0 {
+		v.CurrentMaxCirclePoint = steps[stage-1].Points
+		if stage >= 2 {
+			v.BeforeMaxCirclePoint = steps[stage-2].Points
 		}
 	}
 	if eligible {

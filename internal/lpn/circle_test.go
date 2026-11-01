@@ -29,7 +29,8 @@ var (
 	cirResult     = lpMsg{1: {wire: 0, req: true}}
 	cirLogin      = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0}}
 	cirEnter      = lpMsg{1: {wire: 0, req: true}, 3: {wire: 0}, 4: {wire: 2}, 5: {wire: 0}, 6: {wire: 2, rep: true, msg: cirMemberInfo}}
-	cirRelay      = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, rep: true, msg: cirPlayer}}
+	cirButton     = lpMsg{3: {wire: 2, req: true}, 6: {wire: 2, req: true}, 7: {wire: 2, req: true}}
+	cirRelay      = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, rep: true, msg: cirPlayer}, 6: {wire: 2, rep: true, msg: cirButton}, 7: {wire: 2, msg: cirPoint}}
 	cirAdd        = lpMsg{1: {wire: 2, req: true, msg: cirPlayer}}
 	cirDel        = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0}}
 	cirMoveAll    = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, req: true, msg: cirMove}}
@@ -190,11 +191,17 @@ func (c *cirClient) enter() []byte {
 	return c.expectID(circleRcRoomEnter)
 }
 
-// relay sends cs_room_relaystart_req for the circle room's map and returns the roster body.
+// relay sends cs_room_relaystart_req for the circle room's map and returns the reply body (roster, buttons, PointInfo).
+// The point refresh (msgid 48) that follows must carry the same PointInfo, and is read here.
 func (c *cirClient) relay() []byte {
 	c.t.Helper()
 	c.send(circleCsRelayStart, pbLen(nil, 1, []byte("2202250100")))
-	return c.expectID(circleRcRelayStart)
+	body := c.expectID(circleRcRelayStart)
+	refresh := c.expectID(circleRcPointRefresh)
+	if !bytes.Equal(cirBytes(refresh, 1), cirBytes(body, 7)) {
+		c.t.Fatalf("point refresh %x after the relay's PointInfo %x", refresh, cirBytes(body, 7))
+	}
+	return body
 }
 
 // joined logs in, enters and relays (the enter must succeed); it returns the roster.
@@ -653,7 +660,8 @@ func TestCircleStubsAreSafe(t *testing.T) {
 	a.send(circleCsBuffCopy, pbVar(nil, 1, 1103))
 	a.expect(circleRcBuffCopy, pbVar(pbVar(pbVar(nil, 1, circleRefused), 2, 1101), 3, 1103))
 	a.send(circleCsPointReward, pbVar(nil, 1, 1))
-	a.expect(circleRcPointReward, pbVar(nil, 1, circleRefused))
+	// a refusal: 655363, the client's "unexpected error" row
+	a.expect(circleRcPointReward, pbVar(nil, 1, 655363))
 	a.send(circleCsQuestReward, nil) // no mission is claimable yet
 	a.expect(circleRcQuestReward, pbVar(nil, 1, circleRefused))
 	a.send(circleCsPetRide, pbVar(nil, 1, 5))
@@ -717,7 +725,7 @@ func TestCircleShapeCheckerRejectsDrift(t *testing.T) {
 // cirJST is Japan Standard Time for the test clock (the game day starts at 06:00 JST).
 var cirJST = time.FixedZone("JST", 9*3600)
 
-// cirAt fixes the economy clock for one test: 2026-11-02 is in the first season (it starts 2026-11-01 06:00 JST).
+// cirAt fixes the economy clock for one test: 2026-11-02 12:00 JST is in the first season (it starts 2026-11-02 06:00 JST).
 func cirAt(t *testing.T, ts time.Time) {
 	t.Helper()
 	prev := economy.NowFunc
@@ -776,13 +784,16 @@ func TestCirclePointsOverTheWire(t *testing.T) {
 	}
 	leader.send(circleCsPointSync, nil)
 	info := cirBytes(leader.expectID(circleRcPointRefresh), 1)
-	if cirVar(info, 5) != 110 || cirVar(info, 1) != 2 || cirVar(info, 9) != 1 {
+	if cirVar(info, 5) != 110 || cirVar(info, 1) != 1 || cirVar(info, 2) != 0 || cirVar(info, 9) != 1 {
 		t.Fatalf("point state after 110 points = seq %d total %d avail %d", cirVar(info, 1), cirVar(info, 5), cirVar(info, 9))
 	}
 	leader.send(circleCsPointReward, pbVar(nil, 1, 1))
 	body := leader.expectID(circleRcPointReward)
 	if cirVar(body, 1) != 0 {
 		t.Fatalf("step 1 result = %d, want 0 (body %x)", cirVar(body, 1), body)
+	}
+	if after := cirBytes(body, 3); cirVar(after, 1) != 1 || cirVar(after, 2) != 1 || cirVar(after, 6) != 300 {
+		t.Fatalf("point state after the claim = %x, want step 1 reached and claimed, target 300", after)
 	}
 	if items := cirList(cirBytes(body, 2), 2); len(items) != 1 || cirVar(items[0], 4) != 50 {
 		t.Fatalf("step 1 reward rows = %x, want one row of 50", items)
@@ -791,8 +802,8 @@ func TestCirclePointsOverTheWire(t *testing.T) {
 		t.Fatalf("leader gems after step 1 = %d, want 50", g)
 	}
 	leader.send(circleCsPointReward, pbVar(nil, 1, 1))
-	if got := cirVar(leader.expectID(circleRcPointReward), 1); got != circleRefused {
-		t.Fatalf("second claim by the leader result = %d, want refused", got)
+	if got := cirVar(leader.expectID(circleRcPointReward), 1); got != 655363 {
+		t.Fatalf("second claim by the leader result = %d, want 655363", got)
 	}
 	member.send(circleCsPointReward, pbVar(nil, 1, 1)) // each member claims a step once per season
 	if got := cirVar(member.expectID(circleRcPointReward), 1); got != 0 {
@@ -802,12 +813,93 @@ func TestCirclePointsOverTheWire(t *testing.T) {
 		t.Fatalf("member gems = %d, want 50", g)
 	}
 	outsider.send(circleCsPointReward, pbVar(nil, 1, 1))
-	if got := cirVar(outsider.expectID(circleRcPointReward), 1); got != circleRefused {
-		t.Fatalf("outsider claim result = %d, want refused", got)
+	if got := cirVar(outsider.expectID(circleRcPointReward), 1); got != 655363 {
+		t.Fatalf("outsider claim result = %d, want 655363", got)
 	}
 	leader.send(circleCsPointReward, pbVar(nil, 1, 9)) // not a step of the season
-	if got := cirVar(leader.expectID(circleRcPointReward), 1); got != circleRefused {
-		t.Fatalf("unknown step result = %d, want refused", got)
+	if got := cirVar(leader.expectID(circleRcPointReward), 1); got != 655363 {
+		t.Fatalf("unknown step result = %d, want 655363", got)
+	}
+}
+
+// cirPointsTo110 earns circle A's season total to 110: 1101 and 1103 earn 55 each, as TestCirclePointsOverTheWire does.
+func cirPointsTo110() {
+	for _, aid := range []string{"1101", "1103"} {
+		for _, kind := range []string{"garden", "square", "quest"} {
+			economy.CirclePointEarn(aid, kind, economy.NowFunc())
+		}
+		for i := 0; i < 10; i++ {
+			economy.CirclePointEarn(aid, "gather", economy.NowFunc())
+			economy.CirclePointEarn(aid, "chat", economy.NowFunc())
+		}
+	}
+}
+
+// cirJoinedAt sets aid's join time in the circle book (cirScene's members join at 1-4 ms).
+func cirJoinedAt(t *testing.T, aid string, ms int64) {
+	t.Helper()
+	store.CirclesMu.Lock()
+	defer store.CirclesMu.Unlock()
+	for i := range store.CircleState.Circles {
+		for j := range store.CircleState.Circles[i].Members {
+			if m := &store.CircleState.Circles[i].Members[j]; m.Aid == aid {
+				m.Joined = ms
+			}
+		}
+	}
+}
+
+// cirButtonIs reports whether one ButtonInfo names this symbol and link, with the params "0,0,0".
+func cirButtonIs(b []byte, symbol, link string) bool {
+	return string(cirBytes(b, 3)) == symbol && string(cirBytes(b, 6)) == link && string(cirBytes(b, 7)) == "0,0,0"
+}
+
+// TestCircleRelayShowsPointsAndButtons: the relay reply carries the room's ButtonList (the mission, then the gacha while
+// the circle data enables it) and the live PointInfo; relay checks that sc 48 repeats that PointInfo. A member who joined
+// after the season started gets availability 0 with the same circle total, and turning the gacha off drops its entry.
+func TestCircleRelayShowsPointsAndButtons(t *testing.T) {
+	cirScene(t)
+	cirAt(t, time.Date(2026, 11, 2, 12, 0, 0, 0, cirJST))
+	cirPointsTo110()
+	chats := &circleChats{}
+
+	leader := newCirClient(t, &circleRooms{}, chats, 1101, 90)
+	body := leader.joined()
+	if got := cirVar(body, 1); got != circleRelayResult || len(cirList(body, 2)) != 1 {
+		t.Fatalf("relay result %d with %d roster entries", got, len(cirList(body, 2)))
+	}
+	btns := cirList(body, 6)
+	if len(btns) != 2 || !cirButtonIs(btns[0], "72_circle_mission", "goSomewhere(circleFashionQuest)") ||
+		!cirButtonIs(btns[1], "66_circle_gacha", "goSomewhere(gachaMain)") {
+		t.Fatalf("ButtonList = %x", btns)
+	}
+	// data/circle.json has four steps (100, 300, 600, 1000): 110 reached step 1, unclaimed, so it is still the stage shown.
+	info := cirBytes(body, 7)
+	want := map[uint64]uint64{1: 1, 2: 0, 3: 4, 4: 110, 5: 110, 6: 100, 7: 0, 8: 1, 9: 1}
+	for f, v := range want {
+		if got := cirVar(info, f); got != v {
+			t.Fatalf("PointInfo field %d = %d, want %d (%x)", f, got, v, info)
+		}
+	}
+
+	// 1104 joined after the season started (2026-11-02 06:00 JST): it earns nothing, so availability is 0.
+	cirJoinedAt(t, "1104", time.Date(2026, 11, 2, 9, 0, 0, 0, cirJST).UnixMilli())
+	late := newCirClient(t, &circleRooms{}, chats, 1104, 91)
+	lateBody := late.joined()
+	lateInfo := cirBytes(lateBody, 7)
+	if cirVar(lateInfo, 9) != 0 || cirVar(lateInfo, 8) != 1 || cirVar(lateInfo, 5) != 110 || len(cirList(lateBody, 6)) != 2 {
+		t.Fatalf("late member PointInfo %x with %d buttons", lateInfo, len(cirList(lateBody, 6)))
+	}
+
+	// The gacha entry goes when the circle data turns the gacha off. The default data is shared, so it is restored.
+	gacha := &economy.ActiveCircleData().Gacha.Enabled
+	prev := *gacha
+	*gacha = false
+	t.Cleanup(func() { *gacha = prev })
+	off := newCirClient(t, &circleRooms{}, chats, 1102, 92)
+	offBtns := cirList(off.joined(), 6)
+	if len(offBtns) != 1 || !cirButtonIs(offBtns[0], "72_circle_mission", "goSomewhere(circleFashionQuest)") {
+		t.Fatalf("ButtonList with the gacha off = %x", offBtns)
 	}
 }
 

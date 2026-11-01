@@ -88,11 +88,13 @@ type circleInfoJSON struct {
 // memberLevel is the role: "MASTER" (leader, 2), "MANAGER" (vice, 1), anything else a plain member (0), per
 // SetMemberLevel's comparisons in the same parser.
 type circleAvatarJSON struct {
-	AvatarID            string `json:"avatarId"`
-	SenderAid           string `json:"senderAid"`
-	MemberAid           string `json:"memberAid"`
-	ApplyAid            string `json:"applyAid"`
-	ReceiverAid         string `json:"receiverAid"`
+	AvatarID string `json:"avatarId"`
+	// stCircleAvatarInfo::ParserData 0x1a9d2b0 [S] takes the row's aid from the last of these keys present, so an empty
+	// one zeroes it and the client silently drops the row: they must be left out when empty.
+	SenderAid           string `json:"senderAid,omitempty"`
+	MemberAid           string `json:"memberAid,omitempty"`
+	ApplyAid            string `json:"applyAid,omitempty"`
+	ReceiverAid         string `json:"receiverAid,omitempty"`
 	AvatarName          string `json:"avatarName"`
 	ProfileImagePath    string `json:"profileImagePath"`
 	ObsProfileImagePath string `json:"obsProfileImagePath"`
@@ -373,9 +375,9 @@ func handleCircle(w http.ResponseWriter, r *http.Request) {
 		writeCircleDone(w, JoinCircle(token, nums[0], r.URL.Query().Get("cancleAndApplyYn") == "true", now))
 	case "POST apply/join/cancel/#":
 		writeCircleDone(w, CancelApply(token, nums[0]))
-	case "POST apply/join/#/approval/#":
+	case "POST apply/join/approval/#/#": // device: the id comes after the verb, whatever the spec's table says
 		writeCircleDone(w, ApproveApply(token, nums[0], strconv.FormatInt(nums[1], 10), now))
-	case "POST apply/join/#/refuse/#":
+	case "POST apply/join/refuse/#/#":
 		writeCircleDone(w, RefuseApply(token, nums[0], strconv.FormatInt(nums[1], 10)))
 	case "POST invite/#/#":
 		writeCircleDone(w, InviteCircle(token, nums[0], strconv.FormatInt(nums[1], 10), now))
@@ -416,7 +418,11 @@ func handleCircle(w http.ResponseWriter, r *http.Request) {
 		})
 	case "GET point/rank/season/#":
 		circleReadReply(w, token, func(acc *store.Account, b *store.CircleBook) (any, error) {
-			return circleRankView(acc.Aid, b, nums[0], false), nil
+			season := nums[0]
+			if cur := circleSeasonAt(now); season < 1 || season > cur { // device: the room's popup sends the circle id here
+				season = cur
+			}
+			return circleRankView(acc.Aid, b, season, false), nil
 		})
 	case "GET point/rank/entry/top3":
 		circleReadReply(w, token, func(acc *store.Account, b *store.CircleBook) (any, error) { return circleHallView(b, now), nil })
@@ -920,9 +926,9 @@ func circlePointSeasonView(circleID int64, viewer string, b *store.CircleBook, n
 			out.RewardReceivable = true
 		}
 	}
-	if info := circlePointInfo(total, eligible); len(steps) > 0 {
-		out.CurrentReward = circlePointRewardView(season, info.RewardSeq, steps[info.RewardSeq-1], total,
-			slices.Contains(ms.Steps, info.RewardSeq))
+	if info := circlePointInfo(total, ms.Steps, eligible); len(steps) > 0 {
+		stage := min(info.LastRewardSeq+1, info.MaxRewardSeq)
+		out.CurrentReward = circlePointRewardView(season, stage, steps[stage-1], total, slices.Contains(ms.Steps, stage))
 	}
 	for _, m := range c.Members {
 		_, mms := circlePointsOf(c, season, m.Aid)

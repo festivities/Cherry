@@ -25,6 +25,10 @@ const (
 	circleRelayResult = 196865 // sc_room_relaystart_res: any other result is an error (12704/12705) [S]
 	circleRefused     = 1      // ponytail: one refusal result for every member and purchase refusal; the client's text is not traced [I]
 
+	// circlePointRefused is the sc_point_reward_res refusal: 655363, the client's "unexpected error" row (arts 5367). The
+	// table's other rows are 655361 "invalid request" (5366), 655362 "already received" (5365), 655364 "season ended" (5409).
+	circlePointRefused = 655363
+
 	circleMaxChatLen = 512 // bytes, as Square's chat
 	circleChatCap    = 200 // messages kept per circle
 	circleChatPage   = 50  // messages in one old-chat reply
@@ -540,8 +544,9 @@ func (s *circleSession) exit(frame []byte) error {
 	return err
 }
 
-// relayStart answers cs_room_relaystart_req (msgid 4): the roster (this avatar first, then the others) and, for the
-// others, adduser. The client's roster loop adds every entry, this avatar included, as Square's does.
+// relayStart answers cs_room_relaystart_req (msgid 4): the roster (this avatar first, then the others), the room's
+// buttons and the point state, then sc 48 with the same point state, and for the others adduser. The client's roster
+// loop adds every entry, this avatar included, as Square's does.
 func (s *circleSession) relayStart(frame []byte) error {
 	if !s.entered {
 		s.logger.Printf("CIRCLE relaystart before enter ignored")
@@ -561,7 +566,19 @@ func (s *circleSession) relayStart(frame []byte) error {
 	roster, rejoined := room.join(p, spawnX, spawnY)
 	s.room, s.player = room, p
 	s.logger.Printf("CIRCLE relaystart aid=%d circle=%d rejoined=%v", s.aid, s.circleID, rejoined)
-	if err := s.reply(frame, circleRcRelayStart, append(pbVar(nil, 1, circleRelayResult), roster...)); err != nil {
+	// ButtonList (f6) is dispatched only when PointInfo's SessionState (f8) is not 0, and the point UI is re-run only from
+	// sc 48 (the relay does not post it), so the same PointInfo follows the reply at once (room-buttons.md 1.3, 3.2).
+	points := economy.CirclePointInfoOf(s.aidText(), economy.NowFunc())
+	body := append(pbVar(nil, 1, circleRelayResult), roster...)
+	body = pbLen(body, 6, circleButtonBytes("72_circle_mission", "goSomewhere(circleFashionQuest)", "0,0,0"))
+	if economy.ActiveCircleData().Gacha.Enabled {
+		body = pbLen(body, 6, circleButtonBytes("66_circle_gacha", "goSomewhere(gachaMain)", "0,0,0"))
+	}
+	body = pbLen(body, 7, circlePointInfoBytes(points))
+	if err := s.reply(frame, circleRcRelayStart, body); err != nil {
+		return err
+	}
+	if err := s.reply(frame, circleRcPointRefresh, pbLen(nil, 1, circlePointInfoBytes(points))); err != nil {
 		return err
 	}
 	if rejoined {
@@ -816,13 +833,13 @@ func (s *circleSession) pointSync(frame []byte) error {
 }
 
 // pointReward answers cs_point_reward_req (msgid 33, RewardSeq) with sc_point_reward_res (49): Result 0, the step's Gems
-// as RewardInfo and the point state. A refusal carries only the result.
+// as RewardInfo and the point state. A refusal carries only the result, circlePointRefused.
 func (s *circleSession) pointReward(frame, data []byte) error {
 	seq, _ := protobufUintField(data, 1)
 	gems, err := economy.CirclePointClaim(s.aidText(), int64(seq), economy.NowFunc())
 	if err != nil {
 		s.logger.Printf("CIRCLE point reward aid=%d seq=%d refused: %v", s.aid, seq, err)
-		return s.reply(frame, circleRcPointReward, pbVar(nil, 1, circleRefused))
+		return s.reply(frame, circleRcPointReward, pbVar(nil, 1, circlePointRefused))
 	}
 	s.logger.Printf("CIRCLE point reward aid=%d seq=%d gems=%d", s.aid, seq, gems)
 	info := economy.CirclePointInfoOf(s.aidText(), economy.NowFunc())
@@ -880,6 +897,15 @@ func circleGemRewardInfo(gems int64) []byte {
 	b := pbVar(nil, 1, 1)
 	b = pbLen(b, 2, item)
 	return pbLen(b, 3, []byte("Circle reward"))
+}
+
+// circleButtonBytes encodes one ButtonInfo of the room's ButtonList: 3 symbol (an animation symbol of world_icon.aniproj,
+// drawn as the button's art), 6 link name (the client's goSomewhere link, room-buttons.md 1.5), 7 params ("A,B,C", split
+// per avatar kind). Ids 1, 2, 4 and 5 are not sent: the room's tap path never reads them (room-buttons.md 1.4).
+func circleButtonBytes(symbol, link, params string) []byte {
+	b := pbLen(nil, 3, []byte(symbol))
+	b = pbLen(b, 6, []byte(link))
+	return pbLen(b, 7, []byte(params))
 }
 
 // circleUpgradeShopBytes encodes SapiUpgradeShopInfo: 1 ProductCode, 2 ProductName, 3 ProductImagePath, 4 MaxMemberCount
