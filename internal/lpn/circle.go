@@ -990,7 +990,10 @@ func (s *circleSession) stub(frame []byte, msgid uint16, data []byte) error {
 		}
 		return s.reply(frame, circleRcSkinBuy, pbVar(nil, 1, circleRefused))
 	case circleCsAchievements: // no achievements
-		return s.reply(frame, circleRcAchievements, pbVar(nil, 1, 0))
+		// AchievementList (f2) is sent as an EMPTY message, never omitted: the bell's list (popup 172) received the reply
+		// without it and the client died with SIGSEGV at address 0 on both device taps (2026-11-01), the pattern of a
+		// missing sub-message read through its pointer. LP_sc_circle_achievements_res 0x24b7f4c hands the message on as is.
+		return s.reply(frame, circleRcAchievements, pbLen(pbVar(nil, 1, 0), 2, nil))
 	case circleCsBuffCopy:
 		target, _ := protobufUintField(data, 1)
 		return s.reply(frame, circleRcBuffCopy, pbVar(pbVar(pbVar(nil, 1, circleRefused), 2, s.aid), 3, target))

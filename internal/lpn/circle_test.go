@@ -27,6 +27,7 @@ var (
 	cirMemberInfo = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2}, 3: {wire: 2}, 5: {wire: 0, req: true}, 7: {wire: 2}, 8: {wire: 0}}
 	cirChatInfo   = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2}, 3: {wire: 0, req: true}, 4: {wire: 0}, 5: {wire: 2, req: true}, 6: {wire: 0}}
 	cirResult     = lpMsg{1: {wire: 0, req: true}}
+	cirAchieve    = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, req: true}} // AchievementList always present (bell crash)
 	cirLogin      = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0}}
 	cirEnter      = lpMsg{1: {wire: 0, req: true}, 3: {wire: 0}, 4: {wire: 2}, 5: {wire: 0}, 6: {wire: 2, rep: true, msg: cirMemberInfo}}
 	cirRelay      = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, rep: true, msg: cirPlayer}}
@@ -65,7 +66,7 @@ var cirShapes = map[uint16]lpMsg{
 	circleRcAuthority: cirChanged, circleRcMasterChange: cirChanged, circleRcFire: cirFire,
 	circleRcMemberDelete: cirMemDelete, circleRcMemberChange: cirMemChange, circleRcSkinInven: cirResult,
 	circleRcSkinChange: cirResult, circleRcSkinShop: cirResult, circleRcSkinBuy: cirResult, circleRcUpgradeShop: cirUpgShop,
-	circleRcUpgradeBuy: cirUpgBuy, circleRcAchievements: cirResult, circleRcBuffCopy: cirBuff, circleRcPointReward: cirPointRwd,
+	circleRcUpgradeBuy: cirUpgBuy, circleRcAchievements: cirAchieve, circleRcBuffCopy: cirBuff, circleRcPointReward: cirPointRwd,
 	circleRcQuestList: cirQuestList, circleRcQuestReward: cirResult, circleRcPetRide: cirResult,
 	circleRcMemberAdd: cirMemAdd, circleRcPointRefresh: cirRefresh,
 }
@@ -649,7 +650,7 @@ func TestCircleStubsAreSafe(t *testing.T) {
 	a.send(circleCsUpgradeBuy, pbLen(nil, 4, []byte("cp-real")))
 	a.expect(circleRcUpgradeBuy, pbVar(nil, 1, circleRefused))
 	a.send(circleCsAchievements, pbVar(nil, 1, 7))
-	a.expect(circleRcAchievements, pbVar(nil, 1, 0))
+	a.expect(circleRcAchievements, pbLen(pbVar(nil, 1, 0), 2, nil))
 	a.send(circleCsBuffCopy, pbVar(nil, 1, 1103))
 	a.expect(circleRcBuffCopy, pbVar(pbVar(pbVar(nil, 1, circleRefused), 2, 1101), 3, 1103))
 	a.send(circleCsPointReward, pbVar(nil, 1, 1))
