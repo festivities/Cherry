@@ -473,6 +473,16 @@ func TestCircleRoomRelayAndLeave(t *testing.T) {
 	// exit: an empty reply, and the rest get deluser
 	c.send(circleCsRoomExit, nil)
 	c.expect(circleRcRoomExit, nil)
+	// then the tunnel close (subtype 5, same session id), which takes the client back to its Garden
+	var pre [4]byte
+	_ = c.peer.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := io.ReadFull(c.peer, pre[:]); err != nil || binary.BigEndian.Uint32(pre[:]) != 18 {
+		t.Fatalf("close control prefix %x err %v", pre, err)
+	}
+	ctl := make([]byte, 18)
+	if _, err := io.ReadFull(c.peer, ctl); err != nil || ctl[0] != 'G' || ctl[1] != 0x3D || !bytes.Equal(ctl[2:10], c.sid[:]) {
+		t.Fatalf("close control = %x (err %v), want G 3D sid", ctl, err)
+	}
 	a.expect(circleRcDelUser, pbVar(pbVar(nil, 1, 1103), 2, 0))
 	b.expect(circleRcDelUser, pbVar(pbVar(nil, 1, 1103), 2, 0))
 

@@ -501,10 +501,25 @@ func (s *circleSession) enter(frame []byte) error {
 }
 
 // exit answers cs_room_exit_req (msgid 3) with an empty sc_room_exit_res and leaves the room.
+//
+// The reply alone leaves the client in the room: LP_sc_room_exit_res 0x24b681c only posts 12710 (map teardown), and
+// the scene returns to the Garden only on LPN event 13, an inbound agent-8 control of subtype 5 with the same session id
+// (CircleService::UpdatePacket 0x2514610 → 12693 → change(25,10,918) → changeToMyGarden; exit-invite.md section A). So
+// the tunnel close follows the reply. The client re-opens the agent (auto-login flag, 0x25141ac) on the next entry.
 func (s *circleSession) exit(frame []byte) error {
 	err := s.reply(frame, circleRcRoomExit, nil)
 	s.logger.Printf("CIRCLE exit aid=%d", s.aid)
 	s.close()
+	if err != nil {
+		return err
+	}
+	closeCtl := make([]byte, 22)
+	binary.BigEndian.PutUint32(closeCtl, 18)
+	closeCtl[4], closeCtl[5] = 'G', frame[1]&0xf8|5
+	copy(closeCtl[6:14], frame[2:10])
+	_, err = s.conn.Write(closeCtl)
+	s.loggedIn = false
+	s.logger.Printf("CIRCLE close-control err=%v", err)
 	return err
 }
 

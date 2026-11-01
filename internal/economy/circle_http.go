@@ -386,8 +386,13 @@ func handleCircle(w http.ResponseWriter, r *http.Request) {
 	case "POST invite/refuse/#":
 		writeCircleDone(w, RefuseInvite(token, nums[0]))
 	case "POST invite/target/status":
-		// SetInviteFriendInfo (0x24fa920) is not decompiled: the empty object is the one reply that cannot be misread.
-		writeCircleResult(w, circleEmpty{})
+		var req circleInviteStatusRequest
+		if !readCircleBody(w, r, &req) {
+			return
+		}
+		circleReadReply(w, token, func(acc *store.Account, b *store.CircleBook) (any, error) {
+			return inviteStatusView(b, int64(req.CircleID), req.InviteTargetAidList), nil
+		})
 	case "POST leave/#":
 		writeCircleDone(w, LeaveCircle(token, nums[0], now))
 	case "POST close/issue/code/#":
@@ -969,4 +974,40 @@ func circleArtListed(name string) bool {
 	d := ActiveCircleData()
 	return slices.ContainsFunc(d.Logos, func(a CircleArt) bool { return a.Art == name }) ||
 		slices.ContainsFunc(d.Backgrounds, func(a CircleArt) bool { return a.Art == name })
+}
+
+// circleInviteStatusRequest is the body of POST circle/invite/target/status (builder 0x1bcea18): the circle id and the
+// friends shown on the Invite screen, all as strings.
+type circleInviteStatusRequest struct {
+	CircleID            looseInt `json:"circleId"`
+	InviteTargetAidList []string `json:"inviteTargetAidList"`
+}
+
+// circleInviteStatusJSON is one row of the reply. SetInviteFriendInfo 0x24fa920 indexes result as an ARRAY with one
+// element per requested aid (an object left every row on its loading spinner, device 2026-11-01): "INVITABLE" shows the
+// invite button, "INVITING" the invited label, anything else a done label (member of this circle or not, decided from the
+// client's member map). exit-invite.md section B.
+type circleInviteStatusJSON struct {
+	InviteTargetAid string `json:"inviteTargetAid"`
+	InviteStatus    string `json:"inviteStatus"`
+}
+
+// inviteStatusView answers each requested aid: MEMBER when it is in this circle, INVITING when it holds this circle's
+// invitation, INVITABLE when it is in no circle, else JOINED (in another circle).
+func inviteStatusView(b *store.CircleBook, id int64, aids []string) []circleInviteStatusJSON {
+	out := make([]circleInviteStatusJSON, 0, len(aids))
+	ci := circleIndex(b, id)
+	for _, aid := range aids {
+		status := "JOINED"
+		switch {
+		case ci >= 0 && memberIndex(&b.Circles[ci], aid) >= 0:
+			status = "MEMBER"
+		case ci >= 0 && inviteIndex(&b.Circles[ci], aid) >= 0:
+			status = "INVITING"
+		case circleOf(b, aid) < 0:
+			status = "INVITABLE"
+		}
+		out = append(out, circleInviteStatusJSON{InviteTargetAid: aid, InviteStatus: status})
+	}
+	return out
 }

@@ -511,3 +511,22 @@ func TestOpenJoinIsAnApplication(t *testing.T) {
 		t.Fatalf("leader approval: err %v, circle %d", err, circAidCircle("1103"))
 	}
 }
+
+// TestInviteStatusRows: one row per requested aid, in order: a member of this circle, an invited friend, a player in no
+// circle and a player in another circle.
+func TestInviteStatusRows(t *testing.T) {
+	b := store.CircleBook{Circles: []store.Circle{
+		{ID: 1940000001, Members: []store.CircleMember{{Aid: "1101"}}, Invites: []store.CircleInvite{{Aid: "1102"}}},
+		{ID: 1940000002, Members: []store.CircleMember{{Aid: "1104"}}},
+	}}
+	got := inviteStatusView(&b, 1940000001, []string{"1101", "1102", "1103", "1104"})
+	want := []string{"MEMBER", "INVITING", "INVITABLE", "JOINED"}
+	if len(got) != len(want) {
+		t.Fatalf("rows = %+v", got)
+	}
+	for i, row := range got {
+		if row.InviteStatus != want[i] {
+			t.Fatalf("row %d = %+v, want %s", i, row, want[i])
+		}
+	}
+}
