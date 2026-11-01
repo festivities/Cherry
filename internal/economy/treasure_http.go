@@ -1,7 +1,12 @@
 package economy
 
 import (
+	"io/fs"
 	"net/http"
+	"os"
+	"path"
+	"path/filepath"
+	"strings"
 
 	"cherry/internal/httpx"
 )
@@ -16,8 +21,58 @@ const treasureIconBody = `{"result":{"available":false}}`
 // treasurePackageInfoBody: the special pack list is empty (ResBlueMarbleSpecialPackList is a no-op on success).
 const treasurePackageInfoBody = `{"result":{}}`
 
-// RegisterTreasureRoutes serves the two Treasure World billing answers above.
+// TreasureSeasonArt maps a SeasonInfo picture field to the original file it shows, relative to the device files/ tree
+// (roll-gate.md section 3). The client never loads season paths from its own files: it downloads every one from the
+// static base (device 2026-11-02, all 404 under UIResource/), so Cherry serves the originals, read in place from the
+// archive like the butler portraits, at /cherry/treasure/<base name>. The season's own files (marble_main_*,
+// marble_common_reward_*, 18 in all) are 1-bit transparent placeholders in both backups — the real ones were season
+// downloads — so the fields take the original season-independent art instead: the board's round back button and the
+// ticket, jewel and point nodes of animation/marble_ef. No original exists for SkinUrl (1), RankingBoardUrl (2), BgImgUrl
+// (20), QuestButtonUrl (22) or HelperButtonUrl (25); they stay empty.
+var TreasureSeasonArt = map[uint64]string{
+	14: "animation/marble_ef/point_node.png",               // RankingPointOneUrl (tag 94)
+	16: "animation/marble_ef/ticket_node.png",              // TicketOneUrl (tags 91, 80)
+	18: "animation/marble_ef/coin_node.png",                // CoinOneUrl (tag 90): the jewel
+	21: "UIResource/UIImage_hd/marble_common_btn_back.png", // BackButtonUrl (tag 2)
+}
+
+// treasureArtFS is the original device files/ tree (lpbackup) the season art is read from.
+var treasureArtFS fs.FS = os.DirFS(filepath.FromSlash(`D:/Dev/projects/Cherry/.opencode/line-play-artifacts/lpbackup/jp.naver.lineplay.android/files`))
+
+// treasureArtPrefix is the route; the season paths are the same without the leading slash (the client prepends its
+// static base and refuses nothing else, treasure-spec 9.2).
+const treasureArtPrefix = "/cherry/treasure/"
+
+// TreasureArtPath is the SeasonInfo path of an art file: relative to the static base, no leading slash.
+func TreasureArtPath(file string) string {
+	return strings.TrimPrefix(treasureArtPrefix, "/") + path.Base(file)
+}
+
+// HandleTreasureArt serves GET /cherry/treasure/<base name> for the files TreasureSeasonArt names, as they are.
+func HandleTreasureArt(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimPrefix(r.URL.Path, treasureArtPrefix)
+	file := ""
+	for _, f := range TreasureSeasonArt {
+		if path.Base(f) == name {
+			file = f
+		}
+	}
+	if file == "" || r.Method != http.MethodGet {
+		httpx.ServeNotFound(w)
+		return
+	}
+	b, err := fs.ReadFile(treasureArtFS, file)
+	if err != nil {
+		httpx.ServeNotFound(w)
+		return
+	}
+	w.Header().Set("Content-Type", "image/png")
+	_, _ = w.Write(b)
+}
+
+// RegisterTreasureRoutes serves the two Treasure World billing answers above and the season art.
 func RegisterTreasureRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/v4/bill/prod/treasure/icon", httpx.HandleJSONBody(treasureIconBody))
 	mux.HandleFunc("/v4/bill/package2/bluemarble/info", httpx.HandleJSONBody(treasurePackageInfoBody))
+	mux.HandleFunc(treasureArtPrefix, HandleTreasureArt)
 }

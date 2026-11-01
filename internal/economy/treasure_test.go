@@ -42,14 +42,14 @@ func treasureSeasonID() int64 { return ActiveTreasureData().Season.ID }
 // FL in walking order.
 func TestTreasureDataDefaults(t *testing.T) {
 	d := ActiveTreasureData()
-	if len(d.Board.Ring) != 24 || d.Season.ID != 1950000001 || len(d.NPCs) != 2 {
+	if len(d.Board.Ring) != 28 || d.Season.ID != 1950000001 || len(d.NPCs) != 2 {
 		t.Fatalf("defaults = %d squares, season %d, %d npcs", len(d.Board.Ring), d.Season.ID, len(d.NPCs))
 	}
 	cells := d.Cells()
 	if cells[0].Type != TreasureCellStart || cells[0].Direction != "FR" {
 		t.Fatalf("cell 0 = %+v, want the start line facing FR", cells[0])
 	}
-	want := map[int]string{5: "FR", 6: "BR", 11: "BR", 12: "BL", 17: "BL", 18: "FL", 23: "FL"}
+	want := map[int]string{6: "FR", 7: "BR", 13: "BR", 14: "BL", 20: "BL", 21: "FL", 27: "FL"}
 	for pos, dir := range want {
 		if cells[pos].Direction != dir {
 			t.Fatalf("cell %d faces %s, want %s", pos, cells[pos].Direction, dir)
@@ -167,7 +167,7 @@ func TestTreasureRollMoves(t *testing.T) {
 
 // TestTreasureLapPaysTickets: passing the start line pays the lap reward (not capped), and landing on it pays too.
 func TestTreasureLapPaysTickets(t *testing.T) {
-	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Position: 22, Tickets: 3, Charged: treasureNow.UnixMilli()})
+	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Position: 26, Tickets: 3, Charged: treasureNow.UnixMilli()})
 	treasureDie(t, 4)
 	mv, err := TreasureRollDice("1001", treasureNow)
 	if err != nil {
@@ -177,7 +177,7 @@ func TestTreasureLapPaysTickets(t *testing.T) {
 		t.Fatalf("pass the start: %+v, want lap, square 2, 7 tickets, 1 jewel", mv)
 	}
 
-	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Position: 20, Tickets: 10, Charged: treasureNow.UnixMilli()})
+	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Position: 24, Tickets: 10, Charged: treasureNow.UnixMilli()})
 	treasureDie(t, 4)
 	mv, _ = TreasureRollDice("1001", treasureNow)
 	if !mv.Lap || mv.To != 0 || mv.Cell != TreasureCellStart || mv.View.Tickets != 14 || mv.View.Jewels != 0 {

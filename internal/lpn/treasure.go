@@ -214,15 +214,26 @@ func treasureEnterBody(d *economy.TreasureData, view economy.TreasureView) []byt
 	return pbVar(body, 5, boolUint(view.Tutorial))
 }
 
-// treasureSeasonInfo is SeasonInfo with all 25 fields. Picture paths stay empty: the client draws nothing for an empty
-// path (treasure-spec 9.2), so the board is blank until the art is cut. Names come from the data; the dates are Unix
-// milliseconds [I: the unit is not read by any path found].
+// treasureSeasonImages are the SeasonInfo picture paths: the original HUD art Cherry serves at /cherry/treasure/
+// (economy.TreasureSeasonArt), relative to the static base. A field without art stays empty: the button is invisible
+// (still touchable in a 5x5 box) and the icon blank.
+var treasureSeasonImages = func() map[uint64]string {
+	m := map[uint64]string{}
+	for f, file := range economy.TreasureSeasonArt {
+		m[f] = economy.TreasureArtPath(file)
+	}
+	return m
+}()
+
+// treasureSeasonInfo is SeasonInfo with all 25 fields: the names from the data, the original HUD art
+// (treasureSeasonImages), the other picture paths empty (the client draws nothing for an empty path, treasure-spec 9.2).
+// The dates are Unix milliseconds [I: the unit is not read by any path found].
 func treasureSeasonInfo(d *economy.TreasureData) []byte {
 	start, end := economy.TreasureSeasonWindow()
 	var b []byte
 	text := func(field uint64, v string) { b = pbLen(b, field, []byte(v)) }
 	text(1, "") // SkinUrl: the board picture (not in the archive)
-	text(2, "") // RankingBoardUrl
+	text(2, treasureSeasonImages[2])
 	text(3, "") // DiceType (no reader found)
 	text(4, "") // MainBannerNomalUrl
 	text(5, "") // MainBannerRewardUrl
@@ -235,11 +246,11 @@ func treasureSeasonInfo(d *economy.TreasureData) []byte {
 	b = pbLen(b, 12, treasureAvatar(d.NPCs[0]))
 	b = pbLen(b, 13, treasureAvatar(d.NPCs[1]))
 	for f := uint64(14); f <= 22; f++ { // RankingPointOneUrl .. BgImgUrl .. QuestButtonUrl: image paths
-		text(f, "")
+		text(f, treasureSeasonImages[f])
 	}
 	b = pbVar(b, 23, uint64(start.UnixMilli()))
 	b = pbVar(b, 24, uint64(end.UnixMilli()))
-	text(25, "") // HelperButtonUrl
+	text(25, treasureSeasonImages[25])
 	return b
 }
 
@@ -348,7 +359,12 @@ func treasureCellDetail(d *economy.TreasureData, mv economy.TreasureMove) []byte
 		detail := pbLen(nil, 1, pbLen(nil, 2, item)) // CellDetailInfo.RewardInfo (1) with ItemList (2)
 		return pbLen(detail, 3, pbVar(nil, 1, 1))    // CellTypeCoin.Availability
 	case economy.TreasureCellBonus:
-		detail := pbLen(nil, 1, treasureRewardText(fmt.Sprintf("+%d %s", mv.Bonus, d.Names.Coin)))
+		// The bonus popup opens only with a non-empty ItemList (OpenPopupByCellType case 4, arrival.md): without it the
+		// board never releases its busy flag and the next roll is ignored.
+		item := pbVar(nil, 1, 10)
+		item = pbVar(item, 4, uint64(mv.Bonus))
+		reward := pbLen(treasureRewardText(fmt.Sprintf("+%d %s", mv.Bonus, d.Names.Coin)), 2, item)
+		detail := pbLen(nil, 1, reward)
 		bonus := pbVar(nil, 1, 1)
 		bonus = pbLen(bonus, 3, []byte(d.Rewards.Bonus.CoinUnit))
 		bonus = pbVar(bonus, 4, uint64(mv.View.Jewels))

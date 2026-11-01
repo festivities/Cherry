@@ -229,7 +229,7 @@ func TestTreasureOpenEchoIsExact(t *testing.T) {
 	assertNoReply(t, g.peer)
 }
 
-// TestTreasureBoardOverTheGateway drives one session end to end: login, enter (24 squares, season 1), relay start, six
+// TestTreasureBoardOverTheGateway drives one session end to end: login, enter (28 squares, season 1), relay start, six
 // rolls (one with a lap), coin count, the exit with its close control, the tutorial flag and the re-entry.
 func TestTreasureBoardOverTheGateway(t *testing.T) {
 	treScene(t)
@@ -249,12 +249,12 @@ func TestTreasureBoardOverTheGateway(t *testing.T) {
 		t.Fatalf("season names = %q %q %q, PlayTicketCount %d", cirBytes(season, 8), cirBytes(season, 9), cirBytes(season, 10), cirVar(season, 7))
 	}
 	for _, f := range []uint64{1, 2, 3, 4, 5, 6, 14, 15, 16, 17, 18, 19, 20, 21, 22, 25} {
-		if cirBytes(season, f) == nil || len(cirBytes(season, f)) != 0 {
-			t.Fatalf("season picture field %d = %q, want present and empty", f, cirBytes(season, f))
+		if got := cirBytes(season, f); got == nil || string(got) != treasureSeasonImages[f] {
+			t.Fatalf("season picture field %d = %q, want present and %q", f, got, treasureSeasonImages[f])
 		}
 	}
 	cells := cirList(enter, 4)
-	if len(cells) != 24 || cirVar(cells[0], 3) != 0 || string(cirBytes(cells[0], 4)) != "FR" || string(cirBytes(cells[6], 4)) != "BR" {
+	if len(cells) != 28 || cirVar(cells[0], 3) != 0 || string(cirBytes(cells[0], 4)) != "FR" || string(cirBytes(cells[7], 4)) != "BR" {
 		t.Fatalf("ring = %d squares, first %x, sixth %x", len(cells), cells[0], cells[6])
 	}
 
@@ -308,13 +308,13 @@ func TestTreasureBoardOverTheGateway(t *testing.T) {
 	g.send(treasureCsRolling, pbVar(nil, 1, 0))
 	roll = g.readShape(treasureRcRolling, treRoll)
 	start := cirBytes(roll, 9)
-	if cirVar(cirBytes(roll, 6), 1) != 5 || cirVar(roll, 2) != 9 || string(cirBytes(start, 5)) != "+5 Jewel Carriage(s)" {
-		t.Fatalf("roll 6 = %x, want square 5, 9 tickets after the lap, the lap text", roll)
+	if cirVar(cirBytes(roll, 6), 1) != 1 || cirVar(roll, 2) != 9 || string(cirBytes(start, 5)) != "+5 Jewel Carriage(s)" {
+		t.Fatalf("roll 6 = %x, want square 1, 9 tickets after the lap, the lap text", roll)
 	}
 
 	g.send(treasureCsCoinRefresh, nil)
-	if coins := g.readShape(treasureRcCoinRefresh, treCoinRef); cirVar(coins, 2) != 10 {
-		t.Fatalf("coin count after six rolls = %d, want 10", cirVar(coins, 2))
+	if coins := g.readShape(treasureRcCoinRefresh, treCoinRef); cirVar(coins, 2) != 14 {
+		t.Fatalf("coin count after six rolls = %d, want 14 (5 + 1 + 1 + 5 + 1 + 1)", cirVar(coins, 2))
 	}
 
 	// Leave the board: the exit reply and the close control. A request after the close is refused.
@@ -345,10 +345,10 @@ func TestTreasureBoardOverTheGateway(t *testing.T) {
 	}
 	g.send(treasureCsRelayStart, nil)
 	relay = g.readShape(treasureRcRelayStart, treRelay)
-	if cirVar(relay, 2) != 9 || cirVar(relay, 6) != 10 || cirVar(cirBytes(relay, 9), 1) != 5 {
-		t.Fatalf("relay after re-entry = %x, want 9 tickets, 10 jewels, square 5", relay)
+	if cirVar(relay, 2) != 9 || cirVar(relay, 6) != 14 || cirVar(cirBytes(relay, 9), 1) != 1 {
+		t.Fatalf("relay after re-entry = %x, want 9 tickets, 14 jewels, square 1", relay)
 	}
-	if !strings.Contains(g.logs.String(), "TREASURE msgid=4 roll aid=1001 dice=6 from=23 to=5") {
+	if !strings.Contains(g.logs.String(), "TREASURE msgid=4 roll aid=1001 dice=6 from=23 to=1") {
 		t.Fatalf("roll log line missing:\n%s", g.logs.String())
 	}
 }

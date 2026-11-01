@@ -133,6 +133,9 @@ var treasureFile = opdata.New("treasure.json", data.TreasureJSON, checkTreasureD
 // ActiveTreasureData is data/treasure.json in use.
 func ActiveTreasureData() *TreasureData { return treasureFile.Get() }
 
+// TreasureRingSize is the client's board: 4 corners and 6 squares per side, square 0 the bottom-left corner.
+const TreasureRingSize = 28
+
 // treasureSeasonWindow is the first and last instant of a season: from its start day at 06:00 JST for Days days.
 func treasureSeasonWindow(s TreasureSeason) (start, end time.Time, err error) {
 	day, err := time.ParseInLocation("2006-01-02", s.Start, treasureJST)
@@ -182,8 +185,10 @@ func checkTreasureData(t *TreasureData) error {
 		return errors.New("tickets.per_roll must be 1 to tickets.max")
 	}
 	ring := t.Board.Ring
-	if n := len(ring); n < 8 || n > 120 || n%4 != 0 {
-		return errors.New("board.ring must have 8 to 120 squares in four equal sides (a multiple of 4)")
+	// The client places the token from its own 28-entry square table (unk_2F5A9F0, tags 47..70 and 72..75; roll-gate.md
+	// section 2): a ring of any other size skips or overruns squares on screen.
+	if len(ring) != TreasureRingSize {
+		return fmt.Errorf("board.ring must have exactly %d squares (the client's fixed board)", TreasureRingSize)
 	}
 	for i, c := range ring {
 		switch c {
