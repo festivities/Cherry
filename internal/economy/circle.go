@@ -361,9 +361,18 @@ func (e *CircleError) Error() string { return "circle: refused " + strconv.Itoa(
 
 func circleRefuse(code int) error { return &CircleError{Code: code} }
 
+// CircleCpID is the content id Cherry sends as cpId on the creation price row and the upgrade shop row. It is not a
+// billing id: NaCircleMakeStartPopup::CheckCpid 0x24edd14 shows "An unexpected error has occurred." (10077) when the
+// row's cpId is EMPTY (device 2026-11-01), and the stock fashion buy sends cpId "avtplay". Cherry-made, like the voucher
+// rows' "cherry" (economy.go). Prices are Cherry's own Gem prices, so no cpId can open a real-money path.
+const CircleCpID = "cherry"
+
+// circleCpIDOK accepts the cpId a purchase echoes: Cherry's own or none.
+func circleCpIDOK(id string) bool { return id == "" || id == CircleCpID }
+
 // CircleCreateRequest is the body of POST circle/create (NaCreateCircleLayer::ReqCircleMake 0x24ee6fc): coinUnit is an
 // int (0 for Gems, from the default item's paymentType), price the default item's finalPrice, joinType "OPEN" or
-// "INVITE", interestCodeList an array of ints. A non-empty cpId is real money and is refused.
+// "INVITE", interestCodeList an array of ints. cpId echoes the price row's CircleCpID; any other value is refused.
 type CircleCreateRequest struct {
 	CoinUnit         int64   `json:"coinUnit"`
 	DeviceType       string  `json:"deviceType"`
@@ -572,13 +581,13 @@ func sortedInterests(codes []int64) []int64 {
 }
 
 // CreateCircle makes a circle for the account behind token, led by it, and charges the creation price in Gems (reason
-// circle:create:<id>). Nothing changes on a refusal, a short balance or a failed save. A real-money id (cpId or a
+// circle:create:<id>). Nothing changes on a refusal, a short balance or a failed save. A foreign cpId (not CircleCpID; or a
 // coinUnit other than Gems) and a product other than the default one are refused.
 func CreateCircle(token string, req CircleCreateRequest, now time.Time) (store.Circle, error) {
 	var made store.Circle
 	err := circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
 		product := ActiveCircleData().Product
-		if req.CpID != "" || req.CoinUnit != 0 || req.ProductCode != product.Code || req.Price != product.PriceGems {
+		if !circleCpIDOK(req.CpID) || req.CoinUnit != 0 || req.ProductCode != product.Code || req.Price != product.PriceGems {
 			return nil, circleRefuse(circleErrBadRequest)
 		}
 		if err := checkCircleName(req.CircleName); err != nil {

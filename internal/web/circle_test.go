@@ -130,7 +130,7 @@ func TestCircleCreateFlowOverHTTP(t *testing.T) {
 	token := circleSession(t, "1101", 5000)
 
 	item := decodeResult(t, circleCall(t, http.MethodGet, "/v4/circle/create/default/item", "", token))
-	if item["finalPrice"] != float64(5000) || item["paymentType"] != "GEM" || item["cpId"] != "" || item["purchasable"] != true {
+	if item["finalPrice"] != float64(5000) || item["paymentType"] != "GEM" || item["cpId"] != "cherry" || item["purchasable"] != true {
 		t.Fatalf("default item = %v", item)
 	}
 	wantID := map[string]float64{"sb": 1940001001, "bg": 1940001101}

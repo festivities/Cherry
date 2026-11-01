@@ -752,15 +752,15 @@ func (s *circleSession) upgradeShop(frame []byte) error {
 }
 
 // upgradeBuy answers cs_circle_upgrade_buy_req (msgid 29: ItemCode, CoinUnit, Price, Cpid) with sc_circle_upgrade_buy_res
-// (41): Result, the Gem balance after the purchase and its unit. A refusal carries only the result. A real-money id is
+// (41): Result, the Gem balance after the purchase and its unit. A refusal carries only the result. A foreign cpId is
 // refused by economy.BuyCircleUpgrade.
 func (s *circleSession) upgradeBuy(frame, data []byte) error {
 	code, _, _ := pbBytesField(data, 1)
 	unit, _, _ := pbBytesField(data, 2)
 	price, _ := protobufUintField(data, 3)
 	cpID, found, _ := pbBytesField(data, 4)
-	if found && len(cpID) > 0 {
-		s.logger.Printf("CIRCLE upgrade buy real-money id refused")
+	if found && len(cpID) > 0 && string(cpID) != economy.CircleCpID {
+		s.logger.Printf("CIRCLE upgrade buy foreign cpId refused")
 	}
 	balance, err := economy.BuyCircleUpgrade(s.aidText(), string(code), string(unit), string(cpID), int64(price), economy.NowFunc())
 	if err != nil {
@@ -864,6 +864,7 @@ func circleUpgradeShopBytes(row economy.CircleUpgradeRow) []byte {
 	b = pbVar(b, 8, uint64(row.PriceGems))
 	b = pbVar(b, 9, 0)
 	b = pbVar(b, 12, uint64(row.PriceGems))
+	b = pbLen(b, 13, []byte(economy.CircleCpID)) // CpId: never empty (the create row's empty cpId failed CheckCpid)
 	return pbVar(b, 14, boolUint(row.Purchasable))
 }
 

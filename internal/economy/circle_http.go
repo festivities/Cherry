@@ -183,7 +183,8 @@ type circleSearchJSON struct {
 }
 
 // circleDefaultItemJSON is circle/create/default/item (stCircleDefaultRoomItem::ParserData 0x1a9dc24 [S]): finalPrice is
-// the price (+56), paymentType "GEM" selects Gems (any other value selects Cash), cpId is the real-money id (empty).
+// the price (+56), paymentType "GEM" selects Gems (any other value selects Cash), cpId must be
+// non-empty (CircleCpID; CheckCpid 0x24edd14).
 type circleDefaultItemJSON struct {
 	ProductCode        string `json:"productCode"`
 	ProductName        string `json:"productName"`
@@ -542,6 +543,7 @@ func circleDefaultItemView() circleDefaultItemJSON {
 		PaymentType:      "GEM",
 		OriginPrice:      d.Product.PriceGems,
 		FinalPrice:       d.Product.PriceGems,
+		CpID:             CircleCpID,
 		Purchasable:      true,
 	}
 }

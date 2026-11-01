@@ -9,7 +9,7 @@ import (
 
 // Circle member-cap upgrades (LPN msgids 28-29 out, 40-41 in; spec circle-spec.md section 8). The leader buys the next
 // step with Gems; the step raises the circle's own cap (store.Circle.MaxMembers), which every cap check reads through
-// circleCapOf. A real-money id (Cpid) is refused, and so is any coin unit but GEM.
+// circleCapOf. A foreign Cpid (not CircleCpID) is refused, and so is any coin unit but GEM.
 
 // CircleUpgradeRow is the upgrade the client shows: the product code, title and picture of the next step (empty once the
 // cap is final), the current cap, the cap after the step, the final cap, the Gem price, and whether the caller may buy it
@@ -70,12 +70,12 @@ func CircleUpgradeInfo(aid string) (CircleUpgradeRow, error) {
 }
 
 // BuyCircleUpgrade spends PriceGems Gems on the next cap step for the leader aid. The product code and the price must
-// be the step's; a non-empty cpID, a coin unit other than GEM, a member who is not the leader, or a short balance is
+// be the step's; a foreign cpID, a coin unit other than GEM, a member who is not the leader, or a short balance is
 // refused with nothing changed. It returns the Gem balance after the purchase.
 func BuyCircleUpgrade(aid, code, coinUnit, cpID string, price int64, now time.Time) (int64, error) {
 	var balance int64
 	err := circleTxAid(aid, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
-		if cpID != "" || coinUnit != "GEM" {
+		if !circleCpIDOK(cpID) || coinUnit != "GEM" {
 			return nil, circleRefuse(circleErrBadRequest)
 		}
 		ci := circleOf(b, aid)
