@@ -113,6 +113,7 @@ const (
 	circleRcQuestList      = 52
 	circleRcQuestReward    = 53
 	circleRcPetRide        = 54
+	circleQuestNextResult  = 720897 // sc_quest_list_res Result with no missions: "The next mission's now underway" [S], then the popup closes
 )
 
 // circlePlayer is one avatar in a circle room.
@@ -570,7 +571,7 @@ func (s *circleSession) relayStart(frame []byte) error {
 	// sc 48 (the relay does not post it), so the same PointInfo follows the reply at once (room-buttons.md 1.3, 3.2).
 	points := economy.CirclePointInfoOf(s.aidText(), economy.NowFunc())
 	body := append(pbVar(nil, 1, circleRelayResult), roster...)
-	body = pbLen(body, 6, circleButtonBytes("world_icon/72_circle_mission", "goSomewhere(circleFashionQuest)", "0,0,0"))
+	// No mission button: the fashion-quest popup is a fixed template and cannot show Cherry's missions (circle-20261101\missions-ranking.md A).
 	if economy.ActiveCircleData().Gacha.Enabled {
 		body = pbLen(body, 6, circleButtonBytes("world_icon/66_circle_gacha", "goSomewhere(gachaMain)", "0,0,0"))
 	}
@@ -847,18 +848,14 @@ func (s *circleSession) pointReward(frame, data []byte) error {
 	return s.reply(frame, circleRcPointReward, pbLen(body, 3, circlePointInfoBytes(info)))
 }
 
-// questList answers cs_quest_list_req (msgid 34) with sc_quest_list_res (52): the circle's missions for the season.
-// A player in no circle is refused.
+// questList answers cs_quest_list_req (msgid 34) with sc_quest_list_res (52) and no missions: Result 720897 is the client's
+// "next mission" text, so a stale request does not show "Done" (circle-20261101\missions-ranking.md A.4). A player in no
+// circle is refused.
 func (s *circleSession) questList(frame []byte) error {
-	rows, ok := economy.CircleMissionRows(s.aidText(), economy.NowFunc())
-	if !ok {
+	if _, _, ok := economy.CircleOf(s.aidText()); !ok {
 		return s.reply(frame, circleRcQuestList, pbVar(nil, 1, circleRefused))
 	}
-	body := pbVar(nil, 1, 0)
-	for _, q := range rows {
-		body = pbLen(body, 2, circleQuestBytes(q))
-	}
-	return s.reply(frame, circleRcQuestList, body)
+	return s.reply(frame, circleRcQuestList, pbVar(nil, 1, circleQuestNextResult))
 }
 
 // questReward answers cs_quest_reward_req (msgid 35, no fields) with sc_quest_reward_res (53): the current mission's

@@ -1,6 +1,7 @@
 package economy
 
 import (
+	"encoding/json"
 	"fmt"
 	"slices"
 	"testing"
@@ -446,5 +447,117 @@ func TestCircleRankingAndHallOfFame(t *testing.T) {
 	}
 	if h := circleHallView(&store.CircleState, cptDay(0)); h.SeasonID != 0 || len(h.EntryList) != 0 {
 		t.Fatalf("season 1 has a previous season: %+v", h)
+	}
+}
+
+// TestCircleRankRowsCarryPointsAndRank: each row of a rank reply carries its circle's points and rank (the rows follow
+// circleRanking; a circle with no points is in no row), the viewer's circle is a row of the same shape ({} outside a
+// circle), and neither point key is at the top level. The season reply adds the banner keys, with the season's end as
+// gainEndDate; the gacha name is blank while the circle page offers no gacha.
+func TestCircleRankRowsCarryPointsAndRank(t *testing.T) {
+	circFixture(t, map[string]int64{"3001": 8000, "3002": 0, "3004": 8000, "3005": 0, "3006": 8000, "3007": 0})
+	alpha, err := CreateCircle("ctok-3001", circValidCreate("Alpha"), cptFounded())
+	if err != nil {
+		t.Fatal(err)
+	}
+	beta, err := CreateCircle("ctok-3004", circValidCreate("Beta"), cptFounded())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CreateCircle("ctok-3006", circValidCreate("Gamma"), cptFounded()); err != nil {
+		t.Fatal(err)
+	}
+	if err := circleJoin("ctok-3002", alpha.ID, cptFounded()); err != nil {
+		t.Fatal(err)
+	}
+	if err := circleJoin("ctok-3005", beta.ID, cptFounded()); err != nil {
+		t.Fatal(err)
+	}
+	cptEarnDay("3001", cptDay(0))                // Alpha: 55 points
+	CirclePointEarn("3004", "garden", cptDay(0)) // Beta: 10 points; Gamma has none
+
+	store.CirclesMu.Lock()
+	book := &store.CircleState
+	total := circleRankView("3002", book, 1, true)
+	season := circleRankView("3002", book, 1, false)
+	gammaSeason := circleRankView("3006", book, 1, false)
+	outsiderSeason := circleRankView("3007", book, 1, false)
+	banner := circleRankSeasonView("3002", book, cptDay(0))
+	store.CirclesMu.Unlock()
+
+	decode := func(v any) map[string]any {
+		t.Helper()
+		raw, err := json.Marshal(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(raw, &m); err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	top := decode(season)
+	for _, k := range []string{"myCirclePoint", "myCircleRank"} {
+		if _, ok := top[k]; ok {
+			t.Fatalf("top level carries %s: %v", k, top)
+		}
+	}
+	rows, ok := top["topRankCircleList"].([]any)
+	if !ok || len(rows) != 2 {
+		t.Fatalf("rows = %v, want Alpha and Beta only", top["topRankCircleList"])
+	}
+	for i, w := range []struct {
+		id, name string
+		pts      float64
+		rank     string
+	}{{circleIDText(alpha.ID), "Alpha", 55, "1"}, {circleIDText(beta.ID), "Beta", 10, "2"}} {
+		row := rows[i].(map[string]any)
+		if row["circleId"] != w.id || row["circleName"] != w.name || row["myCirclePoint"] != w.pts || row["myCircleRank"] != w.rank {
+			t.Fatalf("row %d = %v, want %+v", i, row, w)
+		}
+		for _, k := range []string{"logoImgPath", "memberCount", "maxMemberCount", "masterAid"} {
+			if _, ok := row[k]; !ok {
+				t.Fatalf("row %d lacks the circle key %s: %v", i, k, row)
+			}
+		}
+	}
+	if first := decode(total)["topRankCircleList"].([]any)[0].(map[string]any); first["myCirclePoint"] != float64(55) {
+		t.Fatalf("total row = %v, want Alpha's 55 points", first)
+	}
+
+	if mine := decode(season)["myCircle"].(map[string]any); mine["circleName"] != "Alpha" || mine["myCirclePoint"] != float64(55) || mine["myCircleRank"] != "1" {
+		t.Fatalf("member of Alpha: myCircle = %v", mine)
+	}
+	if mine := decode(gammaSeason)["myCircle"].(map[string]any); mine["circleName"] != "Gamma" || mine["myCirclePoint"] != float64(0) || mine["myCircleRank"] != "" {
+		t.Fatalf("member of Gamma (no points): myCircle = %v, want 0 points and rank \"\"", mine)
+	}
+	if mine, ok := decode(outsiderSeason)["myCircle"].(map[string]any); !ok || len(mine) != 0 {
+		t.Fatalf("outsider's myCircle = %v, want {}", mine)
+	}
+
+	start, end := circleSeasonBounds(1)
+	sea := decode(banner)
+	wantGacha := ""
+	if ActiveCircleData().Gacha.Enabled {
+		wantGacha = ActiveGacha().Name
+	}
+	if sea["seasonId"] != float64(1) || sea["seasonName"] != circleSeasonName(1) || sea["seasonStartDate"] != circleMS(start) ||
+		sea["gainEndDate"] != circleMS(end) || sea["seasonEndDate"] != circleMS(end) || sea["gachaName"] != wantGacha {
+		t.Fatalf("season banner = %v, want season 1 ending at %d", sea, end)
+	}
+	if sea["bannerImagePath"] != "" || sea["gachaTicket"] != float64(0) || sea["gachaId"] != float64(0) || sea["gachaImagePath"] != "" {
+		t.Fatalf("season banner blanks = %v", sea)
+	}
+
+	gacha := &ActiveCircleData().Gacha.Enabled
+	prev := *gacha
+	t.Cleanup(func() { *gacha = prev })
+	*gacha = false
+	store.CirclesMu.Lock()
+	off := circleRankSeasonView("3002", &store.CircleState, cptDay(0))
+	store.CirclesMu.Unlock()
+	if off.GachaName != "" {
+		t.Fatalf("gacha name with the gacha off = %q, want blank", off.GachaName)
 	}
 }

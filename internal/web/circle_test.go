@@ -7,7 +7,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"cherry/internal/economy"
 	"cherry/internal/store"
 	"cherry/internal/testutil"
 )
@@ -222,6 +224,66 @@ func TestCirclePointAndRouteShapes(t *testing.T) {
 	}
 	if rec := circleCall(t, http.MethodPost, "/v4/circle/join/info", "", token); rec.Code != http.StatusNotFound {
 		t.Fatalf("POST join/info: status %d, want 404", rec.Code)
+	}
+}
+
+// TestCircleRankRoutesOverHTTP: the season route answers the current season whatever its argument (the room's popup sends
+// the viewer's circle id there): the banner keys, with gainEndDate at the season's end; the total route has no banner keys
+// and names the same season. Neither route sends the point keys at the top level, and a player in no circle gets myCircle {}.
+func TestCircleRankRoutesOverHTTP(t *testing.T) {
+	token := "wtok-1101"
+	testutil.InstallAccounts(t, map[string]*store.Account{
+		token:       {AccessToken: token, SessionKey: "sk", Aid: "1101", Name: "W1101", Gems: 5000},
+		"wtok-1102": {AccessToken: "wtok-1102", SessionKey: "sk", Aid: "1102", Name: "W1102"},
+	})
+	store.ResetCircles()
+	t.Cleanup(store.ResetCircles)
+	created := circleCall(t, http.MethodPost, "/v4/circle/create", createBody("Ranked", "OPEN", ""), token)
+	if created.Code != http.StatusOK {
+		t.Fatalf("create: %d %s", created.Code, created.Body.String())
+	}
+	id, _ := decodeResult(t, created)["circleId"].(string)
+
+	total := decodeResult(t, circleCall(t, http.MethodGet, "/v4/circle/point/rank/total/"+id, "", token))
+	season := decodeResult(t, circleCall(t, http.MethodGet, "/v4/circle/point/rank/season/"+id, "", token))
+	huge := decodeResult(t, circleCall(t, http.MethodGet, "/v4/circle/point/rank/season/9223372036854775807", "", token))
+	for name, res := range map[string]map[string]any{"total": total, "season": season, "huge": huge} {
+		for _, k := range []string{"myCirclePoint", "myCircleRank"} {
+			if _, ok := res[k]; ok {
+				t.Fatalf("%s route carries %s at the top level: %v", name, k, res)
+			}
+		}
+	}
+	if _, ok := total["gainEndDate"]; ok {
+		t.Fatalf("the total route sends gainEndDate: %v", total)
+	}
+	if season["seasonId"] != total["seasonId"] || huge["seasonId"] != total["seasonId"] {
+		t.Fatalf("seasonId: total %v, season %v, huge argument %v", total["seasonId"], season["seasonId"], huge["seasonId"])
+	}
+	if mine, ok := season["myCircle"].(map[string]any); !ok || mine["circleId"] != id || mine["myCirclePoint"] != float64(0) || mine["myCircleRank"] != "" {
+		t.Fatalf("myCircle of the leader (no points) = %v", season["myCircle"])
+	}
+	if mine, ok := decodeResult(t, circleCall(t, http.MethodGet, "/v4/circle/point/rank/season/"+id, "", "wtok-1102"))["myCircle"].(map[string]any); !ok || len(mine) != 0 {
+		t.Fatalf("myCircle outside a circle = %v, want {}", mine)
+	}
+
+	// The season is the one at the clock: gainEndDate is its end, SeasonDays after its start, and now is inside it. Before the
+	// first season starts the clock reads as season 1 (circleSeasonAt), so a start after now is only right for season 1.
+	startS, _ := season["seasonStartDate"].(string)
+	endS, _ := season["gainEndDate"].(string)
+	start, _ := strconv.ParseInt(startS, 10, 64)
+	end, _ := strconv.ParseInt(endS, 10, 64)
+	now := time.Now().UnixMilli()
+	if now >= end || (start > now && season["seasonId"] != float64(1)) || season["seasonEndDate"] != season["gainEndDate"] ||
+		end-start != economy.ActiveCircleData().Points.SeasonDays*24*3600*1000 {
+		t.Fatalf("season window %d..%d at %d: %v", start, end, now, season)
+	}
+	wantGacha := ""
+	if economy.ActiveCircleData().Gacha.Enabled {
+		wantGacha = economy.ActiveGacha().Name
+	}
+	if season["gachaName"] != wantGacha || season["gachaId"] != float64(0) || season["gachaTicket"] != float64(0) {
+		t.Fatalf("gacha keys = %v, want name %q", season, wantGacha)
 	}
 }
 

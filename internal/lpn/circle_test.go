@@ -854,9 +854,9 @@ func cirButtonIs(b []byte, symbol, link string) bool {
 	return string(cirBytes(b, 3)) == symbol && string(cirBytes(b, 6)) == link && string(cirBytes(b, 7)) == "0,0,0"
 }
 
-// TestCircleRelayShowsPointsAndButtons: the relay reply carries the room's ButtonList (the mission, then the gacha while
-// the circle data enables it) and the live PointInfo; relay checks that sc 48 repeats that PointInfo. A member who joined
-// after the season started gets availability 0 with the same circle total, and turning the gacha off drops its entry.
+// TestCircleRelayShowsPointsAndButtons: the relay reply carries the room's ButtonList (the gacha, while the circle data
+// enables it; no mission button) and the live PointInfo; relay checks that sc 48 repeats that PointInfo. A member who
+// joined after the season started gets availability 0 with the same circle total, and turning the gacha off leaves no button.
 func TestCircleRelayShowsPointsAndButtons(t *testing.T) {
 	cirScene(t)
 	cirAt(t, time.Date(2026, 11, 2, 12, 0, 0, 0, cirJST))
@@ -869,9 +869,8 @@ func TestCircleRelayShowsPointsAndButtons(t *testing.T) {
 		t.Fatalf("relay result %d with %d roster entries", got, len(cirList(body, 2)))
 	}
 	btns := cirList(body, 6)
-	if len(btns) != 2 || !cirButtonIs(btns[0], "world_icon/72_circle_mission", "goSomewhere(circleFashionQuest)") ||
-		!cirButtonIs(btns[1], "world_icon/66_circle_gacha", "goSomewhere(gachaMain)") {
-		t.Fatalf("ButtonList = %x", btns)
+	if len(btns) != 1 || !cirButtonIs(btns[0], "world_icon/66_circle_gacha", "goSomewhere(gachaMain)") {
+		t.Fatalf("ButtonList = %x, want the gacha only", btns)
 	}
 	// data/circle.json has four steps (100, 300, 600, 1000): 110 reached step 1, unclaimed, so it is still the stage shown.
 	info := cirBytes(body, 7)
@@ -887,7 +886,7 @@ func TestCircleRelayShowsPointsAndButtons(t *testing.T) {
 	late := newCirClient(t, &circleRooms{}, chats, 1104, 91)
 	lateBody := late.joined()
 	lateInfo := cirBytes(lateBody, 7)
-	if cirVar(lateInfo, 9) != 0 || cirVar(lateInfo, 8) != 1 || cirVar(lateInfo, 5) != 110 || len(cirList(lateBody, 6)) != 2 {
+	if cirVar(lateInfo, 9) != 0 || cirVar(lateInfo, 8) != 1 || cirVar(lateInfo, 5) != 110 || len(cirList(lateBody, 6)) != 1 {
 		t.Fatalf("late member PointInfo %x with %d buttons", lateInfo, len(cirList(lateBody, 6)))
 	}
 
@@ -897,14 +896,14 @@ func TestCircleRelayShowsPointsAndButtons(t *testing.T) {
 	*gacha = false
 	t.Cleanup(func() { *gacha = prev })
 	off := newCirClient(t, &circleRooms{}, chats, 1102, 92)
-	offBtns := cirList(off.joined(), 6)
-	if len(offBtns) != 1 || !cirButtonIs(offBtns[0], "world_icon/72_circle_mission", "goSomewhere(circleFashionQuest)") {
-		t.Fatalf("ButtonList with the gacha off = %x", offBtns)
+	if offBtns := cirList(off.joined(), 6); len(offBtns) != 0 {
+		t.Fatalf("ButtonList with the gacha off = %x, want none", offBtns)
 	}
 }
 
-// TestCircleMissionsAndUpgradesOverTheWire: the mission list has the season's missions and none is claimable at first;
-// the leader buys the next member cap with Gems (a real-money id, a wrong price and a non-GEM unit are refused); the
+// TestCircleMissionsAndUpgradesOverTheWire: the mission list answers the next-mission result with no rows (a stale client
+// path never shows "Done"), a player in no circle is refused, and a claim with no goal met is refused; the
+// leader buys the next member cap with Gems (a real-money id, a wrong price and a non-GEM unit are refused); the
 // shop then offers the step after it, and a member may not buy.
 func TestCircleMissionsAndUpgradesOverTheWire(t *testing.T) {
 	cirScene(t)
@@ -913,8 +912,14 @@ func TestCircleMissionsAndUpgradesOverTheWire(t *testing.T) {
 	leader := newCirClient(t, rooms, chats, 1101, 70)
 	leader.login()
 	leader.send(circleCsQuestList, nil)
-	if n := len(cirList(leader.expectID(circleRcQuestList), 2)); n != 3 {
-		t.Fatalf("missions = %d, want 3", n)
+	if body := leader.expectID(circleRcQuestList); cirVar(body, 1) != circleQuestNextResult || len(cirList(body, 2)) != 0 {
+		t.Fatalf("quest list = %x, want Result %d with no missions", body, circleQuestNextResult)
+	}
+	outsider := newCirClient(t, rooms, chats, 1106, 71)
+	outsider.login()
+	outsider.send(circleCsQuestList, nil)
+	if got := cirVar(outsider.expectID(circleRcQuestList), 1); got != circleRefused {
+		t.Fatalf("quest list for a player in no circle = %d, want refused", got)
 	}
 	leader.send(circleCsQuestReward, nil)
 	if got := cirVar(leader.expectID(circleRcQuestReward), 1); got != circleRefused {

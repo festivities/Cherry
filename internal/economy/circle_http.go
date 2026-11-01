@@ -220,15 +220,36 @@ type circleCreatedJSON struct {
 	CircleID string `json:"circleId"`
 }
 
-// circleRankJSON is circle/point/rank/total and .../season (ResCircleTotalRank 0x1c19b94 [S]): seasonId an int, myCircle
-// an object (circleInfoJSON, or {} outside a circle), topRankCircleList an array, myCircleRank a string, myCirclePoint
-// an int64.
+// circleRankRowJSON is one circle of a rank reply: the circle's keys plus its points and rank. The client reads both per
+// row and inside myCircle (stCircleRankingInfo::ParseData 0x1a9e490 [S]: myCirclePoint asInt64, myCircleRank asString);
+// the top level of the reply is never read for them. circleInfoJSON itself (search, recruit, join) stays as it is.
+type circleRankRowJSON struct {
+	circleInfoJSON
+	MyCirclePoint int64  `json:"myCirclePoint"`
+	MyCircleRank  string `json:"myCircleRank"`
+}
+
+// circleRankJSON is circle/point/rank/total and .../season (ResCircleTotalRank 0x1c19b94 [S]): seasonId an int, myCircle a
+// row (or {} outside a circle), topRankCircleList an array of rows in rank order.
 type circleRankJSON struct {
-	SeasonID          int64            `json:"seasonId"`
-	MyCircle          any              `json:"myCircle"`
-	TopRankCircleList []circleInfoJSON `json:"topRankCircleList"`
-	MyCircleRank      string           `json:"myCircleRank"`
-	MyCirclePoint     int64            `json:"myCirclePoint"`
+	SeasonID          int64               `json:"seasonId"`
+	MyCircle          any                 `json:"myCircle"`
+	TopRankCircleList []circleRankRowJSON `json:"topRankCircleList"`
+}
+
+// circleRankSeasonJSON is circle/point/rank/season: the current season's ranking plus the banner keys that
+// stCircleRankSeasonInfo::ParseData 0x1a9e1d4 [S] reads from the top level of this reply only (the total route sends none).
+type circleRankSeasonJSON struct {
+	circleRankJSON
+	SeasonName      string `json:"seasonName"`
+	BannerImagePath string `json:"bannerImagePath"`
+	GachaTicket     int64  `json:"gachaTicket"`
+	SeasonStartDate string `json:"seasonStartDate"`
+	GainEndDate     string `json:"gainEndDate"`
+	SeasonEndDate   string `json:"seasonEndDate"`
+	GachaID         int64  `json:"gachaId"`
+	GachaImagePath  string `json:"gachaImagePath"`
+	GachaName       string `json:"gachaName"`
 }
 
 // circleHallEntryJSON is one entry of entryList (SetHallOfFameInfo 0x2603e14 [S]): seasonId, rank, memberCount,
@@ -414,15 +435,13 @@ func handleCircle(w http.ResponseWriter, r *http.Request) {
 		circleSearch(w, r, token, true)
 	case "GET point/rank/total/#":
 		circleReadReply(w, token, func(acc *store.Account, b *store.CircleBook) (any, error) {
-			return circleRankView(acc.Aid, b, nums[0], true), nil
+			// nums[0] is the viewer's circle id, not a season: the total counts every season, and seasonId is the current one.
+			return circleRankView(acc.Aid, b, circleSeasonAt(now), true), nil
 		})
 	case "GET point/rank/season/#":
 		circleReadReply(w, token, func(acc *store.Account, b *store.CircleBook) (any, error) {
-			season := nums[0]
-			if cur := circleSeasonAt(now); season < 1 || season > cur { // device: the room's popup sends the circle id here
-				season = cur
-			}
-			return circleRankView(acc.Aid, b, season, false), nil
+			// nums[0] is the viewer's circle id (the room's popup sends it here), not a season: always the current one.
+			return circleRankSeasonView(acc.Aid, b, now), nil
 		})
 	case "GET point/rank/entry/top3":
 		circleReadReply(w, token, func(acc *store.Account, b *store.CircleBook) (any, error) { return circleHallView(b, now), nil })
@@ -838,27 +857,50 @@ func circleRanking(b *store.CircleBook, season int64, all bool) []circleRanked {
 	return out
 }
 
-// circleRankView is circle/point/rank/total (all seasons) or .../season for the viewer's season: the top circles, the
-// viewer's circle and its rank ("" when it has no points).
+// circleRankView is circle/point/rank/total (all seasons) or .../season for the viewer's season: the top circles as rows,
+// and the viewer's circle as a row ({} when the viewer is in no circle). Rows follow circleRanking, so a row's rank is its
+// place; a circle with no points is in no row and has rank "".
 func circleRankView(viewer string, b *store.CircleBook, season int64, all bool) circleRankJSON {
 	ranked := circleRanking(b, season, all)
-	out := circleRankJSON{SeasonID: season, MyCircle: circleEmpty{}, TopRankCircleList: []circleInfoJSON{}}
+	out := circleRankJSON{SeasonID: season, MyCircle: circleEmpty{}, TopRankCircleList: []circleRankRowJSON{}}
 	for i, r := range ranked {
 		if i >= circleListMax {
 			break
 		}
-		out.TopRankCircleList = append(out.TopRankCircleList, circleInfoView(r.c))
+		out.TopRankCircleList = append(out.TopRankCircleList, circleRankRowView(r.c, r.pts, strconv.Itoa(i+1)))
 	}
 	if ci := circleOf(b, viewer); ci >= 0 {
 		c := &b.Circles[ci]
-		out.MyCircle = circleInfoView(c)
-		out.MyCirclePoint = circlePointsTotal(c, season, all)
+		rank := ""
 		for i, r := range ranked {
 			if r.c.ID == c.ID {
-				out.MyCircleRank = strconv.Itoa(i + 1)
+				rank = strconv.Itoa(i + 1)
 				break
 			}
 		}
+		out.MyCircle = circleRankRowView(c, circlePointsTotal(c, season, all), rank)
+	}
+	return out
+}
+
+// circleRankRowView is one circle of a rank reply with its points and its rank ("" when it has none).
+func circleRankRowView(c *store.Circle, pts int64, rank string) circleRankRowJSON {
+	return circleRankRowJSON{circleInfoJSON: circleInfoView(c), MyCirclePoint: pts, MyCircleRank: rank}
+}
+
+// circleRankSeasonView is circle/point/rank/season: the ranking of the season at now, with the banner keys. The argument of
+// the route is never a season, so the caller passes only the clock. gachaName is the Cherry Gacha's name when the circle
+// page offers it, else "".
+func circleRankSeasonView(viewer string, b *store.CircleBook, now time.Time) circleRankSeasonJSON {
+	season := circleSeasonAt(now)
+	start, end := circleSeasonBounds(season)
+	out := circleRankSeasonJSON{
+		circleRankJSON:  circleRankView(viewer, b, season, false),
+		SeasonName:      circleSeasonName(season),
+		SeasonStartDate: circleMS(start), GainEndDate: circleMS(end), SeasonEndDate: circleMS(end),
+	}
+	if ActiveCircleData().Gacha.Enabled {
+		out.GachaName = ActiveGacha().Name
 	}
 	return out
 }
