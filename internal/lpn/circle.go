@@ -214,9 +214,22 @@ func (r *circleRoom) join(p *circlePlayer, spawnX, spawnY uint64) (roster []byte
 		}
 	}
 	if index < 0 {
-		n := uint64(len(r.players) % circleSpawnRow)
-		p.x = spawnX + n*squareSpawnStepX
-		p.y = spawnY - n*squareSpawnStepY
+		// The first spawn slot nobody stands on: counting players reused an occupied slot after someone left and came
+		// back, and the two avatars stacked exactly (the bear vanished behind the other avatar, device 2026-11-01).
+		for n := uint64(0); n <= uint64(len(r.players)); n++ {
+			x, y := spawnX+(n%circleSpawnRow)*squareSpawnStepX, spawnY-(n%circleSpawnRow)*squareSpawnStepY
+			taken := false
+			for _, o := range r.players {
+				if o.x == x && o.y == y {
+					taken = true
+					break
+				}
+			}
+			if !taken || n == uint64(len(r.players)) {
+				p.x, p.y = x, y
+				break
+			}
+		}
 	}
 	roster = pbLen(nil, 2, p.info())
 	for i, o := range r.players {

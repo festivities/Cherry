@@ -928,3 +928,21 @@ func TestCircleMemberInfoDate(t *testing.T) {
 		t.Fatalf("add push carries f7 %q", got)
 	}
 }
+
+// TestCircleSpawnSkipsTakenSlot: after the first player left, a newcomer gets the free slot 0, not slot 1 where the
+// remaining player still stands (the two avatars stacked exactly before).
+func TestCircleSpawnSkipsTakenSlot(t *testing.T) {
+	r := &circleRoom{}
+	a, b := &circlePlayer{aid: 1}, &circlePlayer{aid: 2}
+	r.join(a, 1000, 1000)
+	r.join(b, 1000, 1000)
+	r.players = r.players[1:] // a left; b stays on slot 1
+	c := &circlePlayer{aid: 3}
+	r.join(c, 1000, 1000)
+	if c.x == b.x && c.y == b.y {
+		t.Fatalf("newcomer spawned on the remaining player's tile (%d,%d)", c.x, c.y)
+	}
+	if c.x != 1000 || c.y != 1000 {
+		t.Fatalf("newcomer at (%d,%d), want the free slot 0 (1000,1000)", c.x, c.y)
+	}
+}
