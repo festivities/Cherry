@@ -869,8 +869,8 @@ func TestCircleRelayShowsPointsAndButtons(t *testing.T) {
 		t.Fatalf("relay result %d with %d roster entries", got, len(cirList(body, 2)))
 	}
 	btns := cirList(body, 6)
-	if len(btns) != 2 || !cirButtonIs(btns[0], "72_circle_mission", "goSomewhere(circleFashionQuest)") ||
-		!cirButtonIs(btns[1], "66_circle_gacha", "goSomewhere(gachaMain)") {
+	if len(btns) != 2 || !cirButtonIs(btns[0], "world_icon/72_circle_mission", "goSomewhere(circleFashionQuest)") ||
+		!cirButtonIs(btns[1], "world_icon/66_circle_gacha", "goSomewhere(gachaMain)") {
 		t.Fatalf("ButtonList = %x", btns)
 	}
 	// data/circle.json has four steps (100, 300, 600, 1000): 110 reached step 1, unclaimed, so it is still the stage shown.
@@ -898,7 +898,7 @@ func TestCircleRelayShowsPointsAndButtons(t *testing.T) {
 	t.Cleanup(func() { *gacha = prev })
 	off := newCirClient(t, &circleRooms{}, chats, 1102, 92)
 	offBtns := cirList(off.joined(), 6)
-	if len(offBtns) != 1 || !cirButtonIs(offBtns[0], "72_circle_mission", "goSomewhere(circleFashionQuest)") {
+	if len(offBtns) != 1 || !cirButtonIs(offBtns[0], "world_icon/72_circle_mission", "goSomewhere(circleFashionQuest)") {
 		t.Fatalf("ButtonList with the gacha off = %x", offBtns)
 	}
 }

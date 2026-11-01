@@ -570,9 +570,9 @@ func (s *circleSession) relayStart(frame []byte) error {
 	// sc 48 (the relay does not post it), so the same PointInfo follows the reply at once (room-buttons.md 1.3, 3.2).
 	points := economy.CirclePointInfoOf(s.aidText(), economy.NowFunc())
 	body := append(pbVar(nil, 1, circleRelayResult), roster...)
-	body = pbLen(body, 6, circleButtonBytes("72_circle_mission", "goSomewhere(circleFashionQuest)", "0,0,0"))
+	body = pbLen(body, 6, circleButtonBytes("world_icon/72_circle_mission", "goSomewhere(circleFashionQuest)", "0,0,0"))
 	if economy.ActiveCircleData().Gacha.Enabled {
-		body = pbLen(body, 6, circleButtonBytes("66_circle_gacha", "goSomewhere(gachaMain)", "0,0,0"))
+		body = pbLen(body, 6, circleButtonBytes("world_icon/66_circle_gacha", "goSomewhere(gachaMain)", "0,0,0"))
 	}
 	body = pbLen(body, 7, circlePointInfoBytes(points))
 	if err := s.reply(frame, circleRcRelayStart, body); err != nil {
@@ -899,7 +899,7 @@ func circleGemRewardInfo(gems int64) []byte {
 	return pbLen(b, 3, []byte("Circle reward"))
 }
 
-// circleButtonBytes encodes one ButtonInfo of the room's ButtonList: 3 symbol (an animation symbol of world_icon.aniproj,
+// circleButtonBytes encodes one ButtonInfo of the room's ButtonList: 3 symbol ("world_icon/<name>", the key of a world_icon.aniproj symbol,
 // drawn as the button's art), 6 link name (the client's goSomewhere link, room-buttons.md 1.5), 7 params ("A,B,C", split
 // per avatar kind). Ids 1, 2, 4 and 5 are not sent: the room's tap path never reads them (room-buttons.md 1.4).
 func circleButtonBytes(symbol, link, params string) []byte {
