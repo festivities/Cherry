@@ -15,8 +15,8 @@ import (
 // in %LOCALAPPDATA%\Cherry\circles.json beside accounts.json. Absence means no circles. The rules live in economy;
 // this file only holds the book and saves it.
 
-// CircleMember is one member of a circle. Role is "leader", "vice" or "member" (the client's MASTER, MANAGER and
-// plain member, memberLevel on the wire).
+// CircleMember is one member of a circle. Role is "leader", "vice" or "member": memberLevel MASTER, MANAGER and
+// MEMBER over HTTP, and PlayerType 2, 1 and 0 over LPN (economy.CirclePlayerType, decoded 2026-11-01).
 type CircleMember struct {
 	Aid    string `json:"aid"`
 	Role   string `json:"role"`

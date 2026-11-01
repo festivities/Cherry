@@ -87,15 +87,17 @@ var circleInterestCodes = []int64{
 	100, 101, 102, 103, 200, 201, 202, 203, 204, 205, 206, 300, 301, 302, 303, 304, 305, 306, 400, 401, 402, 403, 404,
 }
 
-// CircleData is data/circle.json: the creation product, the member cap and the logo and background art.
+// CircleData is data/circle.json: the creation product, the member cap, the circle room and the logo and background art.
 //
 //	origin, note  mixed: the ids and the product are Cherry-made, the pictures are the client's (opdata.Provenance)
 //	product       code (the create request must send it), name, price_gems (Gems; paymentType GEM), max_members
+//	room          the circle room's map and spawn (a Cherry-made stand-in, see note)
 //	logos         symbols a circle may use: id in the logo block, art = a file in UIResource/UIImage_hd (read in place)
 //	backgrounds   backgrounds a circle may use: the same rules
 type CircleData struct {
 	opdata.Provenance
 	Product     CircleProduct `json:"product"`
+	Room        CircleRoom    `json:"room"`
 	Logos       []CircleArt   `json:"logos"`
 	Backgrounds []CircleArt   `json:"backgrounds"`
 }
@@ -106,6 +108,20 @@ type CircleProduct struct {
 	Name       string `json:"name"`
 	PriceGems  int64  `json:"price_gems"`
 	MaxMembers int    `json:"max_members"`
+}
+
+// CircleRoom is the circle room's map: its folder id, its size in tiles per side and the spawn tile (the same
+// conversion as a Square's). Cherry uses the LINE Café Square map as a stand-in (user decision 2026-11-01).
+type CircleRoom struct {
+	Map     string     `json:"map"`
+	MapSize uint64     `json:"map_size"`
+	Spawn   CircleTile `json:"spawn"`
+}
+
+// CircleTile is a map tile.
+type CircleTile struct {
+	X uint64 `json:"x"`
+	Y uint64 `json:"y"`
 }
 
 // CircleArt is one logo or background choice.
@@ -158,6 +174,12 @@ func checkCircleData(c *CircleData) error {
 		return fmt.Errorf("product.price_gems must be 1 to %d", store.MaxBalance)
 	case p.MaxMembers < 1 || p.MaxMembers > 100:
 		return errors.New("product.max_members must be 1 to 100")
+	case !circleMapID(c.Room.Map):
+		return errors.New("room.map must be a map folder id (digits only)")
+	case c.Room.MapSize < 1 || c.Room.MapSize > 1000:
+		return errors.New("room.map_size must be 1 to 1000")
+	case c.Room.Spawn.X >= c.Room.MapSize || c.Room.Spawn.Y >= c.Room.MapSize:
+		return errors.New("room.spawn must be inside the map")
 	case len(c.Logos) < 1 || len(c.Backgrounds) < 1:
 		return errors.New("logos and backgrounds must each list at least one picture")
 	}
@@ -629,8 +651,9 @@ func RefuseInvite(token string, id int64) error {
 	})
 }
 
-// LeaveCircle is POST circle/leave/<id>: a member leaves and starts the 24-hour cooldown. A leader cannot leave (the
-// leader transfer is a later slice; a leader closes the circle instead).
+// LeaveCircle is POST circle/leave/<id>: a member leaves and starts the 24-hour cooldown. A leader cannot leave; a
+// leader hands the leadership over first (CircleTransferMaster, cs_master_change_req), and then the old leader is a
+// plain member and may leave. A leader who wants out instead closes the circle.
 func LeaveCircle(token string, id int64, now time.Time) error {
 	return circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
 		ci := circleIndex(b, id)
@@ -686,4 +709,192 @@ func CloseCircle(token string, id int64) error {
 		b.Circles = slices.Delete(b.Circles, ci, ci+1)
 		return nil, nil
 	})
+}
+
+// circleMapID reports whether s is a map folder id (digits only, as the Square maps are).
+func circleMapID(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// The LPN side (internal/lpn/circle.go) reaches the book through the functions below. They take the avatar as its
+// decimal text, check the rules here (the client's buttons are not the guard), and change only the book: no account
+// or ledger line.
+
+// CirclePlayerType is the wire role of a member: PlayerType in CircleMemberInfo and PlayerInfo, and the client's
+// stCircleAvatarInfo level. 2 is MASTER, 1 is MANAGER, 0 a plain member. [S] LP_sc_room_enter_res copies the
+// CircleMemberInfo field at +88 into the level at +48; ParserData maps MASTER to 2 and MANAGER to 1.
+func CirclePlayerType(role string) uint64 {
+	switch role {
+	case roleLeader:
+		return 2
+	case roleVice:
+		return 1
+	}
+	return 0
+}
+
+// circleBookTx runs op on the book in use (write false: it must not change the copy it gets) or on a copy that is
+// saved to circles.json and swapped in when op succeeds.
+func circleBookTx(write bool, op func(b *store.CircleBook) error) error {
+	store.CirclesMu.Lock()
+	defer store.CirclesMu.Unlock()
+	if !write {
+		b := store.CircleState
+		return op(&b)
+	}
+	next := store.CircleState.Clone()
+	if err := op(&next); err != nil {
+		return err
+	}
+	if err := store.SaveCirclesLocked(next); err != nil {
+		return err
+	}
+	store.CircleState = next
+	return nil
+}
+
+// uniqueAids returns aids without repeats, in order.
+func uniqueAids(aids []string) []string {
+	out := []string{}
+	for _, a := range aids {
+		if !slices.Contains(out, a) {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// CircleOf returns the circle aid is in and aid's role there (ok false for none).
+func CircleOf(aid string) (id int64, role string, ok bool) {
+	_ = circleBookTx(false, func(b *store.CircleBook) error {
+		if ci := circleOf(b, aid); ci >= 0 {
+			c := &b.Circles[ci]
+			id, role, ok = c.ID, roleOf(c, aid), true
+		}
+		return nil
+	})
+	return id, role, ok
+}
+
+// CircleMembersOf returns a copy of the members of circle id and the leader's aid (ok false when there is no circle).
+func CircleMembersOf(id int64) (members []store.CircleMember, master string, ok bool) {
+	_ = circleBookTx(false, func(b *store.CircleBook) error {
+		if ci := circleIndex(b, id); ci >= 0 {
+			c := &b.Circles[ci]
+			members, master, ok = slices.Clone(c.Members), leaderAid(c), true
+		}
+		return nil
+	})
+	return members, master, ok
+}
+
+// CircleChangeAuth makes targets vice-leaders (vice true) or plain members (false). Only the leader does this (arts
+// 5210/5211 [S-str]), and the leader is never changed. It returns the changed members as they now are.
+func CircleChangeAuth(actor string, id int64, targets []string, vice bool) ([]store.CircleMember, error) {
+	targets = uniqueAids(targets)
+	var changed []store.CircleMember
+	err := circleBookTx(true, func(b *store.CircleBook) error {
+		ci := circleIndex(b, id)
+		if ci < 0 {
+			return circleRefuse(circleErrNotFound)
+		}
+		c := &b.Circles[ci]
+		if roleOf(c, actor) != roleLeader {
+			return circleRefuse(circleErrRights)
+		}
+		for _, t := range targets {
+			mi := memberIndex(c, t)
+			if mi < 0 {
+				return circleRefuse(circleErrNotFound)
+			}
+			if c.Members[mi].Role == roleLeader {
+				return circleRefuse(circleErrRights)
+			}
+		}
+		want := roleMember
+		if vice {
+			want = roleVice
+		}
+		for _, t := range targets {
+			mi := memberIndex(c, t)
+			c.Members[mi].Role = want
+			changed = append(changed, c.Members[mi])
+		}
+		return nil
+	})
+	return changed, err
+}
+
+// CircleTransferMaster hands the leadership to target, a member other than the leader, and the leader becomes a plain
+// member (the client does not say what the old leader becomes; plain member is Cherry's choice [I]). Only the leader
+// does this. It returns the new leader and the old one as they now are.
+func CircleTransferMaster(actor string, id int64, target string) ([]store.CircleMember, error) {
+	var changed []store.CircleMember
+	err := circleBookTx(true, func(b *store.CircleBook) error {
+		ci := circleIndex(b, id)
+		if ci < 0 {
+			return circleRefuse(circleErrNotFound)
+		}
+		c := &b.Circles[ci]
+		if roleOf(c, actor) != roleLeader {
+			return circleRefuse(circleErrRights)
+		}
+		if target == actor {
+			return circleRefuse(circleErrBadRequest)
+		}
+		ti, ai := memberIndex(c, target), memberIndex(c, actor)
+		if ti < 0 {
+			return circleRefuse(circleErrNotFound)
+		}
+		c.Members[ti].Role = roleLeader
+		c.Members[ai].Role = roleMember
+		changed = []store.CircleMember{c.Members[ti], c.Members[ai]}
+		return nil
+	})
+	return changed, err
+}
+
+// CircleFire removes targets from circle id (cs_member_fire_req). The leader removes any member but the leader itself.
+// A vice-leader removes plain members only: the client shows its kick button on every row for a vice (ShowMenu reads
+// only the viewer's level), so this is the guard. Removal starts no leave cooldown [I]. It returns the removed aids.
+func CircleFire(actor string, id int64, targets []string) ([]string, error) {
+	targets = uniqueAids(targets)
+	var removed []string
+	err := circleBookTx(true, func(b *store.CircleBook) error {
+		ci := circleIndex(b, id)
+		if ci < 0 {
+			return circleRefuse(circleErrNotFound)
+		}
+		c := &b.Circles[ci]
+		actorRole := roleOf(c, actor)
+		if actorRole != roleLeader && actorRole != roleVice {
+			return circleRefuse(circleErrRights)
+		}
+		for _, t := range targets {
+			mi := memberIndex(c, t)
+			if mi < 0 {
+				return circleRefuse(circleErrNotFound)
+			}
+			switch c.Members[mi].Role {
+			case roleLeader:
+				return circleRefuse(circleErrRights)
+			case roleVice:
+				if actorRole != roleLeader {
+					return circleRefuse(circleErrRights)
+				}
+			}
+		}
+		c.Members = slices.DeleteFunc(c.Members, func(m store.CircleMember) bool { return slices.Contains(targets, m.Aid) })
+		removed = targets
+		return nil
+	})
+	return removed, err
 }

@@ -95,6 +95,8 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 	var tlupSession [8]byte // the latest agent-5 TLUP D session on this connection
 	rp := &roomPartySession{conn: conn, logger: logger, tlup: &tlupSession}
 	defer rp.close()
+	circle := &circleSession{rooms: defaultCircleRooms, chats: defaultCircleChats, conn: conn, logger: logger} // agent 8 (circle.go)
+	defer circle.close()
 	hard := time.Now().Add(gatewayTTL)
 	gardenControlSent := false
 	gardenRoomEntered := false
@@ -237,6 +239,12 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 				logger.Printf("OBS %s open-control remote=%s agent=10", addr, remote)
 				continue
 			}
+			if agent == circleAgent {
+				if err := circle.handleOpen(frame); err != nil {
+					return
+				}
+				continue
+			}
 			if agent == roomPartyAgent {
 				if err := rp.handleOpen(frame); err != nil {
 					return
@@ -272,6 +280,15 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 				}
 				if rp.loggedIn {
 					hard = time.Time{} // Keep Room Party connected until the client disconnects.
+				}
+				continue
+			}
+			if agent == circleAgent {
+				if err := circle.handleData(frame); err != nil {
+					return
+				}
+				if circle.loggedIn {
+					hard = time.Time{} // Keep the circle room connected until the client disconnects.
 				}
 				continue
 			}

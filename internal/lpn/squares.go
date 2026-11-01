@@ -105,7 +105,9 @@ func (s *Squares) entry(theme uint64) Square {
 // spawnPx is the game-px position of the spawn tile: X=40*(wx-wy+N), Y=20*(2N-1-wx-wy) with N the map
 // size. Checked: City (93,80)->(6920,2920), petrace (89,97)->(6080,2660) (racing-spec T2).
 // Runway's N=180 (its map size) is [I].
-func (sq Square) spawnPx() (uint64, uint64) {
-	n := sq.MapSize
-	return 40 * (sq.Spawn.X + n - sq.Spawn.Y), 20 * (2*n - 1 - sq.Spawn.X - sq.Spawn.Y)
+func (sq Square) spawnPx() (uint64, uint64) { return tilePx(sq.MapSize, sq.Spawn) }
+
+// tilePx is tile t of a map n tiles per side in game px (the same conversion for Squares and the circle room).
+func tilePx(n uint64, t Tile) (uint64, uint64) {
+	return 40 * (t.X + n - t.Y), 20 * (2*n - 1 - t.X - t.Y)
 }
