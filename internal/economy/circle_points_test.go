@@ -78,7 +78,7 @@ func cptCircle(t *testing.T) int64 {
 		t.Fatal(err)
 	}
 	for _, aid := range []string{"3002", "3003"} {
-		if err := JoinCircle("ctok-"+aid, c.ID, cptFounded()); err != nil {
+		if err := circleJoin("ctok-"+aid, c.ID, cptFounded()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -151,7 +151,7 @@ func TestCirclePointsMidSeasonJoinerEarnsNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := JoinCircle("ctok-3002", c.ID, cptDay(1)); err != nil {
+	if err := circleJoin("ctok-3002", c.ID, cptDay(1)); err != nil {
 		t.Fatal(err)
 	}
 	if n := CirclePointEarn("3002", "garden", cptDay(2)); n != 0 {
@@ -251,7 +251,7 @@ func TestCircleUpgradeSpendAndCap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := JoinCircle("ctok-3002", c.ID, cptFounded()); err != nil {
+	if err := circleJoin("ctok-3002", c.ID, cptFounded()); err != nil {
 		t.Fatal(err)
 	}
 	now := cptDay(1)
@@ -313,17 +313,17 @@ func TestCircleCapFillsAndUpgrades(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 29; i++ { // 29 members and the leader: 30
-		if err := JoinCircle(fmt.Sprintf("ctok-31%02d", i), c.ID, cptFounded()); err != nil {
+		if err := circleJoin(fmt.Sprintf("ctok-31%02d", i), c.ID, cptFounded()); err != nil {
 			t.Fatalf("join %d: %v", i, err)
 		}
 	}
-	if err := JoinCircle("ctok-3129", c.ID, cptFounded()); !isRefusal(err, circleErrGeneric) {
+	if err := circleJoin("ctok-3129", c.ID, cptFounded()); !isRefusal(err, circleErrGeneric) {
 		t.Fatalf("31st join at the base cap: %v", err)
 	}
 	if _, err := BuyCircleUpgrade("3001", "cherry_circle_cap_40", "GEM", "", 1000, cptDay(1)); err != nil {
 		t.Fatalf("upgrade: %v", err)
 	}
-	if err := JoinCircle("ctok-3129", c.ID, cptDay(1)); err != nil {
+	if err := circleJoin("ctok-3129", c.ID, cptDay(1)); err != nil {
 		t.Fatalf("31st join after the upgrade: %v", err)
 	}
 	if n := len(circleMembersForTest(t, c.ID)); n != 31 {
@@ -384,10 +384,10 @@ func TestCircleHTTPHooksReportSavedChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := JoinCircle("ctok-3002", c.ID, cptDay(0)); err != nil {
+	if err := circleJoin("ctok-3002", c.ID, cptDay(0)); err != nil {
 		t.Fatal(err)
 	}
-	if err := JoinCircle("ctok-3002", c.ID, cptDay(0)); err == nil || len(events) != 1 {
+	if err := circleJoin("ctok-3002", c.ID, cptDay(0)); err == nil || len(events) != 1 {
 		t.Fatalf("a refused join reported: events %+v err %v", events, err)
 	}
 	if err := LeaveCircle("ctok-3002", c.ID, cptDay(0)); err != nil {
@@ -396,7 +396,7 @@ func TestCircleHTTPHooksReportSavedChanges(t *testing.T) {
 	if len(events) != 2 || !slices.Equal(events[1].Left, []string{"3002"}) || events[1].Closed {
 		t.Fatalf("leave event = %+v", events)
 	}
-	if err := JoinCircle("ctok-3003", c.ID, cptDay(0)); err != nil {
+	if err := circleJoin("ctok-3003", c.ID, cptDay(0)); err != nil {
 		t.Fatal(err)
 	}
 	if err := CloseCircle("ctok-3001", c.ID); err != nil {

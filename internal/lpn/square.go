@@ -1,6 +1,7 @@
 package lpn
 
 import (
+	"cherry/internal/itemcode"
 	"encoding/binary"
 	"log"
 	"net"
@@ -74,28 +75,16 @@ func squareThemeInfo(sq Square, count uint64) []byte {
 	return pbLen(theme, 19, []byte("ALL"))
 }
 
-// squareItemPrefix maps an item code's category (code[2:4]) to its numeric
-// resource-id prefix, from the restored item/{custom,dress}/<id> directories.
-// The numeric id is prefix*100000 + base36(code[4:9]); this reproduces all four
-// device-confirmed ids (e.g. CUON004TV -> 225106259).
-var squareItemPrefix = map[string]uint64{
-	"HE": 2238, "EB": 2240, "EY": 2241, "NO": 2242, "MO": 2243, "HA": 2244,
-	"TO": 2250, "ON": 2251, "PA": 2252, "SH": 2253, "AH": 2254, "AE": 2255, "FE": 2256,
-}
-
+// SquareNumericItem is the numeric resource id of a cosmetic item code (attribute C: human CU and animal CA codes, faces
+// and animal skin/ears/tail included), the client's id formula in itemcode.ID. The first version mapped only CU codes,
+// so an animal avatar arrived with no items and drew as a blank body on other players' screens (Circle room, device
+// 2026-11-01); the same helper feeds Square and Garden visit rosters.
 func SquareNumericItem(code string) (uint64, bool) {
-	if len(code) != 9 || code[:2] != "CU" {
+	if len(code) != 9 || code[0] != 'C' {
 		return 0, false
 	}
-	prefix, ok := squareItemPrefix[code[2:4]]
-	if !ok {
-		return 0, false
-	}
-	n, err := strconv.ParseUint(code[4:], 36, 64)
-	if err != nil || n >= 100000 {
-		return 0, false
-	}
-	return prefix*100000 + n, true
+	n, ok := itemcode.ID(code)
+	return uint64(n), ok
 }
 
 // lockedConn serialises whole-frame writes (handler replies and other

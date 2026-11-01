@@ -370,7 +370,7 @@ func handleCircle(w http.ResponseWriter, r *http.Request) {
 	case "GET visit/#":
 		circleReadReply(w, token, func(acc *store.Account, b *store.CircleBook) (any, error) { return visitView(acc.Aid, b, nums[0]) })
 	case "POST apply/join/#":
-		writeCircleDone(w, JoinCircle(token, nums[0], now))
+		writeCircleDone(w, JoinCircle(token, nums[0], r.URL.Query().Get("cancleAndApplyYn") == "true", now))
 	case "POST apply/join/cancel/#":
 		writeCircleDone(w, CancelApply(token, nums[0]))
 	case "POST apply/join/#/approval/#":
@@ -707,9 +707,11 @@ func visitView(viewer string, b *store.CircleBook, id int64) (any, error) {
 	if mi := circleOf(b, viewer); mi >= 0 {
 		joined = circleIDText(b.Circles[mi].ID)
 	}
-	applied := ""
-	if applyIndex(c, viewer) >= 0 {
-		applied = circleIDText(c.ID)
+	applied := "" // the viewer's pending application, to any circle
+	for i := range b.Circles {
+		if applyIndex(&b.Circles[i], viewer) >= 0 {
+			applied = circleIDText(b.Circles[i].ID)
+		}
 	}
 	return circleDetailJSON{
 		CircleMasterExt:     circleInfoView(c),

@@ -396,12 +396,13 @@ func TestSquarePositionInfo(t *testing.T) {
 func TestSquareNumericItem(t *testing.T) {
 	for code, want := range map[string]uint64{
 		"CUHA0036Z": 224404139, "CUON004TV": 225106259, "CUSH00267": 225302815, "CUAH004JH": 225405885,
+		"CAFA0005O": 233900204, "CAEY0000G": 234100016, // animal skin and eyes: 2e8 + 3e7 (type A) + category*1e5 + base36
 	} {
 		if got, ok := SquareNumericItem(code); !ok || got != want {
 			t.Fatalf("%s = %d %v, want %d", code, got, ok, want)
 		}
 	}
-	for _, bad := range []string{"", "CUXX00001", "XXON004TV", "CUON004T", "CUON004T!"} {
+	for _, bad := range []string{"", "CUXX00001", "XXON004TV", "CUON004T", "CUON004T!", "RUWA000HR"} {
 		if _, ok := SquareNumericItem(bad); ok {
 			t.Fatalf("%q accepted", bad)
 		}

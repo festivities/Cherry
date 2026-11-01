@@ -875,7 +875,10 @@ func TestCircleHTTPChangesReachTheRoom(t *testing.T) {
 	member.joined()
 	leader.expectID(circleRcAddUser)
 
-	if err := economy.JoinCircle("t-1106", a, time.Now()); err != nil {
+	if err := economy.JoinCircle("t-1106", a, false, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := economy.ApproveApply("t-1101", a, "1106", time.Now()); err != nil { // an OPEN circle's join needs approval
 		t.Fatal(err)
 	}
 	for _, c := range []*cirClient{leader, member} {

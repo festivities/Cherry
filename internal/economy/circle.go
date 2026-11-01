@@ -669,9 +669,12 @@ func notifyCircleRoom(ev CircleRoomEvent) {
 	}
 }
 
-// JoinCircle is POST circle/apply/join/<id>: an OPEN circle takes the player at once; an INVITE circle takes only an
-// invited player (who thereby uses the invitation). Anything else is refused as not found.
-func JoinCircle(token string, id int64, now time.Time) error {
+// JoinCircle is POST circle/apply/join/<id>?cancleAndApplyYn=: an OPEN circle records an application that the
+// leader or a vice-leader approves (the client's own popup after "Send Request" says "Once the Circle leader approves
+// your request, you will become a Circle member", device 2026-11-01); an INVITE circle takes an invited player at once
+// (who thereby uses the invitation) and refuses anyone else as not found. A player holds at most one application:
+// another circle's application is withdrawn when cancelOthers is set (the client's cancleAndApplyYn=true), else refused.
+func JoinCircle(token string, id int64, cancelOthers bool, now time.Time) error {
 	var joined string
 	err := circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
 		ci := circleIndex(b, id)
@@ -679,13 +682,34 @@ func JoinCircle(token string, id int64, now time.Time) error {
 			return nil, circleRefuse(circleErrNotFound)
 		}
 		c := &b.Circles[ci]
-		if c.JoinType != circleOpen && inviteIndex(c, acc.Aid) < 0 {
-			return nil, circleRefuse(circleErrNotFound)
+		if c.JoinType != circleOpen {
+			if inviteIndex(c, acc.Aid) < 0 {
+				return nil, circleRefuse(circleErrNotFound)
+			}
+			joined = acc.Aid
+			return nil, joinCircleAt(b, ci, acc.Aid, now)
 		}
-		joined = acc.Aid
-		return nil, joinCircleAt(b, ci, acc.Aid, now)
+		if circleOf(b, acc.Aid) >= 0 {
+			return nil, circleRefuse(circleErrInCircle)
+		}
+		if cooldownActive(b, acc.Aid, now) {
+			return nil, circleRefuse(circleErrCooldown)
+		}
+		if applyIndex(c, acc.Aid) >= 0 {
+			return nil, nil // already waiting here
+		}
+		for i := range b.Circles {
+			if i != ci && applyIndex(&b.Circles[i], acc.Aid) >= 0 {
+				if !cancelOthers {
+					return nil, circleRefuse(circleErrGeneric)
+				}
+				b.Circles[i].Applies = slices.DeleteFunc(b.Circles[i].Applies, func(x store.CircleApply) bool { return x.Aid == acc.Aid })
+			}
+		}
+		c.Applies = append(c.Applies, store.CircleApply{Aid: acc.Aid, Date: now.UnixMilli()})
+		return nil, nil
 	})
-	if err == nil {
+	if err == nil && joined != "" {
 		notifyCircleRoom(CircleRoomEvent{Circle: id, Joined: []string{joined}})
 	}
 	return err
@@ -729,7 +753,7 @@ func CancelApply(token string, id int64) error {
 	})
 }
 
-// ApproveApply is POST circle/apply/join/<id>/approval/<aid>: a leader admits an applicant.
+// ApproveApply is POST circle/apply/join/<id>/approval/<aid>: the leader or a vice-leader admits an applicant.
 func ApproveApply(token string, id int64, target string, now time.Time) error {
 	err := circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
 		ci := circleIndex(b, id)
@@ -737,7 +761,7 @@ func ApproveApply(token string, id int64, target string, now time.Time) error {
 			return nil, circleRefuse(circleErrNotFound)
 		}
 		c := &b.Circles[ci]
-		if roleOf(c, acc.Aid) != roleLeader {
+		if !canInvite(c, acc.Aid) {
 			return nil, circleRefuse(circleErrRights)
 		}
 		ai := applyIndex(c, target)
@@ -761,7 +785,7 @@ func RefuseApply(token string, id int64, target string) error {
 			return nil, circleRefuse(circleErrNotFound)
 		}
 		c := &b.Circles[ci]
-		if roleOf(c, acc.Aid) != roleLeader {
+		if !canInvite(c, acc.Aid) {
 			return nil, circleRefuse(circleErrRights)
 		}
 		ai := applyIndex(c, target)

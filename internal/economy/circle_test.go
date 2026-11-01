@@ -251,7 +251,7 @@ func TestLeaveStartsCooldownBeforeAnotherJoin(t *testing.T) {
 	if _, err := CreateCircle("ctok-1101", circValidCreate("Alpha"), circNow); err != nil {
 		t.Fatal(err)
 	}
-	if err := JoinCircle("ctok-1102", 1940000001, circNow); err != nil {
+	if err := circleJoin("ctok-1102", 1940000001, circNow); err != nil {
 		t.Fatalf("open join: %v", err)
 	}
 	if err := LeaveCircle("ctok-1102", 1940000001, circNow); err != nil {
@@ -263,10 +263,10 @@ func TestLeaveStartsCooldownBeforeAnotherJoin(t *testing.T) {
 	if _, err := CreateCircle("ctok-1102", circValidCreate("Beta"), circNow.Add(23*time.Hour+59*time.Minute)); !isRefusal(err, 190215) {
 		t.Fatalf("create inside the cooldown: err = %v, want 190215", err)
 	}
-	if err := JoinCircle("ctok-1102", 1940000001, circNow.Add(time.Hour)); !isRefusal(err, 190215) {
+	if err := circleJoin("ctok-1102", 1940000001, circNow.Add(time.Hour)); !isRefusal(err, 190215) {
 		t.Fatalf("join inside the cooldown: err = %v, want 190215", err)
 	}
-	if err := JoinCircle("ctok-1102", 1940000001, circNow.Add(24*time.Hour)); err != nil {
+	if err := circleJoin("ctok-1102", 1940000001, circNow.Add(24*time.Hour)); err != nil {
 		t.Fatalf("join after the cooldown: %v", err)
 	}
 	if circAidCircle("1102") != 1940000001 {
@@ -289,7 +289,7 @@ func TestInviteOnlyCircleTakesInvitedFriendsOnly(t *testing.T) {
 	if _, err := CreateCircle("ctok-1101", req, circNow); err != nil {
 		t.Fatal(err)
 	}
-	if err := JoinCircle("ctok-1102", 1940000001, circNow); !isRefusal(err, 190201) {
+	if err := circleJoin("ctok-1102", 1940000001, circNow); !isRefusal(err, 190201) {
 		t.Fatalf("join without an invitation: err = %v, want 190201", err)
 	}
 	if err := InviteCircle("ctok-1101", 1940000001, "1102", circNow); !isRefusal(err, 190002) {
@@ -311,7 +311,7 @@ func TestInviteOnlyCircleTakesInvitedFriendsOnly(t *testing.T) {
 	if err := InviteCircle("ctok-1101", 1940000001, "1102", circNow); !isRefusal(err, 190002) {
 		t.Fatalf("invite a member: err = %v, want 190002", err)
 	}
-	if err := JoinCircle("ctok-1103", 1940000001, circNow); !isRefusal(err, 190201) {
+	if err := circleJoin("ctok-1103", 1940000001, circNow); !isRefusal(err, 190201) {
 		t.Fatalf("join after the invitation was used: err = %v, want 190201", err)
 	}
 }
@@ -327,11 +327,11 @@ func TestCircleCapIsThirtyMembers(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 1; i <= 29; i++ {
-		if err := JoinCircle(fmt.Sprintf("ctok-20%02d", i), 1940000001, circNow); err != nil {
+		if err := circleJoin(fmt.Sprintf("ctok-20%02d", i), 1940000001, circNow); err != nil {
 			t.Fatalf("joiner %d: %v", i, err)
 		}
 	}
-	if err := JoinCircle("ctok-2030", 1940000001, circNow); !isRefusal(err, 10077) {
+	if err := circleJoin("ctok-2030", 1940000001, circNow); !isRefusal(err, 10077) {
 		t.Fatalf("31st member: err = %v, want refusal", err)
 	}
 	store.CirclesMu.Lock()
@@ -349,7 +349,7 @@ func TestCloseIsLeaderOnlyAndFreesMembers(t *testing.T) {
 	if _, err := CreateCircle("ctok-1101", circValidCreate("Doomed"), circNow); err != nil {
 		t.Fatal(err)
 	}
-	if err := JoinCircle("ctok-1102", 1940000001, circNow); err != nil {
+	if err := circleJoin("ctok-1102", 1940000001, circNow); err != nil {
 		t.Fatal(err)
 	}
 	if err := CloseCircle("ctok-1102", 1940000001); !isRefusal(err, 190212) {
@@ -418,7 +418,7 @@ func TestModifyCircleLeaderOnlyAndNameFixed(t *testing.T) {
 	if _, err := CreateCircle("ctok-1101", circValidCreate("Stable"), circNow); err != nil {
 		t.Fatal(err)
 	}
-	if err := JoinCircle("ctok-1102", 1940000001, circNow); err != nil {
+	if err := circleJoin("ctok-1102", 1940000001, circNow); err != nil {
 		t.Fatal(err)
 	}
 	ok := CircleModifyRequest{CircleID: 1940000001, CircleName: "Stable", CircleIntroduce: "new", LogoID: 1940001001, LogoBgID: 1940001101, JoinType: "INVITE", InterestCodeList: []int64{201}}
@@ -438,5 +438,76 @@ func TestModifyCircleLeaderOnlyAndNameFixed(t *testing.T) {
 	store.CirclesMu.Unlock()
 	if c.Intro != "new" || c.JoinType != "INVITE" || !slices.Equal(c.Interests, []int64{201}) || c.Name != "Stable" {
 		t.Fatalf("after modify: %+v", c)
+	}
+}
+
+// circleJoin joins token's avatar to circle id the way the client does: POST apply/join (an OPEN circle records an
+// application; an INVITE circle with an invitation joins at once), then, for an application, the leader's approval
+// (POST apply/join/<id>/approval/<aid>). A refusal of either step is returned.
+func circleJoin(token string, id int64, now time.Time) error {
+	if err := JoinCircle(token, id, false, now); err != nil {
+		return err
+	}
+	store.AccountsMu.Lock()
+	acc := store.Accounts[token]
+	aid := ""
+	if acc != nil {
+		aid = acc.Aid
+	}
+	store.CirclesMu.Lock()
+	leader := ""
+	if ci := circleIndex(&store.CircleState, id); ci >= 0 && applyIndex(&store.CircleState.Circles[ci], aid) >= 0 {
+		leader = leaderAid(&store.CircleState.Circles[ci])
+	}
+	store.CirclesMu.Unlock()
+	leaderToken := ""
+	for tok, a := range store.Accounts {
+		if leader != "" && a.Aid == leader {
+			leaderToken = tok
+		}
+	}
+	store.AccountsMu.Unlock()
+	if leaderToken == "" {
+		return nil // joined at once (invitation) or nothing to approve
+	}
+	return ApproveApply(leaderToken, id, aid, now)
+}
+
+// TestOpenJoinIsAnApplication: a request to an OPEN circle waits for the leader or a vice-leader; the visit shows the
+// pending circle; a second circle's request is refused unless cancleAndApplyYn swaps it; a plain member cannot approve.
+func TestOpenJoinIsAnApplication(t *testing.T) {
+	circFixture(t, map[string]int64{"1101": 6000, "1102": 6000, "1103": 0, "1104": 0})
+	for _, c := range []struct{ tok, name string }{{"ctok-1101", "Alpha"}, {"ctok-1102", "Beta"}} {
+		if _, err := CreateCircle(c.tok, circValidCreate(c.name), circNow); err != nil {
+			t.Fatal(err)
+		}
+	}
+	alpha, beta := int64(1940000001), int64(1940000002)
+	if err := JoinCircle("ctok-1103", alpha, false, circNow); err != nil || circAidCircle("1103") != 0 {
+		t.Fatalf("apply: err %v, circle %d (want pending, no membership)", err, circAidCircle("1103"))
+	}
+	store.CirclesMu.Lock()
+	view, _ := visitView("1103", &store.CircleState, beta)
+	store.CirclesMu.Unlock()
+	if view.(circleDetailJSON).AppliedJoinCircleID != "1940000001" {
+		t.Fatalf("visit of another circle: appliedJoinCircleId = %q", view.(circleDetailJSON).AppliedJoinCircleID)
+	}
+	if err := JoinCircle("ctok-1103", beta, false, circNow); !isRefusal(err, circleErrGeneric) {
+		t.Fatalf("second application without cancleAndApplyYn: %v", err)
+	}
+	if err := JoinCircle("ctok-1103", beta, true, circNow); err != nil {
+		t.Fatalf("swap with cancleAndApplyYn: %v", err)
+	}
+	if err := ApproveApply("ctok-1101", alpha, "1103", circNow); !isRefusal(err, circleErrNotFound) {
+		t.Fatalf("approval of a withdrawn application: %v", err)
+	}
+	if err := circleJoin("ctok-1104", beta, circNow); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApproveApply("ctok-1104", beta, "1103", circNow); !isRefusal(err, circleErrRights) {
+		t.Fatalf("a plain member approved: %v", err)
+	}
+	if err := ApproveApply("ctok-1102", beta, "1103", circNow); err != nil || circAidCircle("1103") != beta {
+		t.Fatalf("leader approval: err %v, circle %d", err, circAidCircle("1103"))
 	}
 }

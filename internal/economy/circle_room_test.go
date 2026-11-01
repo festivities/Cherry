@@ -11,7 +11,7 @@ func circRoleCircle(t *testing.T) int64 {
 		t.Fatalf("create: %v", err)
 	}
 	for _, aid := range []string{"1102", "1103", "1104"} {
-		if err := JoinCircle("ctok-"+aid, c.ID, circNow); err != nil {
+		if err := circleJoin("ctok-"+aid, c.ID, circNow); err != nil {
 			t.Fatalf("join %s: %v", aid, err)
 		}
 	}
