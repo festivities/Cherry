@@ -795,8 +795,14 @@ func TestCirclePointsOverTheWire(t *testing.T) {
 	if after := cirBytes(body, 3); cirVar(after, 1) != 1 || cirVar(after, 2) != 1 || cirVar(after, 6) != 300 {
 		t.Fatalf("point state after the claim = %x, want step 1 reached and claimed, target 300", after)
 	}
-	if items := cirList(cirBytes(body, 2), 2); len(items) != 1 || cirVar(items[0], 4) != 50 {
-		t.Fatalf("step 1 reward rows = %x, want one row of 50", items)
+	if got := cirVar(cirBytes(body, 2), 1); got != 2 {
+		t.Fatalf("RewardType = %d, want 2 (the client draws no other)", got)
+	}
+	if items := cirList(cirBytes(body, 2), 2); len(items) != 1 || cirVar(items[0], 1) != 4 || cirVar(items[0], 4) != 50 {
+		t.Fatalf("step 1 reward rows = %x, want one Gem row of 50", items)
+	}
+	if !takeMoneySync(1101) || takeMoneySync(1101) {
+		t.Fatal("a paid claim must queue exactly one balance refresh")
 	}
 	if g := cirGems(t, "1101"); g != 50 {
 		t.Fatalf("leader gems after step 1 = %d, want 50", g)

@@ -843,6 +843,7 @@ func (s *circleSession) pointReward(frame, data []byte) error {
 		return s.reply(frame, circleRcPointReward, pbVar(nil, 1, circlePointRefused))
 	}
 	s.logger.Printf("CIRCLE point reward aid=%d seq=%d gems=%d", s.aid, seq, gems)
+	queueMoneySync(uint64(s.aid)) // the client refetches its balance from no agent-8 message, so the next Garden does it
 	info := economy.CirclePointInfoOf(s.aidText(), economy.NowFunc())
 	body := pbLen(pbVar(nil, 1, 0), 2, circleGemRewardInfo(gems))
 	return s.reply(frame, circleRcPointReward, pbLen(body, 3, circlePointInfoBytes(info)))
@@ -884,14 +885,14 @@ func circlePointInfoBytes(v economy.CirclePointInfoView) []byte {
 	return pbVar(b, 9, uint64(v.AvailSessionAttendYn))
 }
 
-// circleGemRewardInfo encodes RewardInfo for a Gem step: 1 RewardType, 2 ItemList (one RewardItemInfo: ViewMessage
-// names the amount, ViewCount is the amount, no item code), 3 TopMessage. The texts are Cherry's [I]: the client's
-// reward popup text for point steps was not traced.
+// circleGemRewardInfo encodes RewardInfo for a Gem step: 1 RewardType 2 (the only value ShowCircleReward 0x24fdc64 draws
+// [S]), 2 ItemList (one RewardItemInfo: ViewType 4 = the Gem coin frame, ViewMessage names the amount, ViewCount is the
+// amount), 3 TopMessage. The texts are Cherry's.
 func circleGemRewardInfo(gems int64) []byte {
-	item := pbVar(nil, 1, 0)
+	item := pbVar(nil, 1, 4)
 	item = pbLen(item, 2, []byte("+"+strconv.FormatInt(gems, 10)+" Gems"))
 	item = pbVar(item, 4, uint64(gems))
-	b := pbVar(nil, 1, 1)
+	b := pbVar(nil, 1, 2)
 	b = pbLen(b, 2, item)
 	return pbLen(b, 3, []byte("Circle reward"))
 }

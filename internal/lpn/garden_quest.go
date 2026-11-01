@@ -188,6 +188,27 @@ func takeQuestNotices(aid uint64) []economy.QuestDef {
 	return defs
 }
 
+// moneySyncs holds the aids paid outside the Garden with no client balance refresh; their next Garden relay-start sends one.
+var moneySyncs = struct {
+	sync.Mutex
+	m map[uint64]bool
+}{m: map[uint64]bool{}}
+
+func queueMoneySync(aid uint64) {
+	moneySyncs.Lock()
+	defer moneySyncs.Unlock()
+	moneySyncs.m[aid] = true
+}
+
+// takeMoneySync reports and clears aid's pending balance refresh.
+func takeMoneySync(aid uint64) bool {
+	moneySyncs.Lock()
+	defer moneySyncs.Unlock()
+	pending := moneySyncs.m[aid]
+	delete(moneySyncs.m, aid)
+	return pending
+}
+
 // gardenQuestVisit marks the Garden visit quest for a room-enter: the viewer's own Garden or
 // a friend's.
 func gardenQuestVisit(viewer, owner uint64) {
@@ -215,8 +236,8 @@ func gardenQuestPush(conn *lockedConn, frame []byte, def economy.QuestDef, logge
 // hc_quest_call_npc_res (28, ErrorCode 0): its handler calls NaMoneySpotManager::SyncMoneyInfo,
 // which refetches coin/balance so the credited Gems reach the client without a scene change
 // (quest-gaps.txt Q1; it only closes the NPC-call popup if one is open).
-func gardenQuestNotify(conn *lockedConn, frame []byte, defs []economy.QuestDef, logger *log.Logger) error {
-	if len(defs) == 0 {
+func gardenQuestNotify(conn *lockedConn, frame []byte, defs []economy.QuestDef, moneySync bool, logger *log.Logger) error {
+	if len(defs) == 0 && !moneySync {
 		return nil
 	}
 	for _, def := range defs {

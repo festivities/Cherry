@@ -360,7 +360,7 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 				gardenRelayStarted = true
 				hard = time.Time{} // Keep the entered Garden connected until the client disconnects.
 				// The completion notice waits for relay-start: the client lists quests itself after entering.
-				if err := gardenQuestNotify(conn, frame, takeQuestNotices(gardenLoginAid), logger); err != nil {
+				if err := gardenQuestNotify(conn, frame, takeQuestNotices(gardenLoginAid), takeMoneySync(gardenLoginAid), logger); err != nil {
 					logger.Printf("OBS %s garden-quest push remote=%s err=%v", addr, remote, err)
 					return
 				}
