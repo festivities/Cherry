@@ -86,7 +86,7 @@ func (s *treasureSession) missionClaim(frame, data []byte) error {
 	}
 	d := economy.ActiveTreasureData()
 	body := pbVar(nil, 1, 0)
-	body = pbLen(body, 2, treasureRewardInfo(fmt.Sprintf("+%d %s", claim.Paid, d.Names.Coin), claim.Paid))
+	body = pbLen(body, 2, treasureRewardInfo(fmt.Sprintf("+%d %s", claim.Paid, d.Names.Coin), treasureViewCoin, claim.Paid))
 	body = pbLen(body, 3, treasureMissionRow(claim.Row))
 	s.logger.Printf("TREASURE msgid=17 mission aid=%d seq=%d jewels=%d result=0", s.aid, seq, claim.Paid)
 	return s.reply(frame, treasureRcAchievementReward, body)
@@ -107,7 +107,7 @@ func (s *treasureSession) questClaim(frame, data []byte) error {
 	}
 	d := economy.ActiveTreasureData()
 	body := pbVar(nil, 1, 0)
-	body = pbLen(body, 3, treasureRewardInfo(fmt.Sprintf("+%d %s", claim.Paid, d.Names.Ticket), claim.Paid))
+	body = pbLen(body, 3, treasureRewardInfo(fmt.Sprintf("+%d %s", claim.Paid, d.Names.Ticket), treasureViewTicket, claim.Paid))
 	body = pbVar(body, 4, uint64(claim.View.Tickets))
 	body = pbVar(body, 5, uint64(claim.View.Max))
 	body = pbVar(body, 6, uint64(claim.View.RemainSeconds))

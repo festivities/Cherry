@@ -31,7 +31,7 @@ var (
 	}
 	treEnter   = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 2, req: true, msg: treSeason}, 4: {wire: 2, rep: true, msg: treCell}, 5: {wire: 0, req: true}}
 	treOwn     = lpMsg{1: {wire: 0}, 2: {wire: 2}, 3: {wire: 0}, 9: {wire: 2}}
-	treRelay   = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 0, req: true}, 4: {wire: 0, req: true}, 5: {wire: 0, req: true}, 6: {wire: 0, req: true}, 8: {wire: 2, msg: treOwn}, 9: {wire: 2, req: true, msg: treCell}}
+	treRelay   = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 0, req: true}, 4: {wire: 0, req: true}, 5: {wire: 0, req: true}, 6: {wire: 0, req: true}, 8: {wire: 2, msg: treOwn}, 9: {wire: 2, req: true, msg: treCell}, 11: {wire: 2, msg: treMyRank}}
 	treItem    = lpMsg{1: {wire: 0}, 2: {wire: 2}, 3: {wire: 2}, 4: {wire: 0}}
 	treReward  = lpMsg{1: {wire: 0}, 2: {wire: 2, rep: true, msg: treItem}, 5: {wire: 2}}
 	treCoin    = lpMsg{1: {wire: 0, req: true}}

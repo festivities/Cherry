@@ -314,6 +314,7 @@ func (s *treasureSession) relayStart(frame []byte) error {
 	body = pbVar(body, 6, uint64(view.Jewels))
 	body = pbLen(body, 8, treasureOwnAvatar(s.aid))
 	body = pbLen(body, 9, treasureCellInfo(d.Cell(view.Position)))
+	body = pbLen(body, 11, treasureMyRank(s.aid)) // MyRankingInfo: f2 RankingPoint feeds the gold trophy counter (DM+64)
 	s.logger.Printf("TREASURE msgid=3 relaystart aid=%d tickets=%d/%d remain=%ds jewels=%d position=%d result=0",
 		s.aid, view.Tickets, view.Max, view.RemainSeconds, view.Jewels, view.Position)
 	return s.reply(frame, treasureRcRelayStart, body)

@@ -12,7 +12,7 @@ import (
 // cells.md 2.1, 3.1 to 3.3, 4.3 and 6.4, transport-money.md 4 and the decompiles lp_LP_sc_*.c.
 var (
 	treMyRank       = lpMsg{1: {wire: 0}, 2: {wire: 0}, 3: {wire: 2}, 5: {wire: 0}}
-	treSixRes       = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0}, 3: {wire: 2}, 4: {wire: 2, msg: treMyRank}, 5: {wire: 2, msg: treDetail}}
+	treSixRes       = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0}, 3: {wire: 2, msg: treMyRank}, 4: {wire: 2, msg: treDetail}, 5: {wire: 2}}
 	treSevenRes     = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2}, 3: {wire: 0}, 4: {wire: 0}, 5: {wire: 2, msg: treDetail}}
 	treResetInfoRes = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2}, 3: {wire: 0}, 4: {wire: 0}}
 	treRankRow      = lpMsg{1: {wire: 0}, 2: {wire: 0}, 3: {wire: 0}, 4: {wire: 2}, 7: {wire: 2}, 8: {wire: 0}}
@@ -92,13 +92,13 @@ func TestTreasureExchangeAndResetOverTheGateway(t *testing.T) {
 
 	g.send(treasureCsPointChange, pbVar(nil, 1, 30)) // 30 Jewels at 10 points each: the square is full
 	ex := g.readShape(treasureRcPointChange, treSixRes)
-	if cirVar(ex, 1) != 0 || cirVar(ex, 2) != 300 || string(cirBytes(ex, 3)) != "+300 Ranking Point(s)" {
+	if cirVar(ex, 1) != 0 || cirVar(ex, 2) != 300 || string(cirBytes(ex, 5)) != "+300 Ranking Point(s)" {
 		t.Fatalf("exchange reply = %x, want 300 points", ex)
 	}
-	if me := cirBytes(ex, 4); cirVar(me, 1) != 1 || cirVar(me, 2) != 300 || string(cirBytes(me, 3)) != "Gold" {
+	if me := cirBytes(ex, 3); cirVar(me, 1) != 1 || cirVar(me, 2) != 300 || string(cirBytes(me, 3)) != "Gold" {
 		t.Fatalf("my ranking in the exchange reply = %x", me)
 	}
-	if sq := cirBytes(cirBytes(ex, 5), 4); cirVar(sq, 3) != 0 || cirVar(sq, 10) != 1 || cirVar(sq, 5) != 30 {
+	if sq := cirBytes(cirBytes(ex, 4), 4); cirVar(sq, 3) != 0 || cirVar(sq, 10) != 1 || cirVar(sq, 5) != 30 {
 		t.Fatalf("square counts after the exchange = %x, want nothing left and the reset flag", sq)
 	}
 

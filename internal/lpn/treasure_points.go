@@ -64,17 +64,26 @@ func treasureMyRank(aid uint64) []byte {
 	return pbVar(b, 5, uint64(me.Grade.Type))
 }
 
-// treasureRewardInfo is the RewardInfo of a claim: the text (f5) and one ItemList row {ViewType 10, ViewCount}. The
+// RewardItemInfo view types (SetShowRewardGet 0x16FA430, trade-key.md C): 9 draws the ticket picture, 10 the coin
+// (Jewel) picture; any other value closes the popup at once. The gem view is not known, so Gem rewards use 10.
+const (
+	treasureViewTicket = 9
+	treasureViewCoin   = 10
+)
+
+// treasureRewardInfo is the RewardInfo of a claim: the text (f5) and one ItemList row {ViewType, ViewCount}. The
 // client creates its reward popup (MarbleCommonRewardGet) for every successful claim but draws it only with a non-empty
 // ItemList; an undrawn popup has no close button and swallows all input (freeze.md A, device 2026-11-02).
-func treasureRewardInfo(text string, count int64) []byte {
-	item := pbVar(pbVar(nil, 1, 10), 4, uint64(count))
+func treasureRewardInfo(text string, view int, count int64) []byte {
+	item := pbVar(pbVar(nil, 1, uint64(view)), 4, uint64(count))
 	return pbLen(pbLen(nil, 2, item), 5, []byte(text))
 }
 
 // pointChange answers cs_ranking_point_change_req (msgid 6): the picked Jewels become Ranking Points on the exchange square
-// under the token. The reply carries the points added (f2), the text (f3), the account's place (f4) and the square's counts
-// (f5); the client takes the Jewels off its own count.
+// under the token. The reply carries the points added (f2), the account's place (f3 MyRankingInfo), the square's counts
+// (f4 CellDetailInfo) and the text (f5), the order of MONOPOLY::sc_ranking_point_change_res::MergePartialFromCodedStream
+// 0x256EF68 (trade-key.md; text in f3 failed the decode and the client dropped the reply, so the Trade popup stayed open).
+// The client takes the Jewels off its own count.
 func (s *treasureSession) pointChange(frame, data []byte) error {
 	if !s.loggedIn || !s.entered {
 		s.logger.Printf("TREASURE msgid=6 exchange refused: loggedIn=%v entered=%v", s.loggedIn, s.entered)
@@ -89,9 +98,9 @@ func (s *treasureSession) pointChange(frame, data []byte) error {
 	d := economy.ActiveTreasureData()
 	body := pbVar(nil, 1, 0)
 	body = pbVar(body, 2, uint64(res.Added))
-	body = pbLen(body, 3, []byte(fmt.Sprintf("+%d %s", res.Added, d.Names.RankingPoint)))
-	body = pbLen(body, 4, treasureMyRank(s.aid))
-	body = pbLen(body, 5, treasureSquareDetail(res.View))
+	body = pbLen(body, 3, treasureMyRank(s.aid))
+	body = pbLen(body, 4, treasureSquareDetail(res.View))
+	body = pbLen(body, 5, []byte(fmt.Sprintf("+%d %s", res.Added, d.Names.RankingPoint)))
 	s.logger.Printf("TREASURE msgid=6 exchange aid=%d jewels=%d added=%d points=%d left=%d result=0",
 		s.aid, jewels, res.Added, res.View.Points, res.View.ExchangeLeft)
 	return s.reply(frame, treasureRcPointChange, body)
@@ -230,7 +239,7 @@ func (s *treasureSession) pointRewardClaim(frame, data []byte) error {
 		text += ", " + economy.ItemName(row.Item)
 	}
 	body := pbVar(nil, 1, 0)
-	body = pbLen(body, 3, treasureRewardInfo(text, row.Gems))
+	body = pbLen(body, 3, treasureRewardInfo(text, treasureViewCoin, row.Gems))
 	body = pbVar(body, 4, uint64(row.ID))
 	s.logger.Printf("TREASURE msgid=14 point reward aid=%d id=%d gems=%d item=%s result=0", s.aid, row.ID, row.Gems, row.Item)
 	return s.reply(frame, treasureRcPointReward, body)
@@ -280,7 +289,7 @@ func (s *treasureSession) classRewardClaim(frame []byte) error {
 		return s.refuse(frame, treasureRcClassReward)
 	}
 	body := pbVar(nil, 1, 0)
-	body = pbLen(body, 2, treasureRewardInfo(fmt.Sprintf("%s: %d Gems", treasureRewardNoteMailbox, gems), gems))
+	body = pbLen(body, 2, treasureRewardInfo(fmt.Sprintf("%s: %d Gems", treasureRewardNoteMailbox, gems), treasureViewCoin, gems))
 	s.logger.Printf("TREASURE msgid=15 rank reward aid=%d gems=%d result=0", s.aid, gems)
 	return s.reply(frame, treasureRcClassReward, body)
 }
