@@ -12,6 +12,9 @@
 //	cherry-assets upload -only NAME    upload only one origin source (origSources: an APK folder or DailyBonus) and its D1 rows
 //	cherry-assets verify               list the bucket and compare it with the plan; fails while legacy manifest/ keys remain
 //	cherry-assets migrate-manifests    one-time: copy manifest/ to cherry/manifest/, then delete the legacy keys (no dataset)
+//	cherry-assets convert              local only: convert the 2014 iOS item.zip items no backup has into the generated tree
+//
+// Other hosts bring their own dataset: .agents/DATASET.md says how to point the roots below at it.
 //
 // Credentials come from %LOCALAPPDATA%\Cherry\cloudflare.json and are never printed or logged. Logs go to
 // %TEMP% (keys and sizes only).
