@@ -405,8 +405,8 @@ func TestTreasureGoldKeyCards(t *testing.T) {
 		{name: "forward past a gold key", pos: 9, draws: []int{0, 2, 0}, card: 1, value: 3, to: 13, cell: TreasureCellCoin, coins: 1, jewels: 1, tickets: 10},
 		// Type 1, 3 steps from square 26 over the start line to square 1 (a coin, 2 Jewels): the lap pays 5 tickets.
 		{name: "forward over the start", pos: 26, draws: []int{0, 2, 1}, card: 1, value: 3, to: 1, lap: true, cell: TreasureCellCoin, coins: 2, jewels: 2, tickets: 15},
-		// Type 2, 1 step back from square 6 onto the gold key at 5: the card passes it, lands on 4 (a coin, 1 Jewel). No lap.
-		{name: "back past a gold key", pos: 6, draws: []int{3, 0, 0}, card: 2, value: 1, to: 4, cell: TreasureCellCoin, coins: 1, jewels: 1, tickets: 10},
+		// Type 2, 1 step back from square 13 onto the gold key at 12: the card passes it, lands on 11 (a coin, 1 Jewel). No lap.
+		{name: "back past a gold key", pos: 13, draws: []int{3, 0, 0}, card: 2, value: 1, to: 11, cell: TreasureCellCoin, coins: 1, jewels: 1, tickets: 10},
 		// Type 2, 3 steps back from square 6 to square 3, a bonus square: 5 Jewels.
 		{name: "back onto a bonus square", pos: 6, draws: []int{3, 2}, card: 2, value: 3, to: 3, cell: TreasureCellBonus, bonus: 5, jewels: 5, tickets: 10},
 		// Type 6, 3 to 6 Jewels: the token stays on the gold key and the Jewels are paid there.

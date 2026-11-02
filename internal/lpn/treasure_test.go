@@ -326,7 +326,7 @@ func TestTreasureBoardOverTheGateway(t *testing.T) {
 		t.Fatalf("roll 3 = %x, want result 0, die 5, square 11 and no lap", roll)
 	}
 
-	// Rolls 4 and 5 (die 6 each): square 17 is a bonus square (the sc 35 push follows), then square 23 is a coin square.
+	// Rolls 4 and 5 (die 6 each): square 17 is a bonus square (the sc 35 push follows), then square 23 is a buff square (pays nothing).
 	for i := 4; i <= 5; i++ {
 		g.send(treasureCsRolling, pbVar(nil, 1, 0))
 		roll = g.readShape(treasureRcRolling, treRoll)
@@ -345,8 +345,8 @@ func TestTreasureBoardOverTheGateway(t *testing.T) {
 	}
 
 	g.send(treasureCsCoinRefresh, nil)
-	if coins := g.readShape(treasureRcCoinRefresh, treCoinRef); cirVar(coins, 2) != 14 {
-		t.Fatalf("coin count after six rolls = %d, want 14 (5 + 1 + 1 + 5 + 1 + 1)", cirVar(coins, 2))
+	if coins := g.readShape(treasureRcCoinRefresh, treCoinRef); cirVar(coins, 2) != 13 {
+		t.Fatalf("coin count after six rolls = %d, want 13 (5 + 1 + 1 + 5 + 0 + 1)", cirVar(coins, 2))
 	}
 
 	// Leave the board: the exit reply and the close control. A request after the close is refused.
@@ -377,8 +377,8 @@ func TestTreasureBoardOverTheGateway(t *testing.T) {
 	}
 	g.send(treasureCsRelayStart, nil)
 	relay = g.readShape(treasureRcRelayStart, treRelay)
-	if cirVar(relay, 2) != 9 || cirVar(relay, 6) != 14 || cirVar(cirBytes(relay, 9), 1) != 1 {
-		t.Fatalf("relay after re-entry = %x, want 9 tickets, 14 jewels, square 1", relay)
+	if cirVar(relay, 2) != 9 || cirVar(relay, 6) != 13 || cirVar(cirBytes(relay, 9), 1) != 1 {
+		t.Fatalf("relay after re-entry = %x, want 9 tickets, 13 jewels, square 1", relay)
 	}
 	if !strings.Contains(g.logs.String(), "TREASURE msgid=4 roll aid=1001 dice=6 from=23 to=1") {
 		t.Fatalf("roll log line missing:\n%s", g.logs.String())
