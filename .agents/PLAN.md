@@ -41,6 +41,12 @@ You are the receiving agent with **zero context**. This handoff is about the **r
 - **Testers:** give them a roll budget (exchange squares are 4 of 28; one run reached none in 10 rolls); they cannot work the Trade number wheel unless told: tap the value box → swipe the wheel → Done.
 - **Saved frames:** `%TEMP%\opencode\cherry\circle-gauge-20261102\`, `treasure-test{1..7}-20261102\` (logcats in test5 and test7).
 
+### HANDOFF ACCEPTED — 2026-11-02 (new Claude Code session)
+
+Read AGENTS in full, PLAN (handoff, Status start), and HISTORY's last pair with its progress paragraph. Lab rechecked, no corrections: `main` clean, level with origin at `cd0011f`; Cherry PID 41292 (`D:\Dev\projects\Cherry\cherry.exe`, started 08:14:14), SHA-256 prefix `aa018b7ac1e3467a`, log `cherry-treasure8-20261102-private.log`, `lan=192.168.1.7`; emulator-5554 = AVD Cherry, emulator-5556 = AVD Jerry. Working through "Open tasks" in order.
+
+**Progress 2026-11-02 ~13:20:** Task 1 device run (`%TEMP%\opencode\cherry\treasure-test8-20261102\`, AVD Cherry 13:13–13:17): rolls 8→14→18→20→22 (coin squares only, no lap, no bonus, QUEST never opened) → Trade → 27 Jewels → Use at 13:15:52 → server `exchange … result=0` (points 530) → popup still open after 15 s, HUD Jewels unchanged (45; server 18) → Cancel closes, the board rolls on. **The lap/bonus hypothesis is refuted**; the cause is not tied to the lap. Static trace of who holds key 0xE0035 at Use running (`reverse-engineer`, spec `treasure-20261102\trade-key.md`, also the ticket ViewType, the cs 29 trigger and the relaystart f11 fields). **User-supplied production screenshots** (2026-11-02, saved `treasure-20261102\user-pngs\` + `NOTES.md`): an original board (28 squares; corners start / trap prison / drums / broom; side tiles coin, BONUS, trophy 1–3 stars, winged key, pink up-arrow, red S), the ACHIEVEMENTS tab (5 types incl. "Escape traps N times", reward "5+5", "Missions are reset each season") and a player guide: exchange tiles are **conversion tiles with different rates (1x, 2x, 3x, gamble 1–5x)**, a daily per-tile cap (60 coins that season) and a paid per-tile reset; buffs add up to +40% to all coin income (rounded up); all 5 quests done → free quest reset; gacha pulls count for quests and secret missions. Use these for slice 3/4 and for `data/treasure.json` exchange rates.
+
 ## Status (2026-11-02)
 
 | Milestone | Scope | Status |
