@@ -217,10 +217,10 @@ type shopItem struct {
 }
 
 type shopCatalog struct {
-	catgOnce               sync.Once            // classifies the pets (petCategories), when a consumer first needs the categories
 	archive                *assets.Store        // the store the catalog was scanned with (a test swaps it)
 	originals              *assets.ItemIndex    // the original item folders of that store (nil: none)
 	generated              *assets.ItemIndex    // the converted items the catalog was scanned with (nil: switched off)
+	gardens                *Gardens             // the gardens.json the landscape rows came from
 	fashion, interior, pet []shopItem           // sellable: art, so listed, pooled and granted
 	landscape              []shopItem           // Garden landscapes gardens.json lists (no archive folder; landscape.go)
 	byCode                 map[string]*shopItem // the same items by code
@@ -232,30 +232,38 @@ var (
 	catalog   *shopCatalog
 )
 
-// loadCatalog scans the store's item index once (again only if the store changes, as tests do).
+// loadCatalog returns the catalog, scanning the store once. A scan happens again only when one of its inputs changed
+// (a test swaps the store; startup loads an operator file after a check built the catalog). Requests only read it:
+// WarmArchive builds it at startup, so no request waits for a scan or reads the store to build it.
 func loadCatalog() *shopCatalog {
 	catalogMu.Lock()
 	defer catalogMu.Unlock()
-	if archive := assets.Archive; catalog == nil || catalog.archive != archive || catalog.generated != assets.GeneratedItems() {
+	if archive := assets.Archive; catalog == nil || catalog.archive != archive || catalog.generated != assets.GeneratedItems() || catalog.gardens != gardensFile.Get() {
 		catalog = scanCatalog(archive)
 	}
 	return catalog
 }
 
-// petCategories classifies the pets once. It reads each pet's behavior.xml from the store, so it runs when a consumer
-// needs a category (the pet shop, the Pet Book, the Ride Point shop), not in the startup checks.
-func (c *shopCatalog) petCategories() *shopCatalog {
-	c.catgOnce.Do(func() {
-		for i := range c.pet {
-			c.pet[i].Catg = petCategory("pet", c.pet[i].ID, c.pet[i].Animated)
+// WarmArchive builds the shop catalog and reads what the first shop, gacha, Pet Book or fish-picture request would
+// otherwise fetch from the store. cmd/cherry calls it after every operator file is loaded and before the listeners open,
+// so the catalog requests use is the one built then. A store whose original index cannot be read is an error: the
+// catalog would stay empty until a restart.
+func WarmArchive() error {
+	if assets.Archive != nil && assets.Archive.Items() == nil {
+		return errors.New("the original item index cannot be read")
+	}
+	loadCatalog()
+	if assets.Archive != nil {
+		if _, err := assets.Archive.ReadFile(fishSilhouette); err != nil {
+			log.Printf("cherry: fish silhouette: %v", err)
 		}
-	})
-	return c
+	}
+	return nil
 }
 
 // PetSpecies is the Minipet Shop catalog (the sellable pets with art) for the Pet Book (room.HandlePetBook).
 func PetSpecies() []room.PetSpecies {
-	c := loadCatalog().petCategories()
+	c := loadCatalog()
 	out := make([]room.PetSpecies, 0, len(c.pet))
 	for _, it := range c.pet {
 		out = append(out, room.PetSpecies{Code: it.Code, ID: it.ID, Catg: it.Catg})
@@ -292,7 +300,7 @@ func petCategory(kind string, n int64, ride bool) string {
 }
 
 func scanCatalog(archive *assets.Store) *shopCatalog {
-	c := &shopCatalog{archive: archive, originals: archive.Items(), generated: assets.GeneratedItems(), byCode: map[string]*shopItem{}, animated: map[string]bool{}}
+	c := &shopCatalog{archive: archive, originals: archive.Items(), generated: assets.GeneratedItems(), gardens: gardensFile.Get(), byCode: map[string]*shopItem{}, animated: map[string]bool{}}
 	for _, sub := range []string{"custom", "dress", "interior", "tile", "pet"} {
 		for _, n := range c.originals.IDs(sub) {
 			c.add(sub, n, true)
@@ -309,7 +317,26 @@ func scanCatalog(archive *assets.Store) *shopCatalog {
 			c.byCode[(*list)[i].Code] = &(*list)[i]
 		}
 	}
+	c.classifyPets()
 	return c
+}
+
+// classifyPets sets each pet's category. It reads every pet's behavior.xml from the store: a network read per pet on a
+// cold cache (2026-11-02: 97 reads, about 0.38 s each, took the first Fashion Shop request 37 s). It runs inside the scan,
+// eight reads at a time, so it costs the startup a few seconds on a cold cache and nothing once the cache has the files.
+func (c *shopCatalog) classifyPets() {
+	sem := make(chan struct{}, 8)
+	var wg sync.WaitGroup
+	for i := range c.pet {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(it *shopItem) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			it.Catg = petCategory("pet", it.ID, it.Animated)
+		}(&c.pet[i])
+	}
+	wg.Wait()
 }
 
 // add lists one item: an original folder (original true) or a converted item. Faces, unclassifiable ids, duplicates
@@ -436,7 +463,7 @@ func handleShopList(kind byte) http.HandlerFunc {
 			return
 		}
 		cat := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
-		c := loadCatalog().petCategories()
+		c := loadCatalog()
 		now := NowFunc()
 		deals := dealsOn(now)
 		var rows []map[string]any

@@ -94,6 +94,7 @@ type Client struct {
 func NewClient(cfg Config) *Client {
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.ResponseHeaderTimeout = requestTimeout
+	tr.MaxIdleConnsPerHost = 16 // Prefetch reads up to 16 files at once; the default keeps only 2 idle connections
 	return &Client{cfg: cfg, hc: &http.Client{Transport: tr}, now: time.Now}
 }
 

@@ -193,6 +193,13 @@ func buildRig(set string) *dpRig {
 	}
 	nodes := parseAvb(avb)
 	rots := dpIdleRotations(nodes)
+	var sprites []string // the body pictures the loop below reads: fetched together, not one round-trip each
+	for _, name := range dpNodeNames {
+		if _, ok := nodes[name]; ok {
+			sprites = append(sprites, avatarDataKey+"body/"+set+"/"+name+".png")
+		}
+	}
+	assets.Archive.Prefetch(sprites)
 	r := &dpRig{ll: map[int][2]float64{}, size: map[int][2]int{}, sprite: map[int]image.Image{},
 		rot: map[int]float64{}, anc: map[int][2]float64{}}
 	for tag, name := range dpNodeNames {

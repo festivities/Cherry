@@ -49,6 +49,12 @@ func main() {
 			logger.Fatalf("cherry: operator data: %v", err)
 		}
 	}
+	// The first-use reads of requests (the shop catalog, the string table) happen now, after every operator file is
+	// loaded: no request waits for them, and the catalog is built from the files requests will use.
+	if err := economy.WarmArchive(); err != nil {
+		logger.Fatalf("cherry: asset store: %v", err)
+	}
+	web.WarmArchive()
 	// A failed roster migration leaves the old contracts in place (it restores them) and must not keep Cherry down.
 	if err := economy.MigrateButlerRoster(time.Now()); err != nil {
 		logger.Printf("cherry: butler roster migration skipped: %v", err)

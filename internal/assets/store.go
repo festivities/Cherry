@@ -356,6 +356,26 @@ func (s *Store) Local(key string) (string, error) {
 	return local, err
 }
 
+// prefetchSlots bounds the reads Prefetch runs at once in the process: a cold thumbnail reads its item's files, and a shop
+// tab asks for dozens of thumbnails together.
+var prefetchSlots = make(chan struct{}, 16)
+
+// Prefetch copies the originals at keys into the local cache, several at a time, so the reads that follow find them
+// local: a set of files costs about one round-trip instead of one each. A key that fails is left for the read to report.
+func (s *Store) Prefetch(keys []string) {
+	var wg sync.WaitGroup
+	for _, key := range keys {
+		wg.Add(1)
+		go func(key string) {
+			defer wg.Done()
+			prefetchSlots <- struct{}{}
+			defer func() { <-prefetchSlots }()
+			_, _ = s.Local(key)
+		}(key)
+	}
+	wg.Wait()
+}
+
 // ReadFile returns the original at key (see Local).
 func (s *Store) ReadFile(key string) ([]byte, error) {
 	local, err := s.Local(key)

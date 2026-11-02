@@ -576,9 +576,15 @@ func (s *Store) ItemDir(kind string, id int64) (string, bool) {
 			}
 		}
 	}
+	names := ix.Names(kind, id)
+	keys := make([]string, len(names))
+	for i, name := range names {
+		keys[i] = OriginalItemKey(kind, id, name)
+	}
+	s.Prefetch(keys) // the item's files in parallel: one round-trip for the item, not one per file
 	got := false
-	for _, name := range ix.Names(kind, id) {
-		if _, err := s.Local(OriginalItemKey(kind, id, name)); err == nil {
+	for i, name := range names {
+		if _, err := s.Local(keys[i]); err == nil {
 			got = true
 		} else {
 			log.Printf("cherry: original item %s/%d/%s: %v", kind, id, name, err)

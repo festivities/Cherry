@@ -160,6 +160,9 @@ func LoadOperatorData() error {
 	return nil
 }
 
+// WarmArchive reads the stock string table now (loadArtsStrings), so the first request that needs it does not fetch it.
+func WarmArchive() { loadArtsStrings() }
+
 func checkMenu(m *Menu) error {
 	if err := m.CheckOrigin("mixed"); err != nil {
 		return err
