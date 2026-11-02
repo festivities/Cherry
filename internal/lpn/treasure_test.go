@@ -37,8 +37,12 @@ var (
 	treCoin    = lpMsg{1: {wire: 0, req: true}}
 	treBonus   = lpMsg{1: {wire: 0, req: true}, 3: {wire: 2}, 4: {wire: 0}}
 	treRanking = lpMsg{1: {wire: 0}, 2: {wire: 0}, 3: {wire: 0}, 4: {wire: 0}, 5: {wire: 0}, 6: {wire: 0}, 7: {wire: 0}, 10: {wire: 0}}
-	treDetail  = lpMsg{1: {wire: 2, msg: treReward}, 3: {wire: 2, msg: treCoin}, 4: {wire: 2, msg: treRanking}, 6: {wire: 2, msg: treBonus}}
+	treGoldKey = lpMsg{1: {wire: 0, req: true}}
+	treDetail  = lpMsg{1: {wire: 2, msg: treReward}, 3: {wire: 2, msg: treCoin}, 4: {wire: 2, msg: treRanking}, 6: {wire: 2, msg: treBonus}, 9: {wire: 2, msg: treGoldKey}}
 	treRoll    = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 0, req: true}, 4: {wire: 0, req: true}, 5: {wire: 0, req: true}, 6: {wire: 2, req: true, msg: treCell}, 7: {wire: 2, msg: treDetail}, 8: {wire: 0, req: true}, 9: {wire: 2, msg: treReward}}
+	// treCard is sc_gold_key_use_res: Result, the card type, its value, the square the token ends on, that square's detail and
+	// the lap text (the sc 10 wire of slice 3, treasure-spec section 3.1).
+	treCard    = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 0, req: true}, 5: {wire: 2, req: true, msg: treCell}, 6: {wire: 2, msg: treDetail}, 7: {wire: 2, msg: treReward}, 8: {wire: 0, req: true}, 9: {wire: 0, req: true}, 10: {wire: 0, req: true}, 11: {wire: 0, req: true}}
 	treRollNo  = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0}, 3: {wire: 0}, 4: {wire: 0}, 5: {wire: 0}}
 	treResult  = lpMsg{1: {wire: 0, req: true}}
 	treStatus  = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0}}
@@ -234,7 +238,7 @@ func TestTreasureOpenEchoIsExact(t *testing.T) {
 // rolls (one with a lap), coin count, the exit with its close control, the tutorial flag and the re-entry.
 func TestTreasureBoardOverTheGateway(t *testing.T) {
 	treScene(t)
-	treDice(t, 3, 2, 6, 6, 6, 6)
+	treDice(t, 3, 3, 5, 6, 6, 6) // squares 3, 6, 11, 17, 23, 1: no gold key (5, 12, 19, 26) on the way
 	g := newTreGateway(t)
 	g.open()
 	g.login(1001)
@@ -290,16 +294,23 @@ func TestTreasureBoardOverTheGateway(t *testing.T) {
 		t.Fatalf("pushed coin count = %d, want 5", cirVar(coins, 2))
 	}
 
-	// Roll 2 (die 2): coin square 5 pays one Jewel (the minimum of 1 to 3).
+	// Roll 2 (die 3): coin square 6 pays one Jewel (the minimum of 1 to 3).
 	g.send(treasureCsRolling, pbVar(nil, 1, 0))
 	roll = g.readShape(treasureRcRolling, treRoll)
 	item := cirBytes(cirBytes(cirBytes(roll, 7), 1), 2)
-	if cirVar(cirBytes(roll, 6), 1) != 5 || cirVar(item, 4) != 1 || cirVar(item, 1) != 10 || cirBytes(cirBytes(roll, 7), 3) == nil {
-		t.Fatalf("roll 2 = %x, want square 5 with a coin view of 1", roll)
+	if cirVar(cirBytes(roll, 6), 1) != 6 || cirVar(item, 4) != 1 || cirVar(item, 1) != 10 || cirBytes(cirBytes(roll, 7), 3) == nil {
+		t.Fatalf("roll 2 = %x, want square 6 with a coin view of 1", roll)
 	}
 
-	// Rolls 3 to 6 (die 6 each): the fourth passes the start line, so the lap pays five tickets.
-	for i := 3; i <= 5; i++ {
+	// Roll 3 (die 5): coin square 11, no lap.
+	g.send(treasureCsRolling, pbVar(nil, 1, 0))
+	roll = g.readShape(treasureRcRolling, treRoll)
+	if cirVar(roll, 1) != 0 || cirVar(roll, 8) != 5 || cirVar(cirBytes(roll, 6), 1) != 11 || cirBytes(roll, 9) != nil {
+		t.Fatalf("roll 3 = %x, want result 0, die 5, square 11 and no lap", roll)
+	}
+
+	// Rolls 4 and 5 (die 6 each): square 17 is a bonus square (the sc 35 push follows), then square 23 is a coin square.
+	for i := 4; i <= 5; i++ {
 		g.send(treasureCsRolling, pbVar(nil, 1, 0))
 		roll = g.readShape(treasureRcRolling, treRoll)
 		if cirVar(roll, 1) != 0 || cirVar(roll, 8) != 6 || cirBytes(roll, 9) != nil {
@@ -405,9 +416,53 @@ func TestTreasureNoTicketRoll(t *testing.T) {
 	}
 }
 
-// TestTreasureLaterSlicesAnswerSafely: the requests still left to later slices (buff, mini-game, travel, gold key, special
-// missions, season state) get the stub answers, each is logged as not built, and the client's own close (subtype 2) gets no
-// reply. The points, rankings, rewards, quests and cap requests are answered for real (treasure_points_test.go).
+// TestTreasureGoldKeyOverTheGateway: a roll onto square 5 (a gold key) answers with the square's Availability flag (sc 4
+// f7.f9.f1 = 1) and no reward. cs 10 (empty body) plays the card: with the stubbed draws the first card, one step forward, so
+// the token goes to square 6 (a coin, one Jewel), and the reply has no lap. A second cs 10 on the same key is refused.
+func TestTreasureGoldKeyOverTheGateway(t *testing.T) {
+	treScene(t)
+	treDice(t, 5)
+	g := newTreGateway(t)
+	g.open()
+	g.login(1001)
+	g.send(treasureCsRoomEnter, nil)
+	g.readShape(treasureRcRoomEnter, treEnter)
+
+	g.send(treasureCsRolling, pbVar(nil, 1, 0))
+	roll := g.readShape(treasureRcRolling, treRoll)
+	if cell, detail := cirBytes(roll, 6), cirBytes(roll, 7); cirVar(cell, 1) != 5 || cirVar(cell, 3) != economy.TreasureCellGoldKey ||
+		cirVar(cirBytes(detail, 9), 1) != 1 || cirBytes(detail, 1) != nil || cirVar(roll, 2) != 9 {
+		t.Fatalf("roll onto square 5 = %x, want a gold key with availability 1, no reward and 9 tickets", roll)
+	}
+
+	g.send(treasureCsGoldKeyUse, nil)
+	card := g.readShape(treasureRcGoldKey, treCard)
+	square := cirBytes(card, 5)
+	if cirVar(card, 1) != 0 || cirVar(card, 2) != 1 || cirVar(card, 3) != 1 || cirVar(square, 1) != 6 || cirVar(square, 3) != economy.TreasureCellCoin ||
+		cirBytes(card, 7) != nil {
+		t.Fatalf("gold key use = %x, want result 0, card 1, value 1, square 6 (a coin) and no lap", card)
+	}
+	if cirVar(card, 8) == 0 || cirVar(card, 9) != 10 || cirVar(card, 11) != 600 { // the HUD tickets come from f8..f11
+		t.Fatalf("gold key ticket fields = %x, want the tickets, cap 10, charge 600", card)
+	}
+	detail := cirBytes(card, 6) // the landing's CellDetail: the coin view with one Jewel and the coin marker
+	if item := cirBytes(cirBytes(detail, 1), 2); cirVar(item, 1) != 10 || cirVar(item, 4) != 1 || cirBytes(detail, 3) == nil {
+		t.Fatalf("coin detail of the landing = %x, want a coin view of one Jewel", detail)
+	}
+	if !strings.Contains(g.logs.String(), "TREASURE msgid=10 gold key aid=1001 card=1 value=1 from=5 to=6 coins=1 bonus=0 lap=false jewels=1 result=0") {
+		t.Fatalf("gold key log line missing:\n%s", g.logs.String())
+	}
+
+	g.send(treasureCsGoldKeyUse, nil)
+	if cirVar(g.readShape(treasureRcGoldKey, treResult), 1) != treasureRefused {
+		t.Fatal("second card on one key was not refused")
+	}
+}
+
+// TestTreasureLaterSlicesAnswerSafely: the requests still left to later slices (buff, mini-game, travel, special missions,
+// season state) get the stub answers, each is logged as not built, and the client's own close (subtype 2) gets no reply.
+// The points, rankings, rewards, quests, cap and gold key requests are answered for real (treasure_points_test.go, and
+// TestTreasureGoldKeyOverTheGateway).
 func TestTreasureLaterSlicesAnswerSafely(t *testing.T) {
 	treScene(t)
 	g := newTreGateway(t)
@@ -425,10 +480,6 @@ func TestTreasureLaterSlicesAnswerSafely(t *testing.T) {
 	g.send(9, nil) // travel: refused
 	if cirVar(g.readShape(treasureRcFlyTravel, treResult), 1) != treasureRefused {
 		t.Fatal("travel not refused")
-	}
-	g.send(10, nil) // gold key: refused
-	if cirVar(g.readShape(treasureRcGoldKey, treResult), 1) != treasureRefused {
-		t.Fatal("gold key not refused")
 	}
 	g.send(22, nil) // buff wear: refused
 	if cirVar(g.readShape(treasureRcBuffWear, treResult), 1) != treasureRefused {

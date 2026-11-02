@@ -31,6 +31,7 @@ const (
 	treasureCsRoomExit    = 2
 	treasureCsRelayStart  = 3
 	treasureCsRolling     = 4
+	treasureCsGoldKeyUse  = 10
 	treasureCsTutorial    = 23
 	treasureCsCoinRefresh = 29
 )
@@ -87,7 +88,6 @@ var treasureStubs = map[uint16]treasureStub{
 	5:  {treasureRcBuffList, treasureOK},
 	8:  {treasureRcMiniGame, treasureNo},
 	9:  {treasureRcFlyTravel, treasureNo},
-	10: {treasureRcGoldKey, treasureNo},
 	22: {treasureRcBuffWear, treasureNo},
 	24: {treasureRcNoReply, nil}, // cs_playticket_sync_req: no caller in the client
 	25: {treasureRcSpecialReward, treasureNo},
@@ -146,6 +146,8 @@ func (s *treasureSession) handleData(frame []byte) error {
 		return s.relayStart(frame)
 	case treasureCsRolling:
 		return s.roll(frame)
+	case treasureCsGoldKeyUse:
+		return s.goldKeyUse(frame)
 	case treasureCsTutorial:
 		return s.tutorial(frame)
 	case treasureCsCoinRefresh:
@@ -382,8 +384,57 @@ func treasureCellDetail(d *economy.TreasureData, mv economy.TreasureMove) []byte
 		return pbLen(detail, 6, bonus) // CellTypeBonus
 	case economy.TreasureCellExchange:
 		return treasureSquareDetail(mv.View) // CellTypeRanking: the exchange popup's counts (cells.md 6.4)
+	case economy.TreasureCellGoldKey:
+		return pbLen(nil, 9, pbVar(nil, 1, 1)) // CellTypeGoldKey.Availability: the Mystery Card is drawn by cs 10
 	}
 	return nil
+}
+
+// goldKeyUse answers cs_gold_key_use_req (msgid 10, empty body) with the Mystery Card the gold key drew: its type (f2), its
+// value (f3), the square the token ends on (f5), that square's CellDetail (f6) and, after a lap, the lap text (f7). A card of
+// types 1 and 2 moves the token and pays its landing as a roll does (a bonus landing also pushes sc 35); types 6 and 7 pay
+// Jewels where the token stands. Without a pending key, or without a login or entered board, it is refused.
+func (s *treasureSession) goldKeyUse(frame []byte) error {
+	if !s.loggedIn || !s.entered {
+		s.logger.Printf("TREASURE msgid=10 gold key refused: loggedIn=%v entered=%v", s.loggedIn, s.entered)
+		return s.refuse(frame, treasureRcGoldKey)
+	}
+	use, err := economy.TreasureGoldKeyUse(s.aidText(), economy.NowFunc())
+	if err != nil {
+		s.logger.Printf("TREASURE msgid=10 gold key refused aid=%d: %v", s.aid, err)
+		return s.refuse(frame, treasureRcGoldKey)
+	}
+	d := economy.ActiveTreasureData()
+	mv := use.Move
+	body := pbVar(nil, 1, 0)
+	body = pbVar(body, 2, uint64(use.Card))
+	body = pbVar(body, 3, uint64(use.Value))
+	body = pbLen(body, 5, treasureCellInfo(d.Cell(mv.To)))
+	switch use.Card {
+	case 6, 7: // the Jewels of the card, in the coin popup the client opens from f6
+		text := fmt.Sprintf("+%d %s", mv.Coins, d.Names.Coin)
+		body = pbLen(body, 6, pbLen(nil, 1, treasureRewardInfo(text, treasureViewCoin, mv.Coins)))
+	default:
+		if detail := treasureCellDetail(d, mv); detail != nil {
+			body = pbLen(body, 6, detail)
+		}
+	}
+	if mv.Lap {
+		body = pbLen(body, 7, treasureRewardText(fmt.Sprintf("+%d %s", d.Rewards.Start.Tickets, d.Names.Ticket)))
+	}
+	// f8..f11 are the ticket fields (count, cap, timer, charge — sc 4's f2..f5): the client overwrites its HUD from them, so
+	// leaving them out showed 0/0 and refused the next roll (device 2026-11-02 15:29).
+	v := mv.View
+	body = pbVar(body, 8, uint64(v.Tickets))
+	body = pbVar(body, 9, uint64(v.Max))
+	body = pbVar(body, 10, uint64(v.RemainSeconds))
+	body = pbVar(body, 11, uint64(v.ChargeSeconds))
+	s.logger.Printf("TREASURE msgid=10 gold key aid=%d card=%d value=%d from=%d to=%d coins=%d bonus=%d lap=%v jewels=%d result=0",
+		s.aid, use.Card, use.Value, mv.From, mv.To, mv.Coins, mv.Bonus, mv.Lap, mv.View.Jewels)
+	if err := s.reply(frame, treasureRcGoldKey, body); err != nil || mv.Cell != economy.TreasureCellBonus {
+		return err
+	}
+	return s.reply(frame, treasureRcCoinRefresh, pbVar(pbVar(nil, 1, 0), 2, uint64(mv.View.Jewels)))
 }
 
 // treasureRewardText is a RewardInfo that carries only its message (the text the popup shows).

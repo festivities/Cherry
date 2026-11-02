@@ -27,13 +27,14 @@ const (
 	CherryTreasureLast  int64 = 1950000999
 )
 
-// Cell types (BlueMarble::eBoardCellType, treasure-spec section 3). This build serves 0, 1, 2 and 4; the other types are
+// Cell types (BlueMarble::eBoardCellType, treasure-spec section 3). This build serves 0, 1, 2, 4 and 7; the other types are
 // refused in the data.
 const (
 	TreasureCellStart    = 0
 	TreasureCellCoin     = 1
 	TreasureCellExchange = 2
 	TreasureCellBonus    = 4
+	TreasureCellGoldKey  = 7
 )
 
 // treasureJST is the season clock: a season starts and ends at 06:00 JST.
@@ -66,6 +67,7 @@ var (
 //	tickets       cap, starting tickets, seconds per refill, tickets per roll
 //	board         the ring: cell types in walking order, four equal sides
 //	rewards       coin squares (min to max Jewels), the bonus square, the lap reward (tickets)
+//	gold_key      the Mystery Card deck the gold key squares draw from
 //	npcs          the two portrait names and genders the season sends
 //	exchange      Ranking Points per Jewel, the Jewels a square takes a day, the Gem price of a square's reset
 //	quests        set size, hours before a free refresh, and the pool of quest tasks (tickets as reward)
@@ -81,6 +83,7 @@ type TreasureData struct {
 	Tickets      TreasureTickets       `json:"tickets"`
 	Board        TreasureBoard         `json:"board"`
 	Rewards      TreasureRewards       `json:"rewards"`
+	GoldKey      TreasureGoldKey       `json:"gold_key"`
 	NPCs         []TreasureNPC         `json:"npcs"`
 	Exchange     TreasureExchangeRules `json:"exchange"`
 	Quests       TreasureTasks         `json:"quests"`
@@ -144,6 +147,38 @@ type TreasureBonus struct {
 // TreasureStart is the lap reward in tickets.
 type TreasureStart struct {
 	Tickets int64 `json:"tickets"`
+}
+
+// TreasureGoldKey is the Mystery Card deck: the cards a gold key square draws from.
+type TreasureGoldKey struct {
+	Cards []TreasureCard `json:"cards"`
+}
+
+// TreasureCard is one Mystery Card: its type (1 forward, 2 back, 6 and 7 Jewels), its weight in the draw and its inclusive
+// range, in steps for types 1 and 2 and in Jewels for types 6 and 7.
+type TreasureCard struct {
+	Type   int64 `json:"type"`
+	Weight int64 `json:"weight"`
+	Min    int64 `json:"min"`
+	Max    int64 `json:"max"`
+}
+
+// draw picks a card by weight and draws its value from the card's range. The deck is checked non-empty at startup.
+func (g TreasureGoldKey) draw() (TreasureCard, int64) {
+	var total int64
+	for _, c := range g.Cards {
+		total += c.Weight
+	}
+	pick := int64(TreasureRandIntn(int(total)))
+	card := g.Cards[len(g.Cards)-1]
+	for _, c := range g.Cards {
+		if pick < c.Weight {
+			card = c
+			break
+		}
+		pick -= c.Weight
+	}
+	return card, card.Min + int64(TreasureRandIntn(int(card.Max-card.Min+1)))
 }
 
 // TreasureNPC is one portrait the season shows (its name and gender only; the portrait is the client's).
@@ -317,9 +352,9 @@ func checkTreasureData(t *TreasureData) error {
 	}
 	for i, c := range ring {
 		switch c {
-		case TreasureCellStart, TreasureCellCoin, TreasureCellExchange, TreasureCellBonus:
+		case TreasureCellStart, TreasureCellCoin, TreasureCellExchange, TreasureCellBonus, TreasureCellGoldKey:
 		default:
-			return fmt.Errorf("board.ring[%d]: cell type %d is not built yet (this build builds 0, 1, 2 and 4)", i, c)
+			return fmt.Errorf("board.ring[%d]: cell type %d is not built yet (this build builds 0, 1, 2, 4 and 7)", i, c)
 		}
 	}
 	if ring[0] != TreasureCellStart {
@@ -376,6 +411,9 @@ func checkTreasureRules(t *TreasureData) error {
 			return fmt.Errorf("exchange.tiles[%d]: times must be 1 to 10, gamble 2 to 10", i)
 		}
 		seen[tl.Square] = true
+	}
+	if err := checkTreasureGoldKey(t.GoldKey); err != nil {
+		return err
 	}
 	if err := checkTreasureTasks("quests", t.Quests, true); err != nil {
 		return err
@@ -435,6 +473,35 @@ func checkTreasureRules(t *TreasureData) error {
 	return nil
 }
 
+// checkTreasureGoldKey validates the Mystery Card deck: at least one card, a type of 1, 2, 6 or 7, a weight of 1 or more and
+// a range of 1 to 12 steps (types 1 and 2) or 1 to 100 Jewels (types 6 and 7). The warps (types 3 to 5) are refused: their
+// card words are not known (slice3-spec section 3.1 [OPEN]).
+func checkTreasureGoldKey(g TreasureGoldKey) error {
+	if len(g.Cards) == 0 {
+		return errors.New("gold_key.cards must not be empty")
+	}
+	for i, c := range g.Cards {
+		var most int64
+		switch c.Type {
+		case 1, 2:
+			most = 12
+		case 6, 7:
+			most = 100
+		case 3, 4, 5:
+			return fmt.Errorf("gold_key.cards[%d].type %d is a warp, not built yet (its card words are not known)", i, c.Type)
+		default:
+			return fmt.Errorf("gold_key.cards[%d].type %d is not a card type (1, 2, 6 or 7)", i, c.Type)
+		}
+		switch {
+		case c.Weight < 1:
+			return fmt.Errorf("gold_key.cards[%d].weight must be 1 or more", i)
+		case c.Min < 1 || c.Max < c.Min || c.Max > most:
+			return fmt.Errorf("gold_key.cards[%d]: min and max must be 1 <= min <= max <= %d", i, most)
+		}
+	}
+	return nil
+}
+
 // checkTreasureTasks validates one list: its set size against its pool and every task's kind, goal, reward and picture.
 func checkTreasureTasks(name string, l TreasureTasks, quest bool) error {
 	if l.SetSize < 1 || l.SetSize > int64(len(l.Pool)) || l.SetSize > 5 {
@@ -445,9 +512,9 @@ func checkTreasureTasks(name string, l TreasureTasks, quest bool) error {
 	}
 	for i, task := range l.Pool {
 		switch task.Kind {
-		case "roll", "jewel", "lap", "exchange":
+		case "roll", "jewel", "lap", "exchange", "goldkey":
 		default:
-			return fmt.Errorf("%s.pool[%d].kind %q is not roll, jewel, lap or exchange", name, i, task.Kind)
+			return fmt.Errorf("%s.pool[%d].kind %q is not roll, jewel, lap, exchange or goldkey", name, i, task.Kind)
 		}
 		if task.Goal < 1 || task.Goal > 1000 {
 			return fmt.Errorf("%s.pool[%d].goal must be 1 to 1000", name, i)
@@ -663,8 +730,24 @@ type TreasureMove struct {
 	View  TreasureView
 }
 
+// treasureLand pays the square mv lands on (mv.To): a coin square pays a random amount of Jewels, a bonus square its bonus,
+// the other squares nothing. It sets mv.Cell, mv.Coins and mv.Bonus and credits the Jewels to r.
+func treasureLand(r *store.TreasureRecord, d *TreasureData, mv *TreasureMove) {
+	mv.Cell = d.Board.Ring[mv.To]
+	switch mv.Cell {
+	case TreasureCellCoin:
+		c := d.Rewards.Coin
+		mv.Coins = c.Min + int64(TreasureRandIntn(int(c.Max-c.Min+1)))
+		r.Jewels += mv.Coins
+	case TreasureCellBonus:
+		mv.Bonus = d.Rewards.Bonus.Coins
+		r.Jewels += mv.Bonus
+	}
+}
+
 // TreasureRollDice rolls for aid at now: a die from 1 to 6, the ticket cost, the move round the ring and the payment of
-// the square landed on. Without enough tickets nothing moves and ErrTreasureNoTickets comes back with the state.
+// the square landed on. Without enough tickets nothing moves and ErrTreasureNoTickets comes back with the state. A roll
+// sets KeyPending when it lands on a gold key square and clears it otherwise; TreasureGoldKeyUse clears it too.
 func TreasureRollDice(aid string, now time.Time) (TreasureMove, error) {
 	var mv TreasureMove
 	view, err := treasureTx(aid, now, true, func(_ *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
@@ -681,17 +764,9 @@ func TreasureRollDice(aid string, now time.Time) (TreasureMove, error) {
 		if mv.Lap {
 			r.Tickets += d.Rewards.Start.Tickets
 		}
-		mv.Cell = d.Board.Ring[mv.To]
-		switch mv.Cell {
-		case TreasureCellCoin:
-			c := d.Rewards.Coin
-			mv.Coins = c.Min + int64(TreasureRandIntn(int(c.Max-c.Min+1)))
-			r.Jewels += mv.Coins
-		case TreasureCellBonus:
-			mv.Bonus = d.Rewards.Bonus.Coins
-			r.Jewels += mv.Bonus
-		}
+		treasureLand(r, d, &mv)
 		r.Position = mv.To
+		r.KeyPending = mv.Cell == TreasureCellGoldKey
 		treasureProgress(r, d, "roll", 1)
 		if got := mv.Coins + mv.Bonus; got > 0 {
 			treasureProgress(r, d, "jewel", got)
@@ -703,6 +778,66 @@ func TreasureRollDice(aid string, now time.Time) (TreasureMove, error) {
 	})
 	mv.View = view
 	return mv, err
+}
+
+// TreasureCardUse is one Mystery Card use: the card drawn (its type) and its value, and the move. For types 1 and 2 Move is
+// the walk and the landing (Move.Cell, and the coins or bonus paid there). For types 6 and 7 the token stays and Move.Coins
+// is the Jewels the card paid.
+type TreasureCardUse struct {
+	Card  int64
+	Value int64
+	Move  TreasureMove
+}
+
+// TreasureGoldKeyUse plays the Mystery Card of the gold key aid stands on (cs 10): it draws a card from the data's deck and
+// plays it. Types 1 and 2 walk the token forward or back by the drawn steps, one more for each gold key square on the way (a
+// card never ends on one), and pay the square they land on as a roll does. Types 6 and 7 pay the drawn Jewels where the token
+// stands. Without a pending key nothing changes and ErrTreasureRefused comes back.
+func TreasureGoldKeyUse(aid string, now time.Time) (TreasureCardUse, error) {
+	var use TreasureCardUse
+	view, err := treasureTx(aid, now, true, func(_ *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
+		if !r.KeyPending {
+			return nil, ErrTreasureRefused
+		}
+		r.KeyPending = false
+		card, value := d.GoldKey.draw()
+		n := len(d.Board.Ring)
+		mv := TreasureMove{From: r.Position, To: r.Position, Cell: d.Board.Ring[r.Position]}
+		switch card.Type {
+		case 1, 2:
+			step := 1
+			if card.Type == 2 {
+				step = -1
+			}
+			at := func(delta int) int { return ((r.Position+delta)%n + n) % n }
+			delta := step * int(value)
+			for d.Board.Ring[at(delta)] == TreasureCellGoldKey {
+				delta += step
+			}
+			end := r.Position + delta
+			mv.To = at(delta)
+			mv.Lap = card.Type == 1 && end >= n
+			if mv.Lap {
+				r.Tickets += d.Rewards.Start.Tickets
+			}
+			treasureLand(r, d, &mv)
+		case 6, 7:
+			mv.Coins = value
+			r.Jewels += value
+		}
+		r.Position = mv.To
+		use = TreasureCardUse{Card: card.Type, Value: value, Move: mv}
+		treasureProgress(r, d, "goldkey", 1)
+		if got := mv.Coins + mv.Bonus; got > 0 {
+			treasureProgress(r, d, "jewel", got)
+		}
+		if mv.Lap {
+			treasureProgress(r, d, "lap", 1)
+		}
+		return nil, nil
+	})
+	use.Move.View = view
+	return use, err
 }
 
 // TreasureJewels is aid's saved jewel count (0 when the account has no board state).

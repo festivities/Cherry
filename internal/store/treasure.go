@@ -19,7 +19,8 @@ import (
 // TreasureRecord is one account's board state. Charged is the Unix millisecond the refill timer started (0: not started).
 // Points are the season's Ranking Points. Exchanged holds the Jewels exchanged today per ring position (key: the position
 // as text) and ExDay the 06:00 JST day it counts; CapSteps is how many ticket cap raises were bought. PointClaimed lists the
-// point reward ids claimed and RankClaimed whether the rank reward was.
+// point reward ids claimed and RankClaimed whether the rank reward was. KeyPending is true while the token stands on a gold
+// key square whose Mystery Card is not used yet.
 type TreasureRecord struct {
 	Season       int64            `json:"season"`
 	Position     int              `json:"position"`
@@ -31,6 +32,7 @@ type TreasureRecord struct {
 	ExDay        int64            `json:"exDay,omitempty"`
 	Exchanged    map[string]int64 `json:"exchanged,omitempty"`
 	CapSteps     int64            `json:"capSteps,omitempty"`
+	KeyPending   bool             `json:"keyPending,omitempty"`
 	Quests       TreasureList     `json:"quests"`
 	Missions     TreasureList     `json:"missions"`
 	PointClaimed []int64          `json:"pointClaimed,omitempty"`
