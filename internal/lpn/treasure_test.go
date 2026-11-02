@@ -276,10 +276,19 @@ func TestTreasureBoardOverTheGateway(t *testing.T) {
 		string(cirBytes(season, 10)) != "Queen's Jewel Box" || cirVar(season, 7) != 1 {
 		t.Fatalf("season names = %q %q %q, PlayTicketCount %d", cirBytes(season, 8), cirBytes(season, 9), cirBytes(season, 10), cirVar(season, 7))
 	}
-	for _, f := range []uint64{1, 2, 3, 4, 5, 6, 14, 15, 16, 17, 18, 19, 20, 21, 22, 25} {
+	for _, f := range []uint64{2, 3, 4, 5, 6, 14, 15, 16, 17, 18, 19, 21, 22, 25} {
 		if got := cirBytes(season, f); got == nil || string(got) != economy.TreasureSeasonPicture(f) {
 			t.Fatalf("season picture field %d = %q, want present and %q", f, got, economy.TreasureSeasonPicture(f))
 		}
+	}
+	// SkinUrl and BgImgUrl are the v1 pictures named in data/treasure.json (art.board, art.background); the board's file name
+	// carries the crc of the ring and the rates.
+	d := economy.ActiveTreasureData()
+	if got := string(cirBytes(season, 1)); got != economy.TreasureBoardPicture(d) || !strings.HasPrefix(got, "cherry/treasure/board_v1_") {
+		t.Fatalf("SkinUrl = %q, want the v1 board %q", got, economy.TreasureBoardPicture(d))
+	}
+	if got := string(cirBytes(season, 20)); got != "cherry/treasure/bg_v1.png" {
+		t.Fatalf("BgImgUrl = %q, want the v1 background", got)
 	}
 	cells := cirList(enter, 4)
 	if len(cells) != 28 || cirVar(cells[0], 3) != 0 || string(cirBytes(cells[0], 4)) != "FR" || string(cirBytes(cells[7], 4)) != "BR" {
@@ -430,7 +439,9 @@ func TestTreasureNoTicketRoll(t *testing.T) {
 	for i := 0; i < 10; i++ { // the start is ten tickets; the eleventh roll has none
 		g.send(treasureCsRolling, pbVar(nil, 1, 0))
 		g.readShape(treasureRcRolling, treRoll)
-		if i+1 == 3 || i+1 == 10 { // bonus squares: the sc 35 push follows
+		// Square 3 is a bonus (the sc 35 push follows). Roll 7 lands on the trap corner 7; rolls 8 and 9 stay (die 1 < 5)
+		// and roll 10 escapes by count to square 8, so square 10's bonus is never reached.
+		if i+1 == 3 {
 			g.readShape(treasureRcCoinRefresh, treCoinRef)
 		}
 	}

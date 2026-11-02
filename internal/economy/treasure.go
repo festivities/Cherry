@@ -76,6 +76,7 @@ var (
 //	names         the ticket, coin and ranking point names the client shows
 //	tickets       cap, starting tickets, seconds per refill, tickets per roll
 //	board         the ring: cell types in walking order, four equal sides
+//	art           the board and background pictures Cherry draws (stems, "" blank)
 //	rewards       coin squares (min to max Jewels), the bonus square, the lap reward (tickets)
 //	gold_key      the Mystery Card deck the gold key squares draw from
 //	buff          the buff pool (item codes with their BuffPercent, 1 to 40) and the cap on the worn total (1 to 100)
@@ -97,6 +98,7 @@ type TreasureData struct {
 	Names        TreasureNames         `json:"names"`
 	Tickets      TreasureTickets       `json:"tickets"`
 	Board        TreasureBoard         `json:"board"`
+	Art          TreasureArt           `json:"art"`
 	Rewards      TreasureRewards       `json:"rewards"`
 	GoldKey      TreasureGoldKey       `json:"gold_key"`
 	Buff         TreasureBuff          `json:"buff"`
@@ -169,6 +171,25 @@ type TreasureTickets struct {
 // TreasureBoard is the ring: one cell type per square, from the start line (index 0) round to the start line again.
 type TreasureBoard struct {
 	Ring []int `json:"ring"`
+}
+
+// TreasureArt names the season pictures SeasonInfo sends: Board (SkinUrl, f1) and Background (BgImgUrl, f20). Each is a
+// stem Cherry draws (treasure_board_art.go: board_v1, bg_v1; or the calibration board_cal_v1, bg_cal_v1), and "" sends no
+// picture. The names are checked at startup.
+type TreasureArt struct {
+	Board      string `json:"board"`
+	Background string `json:"background"`
+}
+
+// checkTreasureArt refuses a picture name Cherry does not draw for that field.
+func checkTreasureArt(a TreasureArt) error {
+	switch {
+	case a.Board != "" && a.Board != treasureBoardV1Stem && a.Board != treasureBoardCalStem:
+		return fmt.Errorf("art.board %q is not a board picture Cherry draws (%q, %q or \"\")", a.Board, treasureBoardV1Stem, treasureBoardCalStem)
+	case a.Background != "" && a.Background != treasureBgV1Stem && a.Background != treasureBgCalStem:
+		return fmt.Errorf("art.background %q is not a background picture Cherry draws (%q, %q or \"\")", a.Background, treasureBgV1Stem, treasureBgCalStem)
+	}
+	return nil
 }
 
 // TreasureRewards: Coin is the Jewels a coin square pays (drawn from Min to Max), Bonus what a bonus square pays,
@@ -562,6 +583,9 @@ func checkTreasureData(t *TreasureData) error {
 		return fmt.Errorf("rewards.bonus.coin_unit %q is a money unit; the board refuses it", r.Bonus.CoinUnit)
 	case r.Start.Tickets < 0 || r.Start.Tickets > 100:
 		return errors.New("rewards.start.tickets must be 0 to 100")
+	}
+	if err := checkTreasureArt(t.Art); err != nil {
+		return err
 	}
 	if len(t.NPCs) != 2 {
 		return errors.New("npcs must list exactly two portraits")

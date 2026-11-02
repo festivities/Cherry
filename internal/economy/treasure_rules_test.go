@@ -542,6 +542,8 @@ func TestTreasureRulesRefusals(t *testing.T) {
 		{"broom timeout zero", func(d *TreasureData) { d.Travel.StaleMinutes = 0 }},
 		{"broom timeout above a day", func(d *TreasureData) { d.Travel.StaleMinutes = 1441 }},
 		{"escape mission picture 6", func(d *TreasureData) { d.Missions.Pool[9].Type = 6 }},
+		{"board art Cherry does not draw", func(d *TreasureData) { d.Art.Board = "marble_main_board.png" }},
+		{"background art Cherry does not draw", func(d *TreasureData) { d.Art.Background = "board_cal_v1.png" }},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

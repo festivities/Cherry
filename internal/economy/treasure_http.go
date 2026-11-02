@@ -58,14 +58,36 @@ func TreasureSeasonPicture(field uint64) string {
 	return ""
 }
 
-// HandleTreasureArt serves GET /cherry/treasure/<name>: a Cherry-drawn picture, or an original file the season art names.
+// TreasureBoardPicture is the SeasonInfo path of the board picture art.board names in d (SkinUrl): relative to the static base,
+// no leading slash; "" for a blank name. The v1 board's path carries the crc of the ring and the rates.
+func TreasureBoardPicture(d *TreasureData) string {
+	if f := treasureBoardFile(d); f != "" {
+		return TreasureArtPath(f)
+	}
+	return ""
+}
+
+// TreasureBackgroundPicture is the SeasonInfo path of the background art.background names in d (BgImgUrl); "" for a blank name.
+func TreasureBackgroundPicture(d *TreasureData) string {
+	if f := treasureBgFile(d); f != "" {
+		return TreasureArtPath(f)
+	}
+	return ""
+}
+
+// HandleTreasureArt serves GET /cherry/treasure/<name>: a Cherry-drawn picture, a season picture, or an original file the season
+// art names.
 func HandleTreasureArt(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, treasureArtPrefix)
 	if r.Method != http.MethodGet {
 		httpx.ServeNotFound(w)
 		return
 	}
-	if b, ok := treasureDrawnPicture(name); ok {
+	b, ok := treasureDrawnPicture(name)
+	if !ok {
+		b, ok = treasureSeasonPicture(name)
+	}
+	if ok {
 		w.Header().Set("Content-Type", "image/png")
 		_, _ = w.Write(b)
 		return

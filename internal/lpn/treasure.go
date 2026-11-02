@@ -306,13 +306,13 @@ func treasurePhaseName(p economy.TreasurePhase) string {
 }
 
 // treasureSeasonInfo is SeasonInfo with all 25 fields: the names from the data, the picture paths (economy.TreasureSeasonPicture:
-// the original HUD art and the Cherry-drawn buttons), the other picture paths empty (the client draws nothing for an empty
-// path, treasure-spec 9.2). The dates (f23 start, f24 end of the play window) are Unix seconds: the client multiplies them by
-// 1000 for its date text (season-end-spec 8).
+// the original HUD art and the Cherry-drawn buttons; SkinUrl and BgImgUrl come from the data's art names), the other picture
+// paths empty (the client draws nothing for an empty path, treasure-spec 9.2). The dates (f23 start, f24 end of the play window)
+// are Unix seconds: the client multiplies them by 1000 for its date text (season-end-spec 8).
 func treasureSeasonInfo(d *economy.TreasureData, cyc economy.TreasureCycle) []byte {
 	var b []byte
 	text := func(field uint64, v string) { b = pbLen(b, field, []byte(v)) }
-	text(1, "") // SkinUrl: the board picture (not in the archive)
+	text(1, economy.TreasureBoardPicture(d)) // SkinUrl: the board picture (Cherry-drawn, data art.board)
 	text(2, economy.TreasureSeasonPicture(2))
 	text(3, "") // DiceType (no reader found)
 	text(4, "") // MainBannerNomalUrl
@@ -326,6 +326,10 @@ func treasureSeasonInfo(d *economy.TreasureData, cyc economy.TreasureCycle) []by
 	b = pbLen(b, 12, treasureAvatar(d.NPCs[0]))
 	b = pbLen(b, 13, treasureAvatar(d.NPCs[1]))
 	for f := uint64(14); f <= 22; f++ { // RankingPointOneUrl .. BgImgUrl .. QuestButtonUrl: image paths
+		if f == 20 {
+			text(f, economy.TreasureBackgroundPicture(d)) // BgImgUrl: the background (Cherry-drawn, data art.background)
+			continue
+		}
 		text(f, economy.TreasureSeasonPicture(f))
 	}
 	b = pbVar(b, 23, uint64(cyc.Start.Unix()))
