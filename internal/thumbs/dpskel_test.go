@@ -1,11 +1,7 @@
 package thumbs
 
 import (
-	"bytes"
 	"image"
-	"image/png"
-	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -65,47 +61,10 @@ func dpMaskIoU(a, b []bool) float64 {
 	return float64(inter) / float64(uni)
 }
 
-// TestDpSleevesHangLikeThe2014Previews renders the 14 dress items that have arm parts and a
-// 2014 preview in the archive (ids 235... use the animal rig) and compares each with its
-// preview. Before the idle turn the mean was 0.675; after it 0.740. Skipped without the archives.
-func TestDpSleevesHangLikeThe2014Previews(t *testing.T) {
-	if _, err := os.Stat(DpZipPath); err != nil {
-		t.Skipf("2014 item archive absent: %v", err)
-	}
-	if _, err := os.Stat(DpItemRoot); err != nil {
-		t.Skipf("item archive absent: %v", err)
-	}
-	ids := []string{"225000263", "225000386", "225000445", "225000707", "225001047", "225101516",
-		"225101705", "225101745", "225101900", "225101906", "225502692", "235000603", "235000678", "235502058"}
-	sum, n := 0.0, 0
-	for _, id := range ids {
-		zb, ok := dpZipPreview("dress", id)
-		if !ok {
-			t.Fatalf("dress/%s: no 2014 preview in the archive", id)
-		}
-		ref, err := png.Decode(bytes.NewReader(zb))
-		if err != nil {
-			t.Fatalf("dress/%s: decode 2014 preview: %v", id, err)
-		}
-		img, ok := composeItemDP(filepath.Join(DpItemRoot, "dress", id), "dress")
-		if !ok {
-			t.Fatalf("dress/%s: no composite", id)
-		}
-		iou := dpMaskIoU(dpNormMask(ref, 48), dpNormMask(img, 48))
-		t.Logf("dress/%s: normalized IoU vs 2014 preview %.3f", id, iou)
-		sum += iou
-		n++
-	}
-	if mean := sum / float64(n); mean < 0.71 {
-		t.Errorf("mean normalized IoU vs 2014 previews %.3f over %d items, want >= 0.71 (sleeves raised?)", mean, n)
-	} else {
-		t.Logf("mean normalized IoU %.3f over %d items", mean, n)
-	}
-}
-
 // TestDpIdleArmsHangDown checks the rig: each upper arm's free end (the sprite end away
 // from the shoulder) sits well below the shoulder pivot once the idle turn is applied.
 func TestDpIdleArmsHangDown(t *testing.T) {
+	useArchive(t)
 	rig := dpLoadRig("h")
 	if rig == nil {
 		t.Skip("avatar_data archive absent")

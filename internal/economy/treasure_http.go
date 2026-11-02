@@ -3,11 +3,10 @@ package economy
 import (
 	"io/fs"
 	"net/http"
-	"os"
 	"path"
-	"path/filepath"
 	"strings"
 
+	"cherry/internal/assets"
 	"cherry/internal/httpx"
 )
 
@@ -23,8 +22,7 @@ const treasurePackageInfoBody = `{"result":{}}`
 
 // TreasureSeasonArt maps a SeasonInfo picture field to the original file it shows, relative to the device files/ tree
 // (roll-gate.md section 3). The client never loads season paths from its own files: it downloads every one from the
-// static base (device 2026-11-02, all 404 under UIResource/), so Cherry serves the originals, read in place from the
-// archive like the butler portraits, at /cherry/treasure/<base name>. The season's own files (marble_main_*,
+// static base (device 2026-11-02, all 404 under UIResource/), so Cherry serves the originals, read from the store like the butler portraits, at /cherry/treasure/<base name>. The season's own files (marble_main_*,
 // marble_common_reward_*, 18 in all) are 1-bit transparent placeholders in both backups — the real ones were season
 // downloads — so the fields take the original season-independent art instead: the board's round back button and the
 // ticket, jewel and point nodes of animation/marble_ef. No original exists for SkinUrl (1) or BgImgUrl (20); the QUEST,
@@ -36,8 +34,8 @@ var TreasureSeasonArt = map[uint64]string{
 	21: "UIResource/UIImage_hd/marble_common_btn_back.png", // BackButtonUrl (tag 2)
 }
 
-// treasureArtFS is the original device files/ tree (lpbackup) the season art is read from.
-var treasureArtFS fs.FS = os.DirFS(filepath.FromSlash(`D:/Dev/projects/Cherry/.opencode/line-play-artifacts/lpbackup/jp.naver.lineplay.android/files`))
+// treasureArtFS is the original device files/ tree the season art is read from (the store, assets.DeviceFiles).
+var treasureArtFS fs.FS = assets.DeviceFiles("")
 
 // treasureArtPrefix is the route; the season paths are the same without the leading slash (the client prepends its
 // static base and refuses nothing else, treasure-spec 9.2).

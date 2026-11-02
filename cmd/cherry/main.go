@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"cherry/internal/assets"
 	"cherry/internal/economy"
 	"cherry/internal/httpx"
 	"cherry/internal/lpn"
@@ -38,6 +39,10 @@ func main() {
 	}
 	if err := store.LoadTreasure(); err != nil {
 		logger.Fatalf("cherry: load treasure: %v", err)
+	}
+	// The original-asset store comes first: the operator checks below ask it which items have art.
+	if err := assets.LoadArchive(); err != nil {
+		logger.Fatalf("cherry: asset store: %v", err)
 	}
 	for _, load := range []func() error{store.LoadOperatorData, room.LoadOperatorData, economy.LoadOperatorData, lpn.LoadOperatorData, web.LoadOperatorData} {
 		if err := load(); err != nil {

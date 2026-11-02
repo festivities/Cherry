@@ -10,7 +10,6 @@ import (
 	"cherry/data"
 	"cherry/internal/opdata"
 	"cherry/internal/store"
-	"cherry/internal/thumbs"
 )
 
 // Square Boss Coin exchange office (popup 116; wire notes %TEMP%\opencode\cherry\phaseDE-20261022\
@@ -121,8 +120,8 @@ func verifyExchange(e *Exchange) error {
 			if _, _, _, ok := ItemPrice(r.ItemCode); !ok {
 				return fmt.Errorf("%s: row %d item %s is not a sellable item code", where, r.ID, r.ItemCode)
 			}
-			if !itemAvailable(r.ItemCode) {
-				return fmt.Errorf("%s: row %d item %s has no art in the item archive (%s)", where, r.ID, r.ItemCode, thumbs.DpItemRoot)
+			if artVerifiable() && !itemAvailable(r.ItemCode) {
+				return fmt.Errorf("%s: row %d item %s has no art in the item archive", where, r.ID, r.ItemCode)
 			}
 		}
 		return nil

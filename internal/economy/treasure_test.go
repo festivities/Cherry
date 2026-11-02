@@ -63,7 +63,8 @@ func TestTreasureDataDefaults(t *testing.T) {
 			t.Fatalf("cell %d is type %d, want a gold key (7)", pos, cells[pos].Type)
 		}
 	}
-	start, end := TreasureSeasonWindow()
+	cyc := TreasureCurrent(treasureNow)
+	start, end := cyc.Start, cyc.End
 	if start.Format(time.RFC3339) != "2026-11-01T06:00:00+09:00" || end.Sub(start) != 28*24*time.Hour {
 		t.Fatalf("season window %s to %s", start, end)
 	}
@@ -281,7 +282,7 @@ func TestTreasureGoldKeyCardLandsOnTravel(t *testing.T) {
 
 // TestTreasureSeasonWindow: the season is open from its first instant (06:00 JST) to its last, and not outside.
 func TestTreasureSeasonWindow(t *testing.T) {
-	start, _ := TreasureSeasonWindow()
+	start := TreasureCurrent(treasureNow).Start
 	treasureState(t, "1001", store.TreasureRecord{})
 	for _, at := range []time.Time{start.Add(-time.Second), start.AddDate(0, 0, 28)} {
 		if _, err := TreasureOpen("1001", at); !errors.Is(err, ErrTreasureNoSeason) {

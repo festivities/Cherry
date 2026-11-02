@@ -11,13 +11,12 @@ import (
 	"io/fs"
 	"math"
 	"net/http"
-	"os"
 	"path"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 
+	"cherry/internal/assets"
 	"cherry/internal/httpx"
 )
 
@@ -51,10 +50,11 @@ func attendVersion(c [7]calDay) int {
 	return 100 + int(crc32.ChecksumIEEE([]byte(fmt.Sprint(c, attendSkinRev)))%900)
 }
 
-// Game assets are read in place from read-only archives; never committed (AGENTS.md).
+// The original files come from the store (assets.DeviceFiles): DailyBonus is not in R2 (not uploaded), so the skin
+// answers 404 until it is.
 var (
-	attendanceSkin fs.FS = os.DirFS(filepath.FromSlash(`D:/Dev/projects/Cherry/.opencode/line-play-artifacts/lpbackup/jp.naver.lineplay.android/files/DailyBonus`))
-	attendIconFS   fs.FS = os.DirFS(filepath.FromSlash(`D:/Dev/projects/Cherry/.opencode/line-play-artifacts/lpbackup/jp.naver.lineplay.android/files/UIResource/UIImage_hd`))
+	attendanceSkin fs.FS = assets.DeviceFiles("DailyBonus")
+	attendIconFS   fs.FS = assets.DeviceFiles("UIResource/UIImage_hd")
 )
 
 const (

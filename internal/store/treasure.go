@@ -21,8 +21,9 @@ import (
 // as text) and ExDay the 06:00 JST day it counts; CapSteps is how many ticket cap raises were bought. PointClaimed lists the
 // point reward ids claimed and RankClaimed whether the rank reward was. KeyPending is true while the token stands on a gold
 // key square whose Mystery Card is not used yet; TravelPending is true while it stands on a travel square whose travel is
-// not used yet. MiniGameLeft is the Jewels the mini-game square the token stands on still allows (0 elsewhere). Worn lists
-// the buff item codes worn; Secret is the secret quest of a secret quest square (nil: none).
+// not used yet. MiniGameLeft is the Jewels the mini-game square the token stands on still allows (0 elsewhere). Worn is
+// legacy: the worn buffs are the account's equipped codes (economy/treasure_buff.go), and a write drops it. Secret is the
+// secret quest of a secret quest square (nil: none).
 type TreasureRecord struct {
 	Season        int64            `json:"season"`
 	Position      int              `json:"position"`

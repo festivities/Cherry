@@ -13,7 +13,7 @@ import (
 
 	"cherry/internal/itemcode"
 	"cherry/internal/store"
-	"cherry/internal/thumbs"
+	"cherry/internal/testutil"
 )
 
 // modelHouseFixture gives every element of the default sets an interior folder with a dp.png in a temp item
@@ -404,8 +404,8 @@ func TestModelHouseRoom(t *testing.T) {
 
 // TestModelHouseDefaultsHaveArt: the shipped sets pass the archive check when the device archive is present.
 func TestModelHouseDefaultsHaveArt(t *testing.T) {
-	if _, err := os.Stat(thumbs.DpItemRoot); err != nil {
-		t.Skipf("no item archive at %s", thumbs.DpItemRoot)
+	if !testutil.ArchiveFound() {
+		t.Skip("no item archive")
 	}
 	catalog = nil
 	t.Cleanup(func() { catalog = nil })

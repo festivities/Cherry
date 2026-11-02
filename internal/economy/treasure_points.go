@@ -29,7 +29,7 @@ type TreasureExchangeResult struct {
 // that is not an exchange square, more Jewels than the account has or than the square still takes today.
 func TreasureExchange(aid string, jewels int64, now time.Time) (TreasureExchangeResult, error) {
 	var res TreasureExchangeResult
-	view, err := treasureTx(aid, now, true, func(_ *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
+	view, err := treasureTx(aid, now, treasureGatePlay, func(_ *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
 		if d.Board.Ring[r.Position] != TreasureCellExchange {
 			return nil, ErrTreasureRefused
 		}
@@ -72,7 +72,7 @@ type TreasureMiniGameResult struct {
 // day's progress. Anything else is refused and changes nothing.
 func TreasureMiniGamePlay(aid string, bet int64, now time.Time) (TreasureMiniGameResult, error) {
 	var res TreasureMiniGameResult
-	view, err := treasureTx(aid, now, true, func(_ *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
+	view, err := treasureTx(aid, now, treasureGatePlay, func(_ *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
 		if d.Board.Ring[r.Position] != TreasureCellMiniGame || r.MiniGameLeft < 1 || bet < 1 || bet > min(r.Jewels, r.MiniGameLeft) {
 			return nil, ErrTreasureRefused
 		}
@@ -100,7 +100,7 @@ type TreasureResetOffer struct {
 // TreasureResetInfo is the reset offer for the square under the token.
 func TreasureResetInfo(aid string, now time.Time) (TreasureResetOffer, error) {
 	var out TreasureResetOffer
-	_, err := treasureTx(aid, now, true, func(acc *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
+	_, err := treasureTx(aid, now, treasureGatePlay, func(acc *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
 		out = TreasureResetOffer{CoinType: "GEM", Price: d.Exchange.ResetGems, Available: treasureResettable(*r, d)}
 		if acc != nil {
 			out.Gems = acc.Gems
@@ -125,11 +125,11 @@ type TreasureResetResult struct {
 // GEM: nothing else is spent, and the spend goes through the ledger as treasure:reset:<season>:<day>:<square>.
 func TreasureResetBuy(aid, coinType string, now time.Time) (TreasureResetResult, error) {
 	var res TreasureResetResult
-	view, err := treasureTx(aid, now, true, func(acc *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
+	view, err := treasureTx(aid, now, treasureGatePlay, func(acc *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
 		if coinType != "GEM" || acc == nil || !treasureResettable(*r, d) {
 			return nil, ErrTreasureRefused
 		}
-		reason := fmt.Sprintf("treasure:reset:%d:%d:%d", d.Season.ID, treasureDay(now), r.Position)
+		reason := fmt.Sprintf("treasure:reset:%d:%d:%d", r.Season, treasureDay(now), r.Position)
 		lines, err := store.SpendLocked(acc, store.LedgerDeltas{Gems: -d.Exchange.ResetGems}, reason)
 		if err != nil {
 			return nil, ErrTreasureRefused
@@ -167,7 +167,7 @@ func treasureCapOffer(acc *store.Account, r store.TreasureRecord, d *TreasureDat
 // TreasureCapInfo is the next cap raise for aid.
 func TreasureCapInfo(aid string, now time.Time) (TreasureCapOffer, error) {
 	var out TreasureCapOffer
-	_, err := treasureTx(aid, now, true, func(acc *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
+	_, err := treasureTx(aid, now, treasureGatePlay, func(acc *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
 		out = treasureCapOffer(acc, *r, d)
 		return nil, nil
 	})
@@ -178,13 +178,13 @@ func TreasureCapInfo(aid string, now time.Time) (TreasureCapOffer, error) {
 // raise (Price is the Gems paid), and the board.
 func TreasureCapBuy(aid string, now time.Time) (TreasureCapOffer, TreasureView, error) {
 	var out TreasureCapOffer
-	view, err := treasureTx(aid, now, true, func(acc *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
+	view, err := treasureTx(aid, now, treasureGatePlay, func(acc *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
 		if acc == nil || int(r.CapSteps) >= len(d.TicketCap.Steps) {
 			return nil, ErrTreasureRefused
 		}
 		step := r.CapSteps + 1
 		price := d.TicketCap.Steps[r.CapSteps].Gems
-		lines, err := store.SpendLocked(acc, store.LedgerDeltas{Gems: -price}, fmt.Sprintf("treasure:cap:%d:%d", d.Season.ID, step))
+		lines, err := store.SpendLocked(acc, store.LedgerDeltas{Gems: -price}, fmt.Sprintf("treasure:cap:%d:%d", r.Season, step))
 		if err != nil {
 			return nil, ErrTreasureRefused
 		}
@@ -237,11 +237,11 @@ type TreasureRankRow struct {
 	Grade  TreasureGrade
 }
 
-// TreasureRankingPage lists ranks start to end (1-based, inclusive, one page at most) of the season with the names of the
-// accounts, and the number of pages.
-func TreasureRankingPage(start, end int64) (rows []TreasureRankRow, pages int64) {
+// TreasureRankingPage lists ranks start to end (1-based, inclusive, one page at most) of the season at now (the season whose
+// play or reward period it is) with the names of the accounts, and the number of pages.
+func TreasureRankingPage(start, end int64, now time.Time) (rows []TreasureRankRow, pages int64) {
 	d := ActiveTreasureData()
-	order := treasureRankOrder(d.Season.ID)
+	order := treasureRankOrder(d.at(now).ID)
 	total := int64(len(order))
 	pages = (total + d.Ranking.PageSize - 1) / d.Ranking.PageSize
 	start = max(start, 1)
@@ -263,14 +263,15 @@ type TreasureMyRank struct {
 	Grade        TreasureGrade
 }
 
-// TreasureMyRankOf returns aid's place in the season's ranking.
-func TreasureMyRankOf(aid string) TreasureMyRank {
+// TreasureMyRankOf returns aid's place in the season's ranking at now.
+func TreasureMyRankOf(aid string, now time.Time) TreasureMyRank {
 	d := ActiveTreasureData()
+	season := d.at(now).ID
 	var out TreasureMyRank
-	if r, _ := store.TreasureRecordOf(aid); r.Season == d.Season.ID {
+	if r, _ := store.TreasureRecordOf(aid); r.Season == season {
 		out.Points = r.Points
 	}
-	for i, e := range treasureRankOrder(d.Season.ID) {
+	for i, e := range treasureRankOrder(season) {
 		if e.aid == aid {
 			out.Rank = int64(i + 1)
 			out.Grade = treasureGrade(d, out.Rank)
@@ -286,13 +287,15 @@ type TreasurePointRow struct {
 	Claimed          bool
 }
 
-// TreasurePointRows lists the season's point rewards and which of them aid has claimed.
-func TreasurePointRows(aid string) []TreasurePointRow {
+// TreasurePointRows lists the season's point rewards at now and which of them aid has claimed in that season (a record of
+// an earlier season claims nothing).
+func TreasurePointRows(aid string, now time.Time) []TreasurePointRow {
 	d := ActiveTreasureData()
 	r, _ := store.TreasureRecordOf(aid)
+	current := r.Season == d.at(now).ID
 	rows := make([]TreasurePointRow, 0, len(d.PointRewards))
 	for _, p := range d.PointRewards {
-		rows = append(rows, TreasurePointRow{ID: p.ID, Points: p.Points, Gems: p.Gems, Item: p.Item, Claimed: slices.Contains(r.PointClaimed, p.ID)})
+		rows = append(rows, TreasurePointRow{ID: p.ID, Points: p.Points, Gems: p.Gems, Item: p.Item, Claimed: current && slices.Contains(r.PointClaimed, p.ID)})
 	}
 	return rows
 }
@@ -328,11 +331,12 @@ func treasureRewardMails(gems int64, item string) ([]store.MailRow, bool) {
 	return rows, true
 }
 
-// TreasurePointClaim pays point reward id to aid's Mailbox once aid has reached its threshold this season. Nothing changes
-// when the reward is unknown, not reached, already claimed, its item is unavailable or the Mailbox has no room for it.
+// TreasurePointClaim pays point reward id to aid's Mailbox once aid has reached its threshold this season. It is allowed in the
+// reward period too. Nothing changes when the reward is unknown, not reached, already claimed, its item is unavailable or the
+// Mailbox has no room for it.
 func TreasurePointClaim(aid string, id int64, now time.Time) (TreasurePointRow, TreasureView, error) {
 	var out TreasurePointRow
-	view, err := treasureTx(aid, now, true, func(acc *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
+	view, err := treasureTx(aid, now, treasureGateClaim, func(acc *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
 		i := slices.IndexFunc(d.PointRewards, func(p TreasurePointReward) bool { return p.ID == id })
 		if i < 0 || r.Points < d.PointRewards[i].Points || slices.Contains(r.PointClaimed, id) {
 			return nil, ErrTreasureRefused
@@ -373,33 +377,34 @@ func treasureRankGems(d *TreasureData, rank int64) int64 {
 	return 0
 }
 
-// treasureRankWindow is the claim window: from the season's end for claim_days.
+// treasureRankWindow is the claim window at now: the season of now's cycle has ended (its play window is over) and its reward
+// period is open (the rank claim days after the end, the phase Reward).
 func treasureRankWindow(d *TreasureData, now time.Time) (ended, open bool) {
-	_, end, _ := treasureSeasonWindow(d.Season)
-	until := end.AddDate(0, 0, int(d.RankRewards.ClaimDays))
-	return !now.Before(end), !now.Before(end) && now.Before(until)
+	c := d.at(now)
+	return !now.Before(c.End), c.Phase == TreasurePhaseReward
 }
 
 // TreasureRankInfo is aid's rank reward state at now.
 func TreasureRankInfo(aid string, now time.Time) TreasureRankOffer {
 	d := ActiveTreasureData()
 	ended, open := treasureRankWindow(d, now)
-	me := TreasureMyRankOf(aid)
+	me := TreasureMyRankOf(aid, now)
 	rec, _ := store.TreasureRecordOf(aid)
 	gems := treasureRankGems(d, me.Rank)
+	claimed := rec.RankClaimed && rec.Season == d.at(now).ID
 	return TreasureRankOffer{Tiers: d.RankRewards.Tiers, Rank: me.Rank, Gems: gems, Ended: ended, Open: open,
-		Claimable: open && gems > 0 && !rec.RankClaimed}
+		Claimable: open && gems > 0 && !claimed}
 }
 
-// TreasureRankClaim pays aid's rank reward to its Mailbox once the season has ended, inside the claim window, and only once.
+// TreasureRankClaim pays aid's rank reward to its Mailbox once the season has ended, inside its reward period, and only once.
 func TreasureRankClaim(aid string, now time.Time) (int64, error) {
 	var gems int64
-	_, err := treasureTx(aid, now, false, func(acc *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
+	_, err := treasureTx(aid, now, treasureGateClaim, func(acc *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
 		ended, open := treasureRankWindow(d, now)
 		if !ended || !open || r.RankClaimed {
 			return nil, ErrTreasureRefused
 		}
-		rank := TreasureMyRankOf(aid).Rank
+		rank := TreasureMyRankOf(aid, now).Rank
 		gems = treasureRankGems(d, rank)
 		if gems == 0 {
 			return nil, ErrTreasureRefused

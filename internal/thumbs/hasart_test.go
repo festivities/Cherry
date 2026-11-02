@@ -1,10 +1,7 @@
 package thumbs
 
 import (
-	"archive/zip"
 	"image/color"
-	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -20,7 +17,7 @@ func TestHasArtSources(t *testing.T) {
 	writeItemFile(t, itemRoot, "dress", "2", "0_0.png", red)                         // drawable part sprite
 	writeItemFile(t, itemRoot, "dress", "3", "1409_iteminfo.artsitem", []byte(part)) // part PNG absent: no art
 	writeItemFile(t, itemRoot, "dress", "4", "1409_iteminfo.artsitem", []byte(part))
-	writeItemFile(t, itemRoot, "dress", "4", "0_0.png", dot) // 1x1 stand-in, no aniproj: no art
+	writeItemFile(t, itemRoot, "dress", "4", "0_0.png", dot) // 1x1 stand-in: a listed picture counts (existence, see HasArt)
 	writeItemFile(t, itemRoot, "dress", "5", "1409_iteminfo.artsitem", []byte(part))
 	writeItemFile(t, itemRoot, "dress", "5", "0_0.png", dot)
 	writeItemFile(t, itemRoot, "dress", "5", "a.aniproj", []byte("x"))              // 1x1 stand-in with an animation: art
@@ -43,9 +40,9 @@ func TestHasArtSources(t *testing.T) {
 		{"dress", 1, true},
 		{"dress", 2, true},
 		{"dress", 3, false},
-		{"dress", 4, false},
+		{"dress", 4, true},
 		{"dress", 5, true},
-		{"dress", 6, false},
+		{"dress", 6, true},   // an unparseable artsitem with a listed picture: existence, see HasArt
 		{"dress", 99, false}, // no folder
 		{"interior", 7, true},
 		{"interior", 8, true},
@@ -63,46 +60,19 @@ func TestHasArtSources(t *testing.T) {
 	}
 }
 
-// A 2014 preview is art even when the folder has nothing to draw, as in ServeDpPNG.
-func TestHasArtZipPreview(t *testing.T) {
-	setDpFixture(t)
-	zp := filepath.Join(t.TempDir(), "item.zip")
-	f, err := os.Create(zp)
-	if err != nil {
-		t.Fatal(err)
-	}
-	zw := zip.NewWriter(f)
-	w, _ := zw.Create("item/dress/8/dp.png")
-	w.Write(solidPNG(t, 7, 5, color.RGBA{R: 9, A: 0xff}))
-	zw.Close()
-	f.Close()
-	DpZipPath = zp
-	t.Cleanup(func() {
-		dpZipIdx.Lock()
-		if dpZipIdx.rc != nil {
-			dpZipIdx.rc.Close()
-		}
-		dpZipIdx.rc, dpZipIdx.path = nil, ""
-		dpZipIdx.Unlock()
-	})
-	if !HasArt("dress", 8) || HasArt("dress", 9) {
-		t.Fatal("zip preview not counted as art, or an absent id counted")
-	}
-}
-
-// Answers are cached per folder: the second call reads nothing.
-func TestHasArtCachedPerFolder(t *testing.T) {
+// An answer is cached per item for the store it was asked of: the same store keeps a false answer, and a store made after
+// a fixture is written answers afresh.
+func TestHasArtCachedPerStore(t *testing.T) {
 	itemRoot, _ := setDpFixture(t)
 	writeItemFile(t, itemRoot, "dress", "12", "1409_iteminfo.artsitem", []byte(dressItemInfo("4", "10", "0", "0", "0_0.png")))
 	if HasArt("dress", 12) {
 		t.Fatal("part-less folder counted as art")
 	}
-	dir := filepath.Join(itemRoot, "dress", "12")
-	if v, ok := artCache.m[dir]; !ok || v {
+	if v, ok := artCache.m["dress/12"]; !ok || v {
 		t.Fatalf("cache entry = %v %v, want false stored", v, ok)
 	}
 	writeItemFile(t, itemRoot, "dress", "12", "dp.png", []byte("x"))
-	if HasArt("dress", 12) {
-		t.Fatal("cached answer was not used")
+	if !HasArt("dress", 12) {
+		t.Fatal("a new store did not answer afresh")
 	}
 }

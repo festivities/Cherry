@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"cherry/internal/testutil"
 	"cherry/internal/thumbs"
 )
 
@@ -17,13 +18,16 @@ func thumbFixture(t *testing.T) (itemRoot, cacheDir string) {
 	t.Helper()
 	itemRoot = t.TempDir()
 	cacheDir = t.TempDir()
-	oldRoot, oldCache, oldZip := thumbs.DpItemRoot, thumbs.DpCacheDir, thumbs.DpZipPath
-	thumbs.DpItemRoot, thumbs.DpCacheDir, thumbs.DpZipPath = itemRoot, cacheDir, filepath.Join(t.TempDir(), "none.zip")
-	t.Cleanup(func() {
-		thumbs.DpItemRoot, thumbs.DpCacheDir, thumbs.DpZipPath = oldRoot, oldCache, oldZip
-	})
+	oldCache := thumbs.DpCacheDir
+	thumbs.DpCacheDir = cacheDir
+	t.Cleanup(func() { thumbs.DpCacheDir = oldCache })
+	testutil.SetArchive(t, testutil.ArchiveMounts(itemRoot))
+	thumbFixtureRoot = itemRoot
 	return itemRoot, cacheDir
 }
+
+// thumbFixtureRoot is the item root of the last thumbFixture (the tests write their item folders there).
+var thumbFixtureRoot string
 
 func writeThumbItem(t *testing.T, itemRoot, kind, id, name string, data []byte) {
 	t.Helper()

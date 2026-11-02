@@ -23,6 +23,23 @@ func treasureOwner(t *testing.T, aid string, owned ...string) {
 	testutil.SetLab(t, aid, false)
 }
 
+// treasureWearer installs a non-lab account aid that owns the owned codes and has worn as its saved outfit (the buffs worn are
+// the pool items among them), for the buff tests that start from a worn buff.
+func treasureWearer(t *testing.T, aid string, owned, worn []string) {
+	t.Helper()
+	acc := &store.Account{AccessToken: "t-" + aid, SessionKey: "sk", Aid: aid, Name: "Owner", Gender: "FEMALE",
+		InventoryCodes: owned, ItemCodes: worn}
+	testutil.InstallAccounts(t, map[string]*store.Account{"t-" + aid: acc})
+	testutil.SetLab(t, aid, false)
+}
+
+// treasureSaved is the outfit aid's account saves (its equipped codes).
+func treasureSaved(aid string) []string {
+	store.AccountsMu.Lock()
+	defer store.AccountsMu.Unlock()
+	return slices.Clone(store.AccountByAidLocked(aid).ItemCodes)
+}
+
 // treasureDieAndPick makes the die show die and every other draw return pick, for one test (buff squares draw one pick).
 func treasureDieAndPick(t *testing.T, die, pick int) {
 	t.Helper()
@@ -70,10 +87,10 @@ func TestTreasureBoostRoundsUp(t *testing.T) {
 	}
 }
 
-// TestTreasureBuffPercentCap: the worn items add up and stop at buff.cap.
+// TestTreasureBuffPercentCap: the worn items add up and stop at buff.cap. An item counts only when it is equipped and owned.
 func TestTreasureBuffPercentCap(t *testing.T) {
 	d := ActiveTreasureData()
-	both := store.TreasureRecord{Worn: []string{"CUAH006FG", "CUSH003EY"}}
+	both := &store.Account{InventoryCodes: []string{"CUAH006FG", "CUSH003EY"}, ItemCodes: []string{"CUAH006FG", "CUSH003EY"}}
 	if got := treasureBuffPercent(both, d); got != 25 {
 		t.Fatalf("both worn = %d%%, want 25", got)
 	}
@@ -81,8 +98,11 @@ func TestTreasureBuffPercentCap(t *testing.T) {
 	if got := treasureBuffPercent(both, ActiveTreasureData()); got != 20 {
 		t.Fatalf("both worn under a cap of 20 = %d%%, want 20", got)
 	}
-	if got := treasureBuffPercent(store.TreasureRecord{Worn: []string{"CUAH008A9"}}, d); got != 0 {
+	if got := treasureBuffPercent(&store.Account{InventoryCodes: []string{"CUAH008A9"}, ItemCodes: []string{"CUAH008A9"}}, d); got != 0 {
 		t.Fatalf("an item outside the pool adds %d%%", got)
+	}
+	if got := treasureBuffPercent(&store.Account{InventoryCodes: []string{"CUSH003EY"}, ItemCodes: []string{"CUAH006FG"}}, d); got != 0 {
+		t.Fatalf("an owned buff that is not equipped, or an equipped one not owned, adds %d%%", got)
 	}
 }
 
@@ -107,9 +127,9 @@ func TestTreasureBuffBoostsCredits(t *testing.T) {
 
 // TestTreasureBuffBoostsGoldKeyJewels: a Mystery Card that pays Jewels pays the boosted amount, and its value shows it.
 func TestTreasureBuffBoostsGoldKeyJewels(t *testing.T) {
-	treasureOwner(t, "1001", "CUAH006FG")
+	treasureWearer(t, "1001", []string{"CUAH006FG"}, []string{"CUAH006FG"})
 	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Position: 5, Tickets: 10, Charged: treasureNow.UnixMilli(),
-		KeyPending: true, Worn: []string{"CUAH006FG"}})
+		KeyPending: true})
 	treasureRandSeq(t, 8, 0) // card 8 of 10 by weight: type 7 (5 to 10 Jewels), value 5
 	use, err := TreasureGoldKeyUse("1001", treasureNow)
 	if err != nil || use.Card != 7 || use.Value != 6 || use.Move.Coins != 6 || use.Move.View.Jewels != 6 {
@@ -119,9 +139,9 @@ func TestTreasureBuffBoostsGoldKeyJewels(t *testing.T) {
 
 // TestTreasureBuffBoostsMissionJewels: a mission's Jewels are boosted by the worn buffs when claimed.
 func TestTreasureBuffBoostsMissionJewels(t *testing.T) {
-	treasureOwner(t, "1001", "CUAH006FG")
+	treasureWearer(t, "1001", []string{"CUAH006FG"}, []string{"CUAH006FG"})
 	nowMs := treasureNow.UnixMilli()
-	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Tickets: 10, Charged: nowMs, Worn: []string{"CUAH006FG"},
+	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Tickets: 10, Charged: nowMs,
 		Missions: store.TreasureList{Set: 1, Posted: nowMs, Slots: []store.TreasureSlot{{Task: 0, Count: 10, State: 1}}}})
 	claim, err := TreasureMissionClaim("1001", 101, treasureNow)
 	if err != nil || claim.Paid != 4 || claim.View.Jewels != 4 { // the mission pays 3 Jewels; 3 at 10 percent is 4
@@ -157,9 +177,8 @@ func TestTreasureBuffLandingPicksUnowned(t *testing.T) {
 	if got := land(t, "1001", 0); got.Code != "CUAH006FG" || got.State != "INVEN" {
 		t.Fatalf("owning both = %+v, want the first, INVEN", got)
 	}
-	treasureOwner(t, "1001", "CUAH006FG", "CUSH003EY")
-	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Position: 2, Tickets: 10, Charged: treasureNow.UnixMilli(),
-		Worn: []string{"CUAH006FG"}})
+	treasureWearer(t, "1001", []string{"CUAH006FG", "CUSH003EY"}, []string{"CUAH006FG"})
+	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Position: 2, Tickets: 10, Charged: treasureNow.UnixMilli()})
 	treasureDie(t, 1)
 	mv, err := TreasureRollDice("1001", treasureNow)
 	if err != nil || mv.Buff.Code != "CUAH006FG" || mv.Buff.State != "WEAR" {
@@ -167,10 +186,10 @@ func TestTreasureBuffLandingPicksUnowned(t *testing.T) {
 	}
 }
 
-// TestTreasureBuffWearAndList: cs 5 lists the owned buffs, cs 22 wears the named ones (the list replaces the worn set, empty takes
-// every buff off), and a list naming an unowned, unknown or repeated buff is refused and changes nothing.
+// TestTreasureBuffWearAndList: cs 5 lists the owned buffs; cs 22 saves the outfit it sends (it replaces the saved one), and the worn
+// buffs are the pool items in it.
 func TestTreasureBuffWearAndList(t *testing.T) {
-	treasureOwner(t, "1001", "CUAH006FG", "CUSH003EY")
+	treasureOwner(t, "1001", "CUAH006FG", "CUSH003EY", "CUTO0006W")
 	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Tickets: 10, Charged: treasureNow.UnixMilli()})
 	list, err := TreasureBuffList("1001", treasureNow)
 	if err != nil || len(list.Items) != 2 || list.Percent != 0 || list.Items[0].Worn {
@@ -180,17 +199,140 @@ func TestTreasureBuffWearAndList(t *testing.T) {
 	if err != nil || wear.Percent != 25 || !wear.Items[0].Worn || !wear.Items[1].Worn {
 		t.Fatalf("wear both = %+v, %v; want 25 percent, both worn", wear, err)
 	}
-	// The client sends the whole outfit: the codes outside the pool are ignored, a repeat counts once.
-	outfit, err := TreasureBuffWear("1001", []string{"CUAH008A9", "CUSH003EY", "NOPE", "CUSH003EY"}, treasureNow)
-	if err != nil || outfit.Percent != 15 {
-		t.Fatalf("wear outfit = %+v, %v; want only CUSH003EY worn (15 percent)", outfit, err)
+	// The client sends the whole outfit and it replaces the saved one: CUAH006FG is taken off, so only CUSH003EY counts.
+	outfit, err := TreasureBuffWear("1001", []string{"CUTO0006W", "CUSH003EY"}, treasureNow)
+	if err != nil || outfit.Percent != 15 || outfit.Outfit != 2 || outfit.Items[0].Worn || !outfit.Items[1].Worn {
+		t.Fatalf("wear outfit = %+v, %v; want only CUSH003EY worn (15 percent) in a 2-code outfit", outfit, err)
 	}
-	if rec, _ := store.TreasureRecordOf("1001"); len(rec.Worn) != 1 || rec.Worn[0] != "CUSH003EY" {
-		t.Fatalf("worn after the outfit = %v", rec.Worn)
+	if got := treasureSaved("1001"); !slices.Equal(got, []string{"CUTO0006W", "CUSH003EY"}) {
+		t.Fatalf("saved outfit = %v, want the sent outfit", got)
 	}
-	off, err := TreasureBuffWear("1001", nil, treasureNow)
-	if err != nil || off.Percent != 0 || len(off.Items) != 2 || off.Items[0].Worn {
-		t.Fatalf("unequip = %+v, %v; want nothing worn", off, err)
+	// Skin and base items are skipped as a Closet save skips them: only CUAH006FG is kept.
+	base, err := TreasureBuffWear("1001", []string{"SKN002", "CUHA00004", "CUAH006FG"}, treasureNow)
+	if err != nil || base.Percent != 10 || base.Outfit != 1 || !slices.Equal(treasureSaved("1001"), []string{"CUAH006FG"}) {
+		t.Fatalf("wear with skin and base = %+v, %v; saved %v", base, err, treasureSaved("1001"))
+	}
+	// An empty outfit is refused (the client always sends the whole outfit): nothing changes.
+	if _, err := TreasureBuffWear("1001", nil, treasureNow); !errors.Is(err, ErrTreasureRefused) {
+		t.Fatalf("empty outfit: %v, want refused", err)
+	}
+	if got := treasureSaved("1001"); !slices.Equal(got, []string{"CUAH006FG"}) {
+		t.Fatalf("saved outfit after the empty one = %v", got)
+	}
+}
+
+// TestTreasureBuffWearRefusesBadOutfit: an outfit that names an item the account does not own is refused whole, and an outfit
+// the species cannot wear (an ANIMAL gets no human hair or face, a human no animal face) is refused too; nothing changes.
+func TestTreasureBuffWearRefusesBadOutfit(t *testing.T) {
+	treasureWearer(t, "1001", []string{"CUTO0006W", "CUAH006FG", "CAEY0000G"}, []string{"CUTO0006W"})
+	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Tickets: 10, Charged: treasureNow.UnixMilli()})
+	for _, outfit := range [][]string{{"CUTO0006W", "CUNOPE0000"}, {"CUAH006FG", "CAEY0000G"}} {
+		if _, err := TreasureBuffWear("1001", outfit, treasureNow); !errors.Is(err, ErrTreasureRefused) {
+			t.Fatalf("outfit %v: %v, want refused", outfit, err)
+		}
+		if got := treasureSaved("1001"); !slices.Equal(got, []string{"CUTO0006W"}) {
+			t.Fatalf("outfit %v changed the saved outfit to %v", outfit, got)
+		}
+	}
+	store.AccountsMu.Lock()
+	store.AccountByAidLocked("1001").Gender = "ANIMAL"
+	store.AccountsMu.Unlock()
+	if _, err := TreasureBuffWear("1001", []string{"CUAH006FG", "CUHA00002"}, treasureNow); !errors.Is(err, ErrTreasureRefused) {
+		t.Fatalf("an animal in human hair: %v, want refused", err)
+	}
+	if _, err := TreasureBuffWear("1001", []string{"CUAH006FG", "CATO000L8"}, treasureNow); err != nil {
+		t.Fatalf("an animal in its own base and a pool item: %v", err)
+	}
+}
+
+// TestTreasureBuffFollowsOutfit: the buff follows the saved outfit: taking the item off ends it, and wearing it again starts it.
+// A book saved with a worn list (before the outfit rule) counts only the items still equipped, and the next write drops the list.
+func TestTreasureBuffFollowsOutfit(t *testing.T) {
+	treasureWearer(t, "1001", []string{"CUAH006FG"}, []string{"CUAH006FG"})
+	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Tickets: 10, Charged: treasureNow.UnixMilli(),
+		Worn: []string{"CUSH003EY"}})
+	view, err := TreasureOpen("1001", treasureNow)
+	if err != nil || view.BuffPercent != 10 {
+		t.Fatalf("worn by the outfit = %+v, %v; want 10 percent", view, err)
+	}
+	if rec, _ := store.TreasureRecordOf("1001"); rec.Worn != nil {
+		t.Fatalf("legacy worn list kept after the write: %v", rec.Worn)
+	}
+	if _, err := TreasureBuffWear("1001", []string{"CUTO0006W"}, treasureNow); !errors.Is(err, ErrTreasureRefused) {
+		t.Fatalf("an outfit not owned: %v, want refused", err)
+	}
+	store.AccountsMu.Lock()
+	store.AccountByAidLocked("1001").InventoryCodes = []string{"CUAH006FG", "CUTO0006W"}
+	store.AccountsMu.Unlock()
+	if _, err := TreasureBuffWear("1001", []string{"CUTO0006W"}, treasureNow); err != nil {
+		t.Fatal(err)
+	}
+	if view, err := TreasureOpen("1001", treasureNow); err != nil || view.BuffPercent != 0 {
+		t.Fatalf("taken off = %+v, %v; want no buff", view, err)
+	}
+	list, err := TreasureBuffList("1001", treasureNow)
+	if err != nil || len(list.Items) != 1 || list.Items[0].Worn || list.Items[0].Code != "CUAH006FG" {
+		t.Fatalf("list after the take-off = %+v, %v; want CUAH006FG owned, not worn", list, err)
+	}
+	if _, err := TreasureBuffWear("1001", []string{"CUTO0006W", "CUAH006FG"}, treasureNow); err != nil {
+		t.Fatal(err)
+	}
+	if view, err := TreasureOpen("1001", treasureNow); err != nil || view.BuffPercent != 10 {
+		t.Fatalf("worn again = %+v, %v; want 10 percent", view, err)
+	}
+}
+
+// TestTreasureBuffWearPersistsOutfit: cs 22 saves the outfit to accounts.json, as a Closet save does.
+func TestTreasureBuffWearPersistsOutfit(t *testing.T) {
+	treasureOwner(t, "1001", "CUAH006FG", "CUTO0006W")
+	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Tickets: 10, Charged: treasureNow.UnixMilli()})
+	path := filepath.Join(t.TempDir(), "accounts.json")
+	store.AccountsMu.Lock()
+	store.AccountStorePath = path // restored by the install's cleanup
+	store.AccountsMu.Unlock()
+	if _, err := TreasureBuffWear("1001", []string{"CUTO0006W", "CUAH006FG"}, treasureNow); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved struct {
+		Accounts map[string]struct {
+			Aid       string   `json:"aid"`
+			ItemCodes []string `json:"itemCodes"`
+		} `json:"accounts"`
+	}
+	if err := json.Unmarshal(raw, &saved); err != nil {
+		t.Fatal(err)
+	}
+	for _, acc := range saved.Accounts {
+		if acc.Aid == "1001" && slices.Equal(acc.ItemCodes, []string{"CUTO0006W", "CUAH006FG"}) {
+			return
+		}
+	}
+	t.Fatalf("accounts.json does not hold the saved outfit: %s", raw)
+}
+
+// TestTreasureBuffSavedByClosetRule: a Closet save (store.SetAvatarOutfitLocked) that wears the pool item starts the buff, and one
+// that takes it off ends it, as cs 22 does; the web test drives the real handler.
+func TestTreasureBuffSavedByClosetRule(t *testing.T) {
+	treasureWearer(t, "1001", []string{"CUAH006FG"}, nil)
+	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Tickets: 10, Charged: treasureNow.UnixMilli()})
+	save := func(outfit []string) {
+		store.AccountsMu.Lock()
+		defer store.AccountsMu.Unlock()
+		if err := store.SetAvatarOutfitLocked(store.AccountByAidLocked("1001"), outfit); err != nil {
+			t.Fatal(err)
+		}
+	}
+	save([]string{"CUAH006FG"})
+	if view, err := TreasureOpen("1001", treasureNow); err != nil || view.BuffPercent != 10 {
+		t.Fatalf("after the Closet wear = %+v, %v; want 10 percent", view, err)
+	}
+	save(nil)
+	if view, err := TreasureOpen("1001", treasureNow); err != nil || view.BuffPercent != 0 {
+		t.Fatalf("after the Closet take-off = %+v, %v; want 0 percent", view, err)
 	}
 }
 
@@ -206,14 +348,11 @@ func TestTreasureBuffWearNeedsOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	store.AccountsMu.Lock()
-	store.Accounts["t-1001"].InventoryCodes = nil
+	store.Accounts["t-1001"].InventoryCodes = []string{} // nil would fall back to the equipped codes (AccountInventoryCodes)
 	store.AccountsMu.Unlock()
 	view, err := TreasureOpen("1001", treasureNow)
 	if err != nil || view.BuffPercent != 0 {
 		t.Fatalf("after the sale = %+v, %v; want the worn buff gone", view, err)
-	}
-	if rec, _ := store.TreasureRecordOf("1001"); len(rec.Worn) != 0 {
-		t.Fatalf("saved worn set after the sale = %v", rec.Worn)
 	}
 }
 

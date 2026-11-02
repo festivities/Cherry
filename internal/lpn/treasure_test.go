@@ -34,15 +34,17 @@ var (
 		19: {wire: 2, req: true}, 20: {wire: 2, req: true}, 21: {wire: 2, req: true}, 22: {wire: 2, req: true},
 		23: {wire: 0, req: true}, 24: {wire: 0, req: true}, 25: {wire: 2, req: true},
 	}
-	treEnter   = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 2, req: true, msg: treSeason}, 4: {wire: 2, rep: true, msg: treCell}, 5: {wire: 0, req: true}}
-	treOwn     = lpMsg{1: {wire: 0}, 2: {wire: 2}, 3: {wire: 0}, 9: {wire: 2}}
-	treRelay   = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 0, req: true}, 4: {wire: 0, req: true}, 5: {wire: 0, req: true}, 6: {wire: 0, req: true}, 7: {wire: 0}, 8: {wire: 2, msg: treOwn}, 9: {wire: 2, req: true, msg: treCell}, 10: {wire: 2, msg: treDetail}, 11: {wire: 2, msg: treMyRank}}
-	treItem    = lpMsg{1: {wire: 0}, 2: {wire: 2}, 3: {wire: 2}, 4: {wire: 0}}
-	treReward  = lpMsg{1: {wire: 0}, 2: {wire: 2, rep: true, msg: treItem}, 5: {wire: 2}}
-	treCoin    = lpMsg{1: {wire: 0, req: true}}
-	treBonus   = lpMsg{1: {wire: 0, req: true}, 3: {wire: 2}, 4: {wire: 0}}
-	treRanking = lpMsg{1: {wire: 0}, 2: {wire: 0}, 3: {wire: 0}, 4: {wire: 0}, 5: {wire: 0}, 6: {wire: 0}, 7: {wire: 0}, 10: {wire: 0}}
-	treGoldKey = lpMsg{1: {wire: 0, req: true}}
+	treEnter = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 2, req: true, msg: treSeason}, 4: {wire: 2, rep: true, msg: treCell}, 5: {wire: 0, req: true}}
+	// treEnterEnded is sc_room_enter_res with SeasonStatus 2: no ring, the one NPC portrait (AvatarInfo f6).
+	treEnterEnded = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 2, req: true, msg: treSeason}, 5: {wire: 0, req: true}, 6: {wire: 2, msg: treNPC}}
+	treOwn        = lpMsg{1: {wire: 0}, 2: {wire: 2}, 3: {wire: 0}, 9: {wire: 2}}
+	treRelay      = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 0, req: true}, 4: {wire: 0, req: true}, 5: {wire: 0, req: true}, 6: {wire: 0, req: true}, 7: {wire: 0}, 8: {wire: 2, msg: treOwn}, 9: {wire: 2, req: true, msg: treCell}, 10: {wire: 2, msg: treDetail}, 11: {wire: 2, msg: treMyRank}}
+	treItem       = lpMsg{1: {wire: 0}, 2: {wire: 2}, 3: {wire: 2}, 4: {wire: 0}}
+	treReward     = lpMsg{1: {wire: 0}, 2: {wire: 2, rep: true, msg: treItem}, 5: {wire: 2}}
+	treCoin       = lpMsg{1: {wire: 0, req: true}}
+	treBonus      = lpMsg{1: {wire: 0, req: true}, 3: {wire: 2}, 4: {wire: 0}}
+	treRanking    = lpMsg{1: {wire: 0}, 2: {wire: 0}, 3: {wire: 0}, 4: {wire: 0}, 5: {wire: 0}, 6: {wire: 0}, 7: {wire: 0}, 10: {wire: 0}}
+	treGoldKey    = lpMsg{1: {wire: 0, req: true}}
 	// The slice 3 probe squares (treasure-spec 3.2 to 3.5): exact wire types, and the repeated fields the client reads as repeated.
 	treLink      = lpMsg{1: {wire: 2, req: true}}
 	treBuff      = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, req: true}, 3: {wire: 0, req: true}, 4: {wire: 2, req: true, msg: treLink}, 5: {wire: 2, req: true}, 6: {wire: 2, req: true}}
@@ -403,10 +405,12 @@ func TestTreasureRefusals(t *testing.T) {
 		t.Fatal("roll before enter was not refused")
 	}
 
-	treAt(t, treTime.AddDate(0, 0, -10)) // 2026-10-31: before the season starts (2026-11-01 06:00 JST)
+	// 2026-10-31: before the first season (2026-11-01 06:00 JST). The cycle is closed, so the enter is status 2 with no ring
+	// (season-end-spec 12 (c)), not a refusal.
+	treAt(t, treTime.AddDate(0, 0, -10))
 	g.send(treasureCsRoomEnter, nil)
-	if cirVar(g.readShape(treasureRcRoomEnter, treResult), 1) != treasureRefused {
-		t.Fatal("enter before the season was not refused")
+	if body := g.readShape(treasureRcRoomEnter, treEnterEnded); cirVar(body, 2) != treasureSeasonEnded || len(cirList(body, 4)) != 0 {
+		t.Fatalf("enter before the season = %x, want status 2 and no ring", body)
 	}
 }
 
@@ -609,7 +613,7 @@ func TestTreasureProbeSquaresOverTheGateway(t *testing.T) {
 }
 
 // TestTreasureLaterSlicesAnswerSafely: the requests that need a board (mini-game, secret quest enable and claim) are refused
-// before the board is entered, the buff list and wear answer for a logged-in account, the season state keeps its stub, and
+// before the board is entered, the buff list and wear answer for a logged-in account, the reward popup exit is refused in a play window, and
 // the client's own close (subtype 2) and the ticket sync (no caller) get no reply. The buff, mini-game and secret quest answers
 // are checked over the gateway in treasure_slice3_test.go.
 func TestTreasureLaterSlicesAnswerSafely(t *testing.T) {
@@ -622,9 +626,9 @@ func TestTreasureLaterSlicesAnswerSafely(t *testing.T) {
 	if cirVar(g.readShape(treasureRcBuffList, treBuffList), 1) != 0 {
 		t.Fatal("buff list not an empty success")
 	}
-	g.send(treasureCsBuffWear, nil) // buff wear with no list: unequip everything, Result 0
-	if cirVar(g.readShape(treasureRcBuffWear, treBuffWear), 1) != 0 {
-		t.Fatal("buff wear not an empty success")
+	g.send(treasureCsBuffWear, nil) // buff wear with no outfit: refused (the client always sends the whole outfit)
+	if cirVar(g.readShape(treasureRcBuffWear, treResult), 1) != treasureRefused {
+		t.Fatal("buff wear with no outfit not refused")
 	}
 	g.send(8, nil) // mini-game before the board is entered: refused
 	if cirVar(g.readShape(treasureRcMiniGame, treResult), 1) != treasureRefused {
@@ -642,9 +646,9 @@ func TestTreasureLaterSlicesAnswerSafely(t *testing.T) {
 	if cirVar(g.readShape(treasureRcSpecialEnable, treResult), 1) != treasureRefused {
 		t.Fatal("special mission enable not refused")
 	}
-	g.send(28, nil) // season active state: not active (flag cleared)
-	if cirVar(g.readShape(treasureRcSeasonState, treStatus), 1) != treasureSeasonNotActive {
-		t.Fatal("season state not answered")
+	g.send(28, nil) // reward popup back key in a play window: refused (the popup is opened after the window only)
+	if cirVar(g.readShape(treasureRcSeasonState, treStatus), 1) != treasureRefused {
+		t.Fatal("reward popup exit in a play window not refused")
 	}
 	g.send(24, nil) // ticket sync: no caller in the client, no reply
 	g.send(0x30, nil)

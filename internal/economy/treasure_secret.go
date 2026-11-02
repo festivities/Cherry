@@ -28,7 +28,7 @@ func treasureOnSecret(r store.TreasureRecord, d *TreasureData) bool {
 // TreasureSecretEnable enables the secret quest of the square the token stands on (cs 26). Refused unless the token is on the
 // quest's square.
 func TreasureSecretEnable(aid string, now time.Time) (TreasureView, error) {
-	view, err := treasureTx(aid, now, true, func(_ *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
+	view, err := treasureTx(aid, now, treasureGatePlay, func(_ *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
 		if !treasureOnSecret(*r, d) {
 			return nil, ErrTreasureRefused
 		}
@@ -42,7 +42,7 @@ func TreasureSecretEnable(aid string, now time.Time) (TreasureView, error) {
 // progress, and the quest ends. It returns the tickets paid. Refused unless the quest is done and the token is on its square.
 func TreasureSecretClaim(aid string, now time.Time) (int64, TreasureView, error) {
 	var paid int64
-	view, err := treasureTx(aid, now, true, func(_ *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
+	view, err := treasureTx(aid, now, treasureGatePlay, func(_ *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
 		if !treasureOnSecret(*r, d) || !r.Secret.Done {
 			return nil, ErrTreasureRefused
 		}

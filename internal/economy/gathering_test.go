@@ -12,7 +12,6 @@ import (
 
 	"cherry/internal/store"
 	"cherry/internal/testutil"
-	"cherry/internal/thumbs"
 )
 
 // gatherAccount installs aid with gems and an optional gathering record, and saves into a temp dir
@@ -284,7 +283,7 @@ func TestGardenBagChangeIsCopyOnWrite(t *testing.T) {
 // TestGatherImageRoute checks GET /cherry/garden/items/item<id>.png: a PNG for a material, 404 for
 // anything else. The icon is read from the archive, so the test skips without it.
 func TestGatherImageRoute(t *testing.T) {
-	src := filepath.Join(thumbs.DpItemRoot, "craftitem", "garden01", "items", "item110000.png")
+	src := filepath.Join(testutilSanti, "item", "craftitem", "garden01", "items", "item110000.png")
 	if _, err := os.Stat(src); err != nil {
 		t.Skipf("archive icon not present: %v", err)
 	}

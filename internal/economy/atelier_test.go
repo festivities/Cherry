@@ -15,13 +15,12 @@ import (
 	"cherry/data"
 	"cherry/internal/store"
 	"cherry/internal/testutil"
-	"cherry/internal/thumbs"
 )
 
 // requireArchive skips a test that needs the item archive (the clothing products have art there).
 func requireArchive(t *testing.T) {
 	t.Helper()
-	if _, err := os.Stat(filepath.Join(thumbs.DpItemRoot, "dress")); err != nil {
+	if !testutil.ArchiveFound() {
 		t.Skip("item archive not present")
 	}
 }

@@ -57,7 +57,7 @@ func treasureSquareDetail(v economy.TreasureView) []byte {
 
 // treasureMyRank is MyRankingInfo: the account's place, its points, its grade and the grade's class.
 func treasureMyRank(aid uint64) []byte {
-	me := economy.TreasureMyRankOf(strconv.FormatUint(aid, 10))
+	me := economy.TreasureMyRankOf(strconv.FormatUint(aid, 10), economy.NowFunc())
 	b := pbVar(nil, 1, uint64(me.Rank))
 	b = pbVar(b, 2, uint64(me.Points))
 	b = pbLen(b, 3, []byte(me.Grade.Name))
@@ -197,7 +197,7 @@ func (s *treasureSession) rankingInfo(frame, data []byte) error {
 	}
 	start, _ := protobufUintField(data, 2)
 	end, _ := protobufUintField(data, 3)
-	rows, pages := economy.TreasureRankingPage(int64(start), int64(end))
+	rows, pages := economy.TreasureRankingPage(int64(start), int64(end), economy.NowFunc())
 	body := pbVar(nil, 1, 0)
 	body = pbLen(body, 2, treasureMyRank(s.aid))
 	for _, row := range rows {
@@ -240,7 +240,7 @@ func (s *treasureSession) pointRewardInfo(frame []byte) error {
 		return s.refuse(frame, treasureRcPointRewardInfo)
 	}
 	body := pbVar(nil, 1, 0)
-	rows := economy.TreasurePointRows(s.aidText())
+	rows := economy.TreasurePointRows(s.aidText(), economy.NowFunc())
 	for _, row := range rows {
 		body = pbLen(body, 2, treasurePointReward(row))
 	}
@@ -304,20 +304,37 @@ func (s *treasureSession) classRewardInfo(frame []byte) error {
 	return s.reply(frame, treasureRcClassRewardInfo, body)
 }
 
-// classRewardClaim answers cs_ranking_class_reward_req (msgid 15): the rank reward goes to the Mailbox inside the claim window.
+// classRewardClaim answers cs_ranking_class_reward_req (msgid 15) by the season cycle (season-end-spec 12 (b) and (c)). In the
+// reward period a claimable rank reward goes to the Mailbox (Result 0, "Congratulations!"); one that is not claimable (none,
+// or already paid) answers 786435, which opens the reward popup for the point and rank lists. Once the cycle is closed the
+// answer is 65541 ("the reward distribution period has ended"). A play window never sends it: Result 1.
 func (s *treasureSession) classRewardClaim(frame []byte) error {
 	if !s.loggedIn {
 		s.logger.Printf("TREASURE msgid=15 rank reward refused: no login")
 		return s.refuse(frame, treasureRcClassReward)
 	}
-	gems, err := economy.TreasureRankClaim(s.aidText(), economy.NowFunc())
+	now := economy.NowFunc()
+	phase := economy.TreasureCurrent(now).Phase
+	switch phase {
+	case economy.TreasurePhaseClosed:
+		s.logger.Printf("TREASURE msgid=15 rank reward aid=%d phase=closed result=%d", s.aid, treasureSeasonNotActive)
+		return s.reply(frame, treasureRcClassReward, pbVar(nil, 1, treasureSeasonNotActive))
+	case economy.TreasurePhasePlay:
+		s.logger.Printf("TREASURE msgid=15 rank reward refused aid=%d: phase=play", s.aid)
+		return s.refuse(frame, treasureRcClassReward)
+	}
+	if !economy.TreasureRankInfo(s.aidText(), now).Claimable {
+		s.logger.Printf("TREASURE msgid=15 rank reward aid=%d phase=reward nothing to claim result=%d", s.aid, treasureRewardPopup)
+		return s.reply(frame, treasureRcClassReward, pbVar(nil, 1, treasureRewardPopup))
+	}
+	gems, err := economy.TreasureRankClaim(s.aidText(), now)
 	if err != nil {
 		s.logger.Printf("TREASURE msgid=15 rank reward refused aid=%d: %v", s.aid, err)
 		return s.refuse(frame, treasureRcClassReward)
 	}
 	body := pbVar(nil, 1, 0)
 	body = pbLen(body, 2, treasureRewardInfo(fmt.Sprintf("%s: %d Gems", treasureRewardNoteMailbox, gems), treasureViewCoin, gems))
-	s.logger.Printf("TREASURE msgid=15 rank reward aid=%d gems=%d result=0", s.aid, gems)
+	s.logger.Printf("TREASURE msgid=15 rank reward aid=%d phase=reward gems=%d result=0", s.aid, gems)
 	return s.reply(frame, treasureRcClassReward, body)
 }
 

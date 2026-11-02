@@ -43,10 +43,11 @@ func (s *treasureSession) buffList(frame []byte) error {
 	return s.reply(frame, treasureRcBuffList, body)
 }
 
-// buffWear answers cs_buff_item_wear_req (msgid 22): repeated BuffItem (f1, ItemCode string; f2 InvenSeq) names the buffs to wear,
-// and none takes every buff off. The reply carries Result (f1), the worn total (f2), the owned buffs (f3) and the account's own
-// avatar (f4): the client replaces its avatar with f4, so it is never left out. A list that names a buff the account does not
-// own, or names one twice, is refused and changes nothing.
+// buffWear answers cs_buff_item_wear_req (msgid 22): repeated BuffItem (f1, ItemCode string; f2 InvenSeq) is the whole outfit the
+// client will wear (skin and base items included). It is saved as a Closet save saves it and the buffs worn are its pool items
+// (economy.TreasureBuffWear). The reply carries Result (f1), the worn total (f2), the owned buffs (f3) and the account's own
+// avatar (f4): the client replaces its avatar with f4, so it is never left out. An empty outfit, or one that names an item the
+// account does not own (or its species cannot wear), is refused and changes nothing.
 func (s *treasureSession) buffWear(frame, data []byte) error {
 	if !s.loggedIn {
 		s.logger.Printf("TREASURE msgid=22 buff wear refused: no login")
@@ -73,6 +74,6 @@ func (s *treasureSession) buffWear(frame, data []byte) error {
 		body = pbLen(body, 3, treasureBuffItem(row))
 	}
 	body = pbLen(body, 4, treasureOwnAvatar(s.aid))
-	s.logger.Printf("TREASURE msgid=22 buff wear aid=%d codes=%v percent=%d result=0", s.aid, codes, buffs.Percent)
+	s.logger.Printf("TREASURE msgid=22 buff wear aid=%d outfit=%d percent=%d result=0", s.aid, buffs.Outfit, buffs.Percent)
 	return s.reply(frame, treasureRcBuffWear, body)
 }

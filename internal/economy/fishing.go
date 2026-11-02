@@ -1,6 +1,7 @@
 package economy
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"image"
@@ -9,14 +10,13 @@ import (
 	"log"
 	"maps"
 	"net/http"
-	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"cherry/data"
+	"cherry/internal/assets"
 	"cherry/internal/opdata"
 	"cherry/internal/store"
 )
@@ -215,9 +215,9 @@ func FishCollection(aid string) (map[int64]int64, int64) {
 	return maps.Clone(acc.FishCaught), total
 }
 
-// fishSilhouette is the client's own side-view fish shadow (2016 Android animation set), read in
-// place from the read-only archive; the catch card picture is this shape tinted per fish.
-var fishSilhouette = filepath.FromSlash(`D:/Dev/projects/Cherry/.opencode/line-play-artifacts/lineplay-original-assets/android-4.0.0.0-2016/animation/fish/fish_ani_0001.png`)
+// fishSilhouette is the store key of the client's own side-view fish shadow (2016 Android animation set, an original APK
+// asset uploaded by cmd/cherry-assets); the catch card picture is this shape tinted per fish.
+const fishSilhouette = "static/android-4.0.0.0-2016/animation/fish/fish_ani_0001.png"
 
 // FishImageURL is the catch card picture for fish id (served by HandleFishImage).
 func FishImageURL(id int64) string {
@@ -243,13 +243,12 @@ func HandleFishImage(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	f, err := os.Open(fishSilhouette)
+	raw, err := assets.Archive.ReadFile(fishSilhouette)
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
-	defer f.Close()
-	src, err := png.Decode(f)
+	src, err := png.Decode(bytes.NewReader(raw))
 	if err != nil {
 		http.NotFound(w, r)
 		return

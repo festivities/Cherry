@@ -121,7 +121,7 @@ func treasureLists(r store.TreasureRecord, d *TreasureData, nowMs int64) Treasur
 // every board entry.
 func TreasureTaskList(aid string, now time.Time) (TreasureTaskLists, error) {
 	var out TreasureTaskLists
-	_, err := treasureTx(aid, now, true, func(_ *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
+	_, err := treasureTx(aid, now, treasureGatePlay, func(_ *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
 		nowMs := now.UnixMilli()
 		treasureEnsure(&r.Quests, d.Quests, nowMs)
 		treasureEnsure(&r.Missions, d.Missions, nowMs)
@@ -134,7 +134,7 @@ func TreasureTaskList(aid string, now time.Time) (TreasureTaskLists, error) {
 // TreasureQuestRefresh posts a new quest set. It is refused until refresh_hours after the posted set went up.
 func TreasureQuestRefresh(aid string, now time.Time) (TreasureTaskLists, error) {
 	var out TreasureTaskLists
-	_, err := treasureTx(aid, now, true, func(_ *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
+	_, err := treasureTx(aid, now, treasureGatePlay, func(_ *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
 		nowMs := now.UnixMilli()
 		if r.Quests.Set > 0 && nowMs < r.Quests.Posted+d.Quests.RefreshHours*3600*1000 {
 			return nil, ErrTreasureRefused
@@ -150,7 +150,7 @@ func TreasureQuestRefresh(aid string, now time.Time) (TreasureTaskLists, error) 
 // TreasureQuestClaim pays the tickets of quest slot (1 to 5) once it is complete.
 func TreasureQuestClaim(aid string, slot int64, now time.Time) (TreasureClaim, error) {
 	var out TreasureClaim
-	view, err := treasureTx(aid, now, true, func(_ *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
+	view, err := treasureTx(aid, now, treasureGatePlay, func(_ *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
 		if slot < 1 || slot > int64(len(r.Quests.Slots)) || r.Quests.Slots[slot-1].State != 1 {
 			return nil, ErrTreasureRefused
 		}
@@ -169,14 +169,14 @@ func TreasureQuestClaim(aid string, slot int64, now time.Time) (TreasureClaim, e
 // TreasureMissionClaim pays the Jewels of the mission seq (set * 100 + order) once it is complete.
 func TreasureMissionClaim(aid string, seq int64, now time.Time) (TreasureClaim, error) {
 	var out TreasureClaim
-	view, err := treasureTx(aid, now, true, func(_ *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
+	view, err := treasureTx(aid, now, treasureGatePlay, func(acc *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
 		order := seq % 100
 		if seq/100 != r.Missions.Set || order < 1 || order > int64(len(r.Missions.Slots)) || r.Missions.Slots[order-1].State != 1 {
 			return nil, ErrTreasureRefused
 		}
 		s := &r.Missions.Slots[order-1]
 		s.State = 2
-		out.Paid = treasureBoost(d.Missions.Pool[s.Task].Reward, treasureBuffPercent(*r, d))
+		out.Paid = treasureBoost(d.Missions.Pool[s.Task].Reward, treasureBuffPercent(acc, d))
 		r.Jewels += out.Paid
 		out.Row = treasureRows(r.Missions, d.Missions.Pool, true)[order-1]
 		out.Lists = treasureLists(*r, d, now.UnixMilli())

@@ -54,10 +54,10 @@ func (s Sky) key() string {
 	return fmt.Sprintf("%08x", crc32.ChecksumIEEE(fmt.Appendf(nil, "%v%v%t", s.Top, s.Bottom, s.Stars)))
 }
 
-// LandscapeArchived reports whether the archive holds the map pack that a generated landscape of stem renders
+// LandscapeArchived reports whether the store holds the map pack that a generated landscape of stem renders
 // from (tests that serve dp.png skip without it).
 func LandscapeArchived(stem string) bool {
-	_, ok := mapPackPath(stem)
+	_, ok := mapPackBytes(stem)
 	return ok
 }
 
@@ -125,11 +125,11 @@ func (sc *lsScene) art(code string) *lsArt {
 // renderLandscape draws map stem with sky and returns the 130x100 picture with the picks it made.
 func renderLandscape(stem string, sky Sky) (*image.NRGBA, landscapePicks, error) {
 	var picks landscapePicks
-	path, ok := mapPackPath(stem)
+	d, ok := mapPackBytes(stem)
 	if !ok {
-		return nil, picks, fmt.Errorf("garden map %s: no pack in the archive", stem)
+		return nil, picks, fmt.Errorf("garden map %s: no pack in the store", stem)
 	}
-	pk, err := readMapPack(path)
+	pk, err := readMapPack(d, stem+".mworldpack")
 	if err != nil {
 		return nil, picks, err
 	}

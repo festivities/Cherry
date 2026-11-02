@@ -46,7 +46,8 @@ func TestLandscapeMatchesV6(t *testing.T) {
 	if err != nil {
 		t.Skipf("no v6 reference: %v", err)
 	}
-	if _, ok := mapPackPath("1908231803"); !ok {
+	useArchive(t)
+	if !LandscapeArchived("1908231803") {
 		t.Skip("no archive map packs")
 	}
 	var picks map[string]v6Pick

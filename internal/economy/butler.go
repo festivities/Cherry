@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"cherry/data"
+	"cherry/internal/assets"
 	"cherry/internal/itemcode"
 	"cherry/internal/opdata"
 	"cherry/internal/store"
@@ -50,8 +51,8 @@ var ErrButlerRefused = errors.New("butler: refused")
 
 const dayMillis = 86400000
 
-// butlerArtFS is the original UI art tree (lpbackup UIResource/UIImage_hd). The portraits are read from it in place.
-var butlerArtFS fs.FS = os.DirFS(filepath.FromSlash(`D:/Dev/projects/Cherry/.opencode/line-play-artifacts/lpbackup/jp.naver.lineplay.android/files/UIResource/UIImage_hd`))
+// butlerArtFS is the original UI art tree (UIResource/UIImage_hd) read from the store. The portraits are originals.
+var butlerArtFS fs.FS = assets.DeviceFiles("UIResource/UIImage_hd")
 
 // Butlers is data/butlers.json. Strict JSON: unknown keys are an error.
 //
@@ -247,7 +248,7 @@ func ButlerOutfitIDs(d ButlerDef) []int64 {
 	return ids
 }
 
-// ButlerPortrait returns the portrait of roster butler id: the original art, read as it is from the archive. ok is false
+// ButlerPortrait returns the portrait of roster butler id: the original art, read as it is from the store. ok is false
 // for a butler outside the roster or a missing file. Nothing is generated.
 func ButlerPortrait(id int64) ([]byte, bool) {
 	d, ok := ButlerByID(id)

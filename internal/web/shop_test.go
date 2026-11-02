@@ -11,7 +11,6 @@ import (
 	"cherry/internal/economy"
 	"cherry/internal/store"
 	"cherry/internal/testutil"
-	"cherry/internal/thumbs"
 )
 
 // shopSetup installs a non-lab account and a small fake item root:
@@ -386,7 +385,7 @@ func saleClock(t *testing.T, y int, m time.Month, d, h, min int) {
 // while the New Year calendar runs), with LIMIT and the window's end; deals carry SALE.
 func TestSaleFlagsOnRoutes(t *testing.T) {
 	shopSetup(t, 0, 0)
-	root := thumbs.DpItemRoot
+	root := thumbFixtureRoot
 	writeThumbItem(t, root, "dress", "225106219", "dp.png", []byte("x"))    // CUON004SR: Halloween
 	writeThumbItem(t, root, "dress", "225303853", "dp.png", []byte("x"))    // CUSH002Z1: winter
 	writeThumbItem(t, root, "interior", "120406168", "dp.png", []byte("x")) // RUCH004RC: winter
@@ -428,7 +427,7 @@ func TestSaleFlagsOnRoutes(t *testing.T) {
 // table price sells back at the table price.
 func TestDealAndLimitedSellBackRoutes(t *testing.T) {
 	acc := shopSetup(t, 400, 0)
-	writeThumbItem(t, thumbs.DpItemRoot, "dress", "225303853", "dp.png", []byte("x")) // CUSH002Z1: winter
+	writeThumbItem(t, thumbFixtureRoot, "dress", "225303853", "dp.png", []byte("x")) // CUSH002Z1: winter
 	saleClock(t, 2027, time.January, 3, 12, 0)
 
 	code, out := shopCall(t, http.MethodPost, "/v4/purchase/dress/buy", buyDress(120, "CUSH002Z1"))

@@ -2,8 +2,12 @@ package store
 
 import (
 	"encoding/json"
+	"errors"
 	"slices"
 	"strconv"
+	"strings"
+
+	"cherry/internal/httpx"
 )
 
 // InitAvatarBaseItem @0x29a7f84 (called from AvActorManager::Initialize): three lists, one per AvActor::GetSex
@@ -35,6 +39,39 @@ func IsAvatarBaseItem(gender, code string) bool {
 		}
 	}
 	return false
+}
+
+// ErrAvatarOutfitRefused is returned by SetAvatarOutfitLocked when the outfit names an item the account does not own.
+var ErrAvatarOutfitRefused = errors.New("avatar: the outfit names an item the account does not own")
+
+// IsSkinItemCode reports whether code is a skin pseudo code (SKN and three digits).
+func IsSkinItemCode(code string) bool {
+	return len(code) == 6 && strings.HasPrefix(code, "SKN") && httpx.IsAllDigits(code[3:])
+}
+
+// AvatarOutfitSkips reports whether save/v2 keeps code out of the saved outfit: a skin code (the skin stays as it is) or a base
+// item of the account's gender (every account skips the human bases; an ANIMAL also its animal base, see IsAvatarBaseItem).
+func AvatarOutfitSkips(gender, code string) bool {
+	return IsSkinItemCode(code) || IsAvatarBaseItem(gender, code)
+}
+
+// SetAvatarOutfitLocked replaces acc's equipped codes with outfit under save/v2's rules: the skipped codes (AvatarOutfitSkips)
+// are dropped and every other code must be owned. An outfit that names an unowned code changes nothing. It does not save:
+// the caller holds AccountsMu, calls SaveAccountsLocked and puts *acc back when that fails.
+func SetAvatarOutfitLocked(acc *Account, outfit []string) error {
+	owned := AccountOwnedCodes(acc)
+	kept := make([]string, 0, len(outfit))
+	for _, code := range outfit {
+		if AvatarOutfitSkips(acc.Gender, code) {
+			continue
+		}
+		if !slices.Contains(owned, code) {
+			return ErrAvatarOutfitRefused
+		}
+		kept = append(kept, code)
+	}
+	acc.ItemCodes = kept
+	return nil
 }
 
 func AppearanceItemCodes(gender string, equipped []string) []string {

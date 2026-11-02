@@ -11,7 +11,6 @@ import (
 	"cherry/data"
 	"cherry/internal/opdata"
 	"cherry/internal/store"
-	"cherry/internal/thumbs"
 )
 
 // Square Ride Point exchange shop (popup 117; wire notes %TEMP%\opencode\cherry\phaseDE-20261022\
@@ -99,8 +98,8 @@ func verifyRideShop(s *RideShop) error {
 		if _, kind := classify(r.ItemCode); kind == kindPet {
 			return fmt.Errorf("%s: item %s is a pet; the Ride Point shop sells clothing and room items", where, r.ItemCode)
 		}
-		if !itemAvailable(r.ItemCode) {
-			return fmt.Errorf("%s: item %s has no art in the item archive (%s)", where, r.ItemCode, thumbs.DpItemRoot)
+		if artVerifiable() && !itemAvailable(r.ItemCode) {
+			return fmt.Errorf("%s: item %s has no art in the item archive", where, r.ItemCode)
 		}
 	}
 	return nil

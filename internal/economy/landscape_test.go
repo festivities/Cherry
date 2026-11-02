@@ -287,9 +287,7 @@ func TestServeLandscapeFiles(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "garden", "428400149", "1409_iteminfo.artsitem"), []byte(template), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	old := thumbs.DpItemRoot
-	thumbs.DpItemRoot = root
-	t.Cleanup(func() { thumbs.DpItemRoot = old })
+	testutil.SetArchive(t, testutil.ArchiveMounts(root, testutil.SantiItems()))
 
 	get := func(method, path string) (*httptest.ResponseRecorder, bool) {
 		rec := httptest.NewRecorder()

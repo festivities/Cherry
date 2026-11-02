@@ -1,11 +1,10 @@
 package economy
 
 import (
+	"cherry/internal/assets"
 	"errors"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -183,7 +182,7 @@ func ServeLandscapeFile(w http.ResponseWriter, r *http.Request) bool {
 	switch file {
 	case "1409_iteminfo.artsitem": // the template's bytes: the same file for every landscape
 		contentType = "application/octet-stream"
-		body, err = os.ReadFile(filepath.Join(thumbs.DpItemRoot, "garden", strconv.Itoa(landscapeTemplateID), file))
+		body, err = assets.Archive.ReadItem("garden", int64(landscapeTemplateID), file)
 	case "dp.png":
 		contentType = "image/png"
 		var sky thumbs.Sky

@@ -13,7 +13,6 @@ import (
 	"cherry/data"
 	"cherry/internal/httpx"
 	"cherry/internal/opdata"
-	"cherry/internal/thumbs"
 )
 
 // Economy Phase E: seasonal login calendars. The 7-day count cycle of loginbonus.go is the normal
@@ -167,12 +166,12 @@ func checkCalendars(c *Calendars) error {
 func verifyCalendars(c *Calendars) error {
 	for _, s := range c.Seasons {
 		for i, r := range s.Cycle {
-			if r.Item != "" && !itemAvailable(r.Item) {
-				return fmt.Errorf("season %s day %d: item %s has no art in the item archive (%s)", s.Name, i+1, r.Item, thumbs.DpItemRoot)
+			if artVerifiable() && r.Item != "" && !itemAvailable(r.Item) {
+				return fmt.Errorf("season %s day %d: item %s has no art in the item archive", s.Name, i+1, r.Item)
 			}
 		}
 		for _, code := range s.Limited {
-			if !itemAvailable(code) {
+			if artVerifiable() && !itemAvailable(code) {
 				log.Printf("cherry: season %s limited item %s has no art in the item archive; it is not listed", s.Name, code)
 			}
 		}

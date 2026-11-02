@@ -122,7 +122,8 @@ func TestPetFitScalesOversizedPose(t *testing.T) {
 
 // Ride pets (326400242 is PUPE0006Q) are far larger than the shop canvas at 1:1. Skipped when the archive is absent.
 func TestDpPetRideFitsCanvas(t *testing.T) {
-	dir := filepath.Join(DpItemRoot, "pet", "326400242")
+	useArchive(t)
+	dir := filepath.Join(santiFiles, "item", "pet", "326400242")
 	if _, err := os.Stat(dir); err != nil {
 		t.Skip("ride pet archive absent")
 	}

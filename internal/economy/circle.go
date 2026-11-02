@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"io/fs"
 	"math/rand/v2"
-	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -14,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"cherry/data"
+	"cherry/internal/assets"
 	"cherry/internal/opdata"
 	"cherry/internal/store"
 )
@@ -94,7 +93,7 @@ var circleInterestCodes = []int64{
 //	origin, note  mixed: the ids and the product are Cherry-made, the pictures are the client's (opdata.Provenance)
 //	product       code (the create request must send it), name, price_gems (Gems; paymentType GEM), max_members
 //	room          the circle room's map and spawn (a Cherry-made stand-in, see note)
-//	logos         symbols a circle may use: id in the logo block, art = a file in UIResource/UIImage_hd (read in place)
+//	logos         symbols a circle may use: id in the logo block, art = a file in UIResource/UIImage_hd (read from the store)
 //	backgrounds   backgrounds a circle may use: the same rules
 //	points        season length, triggers, the daily cap and the point steps (circle_points.go)
 //	missions      the mission chain: one mission at a time per member and season (circle_points.go)
@@ -197,8 +196,8 @@ type CircleArt struct {
 
 var circleFile = opdata.New("circle.json", data.CircleJSON, checkCircleData, verifyCircleData)
 
-// circleArtFS is the original UI art tree (lpbackup UIResource/UIImage_hd). The logo pictures are read from it in place.
-var circleArtFS fs.FS = os.DirFS(filepath.FromSlash(`D:/Dev/projects/Cherry/.opencode/line-play-artifacts/lpbackup/jp.naver.lineplay.android/files/UIResource/UIImage_hd`))
+// circleArtFS is the original UI art tree (UIResource/UIImage_hd) read from the store. The logo pictures are originals.
+var circleArtFS fs.FS = assets.DeviceFiles("UIResource/UIImage_hd")
 
 // ActiveCircleData is data/circle.json in use.
 func ActiveCircleData() *CircleData { return circleFile.Get() }

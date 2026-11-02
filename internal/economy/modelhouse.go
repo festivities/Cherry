@@ -17,7 +17,6 @@ import (
 	"cherry/internal/opdata"
 	"cherry/internal/room"
 	"cherry/internal/store"
-	"cherry/internal/thumbs"
 )
 
 // Model House sets (home menu goSomewhere(modelhouse)): the Interior set shop list, the set detail the My Room
@@ -135,8 +134,8 @@ func checkModelHouse(m *ModelHouse) error {
 func verifyModelHouse(m *ModelHouse) error {
 	for _, s := range m.Sets {
 		for _, code := range s.Elements {
-			if _, k := classify(code); k != kindInterior || !itemAvailable(code) {
-				return fmt.Errorf("sets (%s): element %s is not an Interior Shop item with art in the item archive (%s)", s.Code, code, thumbs.DpItemRoot)
+			if _, k := classify(code); k != kindInterior || artVerifiable() && !itemAvailable(code) {
+				return fmt.Errorf("sets (%s): element %s is not an Interior Shop item with art in the item archive", s.Code, code)
 			}
 		}
 	}

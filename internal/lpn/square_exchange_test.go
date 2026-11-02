@@ -1,7 +1,6 @@
 package lpn
 
 import (
-	"os"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -10,7 +9,6 @@ import (
 	"cherry/internal/economy"
 	"cherry/internal/store"
 	"cherry/internal/testutil"
-	"cherry/internal/thumbs"
 )
 
 var exchangeJST = time.FixedZone("JST", 9*3600)
@@ -48,7 +46,7 @@ func exchangeOwns(t *testing.T, aid, code string) bool {
 // requireExchangeArchive skips a test that needs the item archive's art folders for the default rows.
 func requireExchangeArchive(t *testing.T) {
 	t.Helper()
-	if _, err := os.Stat(filepath.Join(thumbs.DpItemRoot, "dress")); err != nil {
+	if !testutil.ArchiveFound() {
 		t.Skip("item archive not present")
 	}
 }

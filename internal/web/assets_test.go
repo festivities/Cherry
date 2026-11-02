@@ -6,14 +6,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
 	"cherry/internal/assets"
-	"cherry/internal/thumbs"
+	"cherry/internal/testutil"
 )
 
 // streamBucket publishes a small bucket for the streaming tests: one animation file, the tx list, and
@@ -70,17 +68,16 @@ func streamServer(t *testing.T, objs map[string][]byte) {
 		_, _ = w.Write(body)
 	}))
 	t.Cleanup(srv.Close)
-	streaming = assets.New(assets.Config{Endpoint: srv.URL, Bucket: "cherry-assets", AccessKey: "AKTEST", SecretKey: "S"}, t.TempDir())
-	t.Cleanup(func() { streaming = nil })
+	old := assets.Archive
+	assets.Archive = assets.New(assets.Config{Endpoint: srv.URL, Bucket: "cherry-assets", AccessKey: "AKTEST", SecretKey: "S"}, t.TempDir())
+	t.Cleanup(func() { assets.Archive = old })
 }
 
 // localArchive points the thumbnail generator at a temp item tree; it holds the local dp.png fallback.
 func localArchive(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	old := thumbs.DpItemRoot
-	thumbs.DpItemRoot = root
-	t.Cleanup(func() { thumbs.DpItemRoot = old })
+	testutil.SetArchive(t, testutil.ArchiveMounts(root, testutil.SantiItems())) // the landscapes also read santi's interior art
 	return root
 }
 
@@ -96,8 +93,8 @@ func TestStreamingOffKeepsBodies(t *testing.T) {
 	if err := LoadOperatorData(); err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	if streaming != nil {
-		t.Fatal("streaming opened without a flag and cloudflare.json")
+	if assets.Archive.Streaming() {
+		t.Fatal("streaming on without a flag and cloudflare.json")
 	}
 	if code, body := bodyOf(t, http.MethodGet, "/notice/adr/checkresource2.json"); code != http.StatusOK || body != checkResource2Body {
 		t.Fatalf("checkresource2 = %d %s", code, body)
@@ -142,13 +139,6 @@ func TestStreamedDpPNGWinsThenGeneratedFallback(t *testing.T) {
 	objs, _ := streamBucket(t)
 	objs["static/item/custom/123/dp.png"] = []byte("R2THUMB")
 	streamServer(t, objs)
-	root := localArchive(t)
-	if err := os.MkdirAll(filepath.Join(root, "custom", "456"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "custom", "456", "dp.png"), []byte("LOCALTHUMB"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 
 	if code, body := bodyOf(t, http.MethodGet, "/arts_item_custom_123/dp.png"); code != http.StatusOK || body != "R2THUMB" {
 		t.Fatalf("R2 dp.png = %d %q", code, body)
@@ -156,11 +146,7 @@ func TestStreamedDpPNGWinsThenGeneratedFallback(t *testing.T) {
 	if code, body := bodyOf(t, http.MethodGet, "/img/read/arts_item_custom_123/dp.png"); code != http.StatusOK || body != "R2THUMB" {
 		t.Fatalf("thumbnail-form R2 dp.png = %d %q", code, body)
 	}
-	// No dp.png in R2: the generated path answers, here the archive's own dp.png.
-	if code, body := bodyOf(t, http.MethodGet, "/arts_item_custom_456/dp.png"); code != http.StatusOK || body != "LOCALTHUMB" {
-		t.Fatalf("fallback dp.png = %d %q", code, body)
-	}
-	// Neither R2 nor the archive has it: 404, as before.
+	// An item the bucket does not list is 404: the store reads no local folder for it.
 	if code, _ := bodyOf(t, http.MethodGet, "/arts_item_custom_789/dp.png"); code != http.StatusNotFound {
 		t.Fatalf("missing item = %d, want 404", code)
 	}

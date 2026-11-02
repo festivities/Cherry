@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
-	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -16,7 +14,6 @@ import (
 	"cherry/internal/assets"
 	"cherry/internal/opdata"
 	"cherry/internal/store"
-	"cherry/internal/thumbs"
 )
 
 // Garden gathering (Economy Phase DE). A touch spot in a Garden pays one material into the Bag per
@@ -343,8 +340,8 @@ func GatherCraftImage(item int64) string {
 	return "garden01/items/item" + strconv.FormatInt(item, 10) + ".png"
 }
 
-// HandleGatherImage serves GET /cherry/garden/items/item<id>.png with the client's own craft icon,
-// read in place from the read-only archive (thumbs.DpItemRoot/craftitem/garden01/items).
+// HandleGatherImage serves GET /cherry/garden/items/item<id>.png with the client's own craft icon, an original read
+// from the store (static/garden01/items).
 func HandleGatherImage(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, "/cherry/garden/items/")
 	id, err := strconv.ParseInt(strings.TrimSuffix(strings.TrimPrefix(name, "item"), ".png"), 10, 64)
@@ -352,28 +349,19 @@ func HandleGatherImage(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	file := "item" + strconv.FormatInt(id, 10) + ".png"
-	http.ServeFile(w, r, filepath.Join(thumbs.DpItemRoot, "craftitem", "garden01", "items", file))
+	if !assets.Archive.ServeKey(w, r, "static/garden01/items/item"+strconv.FormatInt(id, 10)+".png") {
+		http.NotFound(w, r)
+	}
 }
 
 // ServeGardenCraftArt answers GET /garden01/…, /craft01/… and /photozone/frame/… (the static-base files of
-// assets.CraftDirs: the Bag and Factory art, the Avatar Pic frames) from the archive, in place, when streaming is
-// off. The craft folder is read first, then the download cache: the uploader (cmd/cherry-assets) takes the same
-// order, so the two never disagree. A miss returns false, so the caller's 404 applies.
+// assets.CraftDirs: the Bag and Factory art, the Avatar Pic frames) from the store's originals when streaming is off.
+// The uploader stores the craft folder's copy under the same key (craft first, then the download cache). A miss returns
+// false, so the caller's 404 applies.
 func ServeGardenCraftArt(w http.ResponseWriter, r *http.Request) bool {
 	rel, ok := assets.CraftRel(r.URL.Path)
 	if !ok || r.Method != http.MethodGet {
 		return false
 	}
-	files := filepath.Dir(thumbs.DpItemRoot) // the device backup's files/ tree
-	for _, p := range []string{
-		filepath.Join(files, "item", "craftitem", filepath.FromSlash(rel)),
-		filepath.Join(files, "cache", filepath.FromSlash(rel)),
-	} {
-		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() {
-			http.ServeFile(w, r, p)
-			return true
-		}
-	}
-	return false
+	return assets.Archive.ServeKey(w, r, "static/"+rel)
 }

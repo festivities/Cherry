@@ -21,6 +21,8 @@ func runConvert(zipPath, root string) error {
 	if root == "" {
 		return fmt.Errorf("no generated item root (no %%LOCALAPPDATA%%)")
 	}
+	// The renderer draws the avatar rigs from the store: here, the origin folders themselves.
+	assets.Archive = assets.NewLocal(origMounts())
 	rep, err := itemconv.Build(itemconv.Options{Zip: zipPath, Out: root, Original: originalItem, Render: thumbs.RenderDP})
 	if err != nil {
 		return err

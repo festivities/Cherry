@@ -11,7 +11,6 @@ import (
 	"cherry/internal/itemcode"
 	"cherry/internal/opdata"
 	"cherry/internal/store"
-	"cherry/internal/thumbs"
 )
 
 // Garden Atelier (craft, Economy Phase DE): material designs turn gathered materials into goods for
@@ -311,8 +310,8 @@ func checkAtelierProducts(a *Atelier) error {
 		if _, kind := classify(d.ProductClothes); kind != kindFashion {
 			return fmt.Errorf("design %d: product %s is not clothing", d.ID, d.ProductClothes)
 		}
-		if !itemAvailable(d.ProductClothes) {
-			return fmt.Errorf("design %d: product %s has no art in the item archive (%s)", d.ID, d.ProductClothes, thumbs.DpItemRoot)
+		if artVerifiable() && !itemAvailable(d.ProductClothes) {
+			return fmt.Errorf("design %d: product %s has no art in the item archive", d.ID, d.ProductClothes)
 		}
 	}
 	return nil

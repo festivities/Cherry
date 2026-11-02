@@ -163,7 +163,7 @@ func verifySpin(s *Spin) error {
 	}{{"lucky", &s.Lucky}, {"jackpot", &s.Jackpot}} {
 		for i, t := range g.game.Tiers {
 			for j, slot := range t.Slots {
-				if slot.Item != "" && !itemAvailable(slot.Item) {
+				if artVerifiable() && slot.Item != "" && !itemAvailable(slot.Item) {
 					return fmt.Errorf("%s tier %d slot %d: item %s has no art or price in the archive", g.name, i+1, j+1, slot.Item)
 				}
 			}

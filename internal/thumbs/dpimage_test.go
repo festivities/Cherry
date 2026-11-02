@@ -1,7 +1,6 @@
 package thumbs
 
 import (
-	"archive/zip"
 	"bytes"
 	"image"
 	"image/color"
@@ -13,7 +12,9 @@ import (
 	"sync"
 	"testing"
 
+	"cherry/internal/assets"
 	"cherry/internal/httpx"
+	"cherry/internal/testutil"
 )
 
 // setDpFixture points the dp handler at temp dirs and restores the globals.
@@ -21,16 +22,17 @@ func setDpFixture(t *testing.T) (itemRoot, cacheDir string) {
 	t.Helper()
 	itemRoot = t.TempDir()
 	cacheDir = t.TempDir()
-	oldRoot, oldCache, oldZip := DpItemRoot, DpCacheDir, DpZipPath
-	DpItemRoot, DpCacheDir, DpZipPath = itemRoot, cacheDir, filepath.Join(t.TempDir(), "none.zip")
-	t.Cleanup(func() {
-		DpItemRoot, DpCacheDir, DpZipPath = oldRoot, oldCache, oldZip
-	})
+	oldCache := DpCacheDir
+	DpCacheDir = cacheDir
+	t.Cleanup(func() { DpCacheDir = oldCache })
+	testutil.SetArchive(t, testutil.ArchiveMounts(itemRoot))
 	return itemRoot, cacheDir
 }
 
 func writeItemFile(t *testing.T, itemRoot, kind, id, name string, data []byte) {
 	t.Helper()
+	// The store indexes its folders once: a new store sees the file (the fixture's own store is restored at cleanup).
+	assets.Archive = assets.NewLocal(testutil.ArchiveMounts(itemRoot))
 	dir := filepath.Join(itemRoot, kind, id)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
@@ -291,12 +293,22 @@ func TestDpMissingPartsPlaceholderUncached(t *testing.T) {
 	}
 }
 
-// A folder with no part files at all (artsitem only) is still an existing item.
-func TestDpEmptyItemFolderPlaceholder(t *testing.T) {
+// A folder with no files is not an item the store has: the bucket keeps files only, so it is 404 (not the placeholder).
+func TestDpEmptyItemFolderIsNotFound(t *testing.T) {
 	itemRoot, _ := setDpFixture(t)
 	if err := os.MkdirAll(filepath.Join(itemRoot, "interior", "121601242"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	rec := serveDp(t, http.MethodGet, "/arts_item_interior_121601242/dp.png")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+// An item with files but no drawable art gets the 130x100 placeholder.
+func TestDpItemWithoutArtGetsPlaceholder(t *testing.T) {
+	itemRoot, _ := setDpFixture(t)
+	writeItemFile(t, itemRoot, "interior", "121601242", "1409_iteminfo.artsitem", []byte("x"))
 	rec := serveDp(t, http.MethodGet, "/arts_item_interior_121601242/dp.png")
 	if rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), dpPlaceholderPNG("interior")) {
 		t.Fatalf("status = %d, want the 130x100 placeholder", rec.Code)
@@ -391,42 +403,6 @@ func TestDpConcurrentRequestsNoCorruption(t *testing.T) {
 		t.Fatalf("cache missing: %v", err)
 	}
 	decodePNG(t, cached)
-}
-
-// TestDpZipPreviewServedNotCached: an original 2014 preview is served unchanged and never copied into dp-cache,
-// which holds only Cherry-made composites.
-func TestDpZipPreviewServedNotCached(t *testing.T) {
-	_, cacheDir := setDpFixture(t)
-	want := solidPNG(t, 7, 5, color.RGBA{R: 9, A: 0xff})
-	zp := filepath.Join(t.TempDir(), "item.zip")
-	f, err := os.Create(zp)
-	if err != nil {
-		t.Fatal(err)
-	}
-	zw := zip.NewWriter(f)
-	w, _ := zw.Create("item/custom/224400001/dp.png")
-	w.Write(want)
-	zw.Close()
-	f.Close()
-	DpZipPath = zp
-	t.Cleanup(func() {
-		dpZipIdx.Lock()
-		if dpZipIdx.rc != nil {
-			dpZipIdx.rc.Close()
-		}
-		dpZipIdx.rc, dpZipIdx.path = nil, ""
-		dpZipIdx.Unlock()
-	})
-	rec := serveDp(t, http.MethodGet, "/arts_item_custom_224400001/dp.png")
-	if rec.Code != http.StatusOK || !bytes.Equal(rec.Body.Bytes(), want) {
-		t.Fatalf("zip preview not served unchanged: %d", rec.Code)
-	}
-	if _, err := os.Stat(filepath.Join(cacheDir, "v3_custom_224400001.png")); !os.IsNotExist(err) {
-		t.Fatalf("original zip preview was copied into dp-cache: %v", err)
-	}
-	if rec := serveDp(t, http.MethodGet, "/arts_item_custom_224400002/dp.png"); rec.Code != http.StatusNotFound {
-		t.Fatalf("missing id status = %d", rec.Code)
-	}
 }
 
 func TestDpOldCacheFileIgnored(t *testing.T) {

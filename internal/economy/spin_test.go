@@ -20,14 +20,13 @@ import (
 	"cherry/data"
 	"cherry/internal/opdata"
 	"cherry/internal/store"
-	"cherry/internal/thumbs"
 )
 
 // spinItems points the catalog at a root holding the prize items (a real PNG as each dp.png, animated where the spin
 // data is) and the picture cache at a temp dir.
 func spinItems(t *testing.T) {
 	t.Helper()
-	shopFixture(t, map[string][]string{
+	root := shopFixture(t, map[string][]string{
 		"dress/225000263":    {"dp.png"},
 		"custom/224400001":   {"dp.png"},
 		"interior/120700737": {"dp.png"},
@@ -40,7 +39,7 @@ func spinItems(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, d := range []string{"dress/225000263", "custom/224400001", "interior/120700737", "dress/225503895", "dress/225503903", "interior/120701269"} {
-		if err := os.WriteFile(filepath.Join(thumbs.DpItemRoot, filepath.FromSlash(d), "dp.png"), buf.Bytes(), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(d), "dp.png"), buf.Bytes(), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}

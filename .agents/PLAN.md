@@ -47,6 +47,16 @@ You are the receiving agent with **zero context**. This handoff is about the **r
 - **Usage limits:** a subagent stopped by the 5-hour limit keeps its work; resume it with SendMessage after the reset instead of starting a new one.
 - **Saved frames:** `%TEMP%\opencode\cherry\treasure-test{8..16}-20261102\` (logcats inside).
 
+### HANDOFF ACCEPTED — 2026-11-02 (new Claude Code session)
+
+Read AGENTS in full, PLAN (handoff, Status, Roadmap) and HISTORY's last pair with its progress paragraphs. Lab rechecked, no corrections: `main` clean at `8523b5e`; Cherry PID 35224 (`D:\Dev\projects\Cherry\cherry.exe`, started 18:50:05), SHA-256 prefix `e460f7aa08f0af1a`, log `cherry-treasure18-20261102-private.log`, `lan=192.168.1.7`; emulator-5554 = AVD Cherry, emulator-5556 = AVD Jerry. Working through "Open tasks" in order.
+
+**Progress 2026-11-02 ~21:00 (deploy 20:57, PID 4384, `7e0df7461c74eef2`, log `cherry-treasure19-20261102-private.log`, backups `*-pre-treasure19.json`; gate green; NOT device-tested yet):**
+- **User decisions:** seasons repeat automatically; the secret quest counts any pull; cs 22 saves the outfit and the buff follows the worn items; **Cherry never reads the archive at runtime** (memory `no-runtime-archive-reads`); APK `avatar_data`, the 2016 fish silhouette and lpbackup `DailyBonus` uploaded to R2 `static/` (approved); the 2014 `item.zip` previews were dropped. Other hosts' agents: [DATASET.md](DATASET.md).
+- **Task 1 (season end) built** from `treasure-20261102\season-end-spec.md` (the old slice3 §5 recipe was wrong): cycle = 28 play days + 7 reward days, then season id + 1. **Device test still to do** with a `config\treasure.json` override: (b) reward period: `"start": "2026-10-01", "days": 28, "repeat": true` (reward period until 2026-11-05 06:00 JST; expect status 2 → "Congratulations!" or the reward popup (786435), back → box 4593 → Garden); (c) closed: `"start": "2026-09-01", "days": 28, "repeat": false` (expect box 4594). (a) sc 25 is unit-tested only (it needs a window ending at 06:00 JST).
+- **Task 5 (buff outfit) built:** device check: equip a buff on the board → `TREASURE msgid=22 buff wear … outfit=N` (a `refused` line means one of the 13 codes failed the owned/species check) → relaunch → the outfit stays. 1001's old worn buff CUAH006FG is not in its outfit, so its buff reads 0 % until it is worn again.
+- **Task 8:** CUAH008A9 now has art (lpbackup items are in R2) → add it to `point_rewards` and the buff pool (test premises `TestTreasureItemCodes`/`TestTreasureBuffItemNeedsArt` to update). Side effect of the R2 index: ~50 lpbackup-only items are now listed in shops, gacha pools and grants.
+
 ## Status (2026-11-02)
 
 | Milestone | Scope | Status |

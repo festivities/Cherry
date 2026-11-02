@@ -11,7 +11,6 @@ import (
 	"cherry/data"
 	"cherry/internal/store"
 	"cherry/internal/testutil"
-	"cherry/internal/thumbs"
 )
 
 // exchangeDefaultArt are the item ids of the default exchange rows (folder names in the item archive).
@@ -89,7 +88,7 @@ func TestExchangeFileRefusals(t *testing.T) {
 // TestExchangeDefaultsHaveArt checks the default rows against the real item archive (skipped without it).
 func TestExchangeDefaultsHaveArt(t *testing.T) {
 	t.Cleanup(resetOperatorData)
-	if _, err := os.Stat(filepath.Join(thumbs.DpItemRoot, "dress")); err != nil {
+	if !testutil.ArchiveFound() {
 		t.Skip("item archive not present")
 	}
 	if err := exchangeFile.LoadFrom(""); err != nil {

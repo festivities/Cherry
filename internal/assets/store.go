@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -53,15 +54,56 @@ type streamingFlag struct {
 // flagFile is streaming.json (embedded default off; %LOCALAPPDATA%\Cherry\config\streaming.json replaces it).
 var flagFile = opdata.New[streamingFlag]("streaming.json", data.StreamingJSON, nil, nil)
 
-// Store answers the streamed asset routes. ServeRoute on a nil *Store answers nothing (streaming off).
+// Store reads Cherry's original assets: from R2 through the read-through cache (New, Open), or from local folders
+// (NewLocal, for tests and the upload tool). Its streamed routes answer only when streaming.json enables them
+// (ServeRoute, WriteCheckResource2); the reads answer whenever the store exists. A nil *Store answers nothing.
 type Store struct {
-	client       *Client
-	cacheDir     string
+	client       *Client             // nil for a store that reads only mounts (NewLocal)
+	cacheDir     string              // local copies: cacheDir/<key without its static/ prefix>
+	mounts       map[string][]string // NewLocal: key prefix -> local folders holding the keys under it, first match wins
+	streaming    bool                // streaming.json: the patcher is told about R2 and the streamed routes answer
 	state        atomic.Pointer[state]
 	loadMu       sync.Mutex
 	missing      sync.Map // R2 key -> time.Time until which the key counts as absent
 	legacyLogged sync.Map // index file -> true once its legacy manifest/ fallback has been logged
+	itemsMu      sync.Mutex
+	items        *ItemIndex // the originals index (Items); nil until read
+	itemsFailed  time.Time  // when reading the index last failed; retried after missTTL
 }
+
+// Archive is the store the server reads original assets from (economy, thumbs, web). It is nil when
+// %LOCALAPPDATA%\Cherry\cloudflare.json is absent: the features that need originals then answer nothing. Set once at
+// startup by LoadArchive; tests swap it.
+var Archive *Store
+
+// LoadArchive opens the store into Archive (Open) and fetches the converted-items index (FetchItemIndex). It starts
+// reading the originals index in the background. The startup checks that ask about item art wait for that read: on the
+// first start after a deploy it is one bucket listing (saved under the cache dir); later starts read the saved copy.
+func LoadArchive() error {
+	s, err := Open()
+	if err != nil {
+		return err
+	}
+	Archive = s
+	if s == nil {
+		return nil
+	}
+	if err := s.FetchItemIndex(); err != nil {
+		log.Printf("cherry: converted items index: %v", err)
+	}
+	go s.Items()
+	return nil
+}
+
+// NewLocal returns a store with no bucket: each key is read from the folders of the longest mount prefix that matches
+// it, the first folder holding the file winning (mounts maps "static/item/" to the folders holding item/<kind>/<id>/...,
+// in the uploader's order: santi, then lpbackup). Tests and the upload tool use it.
+func NewLocal(mounts map[string][]string) *Store {
+	return &Store{mounts: mounts}
+}
+
+// Streaming reports whether streaming.json turns on the patcher lists and the streamed routes.
+func (s *Store) Streaming() bool { return s != nil && s.streaming }
 
 // state is what the manifests produce: the checkresource2 body, one update list per category, and the map
 // packs the update lists name ("<dir>/<name>", mapped to the R2 key that holds the pack).
@@ -71,19 +113,17 @@ type state struct {
 	packs map[string]string
 }
 
-// New returns a store that reads cfg's bucket and keeps local copies under cacheDir.
+// New returns a streaming store that reads cfg's bucket and keeps local copies under cacheDir.
 func New(cfg Config, cacheDir string) *Store {
-	return &Store{client: NewClient(cfg), cacheDir: cacheDir}
+	return &Store{client: NewClient(cfg), cacheDir: cacheDir, streaming: true}
 }
 
-// Open returns the store when streaming is on, or nil when it is off: streaming.json must enable it and
-// %LOCALAPPDATA%\Cherry\cloudflare.json must exist. A present but unusable cloudflare.json is an error.
+// Open returns the store for %LOCALAPPDATA%\Cherry\cloudflare.json, or nil when that file is absent (the original
+// assets are then unavailable). A present but unusable file is an error. streaming.json only sets Streaming: the
+// reads work either way.
 func Open() (*Store, error) {
 	if err := flagFile.Load(); err != nil {
 		return nil, err
-	}
-	if !flagFile.Get().Enabled {
-		return nil, nil
 	}
 	base, err := os.UserCacheDir()
 	if err != nil {
@@ -92,15 +132,19 @@ func Open() (*Store, error) {
 	dir := filepath.Join(base, "Cherry")
 	cfgPath := filepath.Join(dir, "cloudflare.json")
 	if _, err := os.Stat(cfgPath); err != nil {
-		log.Printf("cherry: streaming is enabled but %s is not readable; serving local assets only", cfgPath)
+		if flagFile.Get().Enabled {
+			log.Printf("cherry: streaming is enabled but %s is not readable; original assets are unavailable", cfgPath)
+		}
 		return nil, nil
 	}
 	cfg, err := LoadConfig(cfgPath)
 	if err != nil {
 		return nil, err
 	}
-	log.Printf("cherry: asset streaming on (bucket %s)", cfg.Bucket)
-	return New(cfg, filepath.Join(dir, "static")), nil
+	s := New(cfg, filepath.Join(dir, "static"))
+	s.streaming = flagFile.Get().Enabled
+	log.Printf("cherry: R2 bucket %s, streaming %v", cfg.Bucket, s.streaming)
+	return s, nil
 }
 
 // WriteCheckResource2 writes checkresource2.json from the manifests. While they cannot be read it
@@ -124,7 +168,7 @@ func (s *Store) WriteCheckResource2(w http.ResponseWriter) {
 // the response. A file that R2 does not have returns false, so the caller's own handling (generated
 // thumbnails, the local string table, 404) still applies.
 func (s *Store) ServeRoute(w http.ResponseWriter, r *http.Request) bool {
-	if s == nil || r.Method != http.MethodGet {
+	if !s.Streaming() || r.Method != http.MethodGet {
 		return false
 	}
 	if cat, ok := iniRoute(r.URL.Path); ok {
@@ -299,9 +343,96 @@ func (s *Store) serve(w http.ResponseWriter, r *http.Request, key string) bool {
 	return true
 }
 
-// fetch returns the local copy of key, downloading it on a miss.
+// Local returns a local file holding the original at key, downloading it from R2 on a miss. A key that does not
+// exist, or a nil store, gives fs.ErrNotExist.
+func (s *Store) Local(key string) (string, error) {
+	if s == nil {
+		return "", fs.ErrNotExist
+	}
+	local, err := s.fetch(context.Background(), key)
+	if errors.Is(err, ErrNotFound) {
+		return "", fs.ErrNotExist
+	}
+	return local, err
+}
+
+// ReadFile returns the original at key (see Local).
+func (s *Store) ReadFile(key string) ([]byte, error) {
+	local, err := s.Local(key)
+	if err != nil {
+		return nil, err
+	}
+	return os.ReadFile(local)
+}
+
+// ServeKey writes the original at key to w, like a streamed file, and reports whether it did. A missing key or a
+// nil store returns false, so the caller's own 404 applies.
+func (s *Store) ServeKey(w http.ResponseWriter, r *http.Request, key string) bool {
+	return s != nil && s.serve(w, r, key)
+}
+
+// DeviceFiles is the device files/ tree under sub (for example "UIResource/UIImage_hd") as an fs.FS over the store. It
+// reads Archive at each Open, so a package variable can hold it before the store is set. The keys follow the
+// uploader: files/UIResource/<rel> is static/ui/<rel>, every other folder is static/<folder>/<rel>.
+func DeviceFiles(sub string) fs.FS { return deviceFS{sub: sub} }
+
+type deviceFS struct{ sub string }
+
+func (d deviceFS) Open(name string) (fs.File, error) {
+	if !fs.ValidPath(name) {
+		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrInvalid}
+	}
+	rel := path.Join(d.sub, name)
+	if rel == "." {
+		rel = ""
+	}
+	local, err := Archive.Local(staticKey(rel))
+	if err != nil {
+		return nil, &fs.PathError{Op: "open", Path: name, Err: err}
+	}
+	return os.Open(local)
+}
+
+// staticKey maps a device files/ path to its R2 key, the rule the uploader uses: UIResource/<rel> is ui/<rel>.
+func staticKey(rel string) string {
+	if r, ok := strings.CutPrefix(rel, "UIResource/"); ok {
+		return "static/ui/" + r
+	}
+	return "static/" + rel
+}
+
+// mounted returns the local file of key: the first folder of its longest mount prefix that holds it (NewLocal stores).
+func (s *Store) mounted(key string) (string, error) {
+	best := s.mountPrefix(key)
+	if best == "" {
+		return "", ErrNotFound
+	}
+	for _, folder := range s.mounts[best] {
+		local := filepath.Join(folder, filepath.FromSlash(key[len(best):]))
+		if fi, err := os.Stat(local); err == nil && fi.Mode().IsRegular() {
+			return local, nil
+		}
+	}
+	return "", ErrNotFound
+}
+
+// mountPrefix is the longest mount prefix that matches key ("" for none).
+func (s *Store) mountPrefix(key string) string {
+	best := ""
+	for prefix := range s.mounts {
+		if strings.HasPrefix(key, prefix) && len(prefix) > len(best) {
+			best = prefix
+		}
+	}
+	return best
+}
+
+// fetch returns the local copy of key, downloading it on a miss. A mounted store (no client) answers from its folders.
 // ponytail: a cached copy is never revalidated against R2 and concurrent misses for one key each download it. Re-upload changed content into a new cache dir, or add per-key singleflight if logs show duplicates.
 func (s *Store) fetch(ctx context.Context, key string) (string, error) {
+	if s.client == nil {
+		return s.mounted(key)
+	}
 	local := filepath.Join(s.cacheDir, filepath.FromSlash(strings.TrimPrefix(key, "static/")))
 	if fi, err := os.Stat(local); err == nil && fi.Mode().IsRegular() {
 		return local, nil

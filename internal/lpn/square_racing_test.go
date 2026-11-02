@@ -18,9 +18,9 @@ import (
 func racingArchive(t *testing.T) {
 	t.Helper()
 	root := t.TempDir()
-	oldZip, oldCache := thumbs.DpZipPath, thumbs.DpCacheDir
-	thumbs.DpZipPath, thumbs.DpCacheDir = filepath.Join(t.TempDir(), "none.zip"), t.TempDir()
-	t.Cleanup(func() { thumbs.DpZipPath, thumbs.DpCacheDir = oldZip, oldCache })
+	oldCache := thumbs.DpCacheDir
+	thumbs.DpCacheDir = t.TempDir()
+	t.Cleanup(func() { thumbs.DpCacheDir = oldCache })
 	files := map[string][]string{
 		"pet/326400259": {"skeleton.xml", "r.aniproj", "dp.png"}, // PUPE00077: a Riding Pet
 		"pet/326400016": {"skeleton.xml", "dp.png"},              // PUPE0000G: a dog
@@ -36,9 +36,7 @@ func racingArchive(t *testing.T) {
 			}
 		}
 	}
-	old := thumbs.DpItemRoot
-	thumbs.DpItemRoot = root
-	t.Cleanup(func() { thumbs.DpItemRoot = old })
+	testutil.SetArchive(t, testutil.ArchiveMounts(root))
 }
 
 // racingConfig returns the live racing file so a test can shorten its waits; the values come back at the end.

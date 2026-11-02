@@ -20,7 +20,7 @@ import (
 )
 
 // Cherry's Lucky and Jackpot Spin pictures (spin-spec 6.1 and 12.4). The wheel faces are drawn from each tier's prizes,
-// the panels are plain gradients, and the Gem icon is the client's own UI art, read in place from the archive
+// the panels are plain gradients, and the Gem icon is the client's own UI art, read from the store
 // (attendskin.go's attendIconFS). Everything is served under /cherry/spin/ and generated at runtime; the wheel and panel
 // PNGs are cached in dp-cache under an sp1_ prefix and a checksum of what they draw, so an edited spin.json draws anew.
 
@@ -102,7 +102,7 @@ func spinWheel(slots []SpinSlot, colours [2]color.NRGBA) *image.NRGBA {
 	return img
 }
 
-// spinGemIcon is the client's Gem icon (original UI art, read in place).
+// spinGemIcon is the client's Gem icon (original UI art, read from the store).
 func spinGemIcon() (image.Image, bool) {
 	b, err := fs.ReadFile(attendIconFS, "gachaplay_deco_gem.png")
 	if err != nil {
@@ -245,7 +245,7 @@ func spinPanelPNG(stem string, w, h int, top, bottom color.NRGBA) ([]byte, bool)
 	return spinPNG(stem, show, func() image.Image { return spinPanel(w, h, top, bottom) })
 }
 
-// spinArtPNG is an original UI picture, read in place from the archive (attendIconFS).
+// spinArtPNG is an original UI picture, read from the store (attendIconFS).
 func spinArtPNG(file string) ([]byte, bool) {
 	b, err := fs.ReadFile(attendIconFS, file)
 	return b, err == nil

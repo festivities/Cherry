@@ -221,7 +221,7 @@ func RidePets(aid string) []store.PetItem {
 	if acc == nil {
 		return nil
 	}
-	cat := loadCatalog()
+	cat := loadCatalog().petCategories()
 	var out []store.PetItem
 	for _, p := range acc.Pets {
 		if it := cat.byCode[p.Cd]; it != nil && it.Catg == "URIDE" {

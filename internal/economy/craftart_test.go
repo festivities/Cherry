@@ -7,16 +7,14 @@ import (
 	"path/filepath"
 	"testing"
 
-	"cherry/internal/thumbs"
+	"cherry/internal/testutil"
 )
 
 // TestGardenCraftArtInPlace checks ServeGardenCraftArt (streaming off): the craft folder answers first, the download
 // cache next, and an absent, non-PNG or non-GET request is refused so the caller's 404 applies.
 func TestGardenCraftArtInPlace(t *testing.T) {
 	files := t.TempDir()
-	old := thumbs.DpItemRoot
-	thumbs.DpItemRoot = filepath.Join(files, "item")
-	t.Cleanup(func() { thumbs.DpItemRoot = old })
+	testutil.SetArchive(t, map[string][]string{"static/": {filepath.Join(files, "item", "craftitem"), filepath.Join(files, "cache")}})
 	write := func(rel, body string) {
 		p := filepath.Join(files, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {

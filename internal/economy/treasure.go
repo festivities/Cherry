@@ -3,10 +3,11 @@ package economy
 import (
 	"errors"
 	"fmt"
+	"log"
 	"math/rand/v2"
-	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"cherry/data"
@@ -54,7 +55,8 @@ var treasureSides = [4]string{"FR", "BR", "BL", "FL"}
 var TreasureRandIntn = func(n int) int { return rand.IntN(n) }
 
 var (
-	// ErrTreasureNoSeason is returned while the season is not running (before its start or after its end).
+	// ErrTreasureNoSeason is returned for a board action outside the play window, and for any claim while the season cycle
+	// is closed (before the first season, or after the claim window when season.repeat is off).
 	ErrTreasureNoSeason = errors.New("treasure: no season is running")
 	// ErrTreasureNoTickets is returned for a roll the account has no tickets for.
 	ErrTreasureNoTickets = errors.New("treasure: not enough tickets")
@@ -68,7 +70,7 @@ var (
 // exchange, quests, missions, rankings and ticket cap.
 //
 //	origin, note  mixed: the names are the Help Center's; the ids, numbers, texts, ring and every Gem amount are Cherry-made
-//	season        id (Cherry block), name, start day (06:00 JST) and length in days
+//	season        id (Cherry block), name, start day (06:00 JST), length in days and repeat (the next season follows, see at)
 //	names         the ticket, coin and ranking point names the client shows
 //	tickets       cap, starting tickets, seconds per refill, tickets per roll
 //	board         the ring: cell types in walking order, four equal sides
@@ -106,12 +108,14 @@ type TreasureData struct {
 	TicketCap    TreasureTicketCap     `json:"ticket_cap"`
 }
 
-// TreasureSeason is the season's id, its name, its first day ("2006-01-02", 06:00 JST) and its length in days.
+// TreasureSeason is the season's id, its name, its first day ("2006-01-02", 06:00 JST), its length in days and whether the
+// next season follows it (Repeat: season n+1 starts when the rank claim days after season n end; see at).
 type TreasureSeason struct {
-	ID    int64  `json:"id"`
-	Name  string `json:"name"`
-	Start string `json:"start"`
-	Days  int64  `json:"days"`
+	ID     int64  `json:"id"`
+	Name   string `json:"name"`
+	Start  string `json:"start"`
+	Days   int64  `json:"days"`
+	Repeat bool   `json:"repeat"`
 }
 
 // TreasureNames are the client's currency texts: the dice ticket, the coin and the ranking point.
@@ -359,11 +363,71 @@ func treasureSeasonWindow(s TreasureSeason) (start, end time.Time, err error) {
 	return start, start.AddDate(0, 0, int(s.Days)), nil
 }
 
-// TreasureSeasonWindow is the active season's first and last instant (validated at startup).
-func TreasureSeasonWindow() (start, end time.Time) {
-	start, end, _ = treasureSeasonWindow(ActiveTreasureData().Season)
-	return start, end
+// TreasurePhase is where a season cycle stands: the play window (the board is open), the reward period after it (the rank
+// and point claims only) or closed (no board and no claims).
+type TreasurePhase int
+
+const (
+	TreasurePhaseClosed TreasurePhase = iota
+	TreasurePhasePlay
+	TreasurePhaseReward
+)
+
+// TreasureCycle is the season the clock stands in: its id, its play window (Start to End), the end of its reward period
+// (ClaimEnd) and the phase at the moment asked for.
+type TreasureCycle struct {
+	ID       int64
+	Start    time.Time
+	End      time.Time
+	ClaimEnd time.Time
+	Phase    TreasurePhase
 }
+
+// treasureCycleStop logs once that a repeating season cycle has reached the end of the Cherry block.
+var treasureCycleStop sync.Once
+
+// at returns the season cycle at now. A cycle is season.days of play followed by the rank claim days (the reward period),
+// and season n starts n cycles after season 0, at its start day (06:00 JST). So the next season starts the moment the reward
+// period ends, and season n has the id season.id + n. Without season.repeat only season 0 exists: after its reward period
+// the phase is closed. A repeating cycle stops at the last id the Cherry block holds (closed after that, logged once).
+// Before season 0 the phase is closed and the window is season 0's.
+func (d *TreasureData) at(now time.Time) TreasureCycle {
+	s := d.Season
+	first, _, _ := treasureSeasonWindow(s) // checked at startup
+	span := time.Duration(s.Days+d.RankRewards.ClaimDays) * 24 * time.Hour
+	var n int64
+	if now.After(first) {
+		n = int64(now.Sub(first) / span)
+	}
+	last := int64(0)
+	if s.Repeat {
+		last = CherryTreasureLast - s.ID
+	}
+	if n > last {
+		if s.Repeat {
+			treasureCycleStop.Do(func() {
+				log.Printf("cherry: treasure season cycle stops at id %d: the Cherry block ends at %d", s.ID+last, CherryTreasureLast)
+			})
+		}
+		n = last
+	}
+	start := first.Add(time.Duration(n) * span)
+	c := TreasureCycle{ID: s.ID + n, Start: start, End: start.Add(time.Duration(s.Days) * 24 * time.Hour), ClaimEnd: start.Add(span)}
+	switch {
+	case now.Before(first):
+		c.Phase = TreasurePhaseClosed
+	case now.Before(c.End):
+		c.Phase = TreasurePhasePlay
+	case now.Before(c.ClaimEnd):
+		c.Phase = TreasurePhaseReward
+	default:
+		c.Phase = TreasurePhaseClosed
+	}
+	return c
+}
+
+// TreasureCurrent is the season cycle at now in the data in use.
+func TreasureCurrent(now time.Time) TreasureCycle { return ActiveTreasureData().at(now) }
 
 // treasureDay is the game day of t: a day turns over at 06:00 JST (21:00 UTC), when the exchange limits reset.
 func treasureDay(t time.Time) int64 { return (t.Unix() + 3*3600) / 86400 }
@@ -680,13 +744,14 @@ func treasureRemain(r store.TreasureRecord, nowMs int64, d *TreasureData) int64 
 	return (left + 999) / 1000
 }
 
-// treasureOwn makes aid's record current: a record of another season starts over (the first square, the start tickets,
-// no jewels; the tutorial flag stays with the account), the refill timer catches up with now and the exchange counters
-// start a new day when the 06:00 JST day has turned.
-func treasureOwn(r *store.TreasureRecord, now time.Time, d *TreasureData) {
+// treasureOwn makes aid's record current for season: a record of another season starts over (the first square, the start
+// tickets, no jewels; the tutorial flag stays with the account), the refill timer catches up with now and the exchange
+// counters start a new day when the 06:00 JST day has turned. season is the cycle at now (at): during a season's reward
+// period it is still that season, so its records stay for the claims; the next season's first op starts its records over.
+func treasureOwn(r *store.TreasureRecord, now time.Time, season int64, d *TreasureData) {
 	nowMs := now.UnixMilli()
-	if r.Season != d.Season.ID {
-		*r = store.TreasureRecord{Season: d.Season.ID, Tickets: d.Tickets.Start, Charged: nowMs, Tutorial: r.Tutorial}
+	if r.Season != season {
+		*r = store.TreasureRecord{Season: season, Tickets: d.Tickets.Start, Charged: nowMs, Tutorial: r.Tutorial}
 	}
 	if r.Position < 0 || r.Position >= len(d.Board.Ring) {
 		r.Position = 0
@@ -730,7 +795,7 @@ func treasureTimes(d *TreasureData, pos int) int64 { times, _ := d.Exchange.tile
 // treasureUsed is the Jewels exchanged today on ring position pos.
 func treasureUsed(r store.TreasureRecord, pos int) int64 { return r.Exchanged[strconv.Itoa(pos)] }
 
-func treasureView(r store.TreasureRecord, nowMs int64, d *TreasureData) TreasureView {
+func treasureView(r store.TreasureRecord, acc *store.Account, nowMs int64, d *TreasureData) TreasureView {
 	used := treasureUsed(r, r.Position)
 	var full []int
 	for pos, cell := range d.Board.Ring {
@@ -758,19 +823,28 @@ func treasureView(r store.TreasureRecord, nowMs int64, d *TreasureData) Treasure
 		ExchangeRate:  d.Exchange.Multiple * treasureTimes(d, r.Position),
 		ExchangeReset: used >= d.Exchange.DailyMax,
 		MiniGameLeft:  r.MiniGameLeft,
-		BuffPercent:   treasureBuffPercent(r, d),
+		BuffPercent:   treasureBuffPercent(acc, d),
 		Secret:        secret,
 	}
 }
 
+// treasureGate is the phases a board change runs in: the play window only (the board's own actions), or the play window and
+// the reward period (the claims). The closed phase never runs a change.
+type treasureGate int
+
+const (
+	treasureGatePlay treasureGate = iota
+	treasureGateClaim
+)
+
 // treasureTx is the one way to change a board record. It runs op under AccountsMu, so an account's Gems and Mailbox move
 // together with its board state; op gets the account (nil when the board has none) and the record after the catch-up
-// (refill, day, season). Outside the season nothing changes when seasonOnly is set. A non-nil error from op keeps the
-// catch-up and drops op's changes to the account. A failed save puts the account back.
-func treasureTx(aid string, now time.Time, seasonOnly bool, op func(acc *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error)) (TreasureView, error) {
+// (refill, day, season). Outside the gate's phases nothing changes and ErrTreasureNoSeason comes back. A non-nil error
+// from op keeps the catch-up and drops op's changes to the account. A failed save puts the account back.
+func treasureTx(aid string, now time.Time, gate treasureGate, op func(acc *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error)) (TreasureView, error) {
 	d := ActiveTreasureData()
-	start, end, _ := treasureSeasonWindow(d.Season)
-	if seasonOnly && (now.Before(start) || !now.Before(end)) {
+	cyc := d.at(now)
+	if cyc.Phase == TreasurePhaseClosed || (gate == treasureGatePlay && cyc.Phase != TreasurePhasePlay) {
 		return TreasureView{}, ErrTreasureNoSeason
 	}
 	store.AccountsMu.Lock()
@@ -778,10 +852,8 @@ func treasureTx(aid string, now time.Time, seasonOnly bool, op func(acc *store.A
 	acc := store.AccountByAidLocked(aid)
 	rec, _ := store.TreasureRecordOf(aid)
 	rec = rec.Clone()
-	treasureOwn(&rec, now, d)
-	if acc != nil { // a worn buff the account no longer owns (sold back) stops counting
-		rec.Worn = slices.DeleteFunc(rec.Worn, func(code string) bool { return !treasureOwnedBuff(acc, code) })
-	}
+	treasureOwn(&rec, now, cyc.ID, d)
+	rec.Worn = nil // legacy: the worn buffs are the account's equipped codes (treasure_buff.go)
 	var prev store.Account
 	if acc != nil {
 		prev = *acc
@@ -792,7 +864,7 @@ func treasureTx(aid string, now time.Time, seasonOnly bool, op func(acc *store.A
 			*acc = prev
 		}
 		_, _ = store.UpdateTreasure(aid, func(r *store.TreasureRecord) { *r = rec })
-		return treasureView(rec, now.UnixMilli(), d), err
+		return treasureView(rec, acc, now.UnixMilli(), d), err
 	}
 	if acc != nil {
 		if err := store.SaveAccountsLocked(); err != nil {
@@ -808,15 +880,27 @@ func treasureTx(aid string, now time.Time, seasonOnly bool, op func(acc *store.A
 		return TreasureView{}, err
 	}
 	store.FlushLedgerLocked(lines)
-	return treasureView(rec, now.UnixMilli(), d), nil
+	return treasureView(rec, acc, now.UnixMilli(), d), nil
 }
 
 // TreasureOpen brings aid's board state up to date at now (a new season starts the record over, the refill catches up)
-// and returns it. It serves the room enter and the relay start.
+// and returns it. It serves the room enter and the relay start of a board in its play window; outside it, it is refused.
 func TreasureOpen(aid string, now time.Time) (TreasureView, error) {
-	return treasureTx(aid, now, true, func(*store.Account, *store.TreasureRecord, *TreasureData) ([]store.LedgerLine, error) {
+	return treasureTx(aid, now, treasureGatePlay, func(*store.Account, *store.TreasureRecord, *TreasureData) ([]store.LedgerLine, error) {
 		return nil, nil
 	})
+}
+
+// TreasurePeek is aid's board state at now without a write: the catch-up runs on a copy. The reward period and closed
+// replies (status 2) use it for the tickets and the tutorial flag, so they change nothing.
+func TreasurePeek(aid string, now time.Time) TreasureView {
+	d := ActiveTreasureData()
+	rec, _ := store.TreasureRecordOf(aid)
+	rec = rec.Clone()
+	treasureOwn(&rec, now, d.at(now).ID, d)
+	store.AccountsMu.Lock()
+	defer store.AccountsMu.Unlock()
+	return treasureView(rec, store.AccountByAidLocked(aid), now.UnixMilli(), d)
 }
 
 // TreasureMove is one roll: the die, the squares passed, the square landed on and what it paid. Lap is true when the
@@ -842,13 +926,13 @@ func treasureLand(acc *store.Account, r *store.TreasureRecord, d *TreasureData, 
 	switch mv.Cell {
 	case TreasureCellCoin:
 		c := d.Rewards.Coin
-		mv.Coins = treasureBoost(c.Min+int64(TreasureRandIntn(int(c.Max-c.Min+1))), treasureBuffPercent(*r, d))
+		mv.Coins = treasureBoost(c.Min+int64(TreasureRandIntn(int(c.Max-c.Min+1))), treasureBuffPercent(acc, d))
 		r.Jewels += mv.Coins
 	case TreasureCellBonus:
-		mv.Bonus = treasureBoost(d.Rewards.Bonus.Coins, treasureBuffPercent(*r, d))
+		mv.Bonus = treasureBoost(d.Rewards.Bonus.Coins, treasureBuffPercent(acc, d))
 		r.Jewels += mv.Bonus
 	case TreasureCellBuff:
-		mv.Buff = treasureBuffLanding(acc, *r, d)
+		mv.Buff = treasureBuffLanding(acc, d)
 	case TreasureCellSpecial:
 		treasureSecretLand(r, d, mv.To)
 	case TreasureCellMiniGame:
@@ -862,7 +946,7 @@ func treasureLand(acc *store.Account, r *store.TreasureRecord, d *TreasureData, 
 // travel square. TreasureGoldKeyUse clears KeyPending too and sets TravelPending by its landing.
 func TreasureRollDice(aid string, now time.Time) (TreasureMove, error) {
 	var mv TreasureMove
-	view, err := treasureTx(aid, now, true, func(acc *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
+	view, err := treasureTx(aid, now, treasureGatePlay, func(acc *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
 		if r.Tickets < d.Tickets.PerRoll {
 			return nil, ErrTreasureNoTickets
 		}
@@ -909,7 +993,7 @@ type TreasureCardUse struct {
 // stands. Without a pending key nothing changes and ErrTreasureRefused comes back.
 func TreasureGoldKeyUse(aid string, now time.Time) (TreasureCardUse, error) {
 	var use TreasureCardUse
-	view, err := treasureTx(aid, now, true, func(acc *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
+	view, err := treasureTx(aid, now, treasureGatePlay, func(acc *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
 		if !r.KeyPending {
 			return nil, ErrTreasureRefused
 		}
@@ -937,7 +1021,7 @@ func TreasureGoldKeyUse(aid string, now time.Time) (TreasureCardUse, error) {
 			}
 			treasureLand(acc, r, d, &mv)
 		case 6, 7:
-			value = treasureBoost(value, treasureBuffPercent(*r, d))
+			value = treasureBoost(value, treasureBuffPercent(acc, d))
 			mv.Coins = value
 			r.Jewels += value
 		}
@@ -962,7 +1046,7 @@ func TreasureGoldKeyUse(aid string, now time.Time) (TreasureCardUse, error) {
 // no lap is passed. Any other request is refused with ErrTreasureRefused and changes nothing.
 func TreasureTravel(aid string, to int, now time.Time) (TreasureMove, error) {
 	var mv TreasureMove
-	view, err := treasureTx(aid, now, true, func(_ *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
+	view, err := treasureTx(aid, now, treasureGatePlay, func(_ *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
 		if !r.TravelPending || d.Board.Ring[r.Position] != TreasureCellTravel || to == r.Position || to < 0 || to >= len(d.Board.Ring) ||
 			d.Board.Ring[to] != TreasureCellExchange {
 			return nil, ErrTreasureRefused

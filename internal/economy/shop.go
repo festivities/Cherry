@@ -7,8 +7,6 @@ import (
 	"log"
 	"maps"
 	"net/http"
-	"os"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
@@ -219,7 +217,9 @@ type shopItem struct {
 }
 
 type shopCatalog struct {
-	root                   string
+	catgOnce               sync.Once            // classifies the pets (petCategories), when a consumer first needs the categories
+	archive                *assets.Store        // the store the catalog was scanned with (a test swaps it)
+	originals              *assets.ItemIndex    // the original item folders of that store (nil: none)
 	generated              *assets.ItemIndex    // the converted items the catalog was scanned with (nil: switched off)
 	fashion, interior, pet []shopItem           // sellable: art, so listed, pooled and granted
 	landscape              []shopItem           // Garden landscapes gardens.json lists (no archive folder; landscape.go)
@@ -232,19 +232,30 @@ var (
 	catalog   *shopCatalog
 )
 
-// loadCatalog scans thumbs.DpItemRoot once (again only if the root changes, as tests do).
+// loadCatalog scans the store's item index once (again only if the store changes, as tests do).
 func loadCatalog() *shopCatalog {
 	catalogMu.Lock()
 	defer catalogMu.Unlock()
-	if root := thumbs.DpItemRoot; catalog == nil || catalog.root != root || catalog.generated != assets.GeneratedItems() {
-		catalog = scanCatalog(root)
+	if archive := assets.Archive; catalog == nil || catalog.archive != archive || catalog.generated != assets.GeneratedItems() {
+		catalog = scanCatalog(archive)
 	}
 	return catalog
 }
 
+// petCategories classifies the pets once. It reads each pet's behavior.xml from the store, so it runs when a consumer
+// needs a category (the pet shop, the Pet Book, the Ride Point shop), not in the startup checks.
+func (c *shopCatalog) petCategories() *shopCatalog {
+	c.catgOnce.Do(func() {
+		for i := range c.pet {
+			c.pet[i].Catg = petCategory("pet", c.pet[i].ID, c.pet[i].Animated)
+		}
+	})
+	return c
+}
+
 // PetSpecies is the Minipet Shop catalog (the sellable pets with art) for the Pet Book (room.HandlePetBook).
 func PetSpecies() []room.PetSpecies {
-	c := loadCatalog()
+	c := loadCatalog().petCategories()
 	out := make([]room.PetSpecies, 0, len(c.pet))
 	for _, it := range c.pet {
 		out = append(out, room.PetSpecies{Code: it.Code, ID: it.ID, Catg: it.Catg})
@@ -255,11 +266,6 @@ func PetSpecies() []room.PetSpecies {
 // itemCodeFromID is the item code of numeric id n (itemcode.Code: SbItemTable::GetIntIdx inverted).
 func itemCodeFromID(n int64) (string, bool) { return itemcode.Code(n) }
 
-func hasFile(dir, name string) bool {
-	_, err := os.Stat(filepath.Join(dir, name))
-	return err == nil
-}
-
 var sndIndexRE = regexp.MustCompile(`"sndindex":\s*(\d+)`)
 
 // petCategory classifies a pet folder. The item data has no category field, but the pet's
@@ -268,11 +274,11 @@ var sndIndexRE = regexp.MustCompile(`"sndindex":\s*(\d+)`)
 // is a cat, 326400016 a dog). Rides carry .aniproj animations; the 41 pets left over with no
 // sound are toys (teddy bears and the like). The category codes are the pet book's table at
 // 0x3bed130: MYPET, UDOG, UCAT, UTOY, URIDE.
-func petCategory(dir string, ride bool) string {
+func petCategory(kind string, n int64, ride bool) string {
 	if ride {
 		return "URIDE"
 	}
-	if b, err := os.ReadFile(filepath.Join(dir, "behavior.xml")); err == nil {
+	if b, err := assets.Archive.ReadItem(kind, n, "behavior.xml"); err == nil {
 		for _, m := range sndIndexRE.FindAllSubmatch(b, -1) {
 			switch string(m[1]) {
 			case "214":
@@ -285,18 +291,15 @@ func petCategory(dir string, ride bool) string {
 	return "UTOY"
 }
 
-func scanCatalog(root string) *shopCatalog {
-	c := &shopCatalog{root: root, generated: assets.GeneratedItems(), byCode: map[string]*shopItem{}, animated: map[string]bool{}}
+func scanCatalog(archive *assets.Store) *shopCatalog {
+	c := &shopCatalog{archive: archive, originals: archive.Items(), generated: assets.GeneratedItems(), byCode: map[string]*shopItem{}, animated: map[string]bool{}}
 	for _, sub := range []string{"custom", "dress", "interior", "tile", "pet"} {
-		entries, _ := os.ReadDir(filepath.Join(root, sub)) // a missing root or kind is an empty folder list
-		for _, e := range entries {
-			if n, err := strconv.ParseInt(e.Name(), 10, 64); err == nil && e.IsDir() {
-				c.add(sub, n, filepath.Join(root, sub, e.Name()))
-			}
+		for _, n := range c.originals.IDs(sub) {
+			c.add(sub, n, true)
 		}
-		// Converted iOS-only items (assets.GeneratedItems): Cherry-made, with art by construction, and no folder in root.
+		// Converted iOS-only items (assets.GeneratedItems): Cherry-made, with art by construction, and no original folder.
 		for _, n := range c.generated.IDs(sub) {
-			c.add(sub, n, "")
+			c.add(sub, n, false)
 		}
 	}
 	c.landscape = landscapeCatalog()
@@ -309,31 +312,26 @@ func scanCatalog(root string) *shopCatalog {
 	return c
 }
 
-// add lists one item: the folder dir, or a converted item when dir is "". Faces, unclassifiable ids, duplicates
+// add lists one item: an original folder (original true) or a converted item. Faces, unclassifiable ids, duplicates
 // and pets without render assets are not listed; a folder without art is priced but not listed.
-func (c *shopCatalog) add(sub string, n int64, dir string) {
+func (c *shopCatalog) add(sub string, n int64, original bool) {
 	code, ok := itemCodeFromID(n)
 	if !ok {
 		return
 	}
 	_, kind := classify(code)
-	if kind == 0 || c.byCode[code] != nil || kind == kindPet && !hasFile(dir, "skeleton.xml") {
+	if kind == 0 || c.byCode[code] != nil || kind == kindPet && !(original && c.originals.HasFile(sub, n, "skeleton.xml")) {
 		return // faces, unclassifiable, duplicate, or a pet with no render assets
 	}
 	it := shopItem{Code: code, ID: n}
-	if dir != "" {
-		if files, err := os.ReadDir(dir); err == nil {
-			it.Animated = slices.ContainsFunc(files, func(f os.DirEntry) bool {
-				return strings.HasSuffix(strings.ToLower(f.Name()), ".aniproj")
-			})
-		}
-	}
-	if kind == kindPet {
-		it.Catg = petCategory(dir, it.Animated)
+	if original {
+		it.Animated = slices.ContainsFunc(c.originals.Names(sub, n), func(name string) bool {
+			return strings.HasSuffix(strings.ToLower(name), ".aniproj")
+		})
 	}
 	// Priced whether or not it has art, so an owned copy sells back at its real price.
 	c.animated[code] = it.Animated
-	if dir != "" && !thumbs.HasArt(sub, n) {
+	if original && !thumbs.HasArt(sub, n) {
 		// No art: the client would show the grey placeholder, so it is not listed, pooled or granted.
 		return
 	}
@@ -438,7 +436,7 @@ func handleShopList(kind byte) http.HandlerFunc {
 			return
 		}
 		cat := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
-		c := loadCatalog()
+		c := loadCatalog().petCategories()
 		now := NowFunc()
 		deals := dealsOn(now)
 		var rows []map[string]any

@@ -4,6 +4,8 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -349,7 +351,7 @@ func TestNilStoreAnswersNothing(t *testing.T) {
 	}
 }
 
-func TestOpenIsOffUntilFlagAndConfigExist(t *testing.T) {
+func TestOpenNeedsConfigAndFlagOnlySetsStreaming(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("LOCALAPPDATA", base)
 	t.Setenv("XDG_CACHE_HOME", base)
@@ -358,7 +360,7 @@ func TestOpenIsOffUntilFlagAndConfigExist(t *testing.T) {
 	cfgPath := filepath.Join(cherry, "cloudflare.json")
 
 	if s, err := Open(); err != nil || s != nil {
-		t.Fatalf("default: %v %v", s, err)
+		t.Fatalf("no cloudflare.json: %v %v", s, err)
 	}
 	cfgDir := filepath.Join(cherry, "config")
 	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
@@ -368,12 +370,6 @@ func TestOpenIsOffUntilFlagAndConfigExist(t *testing.T) {
 		t.Fatal(err)
 	}
 	flagFile.Reset()
-	if err := flagFile.Load(); err != nil {
-		t.Fatalf("flag load: %v", err)
-	}
-	if s, err := Open(); err != nil || s != nil {
-		t.Fatalf("flag on without cloudflare.json: %v %v", s, err)
-	}
 	valid := `{"account_id":"x","r2_access_key_id":"AK","r2_secret_access_key":"SK","r2_bucket":"cherry-assets","r2_endpoint":"https://acct.r2.cloudflarestorage.com"}`
 	if err := os.WriteFile(cfgPath, []byte(valid), 0o600); err != nil {
 		t.Fatal(err)
@@ -382,14 +378,56 @@ func TestOpenIsOffUntilFlagAndConfigExist(t *testing.T) {
 	if err != nil || s == nil {
 		t.Fatalf("flag and config present: %v %v", s, err)
 	}
+	if !s.Streaming() {
+		t.Fatal("streaming flag on: Streaming() = false")
+	}
 	if want := filepath.Join(cherry, "static"); s.cacheDir != want {
 		t.Fatalf("cache dir = %s, want %s", s.cacheDir, want)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "streaming.json"), []byte(`{"enabled": false}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	flagFile.Reset()
+	if err := flagFile.Load(); err != nil {
+		t.Fatalf("flag load: %v", err)
+	}
+	if s, err := Open(); err != nil || s == nil || s.Streaming() {
+		t.Fatalf("flag off with config: store %v, streaming %v, err %v; want a store that does not stream", s, s.Streaming(), err)
 	}
 	if err := os.WriteFile(cfgPath, []byte(`{"r2_bucket":"cherry-assets"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Open(); err == nil {
 		t.Fatal("incomplete cloudflare.json accepted")
+	}
+}
+
+// The read path: a miss downloads once, the cached copy answers after that, and an absent key is fs.ErrNotExist
+// (negatively cached); a nil store answers fs.ErrNotExist too.
+func TestReadFileCacheHitMissAndNotFound(t *testing.T) {
+	f := newFakeR2(t)
+	const key = "static/android-4.0.0.0-2016/animation/fish/fish_ani_0001.png"
+	f.put(key, []byte("fish"))
+	s, _ := webStore(t, f)
+	for i := 0; i < 2; i++ {
+		if b, err := s.ReadFile(key); err != nil || string(b) != "fish" {
+			t.Fatalf("read %d: %q, %v", i, b, err)
+		}
+	}
+	if n := f.getCount(key); n != 1 {
+		t.Fatalf("R2 GETs for a cached key = %d, want 1 (miss, then hit)", n)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := s.ReadFile("static/none.bin"); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("absent key: %v, want fs.ErrNotExist", err)
+		}
+	}
+	if n := f.getCount("static/none.bin"); n != 1 {
+		t.Fatalf("R2 GETs for an absent key = %d, want 1 (negative cache)", n)
+	}
+	var none *Store
+	if _, err := none.ReadFile(key); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("nil store: %v, want fs.ErrNotExist", err)
 	}
 }
 

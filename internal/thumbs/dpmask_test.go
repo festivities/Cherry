@@ -12,9 +12,7 @@ import (
 // archiveMaskFixture points the mask cache at a temp dir (never the live dp-cache) and skips without the device archive.
 func archiveMaskFixture(t *testing.T) string {
 	t.Helper()
-	if _, err := os.Stat(filepath.Join(DpItemRoot, "custom")); err != nil {
-		t.Skip("device archive absent")
-	}
+	useArchive(t)
 	cacheDir := t.TempDir()
 	old := DpCacheDir
 	DpCacheDir = cacheDir
@@ -27,7 +25,7 @@ func archiveMaskFixture(t *testing.T) string {
 // it and caches it under dm1_.
 func TestDyeMaskOfAGeneratedGarment(t *testing.T) {
 	cacheDir := archiveMaskFixture(t)
-	dir := filepath.Join(DpItemRoot, "custom", "224102536")
+	dir := filepath.Join(santiFiles, "item", "custom", "224102536")
 	mask, ok := composeItemMask(dir, "custom")
 	if !ok {
 		t.Fatal("mask not composed")
@@ -79,7 +77,7 @@ func TestDyeMaskOfAGeneratedGarment(t *testing.T) {
 func TestDyeMaskServesAnOriginal(t *testing.T) {
 	cacheDir := archiveMaskFixture(t)
 	for _, c := range [][2]string{{"custom", "224102309"}, {"dress", "225001650"}} {
-		want, err := os.ReadFile(filepath.Join(DpItemRoot, c[0], c[1], "dp_mask.png"))
+		want, err := os.ReadFile(filepath.Join(santiFiles, "item", c[0], c[1], "dp_mask.png"))
 		if err != nil {
 			t.Fatal(err)
 		}

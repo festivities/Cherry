@@ -12,18 +12,19 @@ import (
 
 	"cherry/internal/room"
 	"cherry/internal/store"
+	"cherry/internal/testutil"
 	"cherry/internal/thumbs"
 )
 
 // shopFixture points the catalog at a temp item root: files maps "kind/id" to the file names in it.
 // The 2014 archive and the thumbnail cache are pointed at empty temp paths too, so that the real
 // backup cannot give a fixture item its art.
-func shopFixture(t *testing.T, files map[string][]string) {
+func shopFixture(t *testing.T, files map[string][]string) string {
 	t.Helper()
 	root := t.TempDir()
-	oldZip, oldCache := thumbs.DpZipPath, thumbs.DpCacheDir
-	thumbs.DpZipPath, thumbs.DpCacheDir = filepath.Join(t.TempDir(), "none.zip"), t.TempDir()
-	t.Cleanup(func() { thumbs.DpZipPath, thumbs.DpCacheDir = oldZip, oldCache })
+	oldCache := thumbs.DpCacheDir
+	thumbs.DpCacheDir = t.TempDir()
+	t.Cleanup(func() { thumbs.DpCacheDir = oldCache })
 	for dir, names := range files {
 		d := filepath.Join(root, filepath.FromSlash(dir))
 		if err := os.MkdirAll(d, 0o755); err != nil {
@@ -35,9 +36,8 @@ func shopFixture(t *testing.T, files map[string][]string) {
 			}
 		}
 	}
-	old := thumbs.DpItemRoot
-	thumbs.DpItemRoot = root
-	t.Cleanup(func() { thumbs.DpItemRoot = old })
+	testutil.SetArchive(t, testutil.ArchiveMounts(root))
+	return root
 }
 
 func TestItemCodeFromID(t *testing.T) {
@@ -107,9 +107,7 @@ func TestItemPriceTable(t *testing.T) {
 }
 
 func TestMissingItemRootIsEmpty(t *testing.T) {
-	old := thumbs.DpItemRoot
-	thumbs.DpItemRoot = filepath.Join(t.TempDir(), "nope")
-	t.Cleanup(func() { thumbs.DpItemRoot = old })
+	testutil.SetArchive(t, testutil.ArchiveMounts(filepath.Join(t.TempDir(), "nope")))
 	if c := loadCatalog(); len(c.fashion)+len(c.interior)+len(c.pet) != 0 {
 		t.Fatalf("catalog = %+v, want empty", c)
 	}

@@ -17,31 +17,20 @@ import (
 	"strconv"
 	"strings"
 
+	"cherry/internal/assets"
 	"cherry/internal/itemcode"
 )
 
-// Garden map packs and their item art (the generated landscapes' inputs). Both come from the read-only
-// device backups: santi first, then lpbackup, the order the item archive uses too.
+// Garden map packs and their item art (the generated landscapes' inputs). Both are original device-backup files, read from
+// the store (assets.Archive): the packs by their key, the item folders as the store's index lists them.
 
 // lsMagic opens a .mworldpack.
 const lsMagic = 0x20190712
 
-// lsArchiveRoots are the device-backup files/ trees, santi first (DpItemRoot is santi's item folder). Fixed at
-// start: a test that moves DpItemRoot does not move the landscape inputs.
-var lsArchiveRoots = []string{
-	filepath.Dir(DpItemRoot),
-	filepath.FromSlash(`D:/Dev/projects/Cherry/.opencode/line-play-artifacts/lpbackup/jp.naver.lineplay.android/files`),
-}
-
-// mapPackPath is the pack of Garden map stem under the first archive root that has it.
-func mapPackPath(stem string) (string, bool) {
-	for _, root := range lsArchiveRoots {
-		p := filepath.Join(root, "garden", stem+".mworldpack")
-		if _, err := os.Stat(p); err == nil {
-			return p, true
-		}
-	}
-	return "", false
+// mapPackBytes is the original .mworldpack of Garden map stem; ok is false when the store has no such pack.
+func mapPackBytes(stem string) ([]byte, bool) {
+	b, err := assets.Archive.ReadFile("static/garden/" + stem + ".mworldpack")
+	return b, err == nil
 }
 
 // mapPack is a parsed .mworldpack: its msector records by name, and its tile atlas PNGs in file order.
@@ -51,47 +40,44 @@ type mapPack struct {
 	tiles     map[string][]byte
 }
 
-// readMapPack parses a pack: the magic word, the world record, the sector records and the tile records.
-// Each record is a name, the uncompressed and the compressed size, and a zlib stream (landscape-gen objs.py).
-func readMapPack(path string) (*mapPack, error) {
-	d, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
+// readMapPack parses a pack's bytes d (name is for the errors): the magic word, the world record, the sector records
+// and the tile records. Each record is a name, the uncompressed and the compressed size, and a zlib stream
+// (landscape-gen objs.py).
+func readMapPack(d []byte, name string) (*mapPack, error) {
 	if len(d) < 4 || binary.LittleEndian.Uint32(d) != lsMagic {
-		return nil, fmt.Errorf("%s: not a map pack", path)
+		return nil, fmt.Errorf("%s: not a map pack", name)
 	}
 	_, _, pos, err := packRecord(d, 4) // the world record
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, fmt.Errorf("%s: %w", name, err)
 	}
 	pk := &mapPack{sectors: map[string][]byte{}, tiles: map[string][]byte{}}
 	n, pos, err := packU32(d, pos)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, fmt.Errorf("%s: %w", name, err)
 	}
 	for range n {
-		var name string
+		var rec string
 		var data []byte
-		if name, data, pos, err = packRecord(d, pos); err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
+		if rec, data, pos, err = packRecord(d, pos); err != nil {
+			return nil, fmt.Errorf("%s: %w", name, err)
 		}
-		pk.sectors[name] = data
+		pk.sectors[rec] = data
 	}
 	n, pos, err = packU32(d, pos)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, fmt.Errorf("%s: %w", name, err)
 	}
 	for range n {
-		var name string
+		var rec string
 		var data []byte
-		if name, data, pos, err = packRecord(d, pos); err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
+		if rec, data, pos, err = packRecord(d, pos); err != nil {
+			return nil, fmt.Errorf("%s: %w", name, err)
 		}
-		if _, seen := pk.tiles[name]; !seen {
-			pk.tileNames = append(pk.tileNames, name)
+		if _, seen := pk.tiles[rec]; !seen {
+			pk.tileNames = append(pk.tileNames, rec)
 		}
-		pk.tiles[name] = data
+		pk.tiles[rec] = data
 	}
 	return pk, nil
 }
@@ -204,15 +190,10 @@ func roundPy(x float64, digits int) float64 {
 	return v
 }
 
-// lsItemDir is the archive folder of item id under the first root that has one; "" when none does.
+// lsItemDir is the local folder of interior item id (its files fetched from the store); "" when the store has none.
 func lsItemDir(id int64) string {
-	for _, root := range lsArchiveRoots {
-		d := filepath.Join(root, "item", "interior", strconv.FormatInt(id, 10))
-		if fi, err := os.Stat(d); err == nil && fi.IsDir() {
-			return d
-		}
-	}
-	return ""
+	dir, _ := assets.Archive.ItemDir("interior", id)
+	return dir
 }
 
 // lsArt is what the generator reads from one item code's folder, read once per code.

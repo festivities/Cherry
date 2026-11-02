@@ -154,7 +154,7 @@ func TestTreasureSecretQuestOverTheGateway(t *testing.T) {
 
 // TestTreasureBuffOverTheGateway: a buff square draws an item the account does not own (CUSH003EY here, the one not owned) with its
 // LinkInfo; cs 22 wears the owned CUAH006FG (the relay start then carries 10 percent, and the reply and the list show it worn);
-// refused and empty wears are answered; the worn set is unequipped by an empty list.
+// refused and empty outfits are answered; the buff percent follows the saved outfit.
 func TestTreasureBuffOverTheGateway(t *testing.T) {
 	treBuffScene(t, "CUAH006FG")
 	treLoadRing(t, treProbeRing)
@@ -187,7 +187,7 @@ func TestTreasureBuffOverTheGateway(t *testing.T) {
 		cirVar(cirBytes(wear, 4), 1) != 1003 {
 		t.Fatalf("wear reply = %x, want result 0, 10 percent, CUAH006FG worn and the own avatar", wear)
 	}
-	if !strings.Contains(g.logs.String(), "TREASURE msgid=22 buff wear aid=1003 codes=[CUAH006FG] percent=10 result=0") {
+	if !strings.Contains(g.logs.String(), "TREASURE msgid=22 buff wear aid=1003 outfit=1 percent=10 result=0") {
 		t.Fatalf("wear log line missing:\n%s", g.logs.String())
 	}
 
@@ -208,9 +208,12 @@ func TestTreasureBuffOverTheGateway(t *testing.T) {
 		}
 	}
 
-	g.send(treasureCsBuffWear, nil) // an empty list takes every buff off
-	off := g.readShape(treasureRcBuffWear, treBuffWear)
-	if cirVar(off, 2) != 0 || len(cirList(off, 3)) != 1 || string(cirBytes(cirList(off, 3)[0], 9)) != "INVEN" {
-		t.Fatalf("unequip reply = %x, want 0 percent and the owned buff INVEN", off)
+	g.send(treasureCsBuffWear, nil) // an empty outfit is refused and the saved outfit stays
+	if cirVar(g.readShape(treasureRcBuffWear, treResult), 1) != treasureRefused {
+		t.Fatal("an empty outfit was not refused")
+	}
+	g.send(treasureCsBuffList, nil)
+	if list := g.readShape(treasureRcBuffList, treBuffList); cirVar(list, 3) != 10 {
+		t.Fatalf("buff list after the refused outfit = %x, want 10 percent still worn", list)
 	}
 }

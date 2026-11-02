@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"cherry/internal/assets"
+	"cherry/internal/testutil"
 )
 
 // TestMain points the converted items at an empty tree: the catalog these tests check is the device archive's, and
@@ -16,6 +17,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	assets.GeneratedItemRoot = dir
+	testutil.InstallArchive()
 	code := m.Run()
 	_ = os.RemoveAll(dir)
 	os.Exit(code)

@@ -9,6 +9,7 @@
 //	cherry-assets plan                 counts and bytes per category and item kind (no network)
 //	cherry-assets upload               upload what is missing (HEAD, then PUT), then the indexes and the D1 mirror
 //	cherry-assets upload -packs-only   upload only the map packs and cherry/manifest/packs.json (no bulk indexes, no D1 mirror)
+//	cherry-assets upload -only NAME    upload only one origin source (origSources: an APK folder or DailyBonus) and its D1 rows
 //	cherry-assets verify               list the bucket and compare it with the plan; fails while legacy manifest/ keys remain
 //	cherry-assets migrate-manifests    one-time: copy manifest/ to cherry/manifest/, then delete the legacy keys (no dataset)
 //
@@ -31,11 +32,13 @@ import (
 	"strings"
 
 	"cherry/internal/assets"
-	"cherry/internal/thumbs"
 )
 
 // defaultDataset is the santi backup, the first root: the bulk categories come from it alone.
 const defaultDataset = `D:\Dev\projects\Cherry\.opencode\line-play-artifacts\santi-backup-20260921\jp.naver.lineplay.android\files`
+
+// itemZipPath is the 2014 iOS item archive. Only the converter reads it (convert); the server never does.
+const itemZipPath = `D:\Dev\projects\Cherry\.opencode\line-play-artifacts\lineplay-original-assets\ios-mini-4.3-2014\item.zip`
 
 // extraDataset is the lpbackup device backup. Only the items and map packs it has and santi lacks are added; its
 // bulk categories are never read.
@@ -80,6 +83,8 @@ type object struct {
 	// names the generator and its sources (the D1 table generated). No generator exists yet.
 	generated bool
 	recipe    string
+	// source is the origin folder of an original (origin.go): key static/<source>/<rel>, path under the source's folder.
+	source string
 }
 
 // buildObjects lists every object the server streams, sorted by key. roots are dataset folders in priority order.
@@ -141,6 +146,9 @@ func checkOrigins(objs []*object, roots []string) error {
 }
 
 func checkObject(o *object, roots []string) error {
+	if o.source != "" {
+		return checkOrig(o)
+	}
 	if !o.generated {
 		switch {
 		case !strings.HasPrefix(o.key, "static/"):
@@ -415,6 +423,8 @@ func summarize(objs []*object) totals {
 			group = "generated"
 		case o.cat != "":
 			group = "bulk:" + o.cat
+		case o.source != "":
+			group = "orig:" + o.source
 		case o.pack != "":
 			group = "pack:" + o.pack
 		case craftGroup(o.key) != "":
@@ -437,8 +447,8 @@ func printPlan(objs []*object) {
 		groups = append(groups, g)
 	}
 	sort.Strings(groups)
-	var bulkN, packN, chatN, craftN, itemN, genN int
-	var bulkB, packB, chatB, craftB, itemB, genB int64
+	var bulkN, packN, chatN, craftN, itemN, genN, origN int
+	var bulkB, packB, chatB, craftB, itemB, genB, origB int64
 	for _, g := range groups {
 		fmt.Printf("%-16s %8d objects %14d bytes\n", g, t.count[g], t.bytes[g])
 		switch {
@@ -457,6 +467,9 @@ func printPlan(objs []*object) {
 		case g == "generated":
 			genN += t.count[g]
 			genB += t.bytes[g]
+		case strings.HasPrefix(g, "orig:"):
+			origN += t.count[g]
+			origB += t.bytes[g]
 		default:
 			itemN += t.count[g]
 			itemB += t.bytes[g]
@@ -468,7 +481,8 @@ func printPlan(objs []*object) {
 	fmt.Printf("%-16s %8d objects %14d bytes\n", "craft total", craftN, craftB)
 	fmt.Printf("%-16s %8d objects %14d bytes\n", "item total", itemN, itemB)
 	fmt.Printf("%-16s %8d objects %14d bytes\n", "generated", genN, genB)
-	fmt.Printf("%-16s %8d objects %14d bytes\n", "all", bulkN+packN+chatN+craftN+itemN+genN, bulkB+packB+chatB+craftB+itemB+genB)
+	fmt.Printf("%-16s %8d objects %14d bytes\n", "origin total", origN, origB)
+	fmt.Printf("%-16s %8d objects %14d bytes\n", "all", bulkN+packN+chatN+craftN+itemN+genN+origN, bulkB+packB+chatB+craftB+itemB+genB+origB)
 }
 
 func main() {
@@ -481,7 +495,8 @@ func main() {
 	concurrency := flags.Int("concurrency", 8, "parallel R2 requests (upload)")
 	forceD1 := flags.Bool("force-d1", false, "rewrite the D1 manifest rows even when they look current (upload)")
 	packsOnly := flags.Bool("packs-only", false, "upload only the map packs and cherry/manifest/packs.json (upload)")
-	zipFlag := flags.String("zip", thumbs.DpZipPath, "the 2014 iOS item.zip to convert (convert)")
+	only := flags.String("only", "", "upload only this origin source ("+strings.Join(originNames(), ", ")+"), with its D1 rows (upload)")
+	zipFlag := flags.String("zip", itemZipPath, "the 2014 iOS item.zip to convert (convert)")
 	outFlag := flags.String("out", assets.GeneratedItemRoot, "the generated item tree: convert writes it, plan/upload read it")
 	_ = flags.Parse(args)
 
@@ -501,6 +516,14 @@ func main() {
 	if err != nil {
 		fail("dataset: %v", err)
 	}
+	origins, err := origObjects()
+	if err != nil {
+		fail("origin originals: %v", err)
+	}
+	objs = append(objs, origins...)
+	if err := checkOrigins(objs, archiveRoots); err != nil {
+		fail("dataset: %v", err)
+	}
 	objs, err = withGenerated(objs, archiveRoots, *outFlag)
 	if err != nil {
 		fail("generated items: %v", err)
@@ -512,7 +535,13 @@ func main() {
 		if *packsOnly {
 			objs = onlyPacks(objs)
 		}
-		if err := runUpload(context.Background(), objs, *concurrency, *forceD1, *packsOnly); err != nil {
+		if *only != "" {
+			objs = onlySource(objs, *only)
+			if len(objs) == 0 {
+				fail("upload: no origin source %q (one of %s)", *only, strings.Join(originNames(), ", "))
+			}
+		}
+		if err := runUpload(context.Background(), objs, *concurrency, *forceD1, *packsOnly, *only != ""); err != nil {
 			fail("upload: %v", err)
 		}
 	case "verify":

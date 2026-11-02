@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"image/png"
 	"net/http"
-	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -14,6 +13,7 @@ import (
 	"cherry/internal/economy"
 	"cherry/internal/itemcode"
 	"cherry/internal/store"
+	"cherry/internal/testutil"
 	"cherry/internal/thumbs"
 )
 
@@ -427,7 +427,7 @@ func TestDyeApplyRefusals(t *testing.T) {
 // stream answered it; a garment that is not dyeable, another kind or another file keeps its 404. Needs the device
 // archive; the cache is a temp dir.
 func TestDyeMaskIsAPictureForDyeableGarments(t *testing.T) {
-	if _, err := os.Stat(filepath.Join(thumbs.DpItemRoot, "custom")); err != nil {
+	if !testutil.ArchiveFound() {
 		t.Skip("device archive absent")
 	}
 	oldCache := thumbs.DpCacheDir

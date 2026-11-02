@@ -298,7 +298,7 @@ func TestTreasureRankingRules(t *testing.T) {
 	if _, err := store.UpdateTreasure("1004", func(r *store.TreasureRecord) { r.Season, r.Points = 1, 999 }); err != nil {
 		t.Fatal(err)
 	}
-	rows, pages := TreasureRankingPage(1, 20)
+	rows, pages := TreasureRankingPage(1, 20, treasureNow)
 	if pages != 1 || len(rows) != 3 {
 		t.Fatalf("page = %d rows, %d pages; want 3 rows, 1 page: %+v", len(rows), pages, rows)
 	}
@@ -308,13 +308,13 @@ func TestTreasureRankingRules(t *testing.T) {
 	if rows[1].Aid != "1003" || rows[1].Rank != 2 || rows[1].Grade.Name != "Silver" || rows[2].Aid != "1001" || rows[2].Rank != 3 {
 		t.Fatalf("ranks 2 and 3 = %+v %+v", rows[1], rows[2])
 	}
-	if one, _ := TreasureRankingPage(2, 2); len(one) != 1 || one[0].Aid != "1003" {
+	if one, _ := TreasureRankingPage(2, 2, treasureNow); len(one) != 1 || one[0].Aid != "1003" {
 		t.Fatalf("page 2..2 = %+v", one)
 	}
-	if me := TreasureMyRankOf("1001"); me.Rank != 3 || me.Points != 30 || me.Grade.Name != "Silver" {
+	if me := TreasureMyRankOf("1001", treasureNow); me.Rank != 3 || me.Points != 30 || me.Grade.Name != "Silver" {
 		t.Fatalf("my rank = %+v", me)
 	}
-	if old := TreasureMyRankOf("1004"); old.Rank != 0 || old.Points != 0 {
+	if old := TreasureMyRankOf("1004", treasureNow); old.Rank != 0 || old.Points != 0 {
 		t.Fatalf("another season's board ranks: %+v", old)
 	}
 }
@@ -325,7 +325,7 @@ func TestTreasureRankingRules(t *testing.T) {
 func TestTreasurePointRewardRules(t *testing.T) {
 	butlerAccount(t, "1001", 0, 0)
 	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Tickets: 10, Charged: treasureNow.UnixMilli(), Points: 100})
-	if rows := TreasurePointRows("1001"); len(rows) != 4 || rows[0].Claimed || rows[3].Points != 1000 {
+	if rows := TreasurePointRows("1001", treasureNow); len(rows) != 4 || rows[0].Claimed || rows[3].Points != 1000 {
 		t.Fatalf("point rows = %+v", rows)
 	}
 	if _, _, err := TreasurePointClaim("1001", 2, treasureNow); !errors.Is(err, ErrTreasureRefused) {
@@ -383,7 +383,7 @@ func TestTreasurePointRewardRules(t *testing.T) {
 func TestTreasureRankRewardRules(t *testing.T) {
 	butlerAccount(t, "1001", 0, 0)
 	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Tickets: 10, Charged: treasureNow.UnixMilli(), Points: 40})
-	_, end := TreasureSeasonWindow()
+	end := TreasureCurrent(treasureNow).End
 	if _, err := TreasureRankClaim("1001", treasureNow); !errors.Is(err, ErrTreasureRefused) {
 		t.Fatalf("rank claim inside the season: %v", err)
 	}

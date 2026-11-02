@@ -98,6 +98,7 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 	circle := &circleSession{rooms: defaultCircleRooms, chats: defaultCircleChats, conn: conn, logger: logger} // agent 8 (circle.go)
 	defer circle.close()
 	treasure := &treasureSession{conn: conn, logger: logger} // agent 9 (treasure.go)
+	defer treasure.close()
 	hard := time.Now().Add(gatewayTTL)
 	gardenControlSent := false
 	gardenRoomEntered := false

@@ -14,7 +14,6 @@ import (
 	"cherry/internal/economy"
 	"cherry/internal/store"
 	"cherry/internal/testutil"
-	"cherry/internal/thumbs"
 )
 
 // craftHc34Example is hc34 craft_info_res from spec 12.5 (the byte example): player_craft with 20
@@ -45,7 +44,7 @@ func craftAccount(t *testing.T, aid string, smiles int64, bag []store.GardenBagS
 // requireCraftArchive skips a test whose clothing products need the item archive.
 func requireCraftArchive(t *testing.T) {
 	t.Helper()
-	if _, err := os.Stat(filepath.Join(thumbs.DpItemRoot, "dress")); err != nil {
+	if _, err := os.Stat(filepath.Join(santiFiles, "item", "dress")); err != nil {
 		t.Skip("item archive not present")
 	}
 }
@@ -274,7 +273,7 @@ func TestCraftAssetImagesAreCraftPaths(t *testing.T) {
 		if img := pbFieldsOf(t, gardenAssetItem(drop)).msgs[6]; len(img) != 1 || string(img[0]) != "garden01/items/"+name {
 			t.Fatalf("item %d img_url = %q, want garden01/items/%s", id, img, name)
 		}
-		if _, err := os.Stat(filepath.Join(thumbs.DpItemRoot, "craftitem", "garden01", "items", name)); err != nil {
+		if _, err := os.Stat(filepath.Join(santiFiles, "item", "craftitem", "garden01", "items", name)); err != nil {
 			t.Fatalf("archive icon for %d: %v", id, err)
 		}
 	}

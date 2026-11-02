@@ -7,10 +7,9 @@ import (
 	"image/png"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
+	"sync"
 
 	"cherry/internal/assets"
 	"cherry/internal/itemcode"
@@ -57,6 +56,19 @@ func itemAvailable(code string) bool {
 	}
 	return loadCatalog().byCode[code] != nil
 }
+
+// artVerifiable reports whether the startup checks can ask about item art. Without the asset store (cloudflare.json
+// absent) no item has art, so the checks that refuse a row without art are skipped there, logged once: Cherry still
+// starts.
+func artVerifiable() bool {
+	if assets.Archive != nil {
+		return true
+	}
+	artUnverifiedLogged.Do(func() { log.Printf("cherry: no asset store (cloudflare.json): item art is not checked at startup") })
+	return false
+}
+
+var artUnverifiedLogged sync.Once
 
 // seasonItemAvailable is itemAvailable for a calendar day, logging a missing code.
 func seasonItemAvailable(code string) bool {
@@ -127,7 +139,7 @@ func itemThumbRef(code string) (kind, id string, ok bool) {
 	}
 	id = strconv.FormatInt(it.ID, 10)
 	for _, k := range []string{"custom", "dress", "interior", "tile", "pet"} {
-		if _, err := os.Stat(filepath.Join(thumbs.DpItemRoot, k, id)); err == nil || assets.GeneratedItems().Has(k, it.ID) {
+		if assets.Archive.Items().Has(k, it.ID) || assets.GeneratedItems().Has(k, it.ID) {
 			return k, id, true
 		}
 	}

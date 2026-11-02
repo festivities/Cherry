@@ -7,10 +7,10 @@ import (
 	"image/draw"
 	"image/png"
 	"math"
-	"os"
-	"path/filepath"
 	"sort"
 	"sync"
+
+	"cherry/internal/assets"
 )
 
 // Skeleton placement for item previews. Native facts (libgame 10.1.0.0,
@@ -21,9 +21,9 @@ import (
 // idlePos/anchor read from avatar_data/ani/{h,a}_f_idle.avb. The z field in the
 // item file is already the global draw order (body-node base z + local index).
 
-// dpAvatarDataRoot is the read-only APK assets/avatar_data tree (ani/{h,a}_f_idle.avb,
-// body/{h,a}/*.png). Game assets are read in place, never committed (AGENTS.md).
-var dpAvatarDataRoot = filepath.FromSlash(`D:/Dev/projects/Cherry/.opencode/line-play-artifacts/lineplay-original-assets/android-10.1.0.0-2024/avatar_data`)
+// avatarDataKey is the store key of the 10.1.0.0 APK's assets/avatar_data tree (ani/{h,a}_f_idle.avb, body/{h,a}/*.png):
+// an original APK asset, uploaded by cmd/cherry-assets from lineplay-original-assets.
+const avatarDataKey = "static/android-10.1.0.0-2024/avatar_data/"
 
 // dpNodeNames is ms_szNodeName.
 var dpNodeNames = [...]string{"none_body", "pelvis", "chest", "none_chest", "head", "none_head",
@@ -150,7 +150,9 @@ func dpLoadRig(set string) *dpRig {
 		return r
 	}
 	r := buildRig(set)
-	dpRigs.m[set] = r
+	if r != nil {
+		dpRigs.m[set] = r
+	}
 	return r
 }
 
@@ -185,7 +187,7 @@ func dpIdleRotations(nodes map[string]dpSkelNode) map[string]float64 {
 }
 
 func buildRig(set string) *dpRig {
-	avb, err := os.ReadFile(filepath.Join(dpAvatarDataRoot, "ani", set+"_f_idle.avb"))
+	avb, err := assets.Archive.ReadFile(avatarDataKey + "ani/" + set + "_f_idle.avb")
 	if err != nil {
 		return nil
 	}
@@ -199,7 +201,7 @@ func buildRig(set string) *dpRig {
 			continue
 		}
 		var w, h int
-		if b, err := os.ReadFile(filepath.Join(dpAvatarDataRoot, "body", set, name+".png")); err == nil {
+		if b, err := assets.Archive.ReadFile(avatarDataKey + "body/" + set + "/" + name + ".png"); err == nil {
 			if img, err := png.Decode(bytes.NewReader(b)); err == nil {
 				if set == "h" && (tag == dpTagHead || tag == dpTagEar) {
 					img = dpSkinTint(img)

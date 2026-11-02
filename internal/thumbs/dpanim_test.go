@@ -138,7 +138,8 @@ func TestItemAniParts(t *testing.T) {
 }
 
 func TestAnimRealItemOptional(t *testing.T) {
-	dir := filepath.Join(DpItemRoot, "custom", "224100833")
+	useArchive(t)
+	dir := filepath.Join(santiFiles, "item", "custom", "224100833")
 	if _, err := os.Stat(dir); err != nil {
 		t.Skip("device item absent")
 	}

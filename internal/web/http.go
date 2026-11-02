@@ -13,8 +13,6 @@ import (
 	"log"
 	"maps"
 	"net/http"
-	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -151,24 +149,13 @@ type Menu struct {
 
 var menuFile = opdata.New("menu.json", data.MenuJSON, checkMenu, nil)
 
-// streaming serves the game assets from R2 (internal/assets); nil while streaming is off.
-var streaming *assets.Store
-
-// LoadOperatorData loads the web layer's operator data files (menu.json, dressup.json) at startup, and
-// opens the asset stream when streaming.json enables it.
+// LoadOperatorData loads the web layer's operator data files (menu.json, dressup.json, itemconv.json) at startup.
+// The asset store is opened by assets.LoadArchive, before this.
 func LoadOperatorData() error {
 	for _, load := range []func() error{menuFile.Load, dressupFile.Load, assets.LoadItemConv} {
 		if err := load(); err != nil {
 			return err
 		}
-	}
-	s, err := assets.Open()
-	if err != nil {
-		return err
-	}
-	streaming = s
-	if err := s.FetchItemIndex(); err != nil {
-		log.Printf("cherry: converted items index: %v", err)
 	}
 	return nil
 }
@@ -272,24 +259,40 @@ const playDetailLPCircleBody = `{"result":{"gameInfo":{"gameId":"lp_cir","execut
 
 const artsStringsMD5 = "1492F278EC281078AC7F35479A85F197"
 
-// artsStringsPath is the stock string table, read in place from the read-only archive
-// (game assets are never committed). It must match artsStringsMD5, which update.ini
-// advertises to the patcher.
-var artsStringsPath = filepath.FromSlash(`D:/Dev/projects/Cherry/.opencode/line-play-artifacts/santi-backup-20260921/jp.naver.lineplay.android/files/stringtable/arts_strings.ast`)
+// artsStringsKey is the stock string table, an original of the tx category (static/tx/arts_strings.ast). It must match
+// artsStringsMD5, which update.ini advertises to the patcher.
+const artsStringsKey = "static/tx/arts_strings.ast"
 
-// loadArtsStrings reads and MD5-checks the string table once; nil if missing or changed.
-var loadArtsStrings = sync.OnceValue(func() []byte {
-	b, err := os.ReadFile(artsStringsPath)
+var artsStrings struct {
+	sync.Mutex
+	b      []byte
+	logged bool
+}
+
+// loadArtsStrings reads and MD5-checks the string table from the store; nil while it is missing or changed. A good
+// copy is kept; a failed read is tried again on the next request and logged once.
+func loadArtsStrings() []byte {
+	artsStrings.Lock()
+	defer artsStrings.Unlock()
+	if artsStrings.b != nil {
+		return artsStrings.b
+	}
+	b, err := assets.Archive.ReadFile(artsStringsKey)
+	if err == nil {
+		if sum := md5.Sum(b); !strings.EqualFold(hex.EncodeToString(sum[:]), artsStringsMD5) {
+			err = fmt.Errorf("md5 %x does not match %s", sum, artsStringsMD5)
+		}
+	}
 	if err != nil {
-		log.Printf("cherry: arts_strings.ast unavailable: %v", err)
+		if !artsStrings.logged {
+			log.Printf("cherry: arts_strings.ast unavailable: %v", err)
+			artsStrings.logged = true
+		}
 		return nil
 	}
-	if sum := md5.Sum(b); !strings.EqualFold(hex.EncodeToString(sum[:]), artsStringsMD5) {
-		log.Printf("cherry: arts_strings.ast md5 mismatch at %s", artsStringsPath)
-		return nil
-	}
+	artsStrings.b = b
 	return b
-})
+}
 
 // NewMux returns the routes. ServeMux redirects a path with a ".." segment to its cleaned form before any route
 // runs, so a streamed map pack request in the un-normalised form is answered first.
@@ -436,7 +439,7 @@ func NewMux() http.Handler {
 				}
 			}
 		}
-		if strings.Contains(r.URL.Path, "/../") && streaming.ServeRoute(w, r) {
+		if strings.Contains(r.URL.Path, "/../") && assets.Archive.ServeRoute(w, r) {
 			return
 		}
 		mux.ServeHTTP(w, r)
@@ -583,8 +586,8 @@ func handleCheckResource2(w http.ResponseWriter, r *http.Request) {
 		httpx.ServeNotFound(w)
 		return
 	}
-	if streaming != nil {
-		streaming.WriteCheckResource2(w)
+	if assets.Archive.Streaming() {
+		assets.Archive.WriteCheckResource2(w)
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, checkResource2Body)
@@ -916,22 +919,16 @@ func handleAvatarSaveV2(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
 		return
 	}
-	serials := store.ItemSerials(store.AccountOwnedCodes(acc))
-	itemCodes := make([]string, 0, len(req))
+	outfit := make([]string, 0, len(req))
 	for _, item := range req {
-		code := *item.ItemCode
-		if isSkinItemCode(code) || store.IsAvatarBaseItem(acc.Gender, code) {
-			continue
-		}
-		if _, owned := serials[code]; !owned {
-			store.AccountsMu.Unlock()
-			httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
-			return
-		}
-		itemCodes = append(itemCodes, code)
+		outfit = append(outfit, *item.ItemCode)
 	}
 	previous := *acc
-	acc.ItemCodes = itemCodes
+	if err := store.SetAvatarOutfitLocked(acc, outfit); err != nil {
+		store.AccountsMu.Unlock()
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
 	err = store.SaveAccountsLocked()
 	if err != nil {
 		*acc = previous
@@ -949,10 +946,6 @@ func handleAvatarSaveV2(w http.ResponseWriter, r *http.Request) {
 		Result store.AvatarInfoResult `json:"result"`
 	}{Result: info})
 	httpx.WriteJSON(w, http.StatusOK, string(payload))
-}
-
-func isSkinItemCode(code string) bool {
-	return len(code) == 6 && strings.HasPrefix(code, "SKN") && httpx.IsAllDigits(code[3:])
 }
 
 func handleAvatarInfo(w http.ResponseWriter, r *http.Request) {
@@ -998,12 +991,12 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A streamed file (or dp.png) wins; a miss falls through to the generated thumbnail below.
-	if streaming.ServeRoute(w, r) {
+	if assets.Archive.ServeRoute(w, r) {
 		return
 	}
-	// Streaming off: the static-base craft art and photozone frames are read in place from the archive
+	// Streaming off: the static-base craft art and photozone frames are read from the store's originals
 	// (streaming on: R2 alone answers them).
-	if streaming == nil && economy.ServeGardenCraftArt(w, r) {
+	if !assets.Archive.Streaming() && economy.ServeGardenCraftArt(w, r) {
 		return
 	}
 	// A converted iOS-only item (cmd/cherry-assets convert) answers from the local generated tree when R2 did not.

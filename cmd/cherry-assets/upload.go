@@ -28,7 +28,8 @@ import (
 // lists a file R2 does not have. packsOnly skips the bulk indexes and the D1 mirror (objs must then be the map
 // packs only, since the bulk indexes list every bulk object given). Generated objects get their D1 rows in
 // either mode.
-func runUpload(ctx context.Context, objs []*object, concurrency int, forceD1, packsOnly bool) error {
+// origOnly uploads one origin source only (-only) and writes just its D1 rows (no index, no pack list).
+func runUpload(ctx context.Context, objs []*object, concurrency int, forceD1, packsOnly, origOnly bool) error {
 	cfg, err := loadR2()
 	if err != nil {
 		return err
@@ -85,6 +86,13 @@ func runUpload(ctx context.Context, objs []*object, concurrency int, forceD1, pa
 	if n := r.failed.Load(); n > 0 {
 		return fmt.Errorf("%d objects failed (run stopped after %d); manifests not written, rerun to resume", n, maxFailures)
 	}
+	if origOnly {
+		if err := syncOrig(ctx, d1, objs, logger); err != nil {
+			return fmt.Errorf("d1 origin: %w", err)
+		}
+		fmt.Println("d1: origin rows written")
+		return nil
+	}
 
 	if !packsOnly {
 		manifests, err := writeManifests(ctx, r.client, objs)
@@ -98,6 +106,9 @@ func runUpload(ctx context.Context, objs []*object, concurrency int, forceD1, pa
 			return fmt.Errorf("d1: %w", err)
 		}
 		fmt.Println("d1: manifest mirror current")
+	}
+	if err := syncOrig(ctx, d1, objs, logger); err != nil {
+		return fmt.Errorf("d1 origin: %w", err)
 	}
 	if err := syncGenerated(ctx, d1, objs, time.Now(), logger); err != nil {
 		return fmt.Errorf("d1 generated: %w", err)
@@ -391,6 +402,9 @@ func verifyGroup(key string) string {
 		return "manifest"
 	case strings.HasPrefix(key, assets.CherryPrefix):
 		return "generated"
+	}
+	if src := origSourceOf(key); src != "" {
+		return "orig:" + src
 	}
 	parts := strings.Split(key, "/")
 	switch {

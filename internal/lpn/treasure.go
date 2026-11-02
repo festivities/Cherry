@@ -7,6 +7,8 @@ import (
 	"log"
 	"slices"
 	"strconv"
+	"sync"
+	"time"
 
 	"cherry/internal/economy"
 	"cherry/internal/store"
@@ -14,15 +16,19 @@ import (
 
 // Treasure World (Blue Marble board game): LPN namespace MONOPOLY, gateway agent 9, tunnel "1.1.114.0" (sid
 // 0x0001000100720000). Specs in %TEMP%\opencode\cherry\treasure-20261102 (treasure-spec.md section 9, transport-money.md
-// sections 1 and 7, cells.md). Inbound msgid = dispatch index, outbound msgid = GetIndex; the two numberings differ (the
-// exit is cs 2 and sc 3, the relay start is cs 3 and sc 2). Slice 1: login, room enter, relay start, the roll, the
-// tutorial flag, the exit and the coin count. Every other request gets the answer treasureStubs names.
+// sections 1 and 7, cells.md, season-end-spec.md section 12). Inbound msgid = dispatch index, outbound msgid = GetIndex; the
+// two numberings differ (the exit is cs 2 and sc 3, the relay start is cs 3 and sc 2). Slice 1: login, room enter, relay
+// start, the roll, the tutorial flag, the exit and the coin count. The season cycle (economy TreasureCurrent): the play
+// window is the board; the reward period (status 2, no cells) takes the claims; a closed cycle answers the 65541 texts.
+// Every other request gets the answer treasureStubs names.
 const (
 	treasureAgent = 9
 
-	treasureRefused         = 1     // a refused request: any non-zero Result is the client's error path
-	treasureSeasonPlay      = 1     // sc_room_enter_res SeasonStatus: the board is playable (treasure-spec 9.3)
-	treasureSeasonNotActive = 65541 // sc_season_active_state_res: Result 65541 clears the season-end flag (transport-money 2.5)
+	treasureRefused         = 1      // a refused request: any non-zero Result is the client's error path
+	treasureSeasonPlay      = 1      // sc_room_enter_res SeasonStatus: the board is playable (treasure-spec 9.3)
+	treasureSeasonEnded     = 2      // sc_room_enter_res SeasonStatus: no board, the claims only (season-end-spec 3)
+	treasureSeasonNotActive = 65541  // sc_season_active_state_res: Result 65541 clears the season-end flag (transport-money 2.5)
+	treasureRewardPopup     = 786435 // sc_ranking_class_reward_res: opens the reward popup (season-end-spec 9.2)
 
 	treasureBuffGacha     = 1950000101 // CellTypeBuff GachaId: a Cherry id in the Treasure block
 	treasureBuffGachaName = "Treasure Buffs"
@@ -46,6 +52,7 @@ const (
 	treasureCsSpecialEnable = 26
 	treasureCsTutorial      = 23
 	treasureCsCoinRefresh   = 29
+	treasureCsRewardExit    = 28 // cs_season_reward_popup_exit_check_req: the back key of the reward popup
 )
 
 // Inbound (server to client) msgids, sc dispatch index.
@@ -74,6 +81,7 @@ const (
 	treasureRcLimitBuy          = 22
 	treasureRcBuffWear          = 23
 	treasureRcTutorial          = 24
+	treasureRcSeasonExit        = 25 // sc_season_exit_push: the play window ended under an open board (season-end-spec 6)
 	treasureRcSpecialReward     = 29
 	treasureRcSpecialEnable     = 31
 	treasureRcResetInfo         = 32
@@ -99,16 +107,25 @@ var (
 // requests are built (buffs and secret quests in treasure_buff.go and treasure_secret.go).
 var treasureStubs = map[uint16]treasureStub{
 	24: {treasureRcNoReply, nil}, // cs_playticket_sync_req: no caller in the client
-	28: {treasureRcSeasonState, pbVar(nil, 1, treasureSeasonNotActive)},
 }
 
-// treasureSession is one agent-9 connection: the account logged in on it and whether its board is entered.
+// treasureAfter schedules the season-end push. Tests replace it to fire the push without waiting for the clock.
+var treasureAfter = time.AfterFunc
+
+// treasureSession is one agent-9 connection: the account logged in on it and whether its board is entered. The season-end
+// push runs on a timer goroutine, so the fields it reads (mu, the frame header, the timer) are guarded by mu.
 type treasureSession struct {
 	conn     *lockedConn
 	logger   *log.Logger
 	aid      uint64
 	loggedIn bool
 	entered  bool
+
+	mu       sync.Mutex
+	hdrType  byte    // the type byte of the latest data request (the push reuses it)
+	hdrSid   [8]byte // the session id of the latest data request
+	endGen   uint64  // bumped by every arm and stop; a timer fires only while its generation is current
+	endTimer *time.Timer
 }
 
 func (s *treasureSession) aidText() string { return strconv.FormatUint(s.aid, 10) }
@@ -118,6 +135,7 @@ func (s *treasureSession) aidText() string { return strconv.FormatUint(s.aid, 10
 // starts a new tunnel, so the login state goes too; the client logs in again on the echo.
 func (s *treasureSession) handleOpen(frame []byte) error {
 	s.loggedIn, s.entered, s.aid = false, false, 0
+	s.stopSeasonEnd()
 	control := make([]byte, 22)
 	binary.BigEndian.PutUint32(control, 18)
 	control[4], control[5] = 'G', frame[1]
@@ -142,6 +160,10 @@ func (s *treasureSession) refuse(frame []byte, msgid uint16) error {
 func (s *treasureSession) handleData(frame []byte) error {
 	msgid := binary.BigEndian.Uint16(frame[10:12])
 	data := frame[12:]
+	s.mu.Lock()
+	s.hdrType = frame[1]
+	copy(s.hdrSid[:], frame[2:10])
+	s.mu.Unlock()
 	switch msgid {
 	case treasureCsLogin:
 		return s.login(frame, data)
@@ -199,6 +221,8 @@ func (s *treasureSession) handleData(frame []byte) error {
 		return s.capBuy(frame)
 	case treasureCsResetInfo:
 		return s.resetInfo(frame)
+	case treasureCsRewardExit:
+		return s.rewardExit(frame)
 	}
 	return s.notBuilt(frame, msgid)
 }
@@ -217,43 +241,73 @@ func (s *treasureSession) login(frame, data []byte) error {
 	return s.reply(frame, treasureRcLogin, treasureOK)
 }
 
-// enter answers cs_room_enter_req (msgid 1): a playable season (status 1), the ring and the tutorial flag. A refusal
-// (no login, no running season, a store error) is Result 1, which the client answers by returning to the Garden.
+// enter answers cs_room_enter_req (msgid 1). In the play window: a playable season (status 1), the ring and the tutorial
+// flag, and the board's season-end push is armed for the window's end. In the reward period or when the cycle is closed:
+// status 2 with no ring, so the client goes to the claims (season-end-spec 12 (b) and (c)). A refusal (no login, a store
+// error) is Result 1, which the client answers by returning to the Garden.
 func (s *treasureSession) enter(frame []byte) error {
 	if !s.loggedIn {
 		s.logger.Printf("TREASURE msgid=1 enter refused: no login")
 		return s.refuse(frame, treasureRcRoomEnter)
 	}
-	view, err := economy.TreasureOpen(s.aidText(), economy.NowFunc())
+	now := economy.NowFunc()
+	cyc := economy.TreasureCurrent(now)
+	d := economy.ActiveTreasureData()
+	if cyc.Phase != economy.TreasurePhasePlay {
+		s.entered = false
+		s.stopSeasonEnd()
+		view := economy.TreasurePeek(s.aidText(), now)
+		s.logger.Printf("TREASURE msgid=1 enter aid=%d status=%d phase=%s season=%d cells=0 tutorial=%v result=0",
+			s.aid, treasureSeasonEnded, treasurePhaseName(cyc.Phase), cyc.ID, view.Tutorial)
+		return s.reply(frame, treasureRcRoomEnter, treasureEnterBody(d, cyc, treasureSeasonEnded, view))
+	}
+	view, err := economy.TreasureOpen(s.aidText(), now)
 	if err != nil {
 		s.entered = false
+		s.stopSeasonEnd()
 		s.logger.Printf("TREASURE msgid=1 enter refused aid=%d: %v", s.aid, err)
 		return s.refuse(frame, treasureRcRoomEnter)
 	}
 	s.entered = true
-	d := economy.ActiveTreasureData()
-	s.logger.Printf("TREASURE msgid=1 enter aid=%d status=%d cells=%d tickets=%d/%d tutorial=%v result=0",
-		s.aid, treasureSeasonPlay, len(d.Board.Ring), view.Tickets, view.Max, view.Tutorial)
-	return s.reply(frame, treasureRcRoomEnter, treasureEnterBody(d, view))
+	s.armSeasonEnd(cyc.End.Sub(now), s.aidText())
+	s.logger.Printf("TREASURE msgid=1 enter aid=%d status=%d phase=%s season=%d cells=%d tickets=%d/%d tutorial=%v result=0",
+		s.aid, treasureSeasonPlay, treasurePhaseName(cyc.Phase), cyc.ID, len(d.Board.Ring), view.Tickets, view.Max, view.Tutorial)
+	return s.reply(frame, treasureRcRoomEnter, treasureEnterBody(d, cyc, treasureSeasonPlay, view))
 }
 
-// treasureEnterBody is sc_room_enter_res: Result 0, SeasonStatus 1, SeasonInfo, the ring (CellInfoList) and the
-// TutorialComplete flag.
-func treasureEnterBody(d *economy.TreasureData, view economy.TreasureView) []byte {
+// treasureEnterBody is sc_room_enter_res: Result 0, SeasonStatus, SeasonInfo and the TutorialComplete flag. Status 1 adds the
+// ring (CellInfoList). Status 2 adds the one NPC portrait (AvatarInfo f6, the end popup's picture) and no ring. The Message
+// (f7, the end popup's body text) is left out: it would be Cherry-made text with no data entry for it.
+func treasureEnterBody(d *economy.TreasureData, cyc economy.TreasureCycle, status uint64, view economy.TreasureView) []byte {
 	body := pbVar(nil, 1, 0)
-	body = pbVar(body, 2, treasureSeasonPlay)
-	body = pbLen(body, 3, treasureSeasonInfo(d))
-	for _, c := range d.Cells() {
-		body = pbLen(body, 4, treasureCellInfo(c))
+	body = pbVar(body, 2, status)
+	body = pbLen(body, 3, treasureSeasonInfo(d, cyc))
+	if status == treasureSeasonPlay {
+		for _, c := range d.Cells() {
+			body = pbLen(body, 4, treasureCellInfo(c))
+		}
+	} else {
+		body = pbLen(body, 6, treasureAvatar(d.NPCs[0]))
 	}
 	return pbVar(body, 5, boolUint(view.Tutorial))
 }
 
+// treasurePhaseName is the phase as the log writes it.
+func treasurePhaseName(p economy.TreasurePhase) string {
+	switch p {
+	case economy.TreasurePhasePlay:
+		return "play"
+	case economy.TreasurePhaseReward:
+		return "reward"
+	}
+	return "closed"
+}
+
 // treasureSeasonInfo is SeasonInfo with all 25 fields: the names from the data, the picture paths (economy.TreasureSeasonPicture:
 // the original HUD art and the Cherry-drawn buttons), the other picture paths empty (the client draws nothing for an empty
-// path, treasure-spec 9.2). The dates are Unix milliseconds [I: the unit is not read by any path found].
-func treasureSeasonInfo(d *economy.TreasureData) []byte {
-	start, end := economy.TreasureSeasonWindow()
+// path, treasure-spec 9.2). The dates (f23 start, f24 end of the play window) are Unix seconds: the client multiplies them by
+// 1000 for its date text (season-end-spec 8).
+func treasureSeasonInfo(d *economy.TreasureData, cyc economy.TreasureCycle) []byte {
 	var b []byte
 	text := func(field uint64, v string) { b = pbLen(b, field, []byte(v)) }
 	text(1, "") // SkinUrl: the board picture (not in the archive)
@@ -272,8 +326,8 @@ func treasureSeasonInfo(d *economy.TreasureData) []byte {
 	for f := uint64(14); f <= 22; f++ { // RankingPointOneUrl .. BgImgUrl .. QuestButtonUrl: image paths
 		text(f, economy.TreasureSeasonPicture(f))
 	}
-	b = pbVar(b, 23, uint64(start.UnixMilli()))
-	b = pbVar(b, 24, uint64(end.UnixMilli()))
+	b = pbVar(b, 23, uint64(cyc.Start.Unix()))
+	b = pbVar(b, 24, uint64(cyc.End.Unix()))
 	text(25, economy.TreasureSeasonPicture(25))
 	return b
 }
@@ -321,11 +375,29 @@ func treasureTickets(b []byte, v economy.TreasureView) []byte {
 // relayStart answers cs_room_relaystart_req (msgid 3) with the tickets and their timer, the jewels, the caller's avatar and
 // the square the token stands on. A board that was not entered is refused.
 func (s *treasureSession) relayStart(frame []byte) error {
-	if !s.loggedIn || !s.entered {
-		s.logger.Printf("TREASURE msgid=3 relaystart refused: loggedIn=%v entered=%v", s.loggedIn, s.entered)
+	if !s.loggedIn {
+		s.logger.Printf("TREASURE msgid=3 relaystart refused: loggedIn=%v", s.loggedIn)
 		return s.refuse(frame, treasureRcRelayStart)
 	}
-	view, err := economy.TreasureOpen(s.aidText(), economy.NowFunc())
+	now := economy.NowFunc()
+	if cyc := economy.TreasureCurrent(now); cyc.Phase != economy.TreasurePhasePlay {
+		// The status-2 path (season-end-spec 12 (b) and (c)): the tickets and the caller's own avatar, no square. The client
+		// goes on to the claims, so the board's square is not sent.
+		view := economy.TreasurePeek(s.aidText(), now)
+		body := treasureTickets(pbVar(nil, 1, 0), view)
+		body = pbVar(body, 6, uint64(view.Jewels))
+		body = pbVar(body, 7, uint64(view.BuffPercent))
+		body = pbLen(body, 8, treasureOwnAvatar(s.aid))
+		body = pbLen(body, 11, treasureMyRank(s.aid))
+		s.logger.Printf("TREASURE msgid=3 relaystart status=%d phase=%s aid=%d tickets=%d/%d result=0",
+			treasureSeasonEnded, treasurePhaseName(cyc.Phase), s.aid, view.Tickets, view.Max)
+		return s.reply(frame, treasureRcRelayStart, body)
+	}
+	if !s.entered {
+		s.logger.Printf("TREASURE msgid=3 relaystart refused: entered=%v", s.entered)
+		return s.refuse(frame, treasureRcRelayStart)
+	}
+	view, err := economy.TreasureOpen(s.aidText(), now)
 	if err != nil {
 		s.logger.Printf("TREASURE msgid=3 relaystart refused aid=%d: %v", s.aid, err)
 		return s.refuse(frame, treasureRcRelayStart)
@@ -554,6 +626,7 @@ func (s *treasureSession) exit(frame []byte) error {
 	err := s.reply(frame, treasureRcRoomExit, nil)
 	s.logger.Printf("TREASURE msgid=2 exit aid=%d", s.aid)
 	s.entered = false
+	s.stopSeasonEnd()
 	if err != nil {
 		return err
 	}
@@ -584,6 +657,65 @@ func (s *treasureSession) coinRefresh(frame []byte) error {
 	s.logger.Printf("TREASURE msgid=29 coin refresh aid=%d jewels=%d result=0", s.aid, jewels)
 	return s.reply(frame, treasureRcCoinRefresh, body)
 }
+
+// rewardExit answers cs_season_reward_popup_exit_check_req (msgid 28), the back key of the reward popup, with sc 33: Result 0
+// in the reward period (the season-end box with text 4593, then the Garden) and 65541 once the cycle is closed (text 4594).
+// The popup is not opened in a play window, so that case is refused (Result 1). The request needs no login.
+func (s *treasureSession) rewardExit(frame []byte) error {
+	phase := economy.TreasureCurrent(economy.NowFunc()).Phase
+	result := uint64(treasureRefused)
+	switch phase {
+	case economy.TreasurePhaseReward:
+		result = 0
+	case economy.TreasurePhaseClosed:
+		result = treasureSeasonNotActive
+	}
+	s.logger.Printf("TREASURE msgid=28 reward exit aid=%d phase=%s result=%d", s.aid, treasurePhaseName(phase), result)
+	return s.reply(frame, treasureRcSeasonState, pbVar(nil, 1, result))
+}
+
+// armSeasonEnd arms the season-end push for after: when the play window ends under this board, the session gets sc 25
+// (empty) once (season-end-spec 12 (a)). One push is pending per session: a new enter replaces it, and exit or close stops it.
+func (s *treasureSession) armSeasonEnd(after time.Duration, aid string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stopSeasonEndLocked()
+	gen := s.endGen
+	s.endTimer = treasureAfter(after, func() { s.seasonEnded(gen, aid) })
+}
+
+// stopSeasonEnd cancels the pending push, if any.
+func (s *treasureSession) stopSeasonEnd() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stopSeasonEndLocked()
+}
+
+// stopSeasonEndLocked cancels the pending push and invalidates a timer that has fired but not yet written. Caller holds mu.
+func (s *treasureSession) stopSeasonEndLocked() {
+	if s.endTimer != nil {
+		s.endTimer.Stop()
+		s.endTimer = nil
+	}
+	s.endGen++
+}
+
+// seasonEnded is the timer's push: sc 25 (empty) on the board's connection, reusing the latest request's type byte and session
+// id, when the board is still the one that was armed (gen is current).
+func (s *treasureSession) seasonEnded(gen uint64, aid string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if gen != s.endGen {
+		return
+	}
+	s.endTimer = nil
+	s.endGen++
+	_, err := s.conn.Write(squareFrame(s.hdrType, s.hdrSid[:], treasureRcSeasonExit, nil))
+	s.logger.Printf("TREASURE msgid=25 season end push aid=%s err=%v", aid, err)
+}
+
+// close stops the pending push when the connection goes away.
+func (s *treasureSession) close() { s.stopSeasonEnd() }
 
 // notBuilt answers a request of a later slice from treasureStubs and logs it. An unknown msgid gets no reply.
 func (s *treasureSession) notBuilt(frame []byte, msgid uint16) error {

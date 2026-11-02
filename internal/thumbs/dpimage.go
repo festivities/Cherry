@@ -3,13 +3,11 @@
 package thumbs
 
 import (
-	"archive/zip"
 	"bytes"
 	"image"
 	"image/color"
 	"image/draw"
 	"image/png"
-	"io"
 	"math"
 	"net/http"
 	"os"
@@ -19,6 +17,7 @@ import (
 	"strings"
 	"sync"
 
+	"cherry/internal/assets"
 	"cherry/internal/httpx"
 )
 
@@ -35,9 +34,6 @@ import (
 // with x,y = part CENTER in the parent body-node sprite's space, origin
 // bottom-left, y up; see dpskel.go for the skeleton placement and dpframe.go
 // for the final 130x100 framing).
-
-// DpItemRoot is the read-only archive tree holding item/{custom,dress}/{id}/.
-var DpItemRoot = filepath.FromSlash(`D:/Dev/projects/Cherry/.opencode/line-play-artifacts/santi-backup-20260921/jp.naver.lineplay.android/files/item`)
 
 // DpCacheDir holds generated composites; empty disables caching.
 var DpCacheDir = dpDefaultCacheDir()
@@ -557,53 +553,6 @@ func dpCachePath(kind, id string) string {
 	return filepath.Join(DpCacheDir, dpCacheVersion+kind+"_"+id+".png")
 }
 
-// DpZipPath is the read-only 2014 iOS item archive; its matching-id dp.png
-// previews are authentic and win over generated composites.
-var DpZipPath = filepath.FromSlash(`D:/Dev/projects/Cherry/.opencode/line-play-artifacts/lineplay-original-assets/ios-mini-4.3-2014/item.zip`)
-
-var dpZipIdx = struct {
-	sync.Mutex
-	path string
-	rc   *zip.ReadCloser
-	m    map[string]*zip.File
-}{}
-
-// dpZipPreview returns the archive's item/<kind>/<id>/dp.png bytes.
-func dpZipPreview(kind, id string) ([]byte, bool) {
-	z := &dpZipIdx
-	z.Lock()
-	defer z.Unlock()
-	if z.path != DpZipPath {
-		if z.rc != nil {
-			z.rc.Close()
-		}
-		z.path, z.rc, z.m = DpZipPath, nil, nil
-		if rc, err := zip.OpenReader(DpZipPath); err == nil {
-			z.rc, z.m = rc, make(map[string]*zip.File, len(rc.File))
-			for _, f := range rc.File {
-				z.m[f.Name] = f
-			}
-		}
-	}
-	f := z.m["item/"+kind+"/"+id+"/dp.png"]
-	if f == nil || f.UncompressedSize64 > 1<<22 {
-		return nil, false
-	}
-	r, err := f.Open()
-	if err != nil {
-		return nil, false
-	}
-	defer r.Close()
-	b, err := io.ReadAll(io.LimitReader(r, 1<<22))
-	if err != nil {
-		return nil, false
-	}
-	if _, err := png.DecodeConfig(bytes.NewReader(b)); err != nil {
-		return nil, false
-	}
-	return b, true
-}
-
 // dpPlaceholderPNG is the neutral grey stand-in served when an item has no drawable art, sized
 // like the kind's real thumbnails (pets 260x200, everything else 130x100).
 func dpPlaceholderPNG(kind string) []byte {
@@ -624,9 +573,16 @@ func dpWritePNG(w http.ResponseWriter, b []byte) {
 	_, _ = w.Write(b)
 }
 
+// ServeDpPNG answers an item's dp.png: the original from the store (its index lists it), else a cached composite,
+// else a new composite rendered from the item's files. An item the store does not list is 404; a listed item with no
+// drawable art gets the grey stand-in, which is not cached.
 func ServeDpPNG(w http.ResponseWriter, kind, id string) {
-	dir := filepath.Join(DpItemRoot, kind, id)
-	if b, err := os.ReadFile(filepath.Join(dir, "dp.png")); err == nil {
+	n, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		httpx.ServeNotFound(w)
+		return
+	}
+	if b, err := assets.Archive.ReadItem(kind, n, "dp.png"); err == nil {
 		dpWritePNG(w, b)
 		return
 	}
@@ -642,21 +598,15 @@ func ServeDpPNG(w http.ResponseWriter, kind, id string) {
 		dpWritePNG(w, b)
 		return
 	}
-	if b, ok := dpZipPreview(kind, id); ok {
-		// An original 2014 preview: served as is and never copied into dp-cache, which holds only Cherry-made
-		// composites (generated and original bytes stay apart, AGENTS "Policies").
-		dpWritePNG(w, b)
+	dir, ok := assets.Archive.ItemDir(kind, n)
+	if !ok {
+		httpx.ServeNotFound(w)
 		return
 	}
 	img, ok := composeItemDP(dir, kind)
 	if !ok || dpAlphaBBox(img).Empty() {
-		// The archive has no drawable art for this item (its part PNGs and animations are
-		// absent). The item still exists, so answer with a neutral stand-in. It is not cached:
-		// a later archive or generator fix must be picked up without deleting cache files.
-		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
-			httpx.ServeNotFound(w)
-			return
-		}
+		// The item has no drawable art (its part PNGs and animations are absent). It still exists, so answer with a
+		// neutral stand-in. It is not cached: a later generator fix must be picked up without deleting cache files.
 		dpWritePNG(w, dpPlaceholderPNG(kind))
 		return
 	}

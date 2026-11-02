@@ -98,8 +98,9 @@ func (d *d1Client) query(ctx context.Context, sql string) ([]map[string]any, err
 // d1Batch is the rows per INSERT. Each statement stays far below D1's statement size limit.
 const d1Batch = 100
 
-// The D1 tables. manifest mirrors the ORIGINAL bulk files only (the static/ objects, one row per file of a
-// category). generated records the Cherry-generated objects (cherry/ keys) with the recipe that made each one.
+// The D1 tables. manifest mirrors the ORIGINAL files only: one row per file of a bulk category (cat = the category)
+// and per file of an origin source (cat = the source folder, path = the path under it; syncOrig). generated records the
+// Cherry-generated objects (cherry/ keys) with the recipe that made each one.
 // Neither is read by Cherry; R2 stays the source of truth.
 const (
 	createManifest  = `CREATE TABLE IF NOT EXISTS manifest (cat TEXT NOT NULL, path TEXT NOT NULL, size INTEGER NOT NULL, md5 TEXT NOT NULL, PRIMARY KEY (cat, path))`
@@ -179,25 +180,58 @@ func syncD1(ctx context.Context, d *d1Client, manifests map[string][]assets.Entr
 			logger.Printf("d1 %s current", cat)
 			continue
 		}
-		if _, err := d.query(ctx, "DELETE FROM manifest WHERE cat = "+sqlStr(cat)); err != nil {
+		if err := replaceRows(ctx, d, cat, entries); err != nil {
 			return err
-		}
-		for i := 0; i < len(entries); i += d1Batch {
-			end := min(i+d1Batch, len(entries))
-			var b strings.Builder
-			b.WriteString("INSERT INTO manifest (cat, path, size, md5) VALUES ")
-			for j, e := range entries[i:end] {
-				if j > 0 {
-					b.WriteString(", ")
-				}
-				fmt.Fprintf(&b, "(%s, %s, %d, %s)", sqlStr(cat), sqlStr(e.Path), e.Size, sqlStr(e.MD5))
-			}
-			if _, err := d.query(ctx, b.String()); err != nil {
-				return fmt.Errorf("%s rows %d-%d: %w", cat, i, end, err)
-			}
 		}
 		fmt.Printf("d1 %-9s %d rows written\n", cat, len(entries))
 		logger.Printf("d1 %s: %d rows", cat, len(entries))
+	}
+	return nil
+}
+
+// syncOrig rewrites the manifest rows of each origin source that this run uploaded (objs; their md5 set by the upload).
+// Sources the run did not upload keep their rows, so a one-source run never touches the others.
+func syncOrig(ctx context.Context, d *d1Client, objs []*object, logger *log.Logger) error {
+	if err := d1Init(ctx, d); err != nil {
+		return err
+	}
+	for _, src := range origSources {
+		var entries []assets.Entry
+		for _, o := range objs {
+			if o.source == src.top {
+				entries = append(entries, assets.Entry{Path: o.rel, Size: o.size, MD5: o.md5})
+			}
+		}
+		if len(entries) == 0 {
+			continue
+		}
+		if err := replaceRows(ctx, d, src.top, entries); err != nil {
+			return err
+		}
+		fmt.Printf("d1 %-22s %d rows written\n", src.top, len(entries))
+		logger.Printf("d1 %s: %d rows", src.top, len(entries))
+	}
+	return nil
+}
+
+// replaceRows deletes the manifest rows of cat and inserts entries in batches.
+func replaceRows(ctx context.Context, d *d1Client, cat string, entries []assets.Entry) error {
+	if _, err := d.query(ctx, "DELETE FROM manifest WHERE cat = "+sqlStr(cat)); err != nil {
+		return err
+	}
+	for i := 0; i < len(entries); i += d1Batch {
+		end := min(i+d1Batch, len(entries))
+		var b strings.Builder
+		b.WriteString("INSERT INTO manifest (cat, path, size, md5) VALUES ")
+		for j, e := range entries[i:end] {
+			if j > 0 {
+				b.WriteString(", ")
+			}
+			fmt.Fprintf(&b, "(%s, %s, %d, %s)", sqlStr(cat), sqlStr(e.Path), e.Size, sqlStr(e.MD5))
+		}
+		if _, err := d.query(ctx, b.String()); err != nil {
+			return fmt.Errorf("%s rows %d-%d: %w", cat, i, end, err)
+		}
 	}
 	return nil
 }

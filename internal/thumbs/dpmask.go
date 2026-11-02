@@ -9,7 +9,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+
+	"cherry/internal/assets"
 )
 
 // Dye masks (dp_mask.png) of the dyeable garments. The dye cell draws dp.png and dp_mask.png together. The archive has an
@@ -106,10 +109,13 @@ func ServeDyeMask(w http.ResponseWriter, kind, id string) bool {
 	if kind != "custom" && kind != "dress" {
 		return false
 	}
-	dir := filepath.Join(DpItemRoot, kind, id)
+	n, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		return false
+	}
 	// An original mask is the archive's own; with streaming on the stream already answered it, so this serves it only
 	// when streaming is off.
-	if b, err := os.ReadFile(filepath.Join(dir, "dp_mask.png")); err == nil {
+	if b, err := assets.Archive.ReadItem(kind, n, "dp_mask.png"); err == nil {
 		dpWritePNG(w, b)
 		return true
 	}
@@ -124,6 +130,10 @@ func ServeDyeMask(w http.ResponseWriter, kind, id string) bool {
 	if b, err := os.ReadFile(cachePath); err == nil {
 		dpWritePNG(w, b)
 		return true
+	}
+	dir, ok := assets.Archive.ItemDir(kind, n)
+	if !ok {
+		return false
 	}
 	img, ok := composeItemMask(dir, kind)
 	if !ok || dpAlphaBBox(img).Empty() {
