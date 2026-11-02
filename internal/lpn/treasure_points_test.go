@@ -81,7 +81,7 @@ var treDayOfTest = (treTime.Unix() + 3*3600) / 86400
 // CASH reset refused, a GEM reset that spends Gems, and the ranking board that lists the board.
 func TestTreasureExchangeAndResetOverTheGateway(t *testing.T) {
 	treScene(t)
-	treSeed(t, store.TreasureRecord{Season: 1950000001, Tickets: 10, Charged: treTime.UnixMilli(), Position: 2, Jewels: 40, ExDay: treDayOfTest})
+	treSeed(t, store.TreasureRecord{Season: 1950000001, Tickets: 10, Charged: treTime.UnixMilli(), Position: 2, Jewels: 40, ExDay: treDayOfTest, Exchanged: map[string]int64{"2": 30}})
 	treGems(t, 50)
 	g := treOpenBoard(t)
 
@@ -90,7 +90,7 @@ func TestTreasureExchangeAndResetOverTheGateway(t *testing.T) {
 		t.Fatal("reset offer for a square that is not full")
 	}
 
-	g.send(treasureCsPointChange, pbVar(nil, 1, 30)) // 30 Jewels at 10 points each: the square is full
+	g.send(treasureCsPointChange, pbVar(nil, 1, 30)) // 30 more Jewels at 10 points each: the square (cap 60) is full
 	ex := g.readShape(treasureRcPointChange, treSixRes)
 	if cirVar(ex, 1) != 0 || cirVar(ex, 2) != 300 || string(cirBytes(ex, 5)) != "+300 Ranking Point(s)" {
 		t.Fatalf("exchange reply = %x, want 300 points", ex)
@@ -98,7 +98,7 @@ func TestTreasureExchangeAndResetOverTheGateway(t *testing.T) {
 	if me := cirBytes(ex, 3); cirVar(me, 1) != 1 || cirVar(me, 2) != 300 || string(cirBytes(me, 3)) != "Gold" {
 		t.Fatalf("my ranking in the exchange reply = %x", me)
 	}
-	if sq := cirBytes(cirBytes(ex, 4), 4); cirVar(sq, 3) != 0 || cirVar(sq, 10) != 1 || cirVar(sq, 5) != 30 {
+	if sq := cirBytes(cirBytes(ex, 4), 4); cirVar(sq, 3) != 0 || cirVar(sq, 10) != 1 || cirVar(sq, 5) != 60 {
 		t.Fatalf("square counts after the exchange = %x, want nothing left and the reset flag", sq)
 	}
 
@@ -122,7 +122,7 @@ func TestTreasureExchangeAndResetOverTheGateway(t *testing.T) {
 	if string(cirBytes(reset, 2)) != "GEM" || cirVar(reset, 3) != 30 || cirVar(reset, 4) != 20 {
 		t.Fatalf("reset reply = %x, want GEM 30, 20 left", reset)
 	}
-	if sq := cirBytes(cirBytes(reset, 5), 4); cirVar(sq, 3) != 30 || cirVar(sq, 10) != 0 {
+	if sq := cirBytes(cirBytes(reset, 5), 4); cirVar(sq, 3) != 60 || cirVar(sq, 10) != 0 {
 		t.Fatalf("square counts after the reset = %x, want the limit back", sq)
 	}
 	if gems, _ := treAccount(t); gems != 20 {

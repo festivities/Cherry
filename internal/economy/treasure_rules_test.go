@@ -75,26 +75,26 @@ func TestTreasureItemCodes(t *testing.T) {
 // a refusal changes nothing; the limit starts again at 06:00 JST.
 func TestTreasureExchangeRules(t *testing.T) {
 	butlerAccount(t, "1001", 0, 0)
-	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Position: 2, Tickets: 10, Charged: treasureNow.UnixMilli(), Jewels: 40})
+	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Position: 2, Tickets: 10, Charged: treasureNow.UnixMilli(), Jewels: 70})
 	res, err := TreasureExchange("1001", 5, treasureNow)
-	if err != nil || res.Added != 50 || res.View.Jewels != 35 || res.View.Points != 50 || res.View.ExchangeLeft != 25 {
-		t.Fatalf("exchange 5 = %+v, %v; want 50 points, 35 jewels, 25 left", res, err)
+	if err != nil || res.Added != 50 || res.View.Jewels != 65 || res.View.Points != 50 || res.View.ExchangeLeft != 55 {
+		t.Fatalf("exchange 5 = %+v, %v; want 50 points, 65 jewels, 55 left", res, err)
 	}
-	if _, err := TreasureExchange("1001", 26, treasureNow); !errors.Is(err, ErrTreasureRefused) {
-		t.Fatalf("exchange above the square's 25 left: %v", err)
+	if _, err := TreasureExchange("1001", 56, treasureNow); !errors.Is(err, ErrTreasureRefused) {
+		t.Fatalf("exchange above the square's 55 left: %v", err)
 	}
-	if rec, _ := store.TreasureRecordOf("1001"); rec.Jewels != 35 || rec.Points != 50 {
+	if rec, _ := store.TreasureRecordOf("1001"); rec.Jewels != 65 || rec.Points != 50 {
 		t.Fatalf("refused exchange changed the board: %+v", rec)
 	}
-	if _, err := TreasureExchange("1001", 25, treasureNow); err != nil {
+	if _, err := TreasureExchange("1001", 55, treasureNow); err != nil {
 		t.Fatalf("exchange to the limit: %v", err)
 	}
 	if _, err := TreasureExchange("1001", 1, treasureNow); !errors.Is(err, ErrTreasureRefused) {
 		t.Fatalf("exchange past the daily limit: %v", err)
 	}
 	next := time.Date(2026, 11, 11, 6, 0, 0, 0, treasureJST)
-	if v, err := TreasureOpen("1001", next); err != nil || v.ExchangeLeft != 30 {
-		t.Fatalf("06:00 JST next day: %+v, %v; want the limit back at 30", v, err)
+	if v, err := TreasureOpen("1001", next); err != nil || v.ExchangeLeft != 60 {
+		t.Fatalf("06:00 JST next day: %+v, %v; want the limit back at 60", v, err)
 	}
 	if treasureDay(time.Date(2026, 11, 11, 5, 59, 0, 0, treasureJST)) == treasureDay(next) {
 		t.Fatal("the day did not turn at 06:00 JST")
@@ -107,12 +107,33 @@ func TestTreasureExchangeRules(t *testing.T) {
 	}
 }
 
+// TestTreasureExchangeTiles: squares 2, 8, 15 convert at 1x, 2x, 3x (the popup shows that rate) and square 22 draws
+// 1x to 5x per exchange (data/treasure.json tiles).
+func TestTreasureExchangeTiles(t *testing.T) {
+	butlerAccount(t, "1001", 0, 0)
+	draw := TreasureRandIntn
+	t.Cleanup(func() { TreasureRandIntn = draw })
+	TreasureRandIntn = func(n int) int { return n - 1 } // the top of the gamble
+	for _, c := range []struct {
+		square     int
+		rate, paid int64
+	}{{2, 10, 20}, {8, 20, 40}, {15, 30, 60}, {22, 10, 100}} {
+		treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Position: c.square, Tickets: 10, Charged: treasureNow.UnixMilli(), Jewels: 10})
+		if v, err := TreasureOpen("1001", treasureNow); err != nil || v.ExchangeRate != c.rate {
+			t.Fatalf("square %d rate = %+v, %v; want %d", c.square, v, err, c.rate)
+		}
+		if res, err := TreasureExchange("1001", 2, treasureNow); err != nil || res.Added != c.paid {
+			t.Fatalf("square %d exchange 2 = %+v, %v; want %d points", c.square, res, err, c.paid)
+		}
+	}
+}
+
 // TestTreasureResetRules: a full square resets for earned Gems through the ledger (treasure:reset:*); CASH is refused, a
 // short balance is refused, and a square that is not full has nothing to reset.
 func TestTreasureResetRules(t *testing.T) {
 	dir := butlerAccount(t, "1001", 0, 20)
 	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Position: 2, Tickets: 10, Charged: treasureNow.UnixMilli(),
-		ExDay: treasureDayNumber(treasureNow), Exchanged: map[string]int64{"2": 30}})
+		ExDay: treasureDayNumber(treasureNow), Exchanged: map[string]int64{"2": 60}})
 	info, err := TreasureResetInfo("1001", treasureNow)
 	if err != nil || !info.Available || info.Price != 30 || info.Gems != 20 || info.CoinType != "GEM" {
 		t.Fatalf("reset info = %+v, %v", info, err)
@@ -125,7 +146,7 @@ func TestTreasureResetRules(t *testing.T) {
 	}
 	treasureGems(t, "1001", 50)
 	res, err := TreasureResetBuy("1001", "GEM", treasureNow)
-	if err != nil || res.Price != 30 || res.Gems != 20 || res.View.ExchangeLeft != 30 || res.View.ExchangeReset {
+	if err != nil || res.Price != 30 || res.Gems != 20 || res.View.ExchangeLeft != 60 || res.View.ExchangeReset {
 		t.Fatalf("reset = %+v, %v; want 30 Gems paid, 20 left, the square empty", res, err)
 	}
 	if gems, _ := treasureAccount(t, "1001"); gems != 20 {

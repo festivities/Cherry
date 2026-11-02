@@ -152,12 +152,35 @@ type TreasureNPC struct {
 	Gender string `json:"gender"`
 }
 
-// TreasureExchangeRules: Multiple is the Ranking Points one Jewel gives, DailyMax the Jewels one exchange square takes each
-// day (06:00 JST), ResetGems the Gem price of resetting a full square for the day.
+// TreasureExchangeRules: Multiple is the Ranking Points one Jewel gives at 1x, Tiles the rate of each exchange square (a
+// square left out converts at 1x), DailyMax the Jewels one exchange square takes each day (06:00 JST), ResetGems the Gem
+// price of resetting a full square for the day.
 type TreasureExchangeRules struct {
-	Multiple  int64 `json:"multiple"`
-	DailyMax  int64 `json:"daily_max"`
-	ResetGems int64 `json:"reset_gems"`
+	Multiple  int64          `json:"multiple"`
+	Tiles     []TreasureTile `json:"tiles"`
+	DailyMax  int64          `json:"daily_max"`
+	ResetGems int64          `json:"reset_gems"`
+}
+
+// TreasureTile is one exchange square's rate (player guide: 1x, 2x, 3x and a gamble): Times multiplies Multiple, or with
+// Gamble set each exchange draws 1x to Gamble x.
+type TreasureTile struct {
+	Square int   `json:"square"`
+	Times  int64 `json:"times"`
+	Gamble int64 `json:"gamble"`
+}
+
+// tile is the rate of ring square pos: its multiplier and the gamble ceiling (0 = fixed).
+func (ex TreasureExchangeRules) tile(pos int) (times, gamble int64) {
+	for _, t := range ex.Tiles {
+		if t.Square == pos {
+			if t.Gamble > 0 {
+				return 1, t.Gamble
+			}
+			return t.Times, 0
+		}
+	}
+	return 1, 0
 }
 
 // TreasureTasks is a quest or mission list: sets of SetSize tasks rotated through Pool, and (quests only) the hours
@@ -339,6 +362,20 @@ func checkTreasureRules(t *TreasureData) error {
 		return errors.New("exchange.daily_max must be 1 to 1000")
 	case ex.ResetGems < 1 || ex.ResetGems > 10000:
 		return errors.New("exchange.reset_gems must be 1 to 10000")
+	}
+	seen := map[int]bool{}
+	for i, tl := range ex.Tiles {
+		switch {
+		case tl.Square < 0 || tl.Square >= len(t.Board.Ring) || t.Board.Ring[tl.Square] != TreasureCellExchange:
+			return fmt.Errorf("exchange.tiles[%d].square %d is not an exchange square", i, tl.Square)
+		case seen[tl.Square]:
+			return fmt.Errorf("exchange.tiles[%d].square %d is listed twice", i, tl.Square)
+		case (tl.Times > 0) == (tl.Gamble > 0):
+			return fmt.Errorf("exchange.tiles[%d] needs exactly one of times or gamble", i)
+		case tl.Times > 10 || tl.Gamble == 1 || tl.Gamble > 10 || tl.Times < 0 || tl.Gamble < 0:
+			return fmt.Errorf("exchange.tiles[%d]: times must be 1 to 10, gamble 2 to 10", i)
+		}
+		seen[tl.Square] = true
 	}
 	if err := checkTreasureTasks("quests", t.Quests, true); err != nil {
 		return err
@@ -536,6 +573,9 @@ type TreasureView struct {
 	ExchangeReset bool
 }
 
+// treasureTimes is the fixed multiplier the Trade popup shows for ring position pos (a gamble square shows 1x).
+func treasureTimes(d *TreasureData, pos int) int64 { times, _ := d.Exchange.tile(pos); return times }
+
 // treasureUsed is the Jewels exchanged today on ring position pos.
 func treasureUsed(r store.TreasureRecord, pos int) int64 { return r.Exchanged[strconv.Itoa(pos)] }
 
@@ -552,7 +592,7 @@ func treasureView(r store.TreasureRecord, nowMs int64, d *TreasureData) Treasure
 		Tutorial:      r.Tutorial,
 		ExchangeLeft:  max(0, d.Exchange.DailyMax-used),
 		ExchangeMax:   d.Exchange.DailyMax,
-		ExchangeRate:  d.Exchange.Multiple,
+		ExchangeRate:  d.Exchange.Multiple * treasureTimes(d, r.Position),
 		ExchangeReset: used >= d.Exchange.DailyMax,
 	}
 }

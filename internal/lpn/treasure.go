@@ -349,7 +349,12 @@ func (s *treasureSession) roll(frame []byte) error {
 	}
 	s.logger.Printf("TREASURE msgid=4 roll aid=%d dice=%d from=%d to=%d cell=%d coins=%d bonus=%d lap=%v tickets=%d/%d jewels=%d result=0",
 		s.aid, mv.Dice, mv.From, mv.To, mv.Cell, mv.Coins, mv.Bonus, mv.Lap, mv.View.Tickets, mv.View.Max, mv.View.Jewels)
-	return s.reply(frame, treasureRcRolling, body)
+	if err := s.reply(frame, treasureRcRolling, body); err != nil || mv.Cell != economy.TreasureCellBonus {
+		return err
+	}
+	// The bonus popup moves no balance for a JEWEL unit and the client asks cs 29 only after a WebView closes, so the HUD
+	// would keep the old count until re-entry: push sc 35 with the count (layout-audit M2; the parser has no state gate).
+	return s.reply(frame, treasureRcCoinRefresh, pbVar(pbVar(nil, 1, 0), 2, uint64(mv.View.Jewels)))
 }
 
 // treasureCellDetail is the CellDetailInfo of the square landed on: the coin view (RewardInfo with ViewType 10 and the
@@ -358,14 +363,16 @@ func (s *treasureSession) roll(frame []byte) error {
 func treasureCellDetail(d *economy.TreasureData, mv economy.TreasureMove) []byte {
 	switch mv.Cell {
 	case economy.TreasureCellCoin:
-		item := pbVar(nil, 1, 10) // ViewType 10: the coin view of the popup (cells.md 1.1)
+		item := pbVar(nil, 1, treasureViewCoin) // the coin view of the popup (cells.md 1.1)
 		item = pbVar(item, 4, uint64(mv.Coins))
-		detail := pbLen(nil, 1, pbLen(nil, 2, item)) // CellDetailInfo.RewardInfo (1) with ItemList (2)
-		return pbLen(detail, 3, pbVar(nil, 1, 1))    // CellTypeCoin.Availability
+		// CellDetailInfo.RewardInfo (1) with ItemList (2) and the text (5) the coin popup draws (SetTextCoinReward, layout-audit M1)
+		reward := pbLen(treasureRewardText(fmt.Sprintf("+%d %s", mv.Coins, d.Names.Coin)), 2, item)
+		detail := pbLen(nil, 1, reward)
+		return pbLen(detail, 3, pbVar(nil, 1, 1)) // CellTypeCoin.Availability
 	case economy.TreasureCellBonus:
 		// The bonus popup opens only with a non-empty ItemList (OpenPopupByCellType case 4, arrival.md): without it the
 		// board never releases its busy flag and the next roll is ignored.
-		item := pbVar(nil, 1, 10)
+		item := pbVar(nil, 1, treasureViewCoin)
 		item = pbVar(item, 4, uint64(mv.Bonus))
 		reward := pbLen(treasureRewardText(fmt.Sprintf("+%d %s", mv.Bonus, d.Names.Coin)), 2, item)
 		detail := pbLen(nil, 1, reward)

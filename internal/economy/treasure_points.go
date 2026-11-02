@@ -42,7 +42,11 @@ func TreasureExchange(aid string, jewels int64, now time.Time) (TreasureExchange
 			r.Exchanged = map[string]int64{}
 		}
 		r.Exchanged[strconv.Itoa(r.Position)] += jewels
-		res.Added = jewels * d.Exchange.Multiple
+		times, gamble := d.Exchange.tile(r.Position)
+		if gamble > 0 {
+			times = 1 + int64(TreasureRandIntn(int(gamble)))
+		}
+		res.Added = jewels * d.Exchange.Multiple * times
 		r.Points += res.Added
 		treasureProgress(r, d, "exchange", jewels)
 		return nil, nil

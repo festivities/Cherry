@@ -285,9 +285,9 @@ func TestTreasureBoardOverTheGateway(t *testing.T) {
 		t.Fatalf("bonus detail = %x", detail)
 	}
 
-	g.send(treasureCsCoinRefresh, nil)
+	// The bonus roll is followed by an unsolicited sc 35 with the new count (the HUD has no other writer for it).
 	if coins := g.readShape(treasureRcCoinRefresh, treCoinRef); cirVar(coins, 2) != 5 {
-		t.Fatalf("coin count = %d, want 5", cirVar(coins, 2))
+		t.Fatalf("pushed coin count = %d, want 5", cirVar(coins, 2))
 	}
 
 	// Roll 2 (die 2): coin square 5 pays one Jewel (the minimum of 1 to 3).
@@ -304,6 +304,9 @@ func TestTreasureBoardOverTheGateway(t *testing.T) {
 		roll = g.readShape(treasureRcRolling, treRoll)
 		if cirVar(roll, 1) != 0 || cirVar(roll, 8) != 6 || cirBytes(roll, 9) != nil {
 			t.Fatalf("roll %d = %x, want result 0 die 6 and no lap", i, roll)
+		}
+		if cirVar(cirBytes(roll, 6), 3) == economy.TreasureCellBonus { // a bonus square: the sc 35 push follows
+			g.readShape(treasureRcCoinRefresh, treCoinRef)
 		}
 	}
 	g.send(treasureCsRolling, pbVar(nil, 1, 0))
@@ -391,6 +394,9 @@ func TestTreasureNoTicketRoll(t *testing.T) {
 	for i := 0; i < 10; i++ { // the start is ten tickets; the eleventh roll has none
 		g.send(treasureCsRolling, pbVar(nil, 1, 0))
 		g.readShape(treasureRcRolling, treRoll)
+		if i+1 == 3 || i+1 == 10 { // bonus squares: the sc 35 push follows
+			g.readShape(treasureRcCoinRefresh, treCoinRef)
+		}
 	}
 	g.send(treasureCsRolling, pbVar(nil, 1, 0))
 	refused := g.readShape(treasureRcRolling, treRollNo)
