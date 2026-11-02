@@ -63,3 +63,22 @@ func TestTreasureRecordClone(t *testing.T) {
 		t.Fatalf("clone changed the book: %+v", got)
 	}
 }
+
+// TestTreasureRecordCloneBuffsAndSecret: the worn list and the secret quest are copied too.
+func TestTreasureRecordCloneBuffsAndSecret(t *testing.T) {
+	ResetTreasure()
+	t.Cleanup(ResetTreasure)
+	if _, err := UpdateTreasure("1001", func(r *TreasureRecord) {
+		r.Worn = []string{"CUAH006FG"}
+		r.Secret = &TreasureSecret{Square: 5, Goal: 2, Count: 1}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rec, _ := TreasureRecordOf("1001")
+	c := rec.Clone()
+	c.Worn[0] = "CUSH003EY"
+	c.Secret.Count = 9
+	if got, _ := TreasureRecordOf("1001"); got.Worn[0] != "CUAH006FG" || got.Secret.Count != 1 {
+		t.Fatalf("clone changed the book: %+v %+v", got.Worn, got.Secret)
+	}
+}

@@ -155,14 +155,15 @@ func TestRouteParsing(t *testing.T) {
 		}
 	}
 	files := map[string]string{
-		"/arts_animation_tw_00531/world_icon/b.png":                     "static/animation/world_icon/b.png",
-		"/arts_tx_en_00543/arts_strings.ast":                            "static/tx/arts_strings.ast",
-		"/arts_item_custom_123/dp.png":                                  "static/item/custom/123/dp.png",
-		"/img/read/arts_item_pet_326400389/dp.png":                      "static/item/pet/326400389/dp.png",
-		"/arts_item_dress_225409162/1409_iteminfo.artsitem":             "static/item/dress/225409162/1409_iteminfo.artsitem",
-		"/img/read/arts_item_custom_224400004/1409_iteminfo.artsitem":   "static/item/custom/224400004/1409_iteminfo.artsitem",
-		"/arts_item_interior_122013091/lpitem.aniproj":                  "static/item/interior/122013091/122013091.aniproj",
-		"/arts_chatting_00005/action_hd/chatting_deco_action_hello.png": "static/chatting/action_hd/chatting_deco_action_hello.png",
+		"/arts_animation_tw_00531/world_icon/b.png":                       "static/animation/world_icon/b.png",
+		"/arts_tx_en_00543/arts_strings.ast":                              "static/tx/arts_strings.ast",
+		"/arts_item_custom_123/dp.png":                                    "static/item/custom/123/dp.png",
+		"/img/read/arts_item_pet_326400389/dp.png":                        "static/item/pet/326400389/dp.png",
+		"/arts_item_dress_225409162/1409_iteminfo.artsitem":               "static/item/dress/225409162/1409_iteminfo.artsitem",
+		"/img/read/arts_item_custom_224400004/1409_iteminfo.artsitem":     "static/item/custom/224400004/1409_iteminfo.artsitem",
+		"/arts_item_interior_122013091/lpitem.aniproj":                    "static/item/interior/122013091/122013091.aniproj",
+		"/arts_item_dress_225408332/154_treasureworld_cat_pirate.aniproj": "static/item/dress/225408332/225408332_154_treasureworld_cat_pirate.aniproj",
+		"/arts_chatting_00005/action_hd/chatting_deco_action_hello.png":   "static/chatting/action_hd/chatting_deco_action_hello.png",
 	}
 	for p, key := range files {
 		if got, ok := fileKey(p); !ok || got != key {

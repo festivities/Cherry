@@ -613,6 +613,7 @@ func handleGachaPurchase(bundle bool) http.HandlerFunc {
 			return
 		}
 		store.FlushLedgerLocked(lines)
+		TreasureGachaPulled(acc.Aid, int64(len(outcomes))) // Treasure World's secret quest counts the pulls (AccountsMu held)
 
 		logs := make([]gachaRewardLog, len(outcomes))
 		for i, o := range outcomes {

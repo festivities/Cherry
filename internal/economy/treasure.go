@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -28,8 +29,8 @@ const (
 )
 
 // Cell types (BlueMarble::eBoardCellType, treasure-spec section 3). This build serves 0 to 5, 7, 8 and 9; 3, 5, 8 and 9 are
-// slice 3 probe landings (their popups answer, nothing is paid) and are not in the default ring. Types 6 and 10 and up are
-// refused in the data.
+// the slice 3 squares (buff, secret quest, travel, mini-game) and are not in the default ring, only in an operator's board.
+// Types 6 and 10 and up are refused in the data.
 const (
 	TreasureCellStart    = 0
 	TreasureCellCoin     = 1
@@ -73,9 +74,9 @@ var (
 //	board         the ring: cell types in walking order, four equal sides
 //	rewards       coin squares (min to max Jewels), the bonus square, the lap reward (tickets)
 //	gold_key      the Mystery Card deck the gold key squares draw from
-//	buff          the buff gacha square's item codes (the first is shown) and its BuffPercent (1 to 40)
-//	special       the secret quest square's reward tickets (1 to 50)
-//	minigame      the most Jewels one mini-game takes (1 to 1000) and the payout multiples the popup lists (0 to 10)
+//	buff          the buff pool (item codes with their BuffPercent, 1 to 40) and the cap on the worn total (1 to 100)
+//	special       the secret quest's reward tickets (1 to 50) and the Gacha pulls its goal needs (1 to 100)
+//	minigame      the most Jewels one mini-game takes (1 to 1000) and the cups' payout multiples (at least three, 0 to 10; the first three)
 //	npcs          the two portrait names and genders the season sends
 //	exchange      Ranking Points per Jewel, the Jewels a square takes a day, the Gem price of a square's reset
 //	quests        set size, hours before a free refresh, and the pool of quest tasks (tickets as reward)
@@ -192,15 +193,23 @@ func (g TreasureGoldKey) draw() (TreasureCard, int64) {
 	return card, card.Min + int64(TreasureRandIntn(int(card.Max-card.Min+1)))
 }
 
-// TreasureBuff is the buff gacha square's item: Items are item codes (the first is sent to the client), Percent its BuffPercent.
+// TreasureBuff is the buff gacha square's pool: the items a buff square draws from, and Cap the most the worn items add
+// to every Jewel credit (percent).
 type TreasureBuff struct {
-	Items   []string `json:"items"`
-	Percent int64    `json:"percent"`
+	Items []TreasureBuffItem `json:"items"`
+	Cap   int64              `json:"cap"`
 }
 
-// TreasureSpecial is the secret quest square's reward in tickets.
+// TreasureBuffItem is one buff: its item code and the percent it adds while worn.
+type TreasureBuffItem struct {
+	Code    string `json:"code"`
+	Percent int64  `json:"percent"`
+}
+
+// TreasureSpecial is the secret quest square's reward in tickets and the Gacha pulls its goal needs.
 type TreasureSpecial struct {
 	RewardTickets int64 `json:"reward_tickets"`
+	GoalPulls     int64 `json:"goal_pulls"`
 }
 
 // TreasureMiniGame is the mini-game square: MaxBet the most Jewels one game takes, Multiples the payout multiples the popup
@@ -326,9 +335,9 @@ func TreasureLoadFrom(path string) error { return treasureFile.LoadFrom(path) }
 // verifyTreasure checks the buff gacha items against the item archive at startup: each is a sold item with art (itemAvailable),
 // the same test a shop listing uses.
 func verifyTreasure(t *TreasureData) error {
-	for i, code := range t.Buff.Items {
-		if !itemAvailable(code) {
-			return fmt.Errorf("buff.items[%d] %q is not a sold item with art", i, code)
+	for i, it := range t.Buff.Items {
+		if !itemAvailable(it.Code) {
+			return fmt.Errorf("buff.items[%d] %q is not a sold item with art", i, it.Code)
 		}
 	}
 	return nil
@@ -458,12 +467,22 @@ func checkTreasureRules(t *TreasureData) error {
 		seen[tl.Square] = true
 	}
 	switch {
-	case len(t.Buff.Items) == 0 || t.Buff.Percent < 1 || t.Buff.Percent > 40:
-		return errors.New("buff.items must not be empty and buff.percent must be 1 to 40")
+	case len(t.Buff.Items) == 0 || t.Buff.Cap < 1 || t.Buff.Cap > 100:
+		return errors.New("buff.items must not be empty and buff.cap must be 1 to 100")
 	case t.Special.RewardTickets < 1 || t.Special.RewardTickets > 50:
 		return errors.New("special.reward_tickets must be 1 to 50")
-	case t.MiniGame.MaxBet < 1 || t.MiniGame.MaxBet > 1000 || len(t.MiniGame.Multiples) == 0:
-		return errors.New("minigame.max_bet must be 1 to 1000 and minigame.multiples must not be empty")
+	case t.Special.GoalPulls < 1 || t.Special.GoalPulls > 100:
+		return errors.New("special.goal_pulls must be 1 to 100")
+	case t.MiniGame.MaxBet < 1 || t.MiniGame.MaxBet > 1000 || len(t.MiniGame.Multiples) < treasureCups:
+		return errors.New("minigame.max_bet must be 1 to 1000 and minigame.multiples must name at least three cups")
+	}
+	for i, it := range t.Buff.Items {
+		switch {
+		case !validTreasureItem(it.Code):
+			return fmt.Errorf("buff.items[%d].code %q is not an item code", i, it.Code)
+		case it.Percent < 1 || it.Percent > 40:
+			return fmt.Errorf("buff.items[%d].percent must be 1 to 40", i)
+		}
 	}
 	for i, m := range t.MiniGame.Multiples {
 		if m < 0 || m > 10 {
@@ -570,9 +589,9 @@ func checkTreasureTasks(name string, l TreasureTasks, quest bool) error {
 	}
 	for i, task := range l.Pool {
 		switch task.Kind {
-		case "roll", "jewel", "lap", "exchange", "goldkey":
+		case "roll", "jewel", "lap", "exchange", "goldkey", "secret":
 		default:
-			return fmt.Errorf("%s.pool[%d].kind %q is not roll, jewel, lap, exchange or goldkey", name, i, task.Kind)
+			return fmt.Errorf("%s.pool[%d].kind %q is not roll, jewel, lap, exchange, goldkey or secret", name, i, task.Kind)
 		}
 		if task.Goal < 1 || task.Goal > 1000 {
 			return fmt.Errorf("%s.pool[%d].goal must be 1 to 1000", name, i)
@@ -698,6 +717,11 @@ type TreasureView struct {
 	ExchangeReset bool
 	// ExchangeFull lists every exchange square (ring positions) that is full today, for the travel popup.
 	ExchangeFull []int
+	// MiniGameLeft is the Jewels the mini-game square still allows, BuffPercent the worn buffs' total (capped) and Secret the
+	// secret quest of the board (nil: none), a copy.
+	MiniGameLeft int64
+	BuffPercent  int64
+	Secret       *store.TreasureSecret
 }
 
 // treasureTimes is the fixed multiplier the Trade popup shows for ring position pos (a gamble square shows 1x).
@@ -714,6 +738,11 @@ func treasureView(r store.TreasureRecord, nowMs int64, d *TreasureData) Treasure
 			full = append(full, pos)
 		}
 	}
+	var secret *store.TreasureSecret
+	if r.Secret != nil {
+		s := *r.Secret
+		secret = &s
+	}
 	return TreasureView{
 		ExchangeFull:  full,
 		Tickets:       r.Tickets,
@@ -728,6 +757,9 @@ func treasureView(r store.TreasureRecord, nowMs int64, d *TreasureData) Treasure
 		ExchangeMax:   d.Exchange.DailyMax,
 		ExchangeRate:  d.Exchange.Multiple * treasureTimes(d, r.Position),
 		ExchangeReset: used >= d.Exchange.DailyMax,
+		MiniGameLeft:  r.MiniGameLeft,
+		BuffPercent:   treasureBuffPercent(r, d),
+		Secret:        secret,
 	}
 }
 
@@ -747,6 +779,9 @@ func treasureTx(aid string, now time.Time, seasonOnly bool, op func(acc *store.A
 	rec, _ := store.TreasureRecordOf(aid)
 	rec = rec.Clone()
 	treasureOwn(&rec, now, d)
+	if acc != nil { // a worn buff the account no longer owns (sold back) stops counting
+		rec.Worn = slices.DeleteFunc(rec.Worn, func(code string) bool { return !treasureOwnedBuff(acc, code) })
+	}
 	var prev store.Account
 	if acc != nil {
 		prev = *acc
@@ -794,21 +829,30 @@ type TreasureMove struct {
 	Cell  int
 	Coins int64
 	Bonus int64
-	View  TreasureView
+	// Buff is the buff a buff square shows (Cell 3); Coins and Bonus are the Jewels credited after the worn buffs.
+	Buff TreasureBuffLanding
+	View TreasureView
 }
 
-// treasureLand pays the square mv lands on (mv.To): a coin square pays a random amount of Jewels, a bonus square its bonus,
-// the other squares nothing. It sets mv.Cell, mv.Coins and mv.Bonus and credits the Jewels to r.
-func treasureLand(r *store.TreasureRecord, d *TreasureData, mv *TreasureMove) {
+// treasureLand lands the token on mv.To and pays the square: a coin square pays a random amount of Jewels, a bonus square its
+// bonus (both grown by the worn buffs, treasureBoost), a buff square draws its buff, a secret quest square starts its quest
+// and a mini-game square allows its bet. It sets mv.Cell, mv.Coins, mv.Bonus and mv.Buff and credits the Jewels to r.
+func treasureLand(acc *store.Account, r *store.TreasureRecord, d *TreasureData, mv *TreasureMove) {
 	mv.Cell = d.Board.Ring[mv.To]
 	switch mv.Cell {
 	case TreasureCellCoin:
 		c := d.Rewards.Coin
-		mv.Coins = c.Min + int64(TreasureRandIntn(int(c.Max-c.Min+1)))
+		mv.Coins = treasureBoost(c.Min+int64(TreasureRandIntn(int(c.Max-c.Min+1))), treasureBuffPercent(*r, d))
 		r.Jewels += mv.Coins
 	case TreasureCellBonus:
-		mv.Bonus = d.Rewards.Bonus.Coins
+		mv.Bonus = treasureBoost(d.Rewards.Bonus.Coins, treasureBuffPercent(*r, d))
 		r.Jewels += mv.Bonus
+	case TreasureCellBuff:
+		mv.Buff = treasureBuffLanding(acc, *r, d)
+	case TreasureCellSpecial:
+		treasureSecretLand(r, d, mv.To)
+	case TreasureCellMiniGame:
+		r.MiniGameLeft = d.MiniGame.MaxBet
 	}
 }
 
@@ -818,7 +862,7 @@ func treasureLand(r *store.TreasureRecord, d *TreasureData, mv *TreasureMove) {
 // travel square. TreasureGoldKeyUse clears KeyPending too and sets TravelPending by its landing.
 func TreasureRollDice(aid string, now time.Time) (TreasureMove, error) {
 	var mv TreasureMove
-	view, err := treasureTx(aid, now, true, func(_ *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
+	view, err := treasureTx(aid, now, true, func(acc *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
 		if r.Tickets < d.Tickets.PerRoll {
 			return nil, ErrTreasureNoTickets
 		}
@@ -832,7 +876,8 @@ func TreasureRollDice(aid string, now time.Time) (TreasureMove, error) {
 		if mv.Lap {
 			r.Tickets += d.Rewards.Start.Tickets
 		}
-		treasureLand(r, d, &mv)
+		r.MiniGameLeft = 0
+		treasureLand(acc, r, d, &mv)
 		r.Position = mv.To
 		r.KeyPending = mv.Cell == TreasureCellGoldKey
 		r.TravelPending = mv.Cell == TreasureCellTravel
@@ -864,11 +909,12 @@ type TreasureCardUse struct {
 // stands. Without a pending key nothing changes and ErrTreasureRefused comes back.
 func TreasureGoldKeyUse(aid string, now time.Time) (TreasureCardUse, error) {
 	var use TreasureCardUse
-	view, err := treasureTx(aid, now, true, func(_ *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
+	view, err := treasureTx(aid, now, true, func(acc *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
 		if !r.KeyPending {
 			return nil, ErrTreasureRefused
 		}
 		r.KeyPending = false
+		r.MiniGameLeft = 0
 		card, value := d.GoldKey.draw()
 		n := len(d.Board.Ring)
 		mv := TreasureMove{From: r.Position, To: r.Position, Cell: d.Board.Ring[r.Position]}
@@ -889,8 +935,9 @@ func TreasureGoldKeyUse(aid string, now time.Time) (TreasureCardUse, error) {
 			if mv.Lap {
 				r.Tickets += d.Rewards.Start.Tickets
 			}
-			treasureLand(r, d, &mv)
+			treasureLand(acc, r, d, &mv)
 		case 6, 7:
+			value = treasureBoost(value, treasureBuffPercent(*r, d))
 			mv.Coins = value
 			r.Jewels += value
 		}
@@ -923,6 +970,7 @@ func TreasureTravel(aid string, to int, now time.Time) (TreasureMove, error) {
 		mv = TreasureMove{From: r.Position, To: to, Cell: TreasureCellExchange}
 		r.Position = to
 		r.TravelPending = false
+		r.MiniGameLeft = 0
 		return nil, nil
 	})
 	mv.View = view

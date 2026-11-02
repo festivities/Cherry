@@ -84,11 +84,17 @@ func TestTreasureDataRefusals(t *testing.T) {
 		{"cell type not built yet", func(d *TreasureData) { d.Board.Ring[1] = 6 }},
 		{"cell type 10 not built yet", func(d *TreasureData) { d.Board.Ring[1] = 10 }},
 		{"buff without items", func(d *TreasureData) { d.Buff.Items = nil }},
-		{"buff percent above 40", func(d *TreasureData) { d.Buff.Percent = 41 }},
+		{"buff percent above 40", func(d *TreasureData) { d.Buff.Items[0].Percent = 41 }},
+		{"buff percent zero", func(d *TreasureData) { d.Buff.Items[1].Percent = 0 }},
+		{"buff item not an item code", func(d *TreasureData) { d.Buff.Items[0].Code = "NOPE" }},
+		{"buff cap zero", func(d *TreasureData) { d.Buff.Cap = 0 }},
+		{"buff cap above 100", func(d *TreasureData) { d.Buff.Cap = 101 }},
 		{"special reward above 50", func(d *TreasureData) { d.Special.RewardTickets = 51 }},
+		{"special goal pulls zero", func(d *TreasureData) { d.Special.GoalPulls = 0 }},
 		{"minigame max bet zero", func(d *TreasureData) { d.MiniGame.MaxBet = 0 }},
 		{"minigame without multiples", func(d *TreasureData) { d.MiniGame.Multiples = nil }},
-		{"minigame multiple above 10", func(d *TreasureData) { d.MiniGame.Multiples = []int64{0, 11} }},
+		{"minigame with two cups", func(d *TreasureData) { d.MiniGame.Multiples = []int64{1, 2} }},
+		{"minigame multiple above 10", func(d *TreasureData) { d.MiniGame.Multiples = []int64{1, 2, 11} }},
 		{"money unit for the bonus", func(d *TreasureData) { d.Rewards.Bonus.CoinUnit = "gem" }},
 		{"empty bonus unit", func(d *TreasureData) { d.Rewards.Bonus.CoinUnit = "" }},
 		{"coin range inverted", func(d *TreasureData) { d.Rewards.Coin = TreasureRange{Min: 3, Max: 1} }},
@@ -174,7 +180,7 @@ func TestTreasureBuffItemNeedsArt(t *testing.T) {
 		t.Fatalf("default buff item refused: %v", err)
 	}
 	for _, code := range []string{"CUAH008A9", "NOSUCHITEM"} { // no art in the archive; not an item at all
-		d.Buff.Items = []string{code}
+		d.Buff.Items = []TreasureBuffItem{{Code: code, Percent: 10}}
 		if err := verifyTreasure(d); err == nil {
 			t.Fatalf("buff item %s accepted", code)
 		}

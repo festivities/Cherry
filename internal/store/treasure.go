@@ -21,7 +21,8 @@ import (
 // as text) and ExDay the 06:00 JST day it counts; CapSteps is how many ticket cap raises were bought. PointClaimed lists the
 // point reward ids claimed and RankClaimed whether the rank reward was. KeyPending is true while the token stands on a gold
 // key square whose Mystery Card is not used yet; TravelPending is true while it stands on a travel square whose travel is
-// not used yet.
+// not used yet. MiniGameLeft is the Jewels the mini-game square the token stands on still allows (0 elsewhere). Worn lists
+// the buff item codes worn; Secret is the secret quest of a secret quest square (nil: none).
 type TreasureRecord struct {
 	Season        int64            `json:"season"`
 	Position      int              `json:"position"`
@@ -35,10 +36,23 @@ type TreasureRecord struct {
 	CapSteps      int64            `json:"capSteps,omitempty"`
 	KeyPending    bool             `json:"keyPending,omitempty"`
 	TravelPending bool             `json:"travelPending,omitempty"`
+	MiniGameLeft  int64            `json:"miniGameLeft,omitempty"`
+	Worn          []string         `json:"worn,omitempty"`
+	Secret        *TreasureSecret  `json:"secret,omitempty"`
 	Quests        TreasureList     `json:"quests"`
 	Missions      TreasureList     `json:"missions"`
 	PointClaimed  []int64          `json:"pointClaimed,omitempty"`
 	RankClaimed   bool             `json:"rankClaimed,omitempty"`
+}
+
+// TreasureSecret is a secret quest: the square it belongs to, whether the account enabled it (cs 26), the Gacha pulls counted
+// toward Goal, and Done once Goal is reached (cs 25 pays it while the token stands on the square).
+type TreasureSecret struct {
+	Square  int   `json:"square"`
+	Enabled bool  `json:"enabled,omitempty"`
+	Count   int64 `json:"count,omitempty"`
+	Goal    int64 `json:"goal"`
+	Done    bool  `json:"done,omitempty"`
 }
 
 // TreasureList is a posted quest or mission set: Set counts the sets posted (0: none yet), Posted is the Unix millisecond
@@ -61,6 +75,11 @@ type TreasureSlot struct {
 func (r TreasureRecord) Clone() TreasureRecord {
 	r.Exchanged = maps.Clone(r.Exchanged)
 	r.PointClaimed = slices.Clone(r.PointClaimed)
+	r.Worn = slices.Clone(r.Worn)
+	if r.Secret != nil {
+		s := *r.Secret
+		r.Secret = &s
+	}
 	r.Quests.Slots = slices.Clone(r.Quests.Slots)
 	r.Missions.Slots = slices.Clone(r.Missions.Slots)
 	return r

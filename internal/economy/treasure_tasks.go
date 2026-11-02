@@ -176,7 +176,7 @@ func TreasureMissionClaim(aid string, seq int64, now time.Time) (TreasureClaim, 
 		}
 		s := &r.Missions.Slots[order-1]
 		s.State = 2
-		out.Paid = d.Missions.Pool[s.Task].Reward
+		out.Paid = treasureBoost(d.Missions.Pool[s.Task].Reward, treasureBuffPercent(*r, d))
 		r.Jewels += out.Paid
 		out.Row = treasureRows(r.Missions, d.Missions.Pool, true)[order-1]
 		out.Lists = treasureLists(*r, d, now.UnixMilli())

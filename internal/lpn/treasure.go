@@ -24,20 +24,28 @@ const (
 	treasureSeasonPlay      = 1     // sc_room_enter_res SeasonStatus: the board is playable (treasure-spec 9.3)
 	treasureSeasonNotActive = 65541 // sc_season_active_state_res: Result 65541 clears the season-end flag (transport-money 2.5)
 
-	treasureBuffGacha = 1950000101 // CellTypeBuff GachaId (slice 3 probe): a Cherry id in the Treasure block
+	treasureBuffGacha     = 1950000101 // CellTypeBuff GachaId: a Cherry id in the Treasure block
+	treasureBuffGachaName = "Treasure Buffs"
+	// treasureShopLink is the LinkInfo of a buff's and a secret quest's button: the Gacha Shop popup (popup links keep the board).
+	treasureShopLink = "goSomewhere(gachaShop)"
 )
 
 // Outbound (client to server) msgids, cs GetIndex.
 const (
-	treasureCsLogin       = 0
-	treasureCsRoomEnter   = 1
-	treasureCsRoomExit    = 2
-	treasureCsRelayStart  = 3
-	treasureCsRolling     = 4
-	treasureCsFlyTravel   = 9
-	treasureCsGoldKeyUse  = 10
-	treasureCsTutorial    = 23
-	treasureCsCoinRefresh = 29
+	treasureCsLogin         = 0
+	treasureCsRoomEnter     = 1
+	treasureCsRoomExit      = 2
+	treasureCsRelayStart    = 3
+	treasureCsRolling       = 4
+	treasureCsBuffList      = 5
+	treasureCsMiniGame      = 8
+	treasureCsFlyTravel     = 9
+	treasureCsGoldKeyUse    = 10
+	treasureCsBuffWear      = 22
+	treasureCsSpecialReward = 25
+	treasureCsSpecialEnable = 26
+	treasureCsTutorial      = 23
+	treasureCsCoinRefresh   = 29
 )
 
 // Inbound (server to client) msgids, sc dispatch index.
@@ -87,14 +95,10 @@ var (
 	treasureNo = pbVar(nil, 1, treasureRefused)
 )
 
-// treasureStubs maps each outbound msgid of a later slice to its answer. Keys are cs msgids.
+// treasureStubs maps each outbound msgid of a later slice to its answer. Keys are cs msgids. The buff, mini-game and secret quest
+// requests are built (buffs and secret quests in treasure_buff.go and treasure_secret.go).
 var treasureStubs = map[uint16]treasureStub{
-	5:  {treasureRcBuffList, treasureOK},
-	8:  {treasureRcMiniGame, treasureNo},
-	22: {treasureRcBuffWear, treasureNo},
 	24: {treasureRcNoReply, nil}, // cs_playticket_sync_req: no caller in the client
-	25: {treasureRcSpecialReward, treasureNo},
-	26: {treasureRcSpecialEnable, treasureNo},
 	28: {treasureRcSeasonState, pbVar(nil, 1, treasureSeasonNotActive)},
 }
 
@@ -149,10 +153,20 @@ func (s *treasureSession) handleData(frame []byte) error {
 		return s.relayStart(frame)
 	case treasureCsRolling:
 		return s.roll(frame)
+	case treasureCsBuffList:
+		return s.buffList(frame)
+	case treasureCsMiniGame:
+		return s.miniGame(frame, data)
 	case treasureCsFlyTravel:
 		return s.flyTravel(frame, data)
 	case treasureCsGoldKeyUse:
 		return s.goldKeyUse(frame)
+	case treasureCsBuffWear:
+		return s.buffWear(frame, data)
+	case treasureCsSpecialReward:
+		return s.specialReward(frame)
+	case treasureCsSpecialEnable:
+		return s.specialEnable(frame)
 	case treasureCsTutorial:
 		return s.tutorial(frame)
 	case treasureCsCoinRefresh:
@@ -319,8 +333,13 @@ func (s *treasureSession) relayStart(frame []byte) error {
 	d := economy.ActiveTreasureData()
 	body := treasureTickets(pbVar(nil, 1, 0), view)
 	body = pbVar(body, 6, uint64(view.Jewels))
+	body = pbVar(body, 7, uint64(view.BuffPercent)) // BuffPersent: the HUD's buff percent (SetBlueMarbleCoinBuffPercent)
 	body = pbLen(body, 8, treasureOwnAvatar(s.aid))
 	body = pbLen(body, 9, treasureCellInfo(d.Cell(view.Position)))
+	if cell := d.Cell(view.Position); cell.Type == economy.TreasureCellSpecial {
+		// The square's CellDetail (SetMyCurDetailInfo): the client asks cs 25 at board entry only when its quest is claimable.
+		body = pbLen(body, 10, treasureSpecialDetail(d, view.Position, view.Secret))
+	}
 	body = pbLen(body, 11, treasureMyRank(s.aid)) // MyRankingInfo: f2 RankingPoint feeds the gold trophy counter (DM+64)
 	s.logger.Printf("TREASURE msgid=3 relaystart aid=%d tickets=%d/%d remain=%ds jewels=%d position=%d result=0",
 		s.aid, view.Tickets, view.Max, view.RemainSeconds, view.Jewels, view.Position)
@@ -392,28 +411,21 @@ func treasureCellDetail(d *economy.TreasureData, mv economy.TreasureMove) []byte
 	case economy.TreasureCellGoldKey:
 		return pbLen(nil, 9, pbVar(nil, 1, 1)) // CellTypeGoldKey.Availability: the Mystery Card is drawn by cs 10
 	case economy.TreasureCellBuff:
-		// CellTypeBuff (f5): the gacha id, the item shown, its BuffPercent, the grade and the state (WEAR and INVEN are refused
-		// by the popup). No LinkInfo (f4): its button would open a link.
+		// CellTypeBuff (f5): the gacha id, the item the square drew, its BuffPercent, a LinkInfo to the Gacha Shop (its button
+		// shows an error box without one), the grade and the state (the popup refuses WEAR and INVEN and releases the board).
 		buff := pbVar(nil, 1, treasureBuffGacha)
-		buff = pbLen(buff, 2, []byte(d.Buff.Items[0]))
-		buff = pbVar(buff, 3, uint64(d.Buff.Percent))
-		buff = pbLen(buff, 5, []byte("R"))
-		buff = pbLen(buff, 6, []byte("NEW"))
+		buff = pbLen(buff, 2, []byte(mv.Buff.Code))
+		buff = pbVar(buff, 3, uint64(mv.Buff.Percent))
+		buff = pbLen(buff, 4, treasureLinkInfo())
+		buff = pbLen(buff, 5, []byte("RARE"))
+		buff = pbLen(buff, 6, []byte(mv.Buff.State))
 		return pbLen(nil, 5, buff)
 	case economy.TreasureCellSpecial:
-		// CellTypeSpecialMission (f7): Availability 1 and the quest (f2) with type 1, goal count 1, count 0, the reward tickets,
-		// EnableReward 0 and RewardViewType 9 (the ticket picture). No goal (f2 of the quest) and no LinkInfo (f6).
-		quest := pbVar(nil, 1, 1)
-		quest = pbVar(quest, 3, 1)
-		quest = pbVar(quest, 4, 0)
-		quest = pbVar(quest, 5, uint64(d.Special.RewardTickets))
-		quest = pbVar(quest, 7, 0)
-		quest = pbVar(quest, 8, treasureViewTicket)
-		return pbLen(nil, 7, pbLen(pbVar(nil, 1, 1), 2, quest))
+		return treasureSpecialDetail(d, mv.To, mv.View.Secret)
 	case economy.TreasureCellTravel:
 		return treasureTravelDetail(d, mv)
 	case economy.TreasureCellMiniGame:
-		return treasureMiniGameDetail(d, mv)
+		return treasureMiniGameDetail(d, mv.View)
 	}
 	return nil
 }
@@ -434,13 +446,13 @@ func treasureTravelDetail(d *economy.TreasureData, mv economy.TreasureMove) []by
 }
 
 // treasureMiniGameDetail is CellTypeMinigame (f11): Availability 1, the Jewels the account holds, the most one game takes (f3,
-// and f5 for VIPs), the payout multiples (f4 and f6, repeated int32 sent unpacked) and UseChagneCoinCount (f7), the Jewels this
-// game takes: zero shows the daily-limit box. RankingPointReset (f10) is never sent (it leads to a purchase); Vip (f12) and the
-// date (f13) are not sent either.
-func treasureMiniGameDetail(d *economy.TreasureData, mv economy.TreasureMove) []byte {
+// and f5 for VIPs), the payout multiples (f4 and f6, repeated int32 sent unpacked) and UseChagneCoinCount (f7), the Jewels the
+// next game may take (the Jewels held, up to the square's allowance): zero shows the daily-limit box. RankingPointReset (f10)
+// is never sent (it leads to a purchase); Vip (f12) and the date (f13) are not sent either.
+func treasureMiniGameDetail(d *economy.TreasureData, v economy.TreasureView) []byte {
 	most := uint64(d.MiniGame.MaxBet)
 	b := pbVar(nil, 1, 1)
-	b = pbVar(b, 2, uint64(mv.View.Jewels))
+	b = pbVar(b, 2, uint64(v.Jewels))
 	b = pbVar(b, 3, most)
 	for _, m := range d.MiniGame.Multiples {
 		b = pbVar(b, 4, uint64(m))
@@ -449,9 +461,12 @@ func treasureMiniGameDetail(d *economy.TreasureData, mv economy.TreasureMove) []
 	for _, m := range d.MiniGame.Multiples {
 		b = pbVar(b, 6, uint64(m))
 	}
-	b = pbVar(b, 7, min(uint64(mv.View.Jewels), most))
+	b = pbVar(b, 7, min(uint64(v.Jewels), uint64(v.MiniGameLeft)))
 	return pbLen(nil, 11, b)
 }
+
+// treasureLinkInfo is the LinkInfo of the Gacha Shop popup (the key the client's link table names; no StrData or IntData).
+func treasureLinkInfo() []byte { return pbLen(nil, 1, []byte(treasureShopLink)) }
 
 // goldKeyUse answers cs_gold_key_use_req (msgid 10, empty body) with the Mystery Card the gold key drew: its type (f2), its
 // value (f3), the square the token ends on (f5), that square's CellDetail (f6) and, after a lap, the lap text (f7). A card of
@@ -508,10 +523,13 @@ func (s *treasureSession) flyTravel(frame, data []byte) error {
 		s.logger.Printf("TREASURE msgid=9 travel refused: loggedIn=%v entered=%v", s.loggedIn, s.entered)
 		return s.refuse(frame, treasureRcFlyTravel)
 	}
-	pos, _ := protobufUintField(data, 1)
+	pos, ok := protobufUintField(data, 1)
+	if !ok { // CellPosition missing (0 is not encoded): CellId (f2) is the same ring index in Cherry's cells
+		pos, _ = protobufUintField(data, 2)
+	}
 	mv, err := economy.TreasureTravel(s.aidText(), int(pos), economy.NowFunc())
 	if err != nil {
-		s.logger.Printf("TREASURE msgid=9 travel refused aid=%d to=%d: %v", s.aid, pos, err)
+		s.logger.Printf("TREASURE msgid=9 travel refused aid=%d to=%d body=%x: %v", s.aid, pos, data, err)
 		return s.refuse(frame, treasureRcFlyTravel)
 	}
 	d := economy.ActiveTreasureData()

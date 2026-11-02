@@ -106,6 +106,33 @@ func (s *treasureSession) pointChange(frame, data []byte) error {
 	return s.reply(frame, treasureRcPointChange, body)
 }
 
+// miniGame answers cs_ranking_point_minigame_req (msgid 8, f1 the bet in Jewels): the game of the mini-game square the token
+// stands on. The reply has the Ranking Points the game gave (f2), the cup's multiple the server drew (f3, one of the first three
+// multiples), the account's place (f4), a message (f5) and the square's CellDetailInfo (f6: the Jewels after the bet and the
+// allowance left). A refused bet gets Result 1 and changes nothing.
+func (s *treasureSession) miniGame(frame, data []byte) error {
+	if !s.loggedIn || !s.entered {
+		s.logger.Printf("TREASURE msgid=8 minigame refused: loggedIn=%v entered=%v", s.loggedIn, s.entered)
+		return s.refuse(frame, treasureRcMiniGame)
+	}
+	bet, _ := protobufUintField(data, 1)
+	res, err := economy.TreasureMiniGamePlay(s.aidText(), int64(bet), economy.NowFunc())
+	if err != nil {
+		s.logger.Printf("TREASURE msgid=8 minigame refused aid=%d bet=%d: %v", s.aid, bet, err)
+		return s.refuse(frame, treasureRcMiniGame)
+	}
+	d := economy.ActiveTreasureData()
+	body := pbVar(nil, 1, 0)
+	body = pbVar(body, 2, uint64(res.Added))
+	body = pbVar(body, 3, uint64(res.Multiple))
+	body = pbLen(body, 4, treasureMyRank(s.aid))
+	body = pbLen(body, 5, []byte(fmt.Sprintf("+%d %s", res.Added, d.Names.RankingPoint)))
+	body = pbLen(body, 6, treasureMiniGameDetail(d, res.View))
+	s.logger.Printf("TREASURE msgid=8 minigame aid=%d bet=%d multiple=%d added=%d points=%d jewels=%d left=%d result=0",
+		s.aid, bet, res.Multiple, res.Added, res.View.Points, res.View.Jewels, res.View.MiniGameLeft)
+	return s.reply(frame, treasureRcMiniGame, body)
+}
+
 // resetInfo answers cs_ranking_point_reset_info_req (msgid 27) with the reset offer for the square under the token: the coin
 // type (GEM only), the price and the account's Gems. A square that is not full has no offer: Result 1.
 func (s *treasureSession) resetInfo(frame []byte) error {

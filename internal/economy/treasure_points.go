@@ -55,6 +55,39 @@ func TreasureExchange(aid string, jewels int64, now time.Time) (TreasureExchange
 	return res, err
 }
 
+// treasureCups is how many of the mini-game multiples are cups (the first three of minigame.multiples).
+const treasureCups = 3
+
+// TreasureMiniGameResult is one mini-game game: the Ranking Points it gave, the multiple the server drew (the cup's value) and
+// the board after it.
+type TreasureMiniGameResult struct {
+	Added    int64
+	Multiple int64
+	View     TreasureView
+}
+
+// TreasureMiniGame plays one mini-game for bet Jewels (cs 8) on the mini-game square the token stands on. The bet is at most the
+// Jewels the account holds and the square's allowance (MiniGameLeft). The server draws one of the first three cups as the
+// result; the Ranking Points are bet times the exchange multiple (10) times that cup. The bet counts as exchanged Jewels for the
+// day's progress. Anything else is refused and changes nothing.
+func TreasureMiniGamePlay(aid string, bet int64, now time.Time) (TreasureMiniGameResult, error) {
+	var res TreasureMiniGameResult
+	view, err := treasureTx(aid, now, true, func(_ *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
+		if d.Board.Ring[r.Position] != TreasureCellMiniGame || r.MiniGameLeft < 1 || bet < 1 || bet > min(r.Jewels, r.MiniGameLeft) {
+			return nil, ErrTreasureRefused
+		}
+		res.Multiple = d.MiniGame.Multiples[TreasureRandIntn(treasureCups)]
+		r.Jewels -= bet
+		r.MiniGameLeft -= bet
+		res.Added = bet * d.Exchange.Multiple * res.Multiple
+		r.Points += res.Added
+		treasureProgress(r, d, "exchange", bet)
+		return nil, nil
+	})
+	res.View = view
+	return res, err
+}
+
 // TreasureResetOffer is the reset of the exchange square under the token: its Gem price, the coin type it is paid in, the
 // Gems the account has and whether the square is full (so a reset can be bought).
 type TreasureResetOffer struct {

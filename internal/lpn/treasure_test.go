@@ -36,7 +36,7 @@ var (
 	}
 	treEnter   = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 2, req: true, msg: treSeason}, 4: {wire: 2, rep: true, msg: treCell}, 5: {wire: 0, req: true}}
 	treOwn     = lpMsg{1: {wire: 0}, 2: {wire: 2}, 3: {wire: 0}, 9: {wire: 2}}
-	treRelay   = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 0, req: true}, 4: {wire: 0, req: true}, 5: {wire: 0, req: true}, 6: {wire: 0, req: true}, 8: {wire: 2, msg: treOwn}, 9: {wire: 2, req: true, msg: treCell}, 11: {wire: 2, msg: treMyRank}}
+	treRelay   = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 0, req: true}, 4: {wire: 0, req: true}, 5: {wire: 0, req: true}, 6: {wire: 0, req: true}, 7: {wire: 0}, 8: {wire: 2, msg: treOwn}, 9: {wire: 2, req: true, msg: treCell}, 10: {wire: 2, msg: treDetail}, 11: {wire: 2, msg: treMyRank}}
 	treItem    = lpMsg{1: {wire: 0}, 2: {wire: 2}, 3: {wire: 2}, 4: {wire: 0}}
 	treReward  = lpMsg{1: {wire: 0}, 2: {wire: 2, rep: true, msg: treItem}, 5: {wire: 2}}
 	treCoin    = lpMsg{1: {wire: 0, req: true}}
@@ -44,8 +44,11 @@ var (
 	treRanking = lpMsg{1: {wire: 0}, 2: {wire: 0}, 3: {wire: 0}, 4: {wire: 0}, 5: {wire: 0}, 6: {wire: 0}, 7: {wire: 0}, 10: {wire: 0}}
 	treGoldKey = lpMsg{1: {wire: 0, req: true}}
 	// The slice 3 probe squares (treasure-spec 3.2 to 3.5): exact wire types, and the repeated fields the client reads as repeated.
-	treBuff      = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, req: true}, 3: {wire: 0, req: true}, 5: {wire: 2, req: true}, 6: {wire: 2, req: true}}
-	treSpecQuest = lpMsg{1: {wire: 0, req: true}, 3: {wire: 0, req: true}, 4: {wire: 0, req: true}, 5: {wire: 0, req: true}, 7: {wire: 0, req: true}, 8: {wire: 0, req: true}}
+	treLink      = lpMsg{1: {wire: 2, req: true}}
+	treBuff      = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, req: true}, 3: {wire: 0, req: true}, 4: {wire: 2, req: true, msg: treLink}, 5: {wire: 2, req: true}, 6: {wire: 2, req: true}}
+	treGradeGoal = lpMsg{1: {wire: 2, req: true}, 2: {wire: 0, req: true}}
+	treGoal      = lpMsg{1: {wire: 2, req: true, msg: treGradeGoal}}
+	treSpecQuest = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, req: true, msg: treGoal}, 3: {wire: 0, req: true}, 4: {wire: 0, req: true}, 5: {wire: 0, req: true}, 6: {wire: 2, req: true, msg: treLink}, 7: {wire: 0, req: true}, 8: {wire: 0, req: true}}
 	treSpecial   = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, req: true, msg: treSpecQuest}}
 	treRankCell  = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}}
 	treFly       = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, rep: true, msg: treRankCell}}
@@ -543,7 +546,7 @@ func TestTreasureProbeSquaresOverTheGateway(t *testing.T) {
 	roll := g.readShape(treasureRcRolling, treRoll)
 	cell, buff := cirBytes(roll, 6), cirBytes(cirBytes(roll, 7), 5)
 	if cirVar(cell, 1) != 3 || cirVar(cell, 3) != economy.TreasureCellBuff || cirVar(buff, 1) != treasureBuffGacha ||
-		string(cirBytes(buff, 2)) != "CUAH006FG" || cirVar(buff, 3) != 10 || string(cirBytes(buff, 5)) != "R" || string(cirBytes(buff, 6)) != "NEW" {
+		string(cirBytes(buff, 2)) != "CUAH006FG" || cirVar(buff, 3) != 10 || string(cirBytes(buff, 5)) != "RARE" || string(cirBytes(buff, 6)) != "NEW" {
 		t.Fatalf("buff landing = %x, want square 3 with the buff CUAH006FG at 10%%, grade R, state NEW", roll)
 	}
 
@@ -590,9 +593,9 @@ func TestTreasureProbeSquaresOverTheGateway(t *testing.T) {
 	roll = g.readShape(treasureRcRolling, treRoll)
 	game := cirBytes(cirBytes(roll, 7), 11)
 	if cirVar(cirBytes(roll, 6), 3) != economy.TreasureCellMiniGame || cirVar(game, 1) != 1 || cirVar(game, 2) != 1 || cirVar(game, 3) != 20 ||
-		cirVar(game, 5) != 20 || cirVar(game, 7) != 1 || !slices.Equal(cirVars(game, 4), []uint64{0, 1, 2, 3}) ||
-		!slices.Equal(cirVars(game, 6), []uint64{0, 1, 2, 3}) {
-		t.Fatalf("mini-game landing = %x, want availability 1, 1 Jewel, max 20, multiples 0 to 3 unpacked, 1 to use", roll)
+		cirVar(game, 5) != 20 || cirVar(game, 7) != 1 || !slices.Equal(cirVars(game, 4), []uint64{1, 2, 3}) ||
+		!slices.Equal(cirVars(game, 6), []uint64{1, 2, 3}) {
+		t.Fatalf("mini-game landing = %x, want availability 1, 1 Jewel, max 20, multiples 1 to 3 unpacked, 1 to use", roll)
 	}
 
 	// The travel is spent: a second cs 9 is refused.
@@ -605,21 +608,25 @@ func TestTreasureProbeSquaresOverTheGateway(t *testing.T) {
 	}
 }
 
-// TestTreasureLaterSlicesAnswerSafely: the requests still left to later slices (buff, mini-game, special missions,
-// season state) get the stub answers, each is logged as not built, and the client's own close (subtype 2) gets no reply.
-// The points, rankings, rewards, quests, cap and gold key requests are answered for real (treasure_points_test.go, and
-// TestTreasureGoldKeyOverTheGateway).
+// TestTreasureLaterSlicesAnswerSafely: the requests that need a board (mini-game, secret quest enable and claim) are refused
+// before the board is entered, the buff list and wear answer for a logged-in account, the season state keeps its stub, and
+// the client's own close (subtype 2) and the ticket sync (no caller) get no reply. The buff, mini-game and secret quest answers
+// are checked over the gateway in treasure_slice3_test.go.
 func TestTreasureLaterSlicesAnswerSafely(t *testing.T) {
 	treScene(t)
 	g := newTreGateway(t)
 	g.open()
 	g.login(1001)
 
-	g.send(5, nil) // buff list: empty, Result 0
-	if cirVar(g.readShape(5, treResult), 1) != 0 {
+	g.send(treasureCsBuffList, nil) // buff list: nothing owned, Result 0
+	if cirVar(g.readShape(treasureRcBuffList, treBuffList), 1) != 0 {
 		t.Fatal("buff list not an empty success")
 	}
-	g.send(8, nil) // mini-game: refused
+	g.send(treasureCsBuffWear, nil) // buff wear with no list: unequip everything, Result 0
+	if cirVar(g.readShape(treasureRcBuffWear, treBuffWear), 1) != 0 {
+		t.Fatal("buff wear not an empty success")
+	}
+	g.send(8, nil) // mini-game before the board is entered: refused
 	if cirVar(g.readShape(treasureRcMiniGame, treResult), 1) != treasureRefused {
 		t.Fatal("mini-game not refused")
 	}
@@ -627,15 +634,11 @@ func TestTreasureLaterSlicesAnswerSafely(t *testing.T) {
 	if cirVar(g.readShape(treasureRcFlyTravel, treResult), 1) != treasureRefused {
 		t.Fatal("travel not refused")
 	}
-	g.send(22, nil) // buff wear: refused
-	if cirVar(g.readShape(treasureRcBuffWear, treResult), 1) != treasureRefused {
-		t.Fatal("buff wear not refused")
-	}
-	g.send(25, nil) // special mission reward: refused
+	g.send(25, nil) // special mission reward before the board is entered: refused
 	if cirVar(g.readShape(treasureRcSpecialReward, treResult), 1) != treasureRefused {
 		t.Fatal("special mission reward not refused")
 	}
-	g.send(26, nil) // special mission enable: refused
+	g.send(26, nil) // special mission enable before the board is entered: refused
 	if cirVar(g.readShape(treasureRcSpecialEnable, treResult), 1) != treasureRefused {
 		t.Fatal("special mission enable not refused")
 	}
@@ -647,7 +650,7 @@ func TestTreasureLaterSlicesAnswerSafely(t *testing.T) {
 	g.send(0x30, nil)
 	g.write(append([]byte{'G', 0x42}, g.sid[:]...)) // the client's own close (subtype 2): never answered
 	assertNoReply(t, g.peer)
-	for _, msgid := range []string{"msgid=8 not built", "msgid=22 not built", "msgid=24 not built"} {
+	for _, msgid := range []string{"msgid=8 minigame refused", "msgid=25 secret reward refused", "msgid=26 secret enable refused", "msgid=24 not built"} {
 		if !strings.Contains(g.logs.String(), "TREASURE "+msgid) {
 			t.Fatalf("log lacks %q", msgid)
 		}

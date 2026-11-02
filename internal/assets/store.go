@@ -455,8 +455,13 @@ func fileKey(p string) (string, bool) {
 		if !ok || !isDigits(id) || !safeRel(file) {
 			return "", false
 		}
-		if file == "lpitem.aniproj" { // the client asks for the item animation by this name and saves it as <id>.aniproj
+		// The client asks for the item animation as lpitem.aniproj and saves it as <id>.aniproj; any other animation it names
+		// <name>.aniproj and saves as <id>_<name>.aniproj (santi: 1,590 plain + 257 prefixed, no other form). A missing one 404ed
+		// and the client then crashed drawing the item (225408332, device 2026-11-02 18:05).
+		if file == "lpitem.aniproj" {
 			file = id + ".aniproj"
+		} else if strings.HasSuffix(file, ".aniproj") && !strings.Contains(file, "/") && file != id+".aniproj" && !strings.HasPrefix(file, id+"_") {
+			file = id + "_" + file
 		}
 		return "static/item/" + kind + "/" + id + "/" + file, true
 	}
