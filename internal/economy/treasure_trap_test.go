@@ -251,9 +251,12 @@ func TestTreasureDefaultRingHasNoProbeSquares(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i, c := range d.Board.Ring {
-		if c == TreasureCellTrap || c == TreasureCellTravel {
-			t.Fatalf("default ring square %d is type %d; types 6 and 8 stay off the default board", i, c)
+		if c == TreasureCellTrap {
+			t.Fatalf("default ring square %d is a trap; type 6 stays off the default board until its popups show (device 2026-11-03)", i)
 		}
+	}
+	if d.Board.Ring[7] != TreasureCellTravel {
+		t.Fatalf("default ring square 7 = %d, want the broom corner (type 8, device-verified 2026-11-02)", d.Board.Ring[7])
 	}
 	if d.Trap.HighDice != 5 || d.Trap.MaxTries != 3 || d.Travel.StaleMinutes != 10 {
 		t.Fatalf("shipped trap and travel rules = %+v %+v, want 5 / 3 and 10 minutes", d.Trap, d.Travel)
