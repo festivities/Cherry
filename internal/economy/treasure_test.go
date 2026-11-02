@@ -84,8 +84,22 @@ func TestTreasureDataRefusals(t *testing.T) {
 		{"season length zero", func(d *TreasureData) { d.Season.Days = 0 }},
 		{"ring not in four sides", func(d *TreasureData) { d.Board.Ring = d.Board.Ring[:10] }},
 		{"ring not starting at the start line", func(d *TreasureData) { d.Board.Ring[0] = 1 }},
-		{"cell type not built yet", func(d *TreasureData) { d.Board.Ring[1] = 6 }},
 		{"cell type 10 not built yet", func(d *TreasureData) { d.Board.Ring[1] = 10 }},
+		{"ring without a coin square", func(d *TreasureData) {
+			for i, c := range d.Board.Ring {
+				if c == TreasureCellCoin {
+					d.Board.Ring[i] = TreasureCellBonus
+				}
+			}
+		}},
+		{"broom square without an exchange square", func(d *TreasureData) {
+			for i, c := range d.Board.Ring {
+				if c == TreasureCellExchange {
+					d.Board.Ring[i] = TreasureCellCoin
+				}
+			}
+			d.Board.Ring[3] = TreasureCellTravel
+		}},
 		{"buff without items", func(d *TreasureData) { d.Buff.Items = nil }},
 		{"buff percent above 40", func(d *TreasureData) { d.Buff.Items[0].Percent = 41 }},
 		{"buff percent zero", func(d *TreasureData) { d.Buff.Items[1].Percent = 0 }},
@@ -159,9 +173,9 @@ func treasureRing(t *testing.T, ring []int) {
 	t.Cleanup(treasureFile.Reset)
 }
 
-// TestTreasureProbeCellsValidation: the slice 3 squares 3, 5, 8 and 9 pass the ring check, so an operator file can place them.
+// TestTreasureProbeCellsValidation: the slice 3 squares 3, 5, 6, 8 and 9 pass the ring check, so an operator file can place them.
 func TestTreasureProbeCellsValidation(t *testing.T) {
-	for _, c := range []int{3, 5, 8, 9} {
+	for _, c := range []int{3, 5, 6, 8, 9} {
 		d, err := opdata.Decode[TreasureData](data.TreasureJSON, nil)
 		if err != nil {
 			t.Fatal(err)
@@ -241,7 +255,8 @@ func TestTreasureTravelMoves(t *testing.T) {
 }
 
 // TestTreasureTravelRefusals: a travel is refused unless a travel is pending on a travel square and the target is another
-// exchange square; a refusal changes nothing.
+// exchange square. A refusal moves nothing and spends nothing, and it clears the pending prompt (the reply closes the client's
+// alert with no move; the next board entry releases the token if it still stands on the broom square).
 func TestTreasureTravelRefusals(t *testing.T) {
 	treasureRing(t, treasureProbeRing)
 	cases := []struct {
@@ -265,8 +280,8 @@ func TestTreasureTravelRefusals(t *testing.T) {
 			if _, err := TreasureTravel("1001", c.to, treasureNow); !errors.Is(err, ErrTreasureRefused) {
 				t.Fatalf("travel to %d: %v, want refused", c.to, err)
 			}
-			if rec, _ := store.TreasureRecordOf("1001"); rec.Position != c.pos || rec.TravelPending != c.pending || rec.Tickets != 9 {
-				t.Fatalf("refused travel changed the board: %+v", rec)
+			if rec, _ := store.TreasureRecordOf("1001"); rec.Position != c.pos || rec.TravelPending || rec.TravelSince != 0 || rec.Tickets != 9 {
+				t.Fatalf("refused travel moved the token or kept the prompt: %+v", rec)
 			}
 		})
 	}

@@ -535,6 +535,13 @@ func TestTreasureRulesRefusals(t *testing.T) {
 		{"cap step not above the last", func(d *TreasureData) { d.TicketCap.Steps[1].Max = 15 }},
 		{"cap step above 99", func(d *TreasureData) { d.TicketCap.Steps[2].Max = 100 }},
 		{"ring with a bank square", func(d *TreasureData) { d.Board.Ring[1] = 10 }},
+		{"trap high die zero", func(d *TreasureData) { d.Trap.HighDice = 0 }},
+		{"trap high die above a die", func(d *TreasureData) { d.Trap.HighDice = 7 }},
+		{"trap max tries zero", func(d *TreasureData) { d.Trap.MaxTries = 0 }},
+		{"trap max tries above 20", func(d *TreasureData) { d.Trap.MaxTries = 21 }},
+		{"broom timeout zero", func(d *TreasureData) { d.Travel.StaleMinutes = 0 }},
+		{"broom timeout above a day", func(d *TreasureData) { d.Travel.StaleMinutes = 1441 }},
+		{"escape mission picture 6", func(d *TreasureData) { d.Missions.Pool[9].Type = 6 }},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

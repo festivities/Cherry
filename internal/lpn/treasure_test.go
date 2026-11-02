@@ -55,10 +55,14 @@ var (
 	treRankCell  = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}}
 	treFly       = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, rep: true, msg: treRankCell}}
 	treMiniGame  = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 0, req: true}, 4: {wire: 0, rep: true}, 5: {wire: 0, req: true}, 6: {wire: 0, rep: true}, 7: {wire: 0, req: true}}
-	treDetail    = lpMsg{1: {wire: 2, msg: treReward}, 3: {wire: 2, msg: treCoin}, 4: {wire: 2, msg: treRanking}, 5: {wire: 2, msg: treBuff}, 6: {wire: 2, msg: treBonus}, 7: {wire: 2, msg: treSpecial}, 9: {wire: 2, msg: treGoldKey}, 10: {wire: 2, msg: treFly}, 11: {wire: 2, msg: treMiniGame}}
+	treDetail    = lpMsg{1: {wire: 2, msg: treReward}, 3: {wire: 2, msg: treCoin}, 4: {wire: 2, msg: treRanking}, 5: {wire: 2, msg: treBuff}, 6: {wire: 2, msg: treBonus}, 7: {wire: 2, msg: treSpecial}, 8: {wire: 2, msg: treIsland}, 9: {wire: 2, msg: treGoldKey}, 10: {wire: 2, msg: treFly}, 11: {wire: 2, msg: treMiniGame}}
+	// treIsland is CellDetailIsland: ExitResult, ExitTargetCount, CurrentCount and HighDiceNumber (island-spec section 2.1).
+	treIsland = lpMsg{1: {wire: 0}, 2: {wire: 0, req: true}, 3: {wire: 0, req: true}, 4: {wire: 0, req: true}}
 	// treTravel is sc_fly_travel_res: Result, the square's CellInfo, its CellDetailInfo and the tickets (no RewardInfo).
 	treTravel = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, req: true, msg: treCell}, 3: {wire: 2, req: true, msg: treDetail}, 5: {wire: 0, req: true}, 6: {wire: 0, req: true}, 7: {wire: 0, req: true}, 8: {wire: 0, req: true}}
-	treRoll   = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 0, req: true}, 4: {wire: 0, req: true}, 5: {wire: 0, req: true}, 6: {wire: 2, req: true, msg: treCell}, 7: {wire: 2, msg: treDetail}, 8: {wire: 0, req: true}, 9: {wire: 2, msg: treReward}}
+	// treFlyStay is sc_fly_travel_res when the token does not move (Result 0): its CellInfo is the token's square, no detail.
+	treFlyStay = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, req: true, msg: treCell}, 5: {wire: 0, req: true}, 6: {wire: 0, req: true}, 7: {wire: 0, req: true}, 8: {wire: 0, req: true}}
+	treRoll    = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 0, req: true}, 4: {wire: 0, req: true}, 5: {wire: 0, req: true}, 6: {wire: 2, req: true, msg: treCell}, 7: {wire: 2, msg: treDetail}, 8: {wire: 0, req: true}, 9: {wire: 2, msg: treReward}}
 	// treCard is sc_gold_key_use_res: Result, the card type, its value, the square the token ends on, that square's detail and
 	// the lap text (the sc 10 wire of slice 3, treasure-spec section 3.1).
 	treCard    = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 0, req: true}, 5: {wire: 2, req: true, msg: treCell}, 6: {wire: 2, msg: treDetail}, 7: {wire: 2, msg: treReward}, 8: {wire: 0, req: true}, 9: {wire: 0, req: true}, 10: {wire: 0, req: true}, 11: {wire: 0, req: true}}
@@ -510,12 +514,17 @@ func treLoadRing(t *testing.T, ring []int) {
 	t.Cleanup(func() { economy.TreasureLoadFrom("") })
 }
 
-// treMoveCell is the MoveCellInfo of cs 9 for an exchange square: CellPosition, CellId and CellType.
+// treMoveCell is the body of cs 9 for an exchange square: f1 is the nested MoveCellInfo {f1 CellPosition, f2 CellId, f3
+// CellType, f4 direction} the client serializes (cs_fly_travel_req, broom-spec section 3.1).
 func treMoveCell(pos uint64) []byte {
 	b := pbVar(nil, 1, pos)
 	b = pbVar(b, 2, pos)
-	return pbVar(b, 3, economy.TreasureCellExchange)
+	b = pbVar(b, 3, economy.TreasureCellExchange)
+	return pbLen(nil, 1, pbLen(b, 4, []byte("FR")))
 }
+
+// treMoveFlat is the cs 9 body Cherry read before the fix: the position as a flat varint in f1. The client never sends it.
+func treMoveFlat(pos uint64) []byte { return pbVar(nil, 1, pos) }
 
 // TestTreasureProbeSquaresOverTheGateway: the probe squares answer their sc 4 CellDetailInfo with the exact wire shapes (buff 3,
 // special mission 5, travel 8, mini-game 9). cs 9 moves the token from the travel square to an exchange square only: a square
@@ -574,14 +583,6 @@ func TestTreasureProbeSquaresOverTheGateway(t *testing.T) {
 		t.Fatalf("travel landing = %x, want square 5 with availability 1 and exchange squares 2 (free), 13 (full), 21 (free)", roll)
 	}
 
-	// Refused, and the token stays on 5: square 6 is a mini-game and 5 is the square the token stands on.
-	for _, to := range []uint64{6, 5} {
-		g.send(treasureCsFlyTravel, treMoveCell(to))
-		if cirVar(g.readShape(treasureRcFlyTravel, treResult), 1) != treasureRefused {
-			t.Fatalf("travel to %d was not refused", to)
-		}
-	}
-
 	// Accepted: square 2, no lap, no payment; 6 tickets left of 10 after four rolls, the timer at 600 s, and no RewardInfo.
 	g.send(treasureCsFlyTravel, treMoveCell(2))
 	fly2 := g.readShape(treasureRcFlyTravel, treTravel)
@@ -602,10 +603,11 @@ func TestTreasureProbeSquaresOverTheGateway(t *testing.T) {
 		t.Fatalf("mini-game landing = %x, want availability 1, 1 Jewel, max 20, multiples 1 to 3 unpacked, 1 to use", roll)
 	}
 
-	// The travel is spent: a second cs 9 is refused.
+	// The travel is spent: a second cs 9 gets Result 0 and no move (the token stands on the mini-game square 6).
 	g.send(treasureCsFlyTravel, treMoveCell(13))
-	if cirVar(g.readShape(treasureRcFlyTravel, treResult), 1) != treasureRefused {
-		t.Fatal("travel after the travel was not refused")
+	if stay := g.readShape(treasureRcFlyTravel, treFlyStay); cirVar(stay, 1) != 0 || cirVar(cirBytes(stay, 2), 1) != 6 ||
+		cirVar(cirBytes(stay, 2), 3) != economy.TreasureCellMiniGame {
+		t.Fatalf("travel after the travel = %x, want Result 0 and the token still on square 6", stay)
 	}
 	if !strings.Contains(g.logs.String(), "TREASURE msgid=9 travel aid=1001 from=5 to=2 result=0") {
 		t.Fatalf("travel log line missing:\n%s", g.logs.String())
@@ -634,9 +636,9 @@ func TestTreasureLaterSlicesAnswerSafely(t *testing.T) {
 	if cirVar(g.readShape(treasureRcMiniGame, treResult), 1) != treasureRefused {
 		t.Fatal("mini-game not refused")
 	}
-	g.send(9, nil) // travel: refused
-	if cirVar(g.readShape(treasureRcFlyTravel, treResult), 1) != treasureRefused {
-		t.Fatal("travel not refused")
+	g.send(9, nil) // travel with no board: Result 0 and no move (cs 9 never answers a non-zero Result)
+	if cirVar(g.readShape(treasureRcFlyTravel, treResult), 1) != 0 {
+		t.Fatal("travel with no board not answered with Result 0")
 	}
 	g.send(25, nil) // special mission reward before the board is entered: refused
 	if cirVar(g.readShape(treasureRcSpecialReward, treResult), 1) != treasureRefused {

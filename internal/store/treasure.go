@@ -23,7 +23,8 @@ import (
 // key square whose Mystery Card is not used yet; TravelPending is true while it stands on a travel square whose travel is
 // not used yet. MiniGameLeft is the Jewels the mini-game square the token stands on still allows (0 elsewhere). Worn is
 // legacy: the worn buffs are the account's equipped codes (economy/treasure_buff.go), and a write drops it. Secret is the
-// secret quest of a secret quest square (nil: none).
+// secret quest of a secret quest square (nil: none). TravelSince is the Unix millisecond TravelPending was set (0: not set);
+// Trapped is true while the token is held on a trap square and TrapCount the trapped rolls so far.
 type TreasureRecord struct {
 	Season        int64            `json:"season"`
 	Position      int              `json:"position"`
@@ -37,6 +38,9 @@ type TreasureRecord struct {
 	CapSteps      int64            `json:"capSteps,omitempty"`
 	KeyPending    bool             `json:"keyPending,omitempty"`
 	TravelPending bool             `json:"travelPending,omitempty"`
+	TravelSince   int64            `json:"travelSince,omitempty"`
+	Trapped       bool             `json:"trapped,omitempty"`
+	TrapCount     int64            `json:"trapCount,omitempty"`
 	MiniGameLeft  int64            `json:"miniGameLeft,omitempty"`
 	Worn          []string         `json:"worn,omitempty"`
 	Secret        *TreasureSecret  `json:"secret,omitempty"`

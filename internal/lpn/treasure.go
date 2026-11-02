@@ -268,6 +268,7 @@ func (s *treasureSession) enter(frame []byte) error {
 		s.logger.Printf("TREASURE msgid=1 enter refused aid=%d: %v", s.aid, err)
 		return s.refuse(frame, treasureRcRoomEnter)
 	}
+	s.logRecovery(view)
 	s.entered = true
 	s.armSeasonEnd(cyc.End.Sub(now), s.aidText())
 	s.logger.Printf("TREASURE msgid=1 enter aid=%d status=%d phase=%s season=%d cells=%d tickets=%d/%d tutorial=%v result=0",
@@ -434,15 +435,17 @@ func (s *treasureSession) relayStart(frame []byte) error {
 		s.logger.Printf("TREASURE msgid=3 relaystart refused aid=%d: %v", s.aid, err)
 		return s.refuse(frame, treasureRcRelayStart)
 	}
+	s.logRecovery(view)
 	d := economy.ActiveTreasureData()
 	body := treasureTickets(pbVar(nil, 1, 0), view)
 	body = pbVar(body, 6, uint64(view.Jewels))
 	body = pbVar(body, 7, uint64(view.BuffPercent)) // BuffPersent: the HUD's buff percent (SetBlueMarbleCoinBuffPercent)
 	body = pbLen(body, 8, treasureOwnAvatar(s.aid))
 	body = pbLen(body, 9, treasureCellInfo(d.Cell(view.Position)))
-	if cell := d.Cell(view.Position); cell.Type == economy.TreasureCellSpecial {
-		// The square's CellDetail (SetMyCurDetailInfo): the client asks cs 25 at board entry only when its quest is claimable.
-		body = pbLen(body, 10, treasureSpecialDetail(d, view.Position, view.Secret))
+	// The square's CellDetail (SetMyCurDetailInfo): the client asks cs 25 at board entry only when its quest is claimable, and a
+	// trap or broom square re-shows its prompt from it.
+	if detail := treasureRelayDetail(d, view); detail != nil {
+		body = pbLen(body, 10, detail)
 	}
 	body = pbLen(body, 11, treasureMyRank(s.aid)) // MyRankingInfo: f2 RankingPoint feeds the gold trophy counter (DM+64)
 	s.logger.Printf("TREASURE msgid=3 relaystart aid=%d tickets=%d/%d remain=%ds jewels=%d position=%d result=0",
@@ -479,6 +482,14 @@ func (s *treasureSession) roll(frame []byte) error {
 	}
 	s.logger.Printf("TREASURE msgid=4 roll aid=%d dice=%d from=%d to=%d cell=%d coins=%d bonus=%d lap=%v tickets=%d/%d jewels=%d result=0",
 		s.aid, mv.Dice, mv.From, mv.To, mv.Cell, mv.Coins, mv.Bonus, mv.Lap, mv.View.Tickets, mv.View.Max, mv.View.Jewels)
+	switch {
+	case mv.Escaped:
+		s.logger.Printf("TREASURE msgid=4 trap escape aid=%d dice=%d from=%d to=%d cell=%d", s.aid, mv.Dice, mv.From, mv.To, mv.Cell)
+	case mv.Cell == economy.TreasureCellTrap && mv.From == mv.To:
+		s.logger.Printf("TREASURE msgid=4 trap stay aid=%d dice=%d at=%d count=%d/%d", s.aid, mv.Dice, mv.To, mv.Trap.Count, mv.Trap.Max)
+	case mv.Cell == economy.TreasureCellTrap:
+		s.logger.Printf("TREASURE msgid=4 trap landed aid=%d dice=%d at=%d max=%d high=%d", s.aid, mv.Dice, mv.To, mv.Trap.Max, mv.Trap.High)
+	}
 	if err := s.reply(frame, treasureRcRolling, body); err != nil || mv.Cell != economy.TreasureCellBonus {
 		return err
 	}
@@ -527,26 +538,58 @@ func treasureCellDetail(d *economy.TreasureData, mv economy.TreasureMove) []byte
 	case economy.TreasureCellSpecial:
 		return treasureSpecialDetail(d, mv.To, mv.View.Secret)
 	case economy.TreasureCellTravel:
-		return treasureTravelDetail(d, mv)
+		return treasureTravelDetail(d, mv.To, mv.View.ExchangeFull)
 	case economy.TreasureCellMiniGame:
 		return treasureMiniGameDetail(d, mv.View)
+	case economy.TreasureCellTrap:
+		return treasureTrapDetail(mv.Trap)
 	}
 	return nil
 }
 
-// treasureTravelDetail is CellTypeFlyTravle (f10) of the travel square mv lands on: Availability 1 and a RankingCellInfo (f2)
-// for each other exchange square, its CellId (the ring position, as its CellInfo sends it) and IsReset (full today).
-func treasureTravelDetail(d *economy.TreasureData, mv economy.TreasureMove) []byte {
+// treasureTravelDetail is CellTypeFlyTravle (f10) of the travel square at ring position at: Availability 1 and a RankingCellInfo
+// (f2) for each other exchange square, its CellId (the ring position, as its CellInfo sends it) and IsReset (full is the
+// exchange squares full today). The landing and a relay start while the prompt is pending send it, so a re-shown prompt has
+// its targets (broom-spec section 5.1 (3)).
+func treasureTravelDetail(d *economy.TreasureData, at int, full []int) []byte {
 	b := pbVar(nil, 1, 1)
 	for _, c := range d.Cells() {
-		if c.Type != economy.TreasureCellExchange || c.Position == mv.To {
+		if c.Type != economy.TreasureCellExchange || c.Position == at {
 			continue
 		}
 		row := pbVar(nil, 1, uint64(c.Position))
-		row = pbVar(row, 2, boolUint(slices.Contains(mv.View.ExchangeFull, c.Position)))
+		row = pbVar(row, 2, boolUint(slices.Contains(full, c.Position)))
 		b = pbLen(b, 2, row)
 	}
 	return pbLen(nil, 10, b)
+}
+
+// treasureTrapDetail is the CellDetailInfo of a trap square (CellTypeIsland, f8): ExitResult 0 (the token is held; no landing
+// sends 1, the released token is walked on by its roll), the trapped rolls that free it (f2), the trapped rolls so far (f3) and
+// the die that frees it (f4) (island-spec section 2.1).
+func treasureTrapDetail(t economy.TreasureTrap) []byte {
+	island := pbVar(nil, 1, 0)
+	island = pbVar(island, 2, uint64(t.Max))
+	island = pbVar(island, 3, uint64(t.Count))
+	island = pbVar(island, 4, uint64(t.High))
+	return pbLen(nil, 8, island)
+}
+
+// treasureRelayDetail is the CellDetailInfo the relay start sends for the square the token stands on: the secret quest of a
+// secret quest square, the broom prompt's targets while its travel is pending, and the island of a trap square. Other squares
+// have none.
+func treasureRelayDetail(d *economy.TreasureData, v economy.TreasureView) []byte {
+	switch d.Board.Ring[v.Position] {
+	case economy.TreasureCellSpecial:
+		return treasureSpecialDetail(d, v.Position, v.Secret)
+	case economy.TreasureCellTravel:
+		if v.TravelPending {
+			return treasureTravelDetail(d, v.Position, v.ExchangeFull)
+		}
+	case economy.TreasureCellTrap:
+		return treasureTrapDetail(v.Trap)
+	}
+	return nil
 }
 
 // treasureMiniGameDetail is CellTypeMinigame (f11): Availability 1, the Jewels the account holds, the most one game takes (f3,
@@ -619,33 +662,63 @@ func (s *treasureSession) goldKeyUse(frame []byte) error {
 	return s.reply(frame, treasureRcCoinRefresh, pbVar(pbVar(nil, 1, 0), 2, uint64(mv.View.Jewels)))
 }
 
-// flyTravel answers cs_fly_travel_req (msgid 9, MoveCellInfo: f1 CellPosition) for the travel square the token stands on: the
-// token moves to the exchange square asked for, with no lap and no payment. The reply has that square's CellInfo (f2), its
-// exchange detail (f3) and the tickets (f5 to f8), and no RewardInfo (f4). Any other request gets Result 1 and changes nothing.
+// flyTravel answers cs_fly_travel_req (msgid 9): f1 is the MoveCellInfo (f1 CellPosition, f2 CellId, f3 CellType, f4 direction).
+// A target that is an exchange square, asked for while the broom prompt is pending, moves the token there with no lap and no
+// payment: the reply has that square's CellInfo (f2), its exchange detail (f3) and the tickets (f5 to f8), and no RewardInfo
+// (f4). Every other request is answered Result 0 with no move (broom-spec section 3.2): f2 is the token's own square, f5 to f8
+// are the tickets, and the pending prompt is cleared, so the client's alert closes and the token stays put. A non-zero Result
+// would leave the alert up with no way to close it.
 func (s *treasureSession) flyTravel(frame, data []byte) error {
 	if !s.loggedIn || !s.entered {
-		s.logger.Printf("TREASURE msgid=9 travel refused: loggedIn=%v entered=%v", s.loggedIn, s.entered)
-		return s.refuse(frame, treasureRcFlyTravel)
+		s.logger.Printf("TREASURE msgid=9 travel no board: loggedIn=%v entered=%v result=0", s.loggedIn, s.entered)
+		return s.reply(frame, treasureRcFlyTravel, pbVar(nil, 1, 0))
 	}
-	pos, ok := protobufUintField(data, 1)
-	if !ok { // CellPosition missing (0 is not encoded): CellId (f2) is the same ring index in Cherry's cells
-		pos, _ = protobufUintField(data, 2)
-	}
-	mv, err := economy.TreasureTravel(s.aidText(), int(pos), economy.NowFunc())
+	pos := treasureMovePos(data)
+	now := economy.NowFunc()
+	mv, err := economy.TreasureTravel(s.aidText(), pos, now)
 	if err != nil {
-		s.logger.Printf("TREASURE msgid=9 travel refused aid=%d to=%d body=%x: %v", s.aid, pos, data, err)
-		return s.refuse(frame, treasureRcFlyTravel)
+		view := economy.TreasurePeek(s.aidText(), now)
+		d := economy.ActiveTreasureData()
+		s.logger.Printf("TREASURE msgid=9 travel refused aid=%d to=%d at=%d body=%x: %v result=0 token stays", s.aid, pos, view.Position, data, err)
+		body := pbLen(pbVar(nil, 1, 0), 2, treasureCellInfo(d.Cell(view.Position)))
+		return s.reply(frame, treasureRcFlyTravel, treasureFlyTickets(body, view))
 	}
 	d := economy.ActiveTreasureData()
 	body := pbVar(nil, 1, 0)
 	body = pbLen(body, 2, treasureCellInfo(d.Cell(mv.To)))
 	body = pbLen(body, 3, treasureSquareDetail(mv.View))
-	body = pbVar(body, 5, uint64(mv.View.Tickets))
-	body = pbVar(body, 6, uint64(mv.View.Max))
-	body = pbVar(body, 7, uint64(mv.View.RemainSeconds))
-	body = pbVar(body, 8, uint64(mv.View.ChargeSeconds))
+	body = treasureFlyTickets(body, mv.View)
 	s.logger.Printf("TREASURE msgid=9 travel aid=%d from=%d to=%d result=0", s.aid, mv.From, mv.To)
 	return s.reply(frame, treasureRcFlyTravel, body)
+}
+
+// treasureFlyTickets writes the ticket fields of sc 9 (f5 to f8: the count, the cap, the refill timer and its charge time).
+func treasureFlyTickets(b []byte, v economy.TreasureView) []byte {
+	b = pbVar(b, 5, uint64(v.Tickets))
+	b = pbVar(b, 6, uint64(v.Max))
+	b = pbVar(b, 7, uint64(v.RemainSeconds))
+	return pbVar(b, 8, uint64(v.ChargeSeconds))
+}
+
+// treasureMovePos is the target of cs 9: the CellPosition (f1) of its nested MoveCellInfo, or the CellId (f2) of the same message
+// when the position is not sent (0). Without a MoveCellInfo the target is 0, which is never an exchange square.
+func treasureMovePos(data []byte) int {
+	move, found, ok := pbBytesField(data, 1)
+	if !ok || !found {
+		return 0
+	}
+	pos, found := protobufUintField(move, 1)
+	if !found {
+		pos, _ = protobufUintField(move, 2)
+	}
+	return int(pos)
+}
+
+// logRecovery logs what a board entry cleared (economy.TreasureOpen), if anything.
+func (s *treasureSession) logRecovery(view economy.TreasureView) {
+	if view.Recovery != "" {
+		s.logger.Printf("TREASURE recover aid=%d %s", s.aid, view.Recovery)
+	}
 }
 
 // treasureRewardText is a RewardInfo that carries only its message (the text the popup shows).

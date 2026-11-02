@@ -30,9 +30,9 @@ const (
 	CherryTreasureLast  int64 = 1950000999
 )
 
-// Cell types (BlueMarble::eBoardCellType, treasure-spec section 3). This build serves 0 to 5, 7, 8 and 9; 3, 5, 8 and 9 are
-// the slice 3 squares (buff, secret quest, travel, mini-game) and are not in the default ring, only in an operator's board.
-// Types 6 and 10 and up are refused in the data.
+// Cell types (BlueMarble::eBoardCellType, treasure-spec section 3). This build serves 0 to 9: 3, 5, 6, 8 and 9 are the slice 3
+// squares (buff, secret quest, island trap, broom travel, mini-game). Types 3, 5, 9 and, until a device probe passes, 6 and 8
+// are not in the default ring, only in an operator's board. Types 10 and up are refused in the data.
 const (
 	TreasureCellStart    = 0
 	TreasureCellCoin     = 1
@@ -40,6 +40,7 @@ const (
 	TreasureCellBuff     = 3
 	TreasureCellBonus    = 4
 	TreasureCellSpecial  = 5
+	TreasureCellTrap     = 6
 	TreasureCellGoldKey  = 7
 	TreasureCellTravel   = 8
 	TreasureCellMiniGame = 9
@@ -88,6 +89,8 @@ var (
 //	point_rewards Ranking Point thresholds with Gems and an optional dress item, paid by Mailbox
 //	rank_rewards  the claim window after the season and the Gems per rank cutline, paid by Mailbox
 //	ticket_cap    the cap raises: each cap and its Gem price
+//	trap          the island rules: the die that frees a trapped token and the trapped rolls that free it
+//	travel        how long a broom prompt may wait before the next board entry clears it
 type TreasureData struct {
 	opdata.Provenance
 	Season       TreasureSeason        `json:"season"`
@@ -107,6 +110,32 @@ type TreasureData struct {
 	PointRewards []TreasurePointReward `json:"point_rewards"`
 	RankRewards  TreasureRankRewards   `json:"rank_rewards"`
 	TicketCap    TreasureTicketCap     `json:"ticket_cap"`
+	Trap         TreasureTrapRules     `json:"trap"`
+	Travel       TreasureTravelRules   `json:"travel"`
+}
+
+// TreasureTrapRules is the island square's rule (Cherry-made, island-spec section 7): a roll of HighDice or more frees a trapped
+// token, and the trapped roll that reaches MaxTries frees it whatever the die shows.
+type TreasureTrapRules struct {
+	HighDice int64 `json:"high_dice"`
+	MaxTries int64 `json:"max_tries"`
+}
+
+// TreasureTravelRules: StaleMinutes is how long a broom prompt may wait for its answer; a board entry after that clears it and
+// moves the token off the broom square (treasureRecover).
+type TreasureTravelRules struct {
+	StaleMinutes int64 `json:"stale_minutes"`
+}
+
+// TreasureTrap is an island's counts as the client shows them: Count the trapped rolls so far (CurrentCount), Max the rolls that
+// free the token (ExitTargetCount) and High the die that frees it (HighDiceNumber).
+type TreasureTrap struct {
+	Count, Max, High int64
+}
+
+// treasureTrapOf is the island counts of a token trapped Count rolls.
+func treasureTrapOf(count int64, d *TreasureData) TreasureTrap {
+	return TreasureTrap{Count: count, Max: d.Trap.MaxTries, High: d.Trap.HighDice}
 }
 
 // TreasureSeason is the season's id, its name, its first day ("2006-01-02", 06:00 JST), its length in days, whether the
@@ -498,16 +527,28 @@ func checkTreasureData(t *TreasureData) error {
 	if len(ring) != TreasureRingSize {
 		return fmt.Errorf("board.ring must have exactly %d squares (the client's fixed board)", TreasureRingSize)
 	}
+	hasTravel, hasExchange, hasCoin := false, false, false
 	for i, c := range ring {
 		switch c {
 		case TreasureCellStart, TreasureCellCoin, TreasureCellExchange, TreasureCellBuff, TreasureCellBonus, TreasureCellSpecial,
-			TreasureCellGoldKey, TreasureCellTravel, TreasureCellMiniGame:
+			TreasureCellTrap, TreasureCellGoldKey, TreasureCellTravel, TreasureCellMiniGame:
 		default:
-			return fmt.Errorf("board.ring[%d]: cell type %d is not built yet (this build builds 0 to 5, 7, 8 and 9)", i, c)
+			return fmt.Errorf("board.ring[%d]: cell type %d is not a Treasure World square (0 to 9)", i, c)
 		}
+		hasTravel = hasTravel || c == TreasureCellTravel
+		hasExchange = hasExchange || c == TreasureCellExchange
+		hasCoin = hasCoin || c == TreasureCellCoin
 	}
 	if ring[0] != TreasureCellStart {
 		return errors.New("board.ring[0] must be the start line (0)")
+	}
+	// A trap or a broom square sends the token to the next coin square when its prompt is cleared (treasureRecover), and a broom
+	// offers the exchange squares as its targets.
+	if !hasCoin {
+		return errors.New("board.ring needs a coin square (a cleared trap or broom prompt moves the token there)")
+	}
+	if hasTravel && !hasExchange {
+		return errors.New("board.ring with a travel square needs an exchange square (the travel targets)")
 	}
 	r := t.Rewards
 	switch unit := strings.ToUpper(r.Bonus.CoinUnit); {
@@ -591,6 +632,14 @@ func checkTreasureRules(t *TreasureData) error {
 		if m < 0 || m > 10 {
 			return fmt.Errorf("minigame.multiples[%d] must be 0 to 10", i)
 		}
+	}
+	switch {
+	case t.Trap.HighDice < 1 || t.Trap.HighDice > 6:
+		return errors.New("trap.high_dice must be 1 to 6 (a die)")
+	case t.Trap.MaxTries < 1 || t.Trap.MaxTries > 20:
+		return errors.New("trap.max_tries must be 1 to 20")
+	case t.Travel.StaleMinutes < 1 || t.Travel.StaleMinutes > 1440:
+		return errors.New("travel.stale_minutes must be 1 to 1440")
 	}
 	if err := checkTreasureGoldKey(t.GoldKey); err != nil {
 		return err
@@ -692,9 +741,9 @@ func checkTreasureTasks(name string, l TreasureTasks, quest bool) error {
 	}
 	for i, task := range l.Pool {
 		switch task.Kind {
-		case "roll", "jewel", "lap", "exchange", "goldkey", "secret":
+		case "roll", "jewel", "lap", "exchange", "goldkey", "secret", "escape":
 		default:
-			return fmt.Errorf("%s.pool[%d].kind %q is not roll, jewel, lap, exchange, goldkey or secret", name, i, task.Kind)
+			return fmt.Errorf("%s.pool[%d].kind %q is not roll, jewel, lap, exchange, goldkey, secret or escape", name, i, task.Kind)
 		}
 		if task.Goal < 1 || task.Goal > 1000 {
 			return fmt.Errorf("%s.pool[%d].goal must be 1 to 1000", name, i)
@@ -826,6 +875,12 @@ type TreasureView struct {
 	MiniGameLeft int64
 	BuffPercent  int64
 	Secret       *store.TreasureSecret
+	// TravelPending is true while the broom prompt of the token's square is unanswered; Trap is the island counts of a trapped
+	// token (Count is its trapped rolls so far).
+	TravelPending bool
+	Trap          TreasureTrap
+	// Recovery names what the board entry cleared (treasureRecover); empty when nothing was stuck.
+	Recovery string
 }
 
 // treasureTimes is the fixed multiplier the Trade popup shows for ring position pos (a gamble square shows 1x).
@@ -864,6 +919,8 @@ func treasureView(r store.TreasureRecord, acc *store.Account, nowMs int64, d *Tr
 		MiniGameLeft:  r.MiniGameLeft,
 		BuffPercent:   treasureBuffPercent(acc, d),
 		Secret:        secret,
+		TravelPending: r.TravelPending,
+		Trap:          treasureTrapOf(r.TrapCount, d),
 	}
 }
 
@@ -924,10 +981,15 @@ func treasureTx(aid string, now time.Time, gate treasureGate, op func(acc *store
 
 // TreasureOpen brings aid's board state up to date at now (a new season starts the record over, the refill catches up)
 // and returns it. It serves the room enter and the relay start of a board in its play window; outside it, it is refused.
+// Before it returns, treasureRecover clears a state the client could not leave; view.Recovery says what it did.
 func TreasureOpen(aid string, now time.Time) (TreasureView, error) {
-	return treasureTx(aid, now, treasureGatePlay, func(*store.Account, *store.TreasureRecord, *TreasureData) ([]store.LedgerLine, error) {
+	var why string
+	view, err := treasureTx(aid, now, treasureGatePlay, func(_ *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
+		why = treasureRecover(r, d, now.UnixMilli())
 		return nil, nil
 	})
+	view.Recovery = why
+	return view, err
 }
 
 // TreasurePeek is aid's board state at now without a write: the catch-up runs on a copy. The reward period and closed
@@ -954,12 +1016,16 @@ type TreasureMove struct {
 	Bonus int64
 	// Buff is the buff a buff square shows (Cell 3); Coins and Bonus are the Jewels credited after the worn buffs.
 	Buff TreasureBuffLanding
-	View TreasureView
+	// Trap is the island's counts for a trap square (Cell 6); Escaped is true for the roll that frees a trapped token.
+	Trap    TreasureTrap
+	Escaped bool
+	View    TreasureView
 }
 
 // treasureLand lands the token on mv.To and pays the square: a coin square pays a random amount of Jewels, a bonus square its
-// bonus (both grown by the worn buffs, treasureBoost), a buff square draws its buff, a secret quest square starts its quest
-// and a mini-game square allows its bet. It sets mv.Cell, mv.Coins, mv.Bonus and mv.Buff and credits the Jewels to r.
+// bonus (both grown by the worn buffs, treasureBoost), a buff square draws its buff, a secret quest square starts its quest,
+// a mini-game square allows its bet and a trap square holds the token (Trapped, no count yet). It sets mv.Cell, mv.Coins,
+// mv.Bonus, mv.Buff and mv.Trap and credits the Jewels to r.
 func treasureLand(acc *store.Account, r *store.TreasureRecord, d *TreasureData, mv *TreasureMove) {
 	mv.Cell = d.Board.Ring[mv.To]
 	switch mv.Cell {
@@ -974,15 +1040,114 @@ func treasureLand(acc *store.Account, r *store.TreasureRecord, d *TreasureData, 
 		mv.Buff = treasureBuffLanding(acc, d)
 	case TreasureCellSpecial:
 		treasureSecretLand(r, d, mv.To)
+	case TreasureCellTrap:
+		r.Trapped, r.TrapCount = true, 0
+		mv.Trap = treasureTrapOf(0, d)
 	case TreasureCellMiniGame:
 		r.MiniGameLeft = d.MiniGame.MaxBet
 	}
 }
 
+// treasureArmTravel sets or clears the broom prompt of the token's square; TravelSince is the moment it was set.
+func treasureArmTravel(r *store.TreasureRecord, armed bool, now time.Time) {
+	r.TravelPending, r.TravelSince = armed, 0
+	if armed {
+		r.TravelSince = now.UnixMilli()
+	}
+}
+
+// treasureStep walks the token total steps on from its square (unwrapped: at least the ring size passes the start line), pays a
+// lap and lands on the square it reaches. The caller sets r.Position to mv.To.
+func treasureStep(acc *store.Account, r *store.TreasureRecord, d *TreasureData, mv *TreasureMove, total int) {
+	n := len(d.Board.Ring)
+	mv.Lap = total >= n
+	mv.To = total % n
+	if mv.Lap {
+		r.Tickets += d.Rewards.Start.Tickets
+	}
+	r.MiniGameLeft = 0
+	treasureLand(acc, r, d, mv)
+}
+
+// treasureTrapped is a roll while the token is held on a trap square (island-spec section 6). A die of High or more, or the
+// trapped roll that reaches Max, frees the token: it walks by the die from its square, never onto a trap square (a trap square it
+// would land on is skipped), pays where it lands and the escape counts once ("Escape traps"). Any other roll keeps the token on
+// the square and counts one more trapped roll.
+func treasureTrapped(acc *store.Account, r *store.TreasureRecord, d *TreasureData, mv *TreasureMove) {
+	mv.To = r.Position
+	if int64(mv.Dice) < d.Trap.HighDice && r.TrapCount+1 < d.Trap.MaxTries {
+		r.TrapCount++
+		mv.Cell = TreasureCellTrap
+		mv.Trap = treasureTrapOf(r.TrapCount, d)
+		return
+	}
+	n := len(d.Board.Ring)
+	total := r.Position + mv.Dice
+	for d.Board.Ring[total%n] == TreasureCellTrap {
+		total++
+	}
+	r.Trapped, r.TrapCount = false, 0
+	mv.Escaped = true
+	treasureStep(acc, r, d, mv, total)
+	treasureProgress(r, d, "escape", 1)
+}
+
+// treasureCoinAfter is the first coin square forward of ring position from: where a cleared trap or broom prompt moves the
+// token (no payment, no lap). checkTreasureData keeps a coin square on every ring.
+func treasureCoinAfter(d *TreasureData, from int) int {
+	n := len(d.Board.Ring)
+	for i := 1; i <= n; i++ {
+		if p := (from + i) % n; d.Board.Ring[p] == TreasureCellCoin {
+			return p
+		}
+	}
+	return from
+}
+
+// treasureRecover is the server's escape from a board state the client cannot leave, run on every board entry (enter and relay
+// start) before the reply, so the reply never re-arms the prompt that holds the token. A broom prompt that is pending off a broom
+// square, or pending past travel.stale_minutes, is cleared; a token left on a broom square with no prompt pending moves to the
+// next coin square (the entry would show the prompt again with no targets). A trapped token whose square is not a trap, or whose
+// count reached trap.max_tries, is released; a token left on a trap square that is not trapped moves to the next coin square
+// (the entry would show the island popup with no release). It returns what it did, empty when nothing was stuck.
+func treasureRecover(r *store.TreasureRecord, d *TreasureData, nowMs int64) string {
+	var why []string
+	cell := d.Board.Ring[r.Position]
+	move := false
+	switch {
+	case r.TravelPending && cell != TreasureCellTravel:
+		r.TravelPending, r.TravelSince = false, 0
+		why = append(why, "broom prompt off a broom square")
+	case r.TravelPending && nowMs-r.TravelSince > d.Travel.StaleMinutes*60*1000:
+		r.TravelPending, r.TravelSince = false, 0
+		move = true
+		why = append(why, "broom prompt unanswered past travel.stale_minutes")
+	case !r.TravelPending && cell == TreasureCellTravel:
+		move = true
+		why = append(why, "broom square without a prompt")
+	}
+	if r.Trapped && (cell != TreasureCellTrap || r.TrapCount >= d.Trap.MaxTries) {
+		r.Trapped, r.TrapCount = false, 0
+		why = append(why, "trap released (no trap square, or its count reached trap.max_tries)")
+	}
+	if !r.Trapped && cell == TreasureCellTrap {
+		move = true
+		why = append(why, "trap square without a trap")
+	}
+	if move {
+		from := r.Position
+		r.Position = treasureCoinAfter(d, from)
+		why = append(why, fmt.Sprintf("moved from %d to %d", from, r.Position))
+	}
+	return strings.Join(why, "; ")
+}
+
 // TreasureRollDice rolls for aid at now: a die from 1 to 6, the ticket cost, the move round the ring and the payment of
 // the square landed on. Without enough tickets nothing moves and ErrTreasureNoTickets comes back with the state. A roll
 // sets KeyPending when it lands on a gold key square and clears it otherwise; TravelPending is set the same way for the
-// travel square. TreasureGoldKeyUse clears KeyPending too and sets TravelPending by its landing.
+// travel square. TreasureGoldKeyUse clears KeyPending too and sets TravelPending by its landing. A token held on a trap
+// square takes the trapped roll instead of the walk (treasureTrapped); a trapped flag with no trap square under the token is
+// released first.
 func TreasureRollDice(aid string, now time.Time) (TreasureMove, error) {
 	var mv TreasureMove
 	view, err := treasureTx(aid, now, treasureGatePlay, func(acc *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
@@ -990,20 +1155,20 @@ func TreasureRollDice(aid string, now time.Time) (TreasureMove, error) {
 			return nil, ErrTreasureNoTickets
 		}
 		r.Tickets -= d.Tickets.PerRoll
-		n := len(d.Board.Ring)
 		mv.Dice = TreasureRandIntn(6) + 1
 		mv.From = r.Position
-		total := r.Position + mv.Dice
-		mv.Lap = total >= n
-		mv.To = total % n
-		if mv.Lap {
-			r.Tickets += d.Rewards.Start.Tickets
+		if r.Trapped && d.Board.Ring[r.Position] != TreasureCellTrap {
+			r.Trapped, r.TrapCount = false, 0
 		}
-		r.MiniGameLeft = 0
-		treasureLand(acc, r, d, &mv)
+		if r.Trapped {
+			treasureTrapped(acc, r, d, &mv)
+		} else {
+			r.MiniGameLeft = 0
+			treasureStep(acc, r, d, &mv, r.Position+mv.Dice)
+		}
 		r.Position = mv.To
 		r.KeyPending = mv.Cell == TreasureCellGoldKey
-		r.TravelPending = mv.Cell == TreasureCellTravel
+		treasureArmTravel(r, mv.Cell == TreasureCellTravel, now)
 		treasureProgress(r, d, "roll", 1)
 		if got := mv.Coins + mv.Bonus; got > 0 {
 			treasureProgress(r, d, "jewel", got)
@@ -1065,7 +1230,7 @@ func TreasureGoldKeyUse(aid string, now time.Time) (TreasureCardUse, error) {
 			r.Jewels += value
 		}
 		r.Position = mv.To
-		r.TravelPending = mv.Cell == TreasureCellTravel
+		treasureArmTravel(r, mv.Cell == TreasureCellTravel, now)
 		use = TreasureCardUse{Card: card.Type, Value: value, Move: mv}
 		treasureProgress(r, d, "goldkey", 1)
 		if got := mv.Coins + mv.Bonus; got > 0 {
@@ -1080,19 +1245,33 @@ func TreasureGoldKeyUse(aid string, now time.Time) (TreasureCardUse, error) {
 	return use, err
 }
 
-// TreasureTravel moves aid's token from the travel square it stands on to exchange square to (cs 9). It needs a travel
-// pending from the landing, a target that is an exchange square and not the square the token is on. Nothing is paid and
-// no lap is passed. Any other request is refused with ErrTreasureRefused and changes nothing.
+// TreasureTravel moves aid's token from the broom square it stands on to exchange square to (cs 9). It needs a travel pending
+// from the landing, a target that is an exchange square and not the square the token is on. Nothing is paid and no lap is
+// passed. Any other request is refused with ErrTreasureRefused (the reason follows it) and clears the pending prompt: the
+// caller answers with no move, so the client's prompt closes (broom-spec section 3.2).
 func TreasureTravel(aid string, to int, now time.Time) (TreasureMove, error) {
 	var mv TreasureMove
 	view, err := treasureTx(aid, now, treasureGatePlay, func(_ *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
-		if !r.TravelPending || d.Board.Ring[r.Position] != TreasureCellTravel || to == r.Position || to < 0 || to >= len(d.Board.Ring) ||
-			d.Board.Ring[to] != TreasureCellExchange {
-			return nil, ErrTreasureRefused
+		reason := ""
+		switch {
+		case !r.TravelPending:
+			reason = "no travel pending"
+		case d.Board.Ring[r.Position] != TreasureCellTravel:
+			reason = "the token is not on a travel square"
+		case to == r.Position:
+			reason = "the target is the square the token stands on"
+		case to < 0 || to >= len(d.Board.Ring):
+			reason = "the target is off the ring"
+		case d.Board.Ring[to] != TreasureCellExchange:
+			reason = "the target is not an exchange square"
+		}
+		if reason != "" {
+			treasureArmTravel(r, false, now)
+			return nil, fmt.Errorf("%w: %s", ErrTreasureRefused, reason)
 		}
 		mv = TreasureMove{From: r.Position, To: to, Cell: TreasureCellExchange}
 		r.Position = to
-		r.TravelPending = false
+		treasureArmTravel(r, false, now)
 		r.MiniGameLeft = 0
 		return nil, nil
 	})
