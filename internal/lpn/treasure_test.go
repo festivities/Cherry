@@ -3,14 +3,19 @@ package lpn
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"io"
 	"log"
 	"net"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"cherry/data"
 	"cherry/internal/economy"
 	"cherry/internal/store"
 	"cherry/internal/testutil"
@@ -38,8 +43,17 @@ var (
 	treBonus   = lpMsg{1: {wire: 0, req: true}, 3: {wire: 2}, 4: {wire: 0}}
 	treRanking = lpMsg{1: {wire: 0}, 2: {wire: 0}, 3: {wire: 0}, 4: {wire: 0}, 5: {wire: 0}, 6: {wire: 0}, 7: {wire: 0}, 10: {wire: 0}}
 	treGoldKey = lpMsg{1: {wire: 0, req: true}}
-	treDetail  = lpMsg{1: {wire: 2, msg: treReward}, 3: {wire: 2, msg: treCoin}, 4: {wire: 2, msg: treRanking}, 6: {wire: 2, msg: treBonus}, 9: {wire: 2, msg: treGoldKey}}
-	treRoll    = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 0, req: true}, 4: {wire: 0, req: true}, 5: {wire: 0, req: true}, 6: {wire: 2, req: true, msg: treCell}, 7: {wire: 2, msg: treDetail}, 8: {wire: 0, req: true}, 9: {wire: 2, msg: treReward}}
+	// The slice 3 probe squares (treasure-spec 3.2 to 3.5): exact wire types, and the repeated fields the client reads as repeated.
+	treBuff      = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, req: true}, 3: {wire: 0, req: true}, 5: {wire: 2, req: true}, 6: {wire: 2, req: true}}
+	treSpecQuest = lpMsg{1: {wire: 0, req: true}, 3: {wire: 0, req: true}, 4: {wire: 0, req: true}, 5: {wire: 0, req: true}, 7: {wire: 0, req: true}, 8: {wire: 0, req: true}}
+	treSpecial   = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, req: true, msg: treSpecQuest}}
+	treRankCell  = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}}
+	treFly       = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, rep: true, msg: treRankCell}}
+	treMiniGame  = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 0, req: true}, 4: {wire: 0, rep: true}, 5: {wire: 0, req: true}, 6: {wire: 0, rep: true}, 7: {wire: 0, req: true}}
+	treDetail    = lpMsg{1: {wire: 2, msg: treReward}, 3: {wire: 2, msg: treCoin}, 4: {wire: 2, msg: treRanking}, 5: {wire: 2, msg: treBuff}, 6: {wire: 2, msg: treBonus}, 7: {wire: 2, msg: treSpecial}, 9: {wire: 2, msg: treGoldKey}, 10: {wire: 2, msg: treFly}, 11: {wire: 2, msg: treMiniGame}}
+	// treTravel is sc_fly_travel_res: Result, the square's CellInfo, its CellDetailInfo and the tickets (no RewardInfo).
+	treTravel = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, req: true, msg: treCell}, 3: {wire: 2, req: true, msg: treDetail}, 5: {wire: 0, req: true}, 6: {wire: 0, req: true}, 7: {wire: 0, req: true}, 8: {wire: 0, req: true}}
+	treRoll   = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 0, req: true}, 4: {wire: 0, req: true}, 5: {wire: 0, req: true}, 6: {wire: 2, req: true, msg: treCell}, 7: {wire: 2, msg: treDetail}, 8: {wire: 0, req: true}, 9: {wire: 2, msg: treReward}}
 	// treCard is sc_gold_key_use_res: Result, the card type, its value, the square the token ends on, that square's detail and
 	// the lap text (the sc 10 wire of slice 3, treasure-spec section 3.1).
 	treCard    = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 0, req: true}, 5: {wire: 2, req: true, msg: treCell}, 6: {wire: 2, msg: treDetail}, 7: {wire: 2, msg: treReward}, 8: {wire: 0, req: true}, 9: {wire: 0, req: true}, 10: {wire: 0, req: true}, 11: {wire: 0, req: true}}
@@ -459,7 +473,139 @@ func TestTreasureGoldKeyOverTheGateway(t *testing.T) {
 	}
 }
 
-// TestTreasureLaterSlicesAnswerSafely: the requests still left to later slices (buff, mini-game, travel, special missions,
+// treProbeRing is the board of the probe test: 3 buff, 5 special mission, 8 travel and 9 mini-game squares, with the exchange
+// squares 2, 13 and 21 (the travel candidates from square 5).
+var treProbeRing = []int{0, 1, 2, 3, 5, 8, 9, 1, 4, 1, 7, 1, 1, 2, 1, 1, 4, 1, 7, 1, 1, 2, 1, 1, 4, 1, 7, 1}
+
+// treLoadRing loads the default treasure file with ring as its board, and square 2 as the only exchange tile (the default
+// tiles name 8, 15 and 22, which the probe ring does not keep as exchange squares), for one test.
+func treLoadRing(t *testing.T, ring []int) {
+	t.Helper()
+	doc := map[string]json.RawMessage{}
+	if err := json.Unmarshal(data.TreasureJSON, &doc); err != nil {
+		t.Fatal(err)
+	}
+	doc["board"], _ = json.Marshal(map[string][]int{"ring": ring})
+	var ex map[string]json.RawMessage
+	if err := json.Unmarshal(doc["exchange"], &ex); err != nil {
+		t.Fatal(err)
+	}
+	ex["tiles"], _ = json.Marshal([]map[string]int{{"square": 2, "times": 1}})
+	doc["exchange"], _ = json.Marshal(ex)
+	raw, _ := json.Marshal(doc)
+	path := filepath.Join(t.TempDir(), "treasure.json")
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := economy.TreasureLoadFrom(path); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { economy.TreasureLoadFrom("") })
+}
+
+// treMoveCell is the MoveCellInfo of cs 9 for an exchange square: CellPosition, CellId and CellType.
+func treMoveCell(pos uint64) []byte {
+	b := pbVar(nil, 1, pos)
+	b = pbVar(b, 2, pos)
+	return pbVar(b, 3, economy.TreasureCellExchange)
+}
+
+// TestTreasureProbeSquaresOverTheGateway: the probe squares answer their sc 4 CellDetailInfo with the exact wire shapes (buff 3,
+// special mission 5, travel 8, mini-game 9). cs 9 moves the token from the travel square to an exchange square only: a square
+// that is not one, the square the token stands on, and a second travel are refused and change nothing.
+func TestTreasureProbeSquaresOverTheGateway(t *testing.T) {
+	treScene(t)
+	treLoadRing(t, treProbeRing)
+	if treasureBuffGacha < economy.CherryTreasureFirst || treasureBuffGacha > economy.CherryTreasureLast {
+		t.Fatalf("buff gacha id %d is outside the Cherry Treasure block", treasureBuffGacha)
+	}
+	// Square 13 is full today (60 Jewels taken on this game day), so its IsReset is 1.
+	day := (treTime.Unix() + 3*3600) / 86400
+	if _, err := store.UpdateTreasure("1001", func(r *store.TreasureRecord) {
+		*r = store.TreasureRecord{Season: economy.ActiveTreasureData().Season.ID, Tickets: 10, Charged: treTime.UnixMilli(), ExDay: day,
+			Exchanged: map[string]int64{"13": 60}}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Dice: 1 to the coin on square 1, 2 to the buff on 3, 1 to the secret quest on 4, 1 to the travel on 5, then (from square 2,
+	// after the travel) 4 to the mini-game on 6.
+	treDice(t, 1, 2, 1, 1, 4)
+	g := newTreGateway(t)
+	g.open()
+	g.login(1001)
+	g.send(treasureCsRoomEnter, nil)
+	g.readShape(treasureRcRoomEnter, treEnter)
+
+	g.send(treasureCsRolling, pbVar(nil, 1, 0)) // square 1: a coin, one Jewel
+	g.readShape(treasureRcRolling, treRoll)
+
+	g.send(treasureCsRolling, pbVar(nil, 1, 0)) // square 3: the buff gacha
+	roll := g.readShape(treasureRcRolling, treRoll)
+	cell, buff := cirBytes(roll, 6), cirBytes(cirBytes(roll, 7), 5)
+	if cirVar(cell, 1) != 3 || cirVar(cell, 3) != economy.TreasureCellBuff || cirVar(buff, 1) != treasureBuffGacha ||
+		string(cirBytes(buff, 2)) != "CUAH006FG" || cirVar(buff, 3) != 10 || string(cirBytes(buff, 5)) != "R" || string(cirBytes(buff, 6)) != "NEW" {
+		t.Fatalf("buff landing = %x, want square 3 with the buff CUAH006FG at 10%%, grade R, state NEW", roll)
+	}
+
+	g.send(treasureCsRolling, pbVar(nil, 1, 0)) // square 4: the secret quest
+	roll = g.readShape(treasureRcRolling, treRoll)
+	special := cirBytes(cirBytes(roll, 7), 7)
+	quest := cirBytes(special, 2)
+	if cirVar(cirBytes(roll, 6), 1) != 4 || cirVar(cirBytes(roll, 6), 3) != economy.TreasureCellSpecial || cirVar(special, 1) != 1 ||
+		cirVar(quest, 1) != 1 || cirVar(quest, 3) != 1 || cirVar(quest, 4) != 0 || cirVar(quest, 5) != 3 || cirVar(quest, 7) != 0 ||
+		cirVar(quest, 8) != 9 {
+		t.Fatalf("secret quest landing = %x, want square 4 with availability 1, type 1, goal 1, count 0, 3 tickets, no enable, view 9", roll)
+	}
+
+	g.send(treasureCsRolling, pbVar(nil, 1, 0)) // square 5: the travel
+	roll = g.readShape(treasureRcRolling, treRoll)
+	fly := cirBytes(cirBytes(roll, 7), 10)
+	rows := cirList(fly, 2)
+	if cirVar(cirBytes(roll, 6), 1) != 5 || cirVar(cirBytes(roll, 6), 3) != economy.TreasureCellTravel || cirVar(fly, 1) != 1 || len(rows) != 3 ||
+		cirVar(rows[0], 1) != 2 || cirVar(rows[0], 2) != 0 || cirVar(rows[1], 1) != 13 || cirVar(rows[1], 2) != 1 ||
+		cirVar(rows[2], 1) != 21 || cirVar(rows[2], 2) != 0 {
+		t.Fatalf("travel landing = %x, want square 5 with availability 1 and exchange squares 2 (free), 13 (full), 21 (free)", roll)
+	}
+
+	// Refused, and the token stays on 5: square 6 is a mini-game and 5 is the square the token stands on.
+	for _, to := range []uint64{6, 5} {
+		g.send(treasureCsFlyTravel, treMoveCell(to))
+		if cirVar(g.readShape(treasureRcFlyTravel, treResult), 1) != treasureRefused {
+			t.Fatalf("travel to %d was not refused", to)
+		}
+	}
+
+	// Accepted: square 2, no lap, no payment; 6 tickets left of 10 after four rolls, the timer at 600 s, and no RewardInfo.
+	g.send(treasureCsFlyTravel, treMoveCell(2))
+	fly2 := g.readShape(treasureRcFlyTravel, treTravel)
+	if cirVar(fly2, 1) != 0 || cirVar(cirBytes(fly2, 2), 1) != 2 || cirVar(cirBytes(fly2, 2), 3) != economy.TreasureCellExchange ||
+		cirVar(fly2, 5) != 6 || cirVar(fly2, 6) != 10 || cirVar(fly2, 7) != 600 || cirVar(fly2, 8) != 600 {
+		t.Fatalf("travel to 2 = %x, want result 0, square 2 (an exchange square), 6 of 10 tickets, 600 s", fly2)
+	}
+	if rank := cirBytes(cirBytes(fly2, 3), 4); cirVar(rank, 1) != 1 || cirVar(rank, 2) != 1 || cirVar(rank, 3) != 60 || cirVar(rank, 4) != 10 { // 1 Jewel, 60 left, rate 10 (1x)
+		t.Fatalf("travel detail = %x, want the exchange rate 10 and 60 left", rank)
+	}
+
+	g.send(treasureCsRolling, pbVar(nil, 1, 0)) // square 6: the mini-game, with one Jewel
+	roll = g.readShape(treasureRcRolling, treRoll)
+	game := cirBytes(cirBytes(roll, 7), 11)
+	if cirVar(cirBytes(roll, 6), 3) != economy.TreasureCellMiniGame || cirVar(game, 1) != 1 || cirVar(game, 2) != 1 || cirVar(game, 3) != 20 ||
+		cirVar(game, 5) != 20 || cirVar(game, 7) != 1 || !slices.Equal(cirVars(game, 4), []uint64{0, 1, 2, 3}) ||
+		!slices.Equal(cirVars(game, 6), []uint64{0, 1, 2, 3}) {
+		t.Fatalf("mini-game landing = %x, want availability 1, 1 Jewel, max 20, multiples 0 to 3 unpacked, 1 to use", roll)
+	}
+
+	// The travel is spent: a second cs 9 is refused.
+	g.send(treasureCsFlyTravel, treMoveCell(13))
+	if cirVar(g.readShape(treasureRcFlyTravel, treResult), 1) != treasureRefused {
+		t.Fatal("travel after the travel was not refused")
+	}
+	if !strings.Contains(g.logs.String(), "TREASURE msgid=9 travel aid=1001 from=5 to=2 result=0") {
+		t.Fatalf("travel log line missing:\n%s", g.logs.String())
+	}
+}
+
+// TestTreasureLaterSlicesAnswerSafely: the requests still left to later slices (buff, mini-game, special missions,
 // season state) get the stub answers, each is logged as not built, and the client's own close (subtype 2) gets no reply.
 // The points, rankings, rewards, quests, cap and gold key requests are answered for real (treasure_points_test.go, and
 // TestTreasureGoldKeyOverTheGateway).

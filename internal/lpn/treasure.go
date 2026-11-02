@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"strconv"
 
 	"cherry/internal/economy"
@@ -22,6 +23,8 @@ const (
 	treasureRefused         = 1     // a refused request: any non-zero Result is the client's error path
 	treasureSeasonPlay      = 1     // sc_room_enter_res SeasonStatus: the board is playable (treasure-spec 9.3)
 	treasureSeasonNotActive = 65541 // sc_season_active_state_res: Result 65541 clears the season-end flag (transport-money 2.5)
+
+	treasureBuffGacha = 1950000101 // CellTypeBuff GachaId (slice 3 probe): a Cherry id in the Treasure block
 )
 
 // Outbound (client to server) msgids, cs GetIndex.
@@ -31,6 +34,7 @@ const (
 	treasureCsRoomExit    = 2
 	treasureCsRelayStart  = 3
 	treasureCsRolling     = 4
+	treasureCsFlyTravel   = 9
 	treasureCsGoldKeyUse  = 10
 	treasureCsTutorial    = 23
 	treasureCsCoinRefresh = 29
@@ -87,7 +91,6 @@ var (
 var treasureStubs = map[uint16]treasureStub{
 	5:  {treasureRcBuffList, treasureOK},
 	8:  {treasureRcMiniGame, treasureNo},
-	9:  {treasureRcFlyTravel, treasureNo},
 	22: {treasureRcBuffWear, treasureNo},
 	24: {treasureRcNoReply, nil}, // cs_playticket_sync_req: no caller in the client
 	25: {treasureRcSpecialReward, treasureNo},
@@ -146,6 +149,8 @@ func (s *treasureSession) handleData(frame []byte) error {
 		return s.relayStart(frame)
 	case treasureCsRolling:
 		return s.roll(frame)
+	case treasureCsFlyTravel:
+		return s.flyTravel(frame, data)
 	case treasureCsGoldKeyUse:
 		return s.goldKeyUse(frame)
 	case treasureCsTutorial:
@@ -386,8 +391,66 @@ func treasureCellDetail(d *economy.TreasureData, mv economy.TreasureMove) []byte
 		return treasureSquareDetail(mv.View) // CellTypeRanking: the exchange popup's counts (cells.md 6.4)
 	case economy.TreasureCellGoldKey:
 		return pbLen(nil, 9, pbVar(nil, 1, 1)) // CellTypeGoldKey.Availability: the Mystery Card is drawn by cs 10
+	case economy.TreasureCellBuff:
+		// CellTypeBuff (f5): the gacha id, the item shown, its BuffPercent, the grade and the state (WEAR and INVEN are refused
+		// by the popup). No LinkInfo (f4): its button would open a link.
+		buff := pbVar(nil, 1, treasureBuffGacha)
+		buff = pbLen(buff, 2, []byte(d.Buff.Items[0]))
+		buff = pbVar(buff, 3, uint64(d.Buff.Percent))
+		buff = pbLen(buff, 5, []byte("R"))
+		buff = pbLen(buff, 6, []byte("NEW"))
+		return pbLen(nil, 5, buff)
+	case economy.TreasureCellSpecial:
+		// CellTypeSpecialMission (f7): Availability 1 and the quest (f2) with type 1, goal count 1, count 0, the reward tickets,
+		// EnableReward 0 and RewardViewType 9 (the ticket picture). No goal (f2 of the quest) and no LinkInfo (f6).
+		quest := pbVar(nil, 1, 1)
+		quest = pbVar(quest, 3, 1)
+		quest = pbVar(quest, 4, 0)
+		quest = pbVar(quest, 5, uint64(d.Special.RewardTickets))
+		quest = pbVar(quest, 7, 0)
+		quest = pbVar(quest, 8, treasureViewTicket)
+		return pbLen(nil, 7, pbLen(pbVar(nil, 1, 1), 2, quest))
+	case economy.TreasureCellTravel:
+		return treasureTravelDetail(d, mv)
+	case economy.TreasureCellMiniGame:
+		return treasureMiniGameDetail(d, mv)
 	}
 	return nil
+}
+
+// treasureTravelDetail is CellTypeFlyTravle (f10) of the travel square mv lands on: Availability 1 and a RankingCellInfo (f2)
+// for each other exchange square, its CellId (the ring position, as its CellInfo sends it) and IsReset (full today).
+func treasureTravelDetail(d *economy.TreasureData, mv economy.TreasureMove) []byte {
+	b := pbVar(nil, 1, 1)
+	for _, c := range d.Cells() {
+		if c.Type != economy.TreasureCellExchange || c.Position == mv.To {
+			continue
+		}
+		row := pbVar(nil, 1, uint64(c.Position))
+		row = pbVar(row, 2, boolUint(slices.Contains(mv.View.ExchangeFull, c.Position)))
+		b = pbLen(b, 2, row)
+	}
+	return pbLen(nil, 10, b)
+}
+
+// treasureMiniGameDetail is CellTypeMinigame (f11): Availability 1, the Jewels the account holds, the most one game takes (f3,
+// and f5 for VIPs), the payout multiples (f4 and f6, repeated int32 sent unpacked) and UseChagneCoinCount (f7), the Jewels this
+// game takes: zero shows the daily-limit box. RankingPointReset (f10) is never sent (it leads to a purchase); Vip (f12) and the
+// date (f13) are not sent either.
+func treasureMiniGameDetail(d *economy.TreasureData, mv economy.TreasureMove) []byte {
+	most := uint64(d.MiniGame.MaxBet)
+	b := pbVar(nil, 1, 1)
+	b = pbVar(b, 2, uint64(mv.View.Jewels))
+	b = pbVar(b, 3, most)
+	for _, m := range d.MiniGame.Multiples {
+		b = pbVar(b, 4, uint64(m))
+	}
+	b = pbVar(b, 5, most)
+	for _, m := range d.MiniGame.Multiples {
+		b = pbVar(b, 6, uint64(m))
+	}
+	b = pbVar(b, 7, min(uint64(mv.View.Jewels), most))
+	return pbLen(nil, 11, b)
 }
 
 // goldKeyUse answers cs_gold_key_use_req (msgid 10, empty body) with the Mystery Card the gold key drew: its type (f2), its
@@ -435,6 +498,32 @@ func (s *treasureSession) goldKeyUse(frame []byte) error {
 		return err
 	}
 	return s.reply(frame, treasureRcCoinRefresh, pbVar(pbVar(nil, 1, 0), 2, uint64(mv.View.Jewels)))
+}
+
+// flyTravel answers cs_fly_travel_req (msgid 9, MoveCellInfo: f1 CellPosition) for the travel square the token stands on: the
+// token moves to the exchange square asked for, with no lap and no payment. The reply has that square's CellInfo (f2), its
+// exchange detail (f3) and the tickets (f5 to f8), and no RewardInfo (f4). Any other request gets Result 1 and changes nothing.
+func (s *treasureSession) flyTravel(frame, data []byte) error {
+	if !s.loggedIn || !s.entered {
+		s.logger.Printf("TREASURE msgid=9 travel refused: loggedIn=%v entered=%v", s.loggedIn, s.entered)
+		return s.refuse(frame, treasureRcFlyTravel)
+	}
+	pos, _ := protobufUintField(data, 1)
+	mv, err := economy.TreasureTravel(s.aidText(), int(pos), economy.NowFunc())
+	if err != nil {
+		s.logger.Printf("TREASURE msgid=9 travel refused aid=%d to=%d: %v", s.aid, pos, err)
+		return s.refuse(frame, treasureRcFlyTravel)
+	}
+	d := economy.ActiveTreasureData()
+	body := pbVar(nil, 1, 0)
+	body = pbLen(body, 2, treasureCellInfo(d.Cell(mv.To)))
+	body = pbLen(body, 3, treasureSquareDetail(mv.View))
+	body = pbVar(body, 5, uint64(mv.View.Tickets))
+	body = pbVar(body, 6, uint64(mv.View.Max))
+	body = pbVar(body, 7, uint64(mv.View.RemainSeconds))
+	body = pbVar(body, 8, uint64(mv.View.ChargeSeconds))
+	s.logger.Printf("TREASURE msgid=9 travel aid=%d from=%d to=%d result=0", s.aid, mv.From, mv.To)
+	return s.reply(frame, treasureRcFlyTravel, body)
 }
 
 // treasureRewardText is a RewardInfo that carries only its message (the text the popup shows).

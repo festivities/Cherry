@@ -20,23 +20,25 @@ import (
 // Points are the season's Ranking Points. Exchanged holds the Jewels exchanged today per ring position (key: the position
 // as text) and ExDay the 06:00 JST day it counts; CapSteps is how many ticket cap raises were bought. PointClaimed lists the
 // point reward ids claimed and RankClaimed whether the rank reward was. KeyPending is true while the token stands on a gold
-// key square whose Mystery Card is not used yet.
+// key square whose Mystery Card is not used yet; TravelPending is true while it stands on a travel square whose travel is
+// not used yet.
 type TreasureRecord struct {
-	Season       int64            `json:"season"`
-	Position     int              `json:"position"`
-	Tickets      int64            `json:"tickets"`
-	Charged      int64            `json:"charged"`
-	Jewels       int64            `json:"jewels"`
-	Tutorial     bool             `json:"tutorial,omitempty"`
-	Points       int64            `json:"points,omitempty"`
-	ExDay        int64            `json:"exDay,omitempty"`
-	Exchanged    map[string]int64 `json:"exchanged,omitempty"`
-	CapSteps     int64            `json:"capSteps,omitempty"`
-	KeyPending   bool             `json:"keyPending,omitempty"`
-	Quests       TreasureList     `json:"quests"`
-	Missions     TreasureList     `json:"missions"`
-	PointClaimed []int64          `json:"pointClaimed,omitempty"`
-	RankClaimed  bool             `json:"rankClaimed,omitempty"`
+	Season        int64            `json:"season"`
+	Position      int              `json:"position"`
+	Tickets       int64            `json:"tickets"`
+	Charged       int64            `json:"charged"`
+	Jewels        int64            `json:"jewels"`
+	Tutorial      bool             `json:"tutorial,omitempty"`
+	Points        int64            `json:"points,omitempty"`
+	ExDay         int64            `json:"exDay,omitempty"`
+	Exchanged     map[string]int64 `json:"exchanged,omitempty"`
+	CapSteps      int64            `json:"capSteps,omitempty"`
+	KeyPending    bool             `json:"keyPending,omitempty"`
+	TravelPending bool             `json:"travelPending,omitempty"`
+	Quests        TreasureList     `json:"quests"`
+	Missions      TreasureList     `json:"missions"`
+	PointClaimed  []int64          `json:"pointClaimed,omitempty"`
+	RankClaimed   bool             `json:"rankClaimed,omitempty"`
 }
 
 // TreasureList is a posted quest or mission set: Set counts the sets posted (0: none yet), Posted is the Unix millisecond

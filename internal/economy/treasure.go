@@ -27,14 +27,19 @@ const (
 	CherryTreasureLast  int64 = 1950000999
 )
 
-// Cell types (BlueMarble::eBoardCellType, treasure-spec section 3). This build serves 0, 1, 2, 4 and 7; the other types are
+// Cell types (BlueMarble::eBoardCellType, treasure-spec section 3). This build serves 0 to 5, 7, 8 and 9; 3, 5, 8 and 9 are
+// slice 3 probe landings (their popups answer, nothing is paid) and are not in the default ring. Types 6 and 10 and up are
 // refused in the data.
 const (
 	TreasureCellStart    = 0
 	TreasureCellCoin     = 1
 	TreasureCellExchange = 2
+	TreasureCellBuff     = 3
 	TreasureCellBonus    = 4
+	TreasureCellSpecial  = 5
 	TreasureCellGoldKey  = 7
+	TreasureCellTravel   = 8
+	TreasureCellMiniGame = 9
 )
 
 // treasureJST is the season clock: a season starts and ends at 06:00 JST.
@@ -68,6 +73,9 @@ var (
 //	board         the ring: cell types in walking order, four equal sides
 //	rewards       coin squares (min to max Jewels), the bonus square, the lap reward (tickets)
 //	gold_key      the Mystery Card deck the gold key squares draw from
+//	buff          the buff gacha square's item codes (the first is shown) and its BuffPercent (1 to 40)
+//	special       the secret quest square's reward tickets (1 to 50)
+//	minigame      the most Jewels one mini-game takes (1 to 1000) and the payout multiples the popup lists (0 to 10)
 //	npcs          the two portrait names and genders the season sends
 //	exchange      Ranking Points per Jewel, the Jewels a square takes a day, the Gem price of a square's reset
 //	quests        set size, hours before a free refresh, and the pool of quest tasks (tickets as reward)
@@ -84,6 +92,9 @@ type TreasureData struct {
 	Board        TreasureBoard         `json:"board"`
 	Rewards      TreasureRewards       `json:"rewards"`
 	GoldKey      TreasureGoldKey       `json:"gold_key"`
+	Buff         TreasureBuff          `json:"buff"`
+	Special      TreasureSpecial       `json:"special"`
+	MiniGame     TreasureMiniGame      `json:"minigame"`
 	NPCs         []TreasureNPC         `json:"npcs"`
 	Exchange     TreasureExchangeRules `json:"exchange"`
 	Quests       TreasureTasks         `json:"quests"`
@@ -179,6 +190,24 @@ func (g TreasureGoldKey) draw() (TreasureCard, int64) {
 		pick -= c.Weight
 	}
 	return card, card.Min + int64(TreasureRandIntn(int(card.Max-card.Min+1)))
+}
+
+// TreasureBuff is the buff gacha square's item: Items are item codes (the first is sent to the client), Percent its BuffPercent.
+type TreasureBuff struct {
+	Items   []string `json:"items"`
+	Percent int64    `json:"percent"`
+}
+
+// TreasureSpecial is the secret quest square's reward in tickets.
+type TreasureSpecial struct {
+	RewardTickets int64 `json:"reward_tickets"`
+}
+
+// TreasureMiniGame is the mini-game square: MaxBet the most Jewels one game takes, Multiples the payout multiples the popup
+// lists.
+type TreasureMiniGame struct {
+	MaxBet    int64   `json:"max_bet"`
+	Multiples []int64 `json:"multiples"`
 }
 
 // TreasureNPC is one portrait the season shows (its name and gender only; the portrait is the client's).
@@ -285,10 +314,25 @@ type TreasureCapStep struct {
 	Gems int64 `json:"gems"`
 }
 
-var treasureFile = opdata.New("treasure.json", data.TreasureJSON, checkTreasureData, nil)
+var treasureFile = opdata.New("treasure.json", data.TreasureJSON, checkTreasureData, verifyTreasure)
 
 // ActiveTreasureData is data/treasure.json in use.
 func ActiveTreasureData() *TreasureData { return treasureFile.Get() }
+
+// TreasureLoadFrom makes the treasure file at path the one in use ("" the embedded default). The gateway tests use it for a
+// board with the probe squares; a refused file leaves the active one unchanged.
+func TreasureLoadFrom(path string) error { return treasureFile.LoadFrom(path) }
+
+// verifyTreasure checks the buff gacha items against the item archive at startup: each is a sold item with art (itemAvailable),
+// the same test a shop listing uses.
+func verifyTreasure(t *TreasureData) error {
+	for i, code := range t.Buff.Items {
+		if !itemAvailable(code) {
+			return fmt.Errorf("buff.items[%d] %q is not a sold item with art", i, code)
+		}
+	}
+	return nil
+}
 
 // TreasureRingSize is the client's board: 4 corners and 6 squares per side, square 0 the bottom-left corner.
 const TreasureRingSize = 28
@@ -352,9 +396,10 @@ func checkTreasureData(t *TreasureData) error {
 	}
 	for i, c := range ring {
 		switch c {
-		case TreasureCellStart, TreasureCellCoin, TreasureCellExchange, TreasureCellBonus, TreasureCellGoldKey:
+		case TreasureCellStart, TreasureCellCoin, TreasureCellExchange, TreasureCellBuff, TreasureCellBonus, TreasureCellSpecial,
+			TreasureCellGoldKey, TreasureCellTravel, TreasureCellMiniGame:
 		default:
-			return fmt.Errorf("board.ring[%d]: cell type %d is not built yet (this build builds 0, 1, 2, 4 and 7)", i, c)
+			return fmt.Errorf("board.ring[%d]: cell type %d is not built yet (this build builds 0 to 5, 7, 8 and 9)", i, c)
 		}
 	}
 	if ring[0] != TreasureCellStart {
@@ -411,6 +456,19 @@ func checkTreasureRules(t *TreasureData) error {
 			return fmt.Errorf("exchange.tiles[%d]: times must be 1 to 10, gamble 2 to 10", i)
 		}
 		seen[tl.Square] = true
+	}
+	switch {
+	case len(t.Buff.Items) == 0 || t.Buff.Percent < 1 || t.Buff.Percent > 40:
+		return errors.New("buff.items must not be empty and buff.percent must be 1 to 40")
+	case t.Special.RewardTickets < 1 || t.Special.RewardTickets > 50:
+		return errors.New("special.reward_tickets must be 1 to 50")
+	case t.MiniGame.MaxBet < 1 || t.MiniGame.MaxBet > 1000 || len(t.MiniGame.Multiples) == 0:
+		return errors.New("minigame.max_bet must be 1 to 1000 and minigame.multiples must not be empty")
+	}
+	for i, m := range t.MiniGame.Multiples {
+		if m < 0 || m > 10 {
+			return fmt.Errorf("minigame.multiples[%d] must be 0 to 10", i)
+		}
 	}
 	if err := checkTreasureGoldKey(t.GoldKey); err != nil {
 		return err
@@ -638,6 +696,8 @@ type TreasureView struct {
 	ExchangeRate int64
 	// ExchangeReset is true when the square is full today, so its reset can be bought.
 	ExchangeReset bool
+	// ExchangeFull lists every exchange square (ring positions) that is full today, for the travel popup.
+	ExchangeFull []int
 }
 
 // treasureTimes is the fixed multiplier the Trade popup shows for ring position pos (a gamble square shows 1x).
@@ -648,7 +708,14 @@ func treasureUsed(r store.TreasureRecord, pos int) int64 { return r.Exchanged[st
 
 func treasureView(r store.TreasureRecord, nowMs int64, d *TreasureData) TreasureView {
 	used := treasureUsed(r, r.Position)
+	var full []int
+	for pos, cell := range d.Board.Ring {
+		if cell == TreasureCellExchange && treasureUsed(r, pos) >= d.Exchange.DailyMax {
+			full = append(full, pos)
+		}
+	}
 	return TreasureView{
+		ExchangeFull:  full,
 		Tickets:       r.Tickets,
 		Max:           treasureCap(r, d),
 		RemainSeconds: treasureRemain(r, nowMs, d),
@@ -747,7 +814,8 @@ func treasureLand(r *store.TreasureRecord, d *TreasureData, mv *TreasureMove) {
 
 // TreasureRollDice rolls for aid at now: a die from 1 to 6, the ticket cost, the move round the ring and the payment of
 // the square landed on. Without enough tickets nothing moves and ErrTreasureNoTickets comes back with the state. A roll
-// sets KeyPending when it lands on a gold key square and clears it otherwise; TreasureGoldKeyUse clears it too.
+// sets KeyPending when it lands on a gold key square and clears it otherwise; TravelPending is set the same way for the
+// travel square. TreasureGoldKeyUse clears KeyPending too and sets TravelPending by its landing.
 func TreasureRollDice(aid string, now time.Time) (TreasureMove, error) {
 	var mv TreasureMove
 	view, err := treasureTx(aid, now, true, func(_ *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
@@ -767,6 +835,7 @@ func TreasureRollDice(aid string, now time.Time) (TreasureMove, error) {
 		treasureLand(r, d, &mv)
 		r.Position = mv.To
 		r.KeyPending = mv.Cell == TreasureCellGoldKey
+		r.TravelPending = mv.Cell == TreasureCellTravel
 		treasureProgress(r, d, "roll", 1)
 		if got := mv.Coins + mv.Bonus; got > 0 {
 			treasureProgress(r, d, "jewel", got)
@@ -826,6 +895,7 @@ func TreasureGoldKeyUse(aid string, now time.Time) (TreasureCardUse, error) {
 			r.Jewels += value
 		}
 		r.Position = mv.To
+		r.TravelPending = mv.Cell == TreasureCellTravel
 		use = TreasureCardUse{Card: card.Type, Value: value, Move: mv}
 		treasureProgress(r, d, "goldkey", 1)
 		if got := mv.Coins + mv.Bonus; got > 0 {
@@ -838,6 +908,25 @@ func TreasureGoldKeyUse(aid string, now time.Time) (TreasureCardUse, error) {
 	})
 	use.Move.View = view
 	return use, err
+}
+
+// TreasureTravel moves aid's token from the travel square it stands on to exchange square to (cs 9). It needs a travel
+// pending from the landing, a target that is an exchange square and not the square the token is on. Nothing is paid and
+// no lap is passed. Any other request is refused with ErrTreasureRefused and changes nothing.
+func TreasureTravel(aid string, to int, now time.Time) (TreasureMove, error) {
+	var mv TreasureMove
+	view, err := treasureTx(aid, now, true, func(_ *store.Account, r *store.TreasureRecord, d *TreasureData) ([]store.LedgerLine, error) {
+		if !r.TravelPending || d.Board.Ring[r.Position] != TreasureCellTravel || to == r.Position || to < 0 || to >= len(d.Board.Ring) ||
+			d.Board.Ring[to] != TreasureCellExchange {
+			return nil, ErrTreasureRefused
+		}
+		mv = TreasureMove{From: r.Position, To: to, Cell: TreasureCellExchange}
+		r.Position = to
+		r.TravelPending = false
+		return nil, nil
+	})
+	mv.View = view
+	return mv, err
 }
 
 // TreasureJewels is aid's saved jewel count (0 when the account has no board state).

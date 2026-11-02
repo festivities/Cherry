@@ -1,7 +1,10 @@
 package economy
 
 import (
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -78,7 +81,14 @@ func TestTreasureDataRefusals(t *testing.T) {
 		{"season length zero", func(d *TreasureData) { d.Season.Days = 0 }},
 		{"ring not in four sides", func(d *TreasureData) { d.Board.Ring = d.Board.Ring[:10] }},
 		{"ring not starting at the start line", func(d *TreasureData) { d.Board.Ring[0] = 1 }},
-		{"cell type not built yet", func(d *TreasureData) { d.Board.Ring[1] = 3 }},
+		{"cell type not built yet", func(d *TreasureData) { d.Board.Ring[1] = 6 }},
+		{"cell type 10 not built yet", func(d *TreasureData) { d.Board.Ring[1] = 10 }},
+		{"buff without items", func(d *TreasureData) { d.Buff.Items = nil }},
+		{"buff percent above 40", func(d *TreasureData) { d.Buff.Percent = 41 }},
+		{"special reward above 50", func(d *TreasureData) { d.Special.RewardTickets = 51 }},
+		{"minigame max bet zero", func(d *TreasureData) { d.MiniGame.MaxBet = 0 }},
+		{"minigame without multiples", func(d *TreasureData) { d.MiniGame.Multiples = nil }},
+		{"minigame multiple above 10", func(d *TreasureData) { d.MiniGame.Multiples = []int64{0, 11} }},
 		{"money unit for the bonus", func(d *TreasureData) { d.Rewards.Bonus.CoinUnit = "gem" }},
 		{"empty bonus unit", func(d *TreasureData) { d.Rewards.Bonus.CoinUnit = "" }},
 		{"coin range inverted", func(d *TreasureData) { d.Rewards.Coin = TreasureRange{Min: 3, Max: 1} }},
@@ -107,6 +117,159 @@ func TestTreasureDataRefusals(t *testing.T) {
 				t.Fatal("accepted")
 			}
 		})
+	}
+}
+
+// treasureProbeRing is a board with the slice 3 probe squares in reach of one another: 3 buff, 5 special mission, 8 travel,
+// 9 mini-game, and the exchange squares 2, 13 and 21 (the travel candidates from 8).
+var treasureProbeRing = []int{0, 1, 2, 3, 5, 8, 9, 1, 4, 1, 7, 1, 1, 2, 1, 1, 4, 1, 7, 1, 1, 2, 1, 1, 4, 1, 7, 1}
+
+// treasureRing loads the default treasure file with ring as its board and only square 2 as an exchange tile (the default tiles
+// name 8, 15 and 22, which a probe ring does not keep as exchange squares), as a temp operator file, for one test.
+func treasureRing(t *testing.T, ring []int) {
+	t.Helper()
+	doc := map[string]json.RawMessage{}
+	if err := json.Unmarshal(data.TreasureJSON, &doc); err != nil {
+		t.Fatal(err)
+	}
+	doc["board"], _ = json.Marshal(map[string][]int{"ring": ring})
+	var ex map[string]json.RawMessage
+	if err := json.Unmarshal(doc["exchange"], &ex); err != nil {
+		t.Fatal(err)
+	}
+	ex["tiles"], _ = json.Marshal([]map[string]int{{"square": 2, "times": 1}})
+	doc["exchange"], _ = json.Marshal(ex)
+	raw, _ := json.Marshal(doc)
+	path := filepath.Join(t.TempDir(), "treasure.json")
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := treasureFile.LoadFrom(path); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(treasureFile.Reset)
+}
+
+// TestTreasureProbeCellsValidation: the slice 3 squares 3, 5, 8 and 9 pass the ring check, so an operator file can place them.
+func TestTreasureProbeCellsValidation(t *testing.T) {
+	for _, c := range []int{3, 5, 8, 9} {
+		d, err := opdata.Decode[TreasureData](data.TreasureJSON, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		d.Board.Ring[1] = c
+		if err := checkTreasureData(d); err != nil {
+			t.Fatalf("ring square 1 of type %d refused: %v", c, err)
+		}
+	}
+}
+
+// TestTreasureBuffItemNeedsArt: the buff item is checked against the item archive when the file loads (verifyTreasure).
+func TestTreasureBuffItemNeedsArt(t *testing.T) {
+	d, err := opdata.Decode[TreasureData](data.TreasureJSON, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyTreasure(d); err != nil {
+		t.Fatalf("default buff item refused: %v", err)
+	}
+	for _, code := range []string{"CUAH008A9", "NOSUCHITEM"} { // no art in the archive; not an item at all
+		d.Buff.Items = []string{code}
+		if err := verifyTreasure(d); err == nil {
+			t.Fatalf("buff item %s accepted", code)
+		}
+	}
+}
+
+// TestTreasureTravelLanding: a roll onto a travel square pays nothing and leaves the travel pending; the next roll clears it.
+func TestTreasureTravelLanding(t *testing.T) {
+	treasureRing(t, treasureProbeRing)
+	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Tickets: 10, Charged: treasureNow.UnixMilli()})
+	treasureDie(t, 5)
+	mv, err := TreasureRollDice("1001", treasureNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mv.To != 5 || mv.Cell != TreasureCellTravel || mv.Coins != 0 || mv.Bonus != 0 || mv.View.Jewels != 0 {
+		t.Fatalf("roll onto square 5 = %+v, want a travel square with nothing paid", mv)
+	}
+	if rec, _ := store.TreasureRecordOf("1001"); !rec.TravelPending || rec.KeyPending {
+		t.Fatalf("travel not pending after the landing: %+v", rec)
+	}
+	treasureDie(t, 1)
+	if _, err := TreasureRollDice("1001", treasureNow); err != nil {
+		t.Fatal(err)
+	}
+	if rec, _ := store.TreasureRecordOf("1001"); rec.TravelPending || rec.Position != 6 {
+		t.Fatalf("a later roll left the travel pending or moved wrongly: %+v", rec)
+	}
+}
+
+// TestTreasureTravelMoves: a pending travel moves the token to an exchange square with no lap and no payment, and spends the
+// pending flag. The view lists the exchange squares that are full today.
+func TestTreasureTravelMoves(t *testing.T) {
+	treasureRing(t, treasureProbeRing)
+	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Position: 5, Tickets: 9, Charged: treasureNow.UnixMilli(),
+		Jewels: 4, TravelPending: true, ExDay: treasureDayNumber(treasureNow), Exchanged: map[string]int64{"13": 60}})
+	mv, err := TreasureTravel("1001", 13, treasureNow)
+	if err != nil || mv.From != 5 || mv.To != 13 || mv.Lap || mv.Cell != TreasureCellExchange || mv.View.Position != 13 ||
+		mv.View.Tickets != 9 || mv.View.Jewels != 4 {
+		t.Fatalf("travel to 13 = %+v, %v; want 5 to 13, no lap, 9 tickets, 4 jewels", mv, err)
+	}
+	if len(mv.View.ExchangeFull) != 1 || mv.View.ExchangeFull[0] != 13 {
+		t.Fatalf("full exchange squares = %v, want [13]", mv.View.ExchangeFull)
+	}
+	if rec, _ := store.TreasureRecordOf("1001"); rec.TravelPending || rec.Position != 13 {
+		t.Fatalf("saved board after the travel = %+v", rec)
+	}
+	if _, err := TreasureTravel("1001", 2, treasureNow); !errors.Is(err, ErrTreasureRefused) {
+		t.Fatalf("second travel on one square: %v", err)
+	}
+}
+
+// TestTreasureTravelRefusals: a travel is refused unless a travel is pending on a travel square and the target is another
+// exchange square; a refusal changes nothing.
+func TestTreasureTravelRefusals(t *testing.T) {
+	treasureRing(t, treasureProbeRing)
+	cases := []struct {
+		name    string
+		pos     int
+		pending bool
+		to      int
+	}{
+		{"no travel pending", 5, false, 2},
+		{"pending on a mini-game square", 6, true, 2},
+		{"target a coin square", 5, true, 1},
+		{"target the buff square", 5, true, 3},
+		{"target the square it stands on", 5, true, 5},
+		{"target below the ring", 5, true, -1},
+		{"target past the ring", 5, true, 28},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Position: c.pos, Tickets: 9, Charged: treasureNow.UnixMilli(),
+				TravelPending: c.pending})
+			if _, err := TreasureTravel("1001", c.to, treasureNow); !errors.Is(err, ErrTreasureRefused) {
+				t.Fatalf("travel to %d: %v, want refused", c.to, err)
+			}
+			if rec, _ := store.TreasureRecordOf("1001"); rec.Position != c.pos || rec.TravelPending != c.pending || rec.Tickets != 9 {
+				t.Fatalf("refused travel changed the board: %+v", rec)
+			}
+		})
+	}
+}
+
+// TestTreasureGoldKeyCardLandsOnTravel: a Mystery Card that ends on a travel square leaves the travel pending, as a roll does.
+func TestTreasureGoldKeyCardLandsOnTravel(t *testing.T) {
+	treasureRing(t, treasureProbeRing)
+	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Position: 2, Tickets: 10, Charged: treasureNow.UnixMilli(), KeyPending: true})
+	treasureRandSeq(t, 0, 2, 0) // type 1, 3 steps: 3 (buff), 4 (special mission), 5 (travel)
+	use, err := TreasureGoldKeyUse("1001", treasureNow)
+	if err != nil || use.Move.To != 5 || use.Move.Cell != TreasureCellTravel {
+		t.Fatalf("card = %+v, %v; want a walk to the travel square 5", use, err)
+	}
+	if rec, _ := store.TreasureRecordOf("1001"); !rec.TravelPending || rec.KeyPending || rec.Position != 5 {
+		t.Fatalf("saved board after the card = %+v", rec)
 	}
 }
 
