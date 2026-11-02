@@ -19,7 +19,8 @@ var (
 	treRankingRes   = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, msg: treMyRank}, 3: {wire: 2, rep: true, msg: treRankRow}, 4: {wire: 0}}
 	treRewardRow    = lpMsg{1: {wire: 0}, 3: {wire: 0}, 4: {wire: 2}, 5: {wire: 2}, 7: {wire: 2}, 9: {wire: 0}, 10: {wire: 0}, 11: {wire: 0}, 12: {wire: 2}}
 	treRewardList   = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, rep: true, msg: treRewardRow}}
-	treRewardInfo   = lpMsg{5: {wire: 2}}
+	treRewardItem   = lpMsg{1: {wire: 0}, 4: {wire: 0}}
+	treRewardInfo   = lpMsg{2: {wire: 2, rep: true, req: true, msg: treRewardItem}, 5: {wire: 2}}
 	treClaimRes     = lpMsg{1: {wire: 0, req: true}, 3: {wire: 2, msg: treRewardInfo}, 4: {wire: 0}}
 	treTierItem     = lpMsg{1: {wire: 0}, 2: {wire: 0}, 4: {wire: 2}, 6: {wire: 2}, 8: {wire: 0}, 9: {wire: 2}}
 	treTier         = lpMsg{1: {wire: 0}, 2: {wire: 0}, 3: {wire: 2, rep: true, msg: treTierItem}}

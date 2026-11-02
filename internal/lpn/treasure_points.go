@@ -64,8 +64,13 @@ func treasureMyRank(aid uint64) []byte {
 	return pbVar(b, 5, uint64(me.Grade.Type))
 }
 
-// treasureRewardInfo is a RewardInfo that carries only its message (the text the popup shows).
-func treasureRewardInfo(text string) []byte { return pbLen(nil, 5, []byte(text)) }
+// treasureRewardInfo is the RewardInfo of a claim: the text (f5) and one ItemList row {ViewType 10, ViewCount}. The
+// client creates its reward popup (MarbleCommonRewardGet) for every successful claim but draws it only with a non-empty
+// ItemList; an undrawn popup has no close button and swallows all input (freeze.md A, device 2026-11-02).
+func treasureRewardInfo(text string, count int64) []byte {
+	item := pbVar(pbVar(nil, 1, 10), 4, uint64(count))
+	return pbLen(pbLen(nil, 2, item), 5, []byte(text))
+}
 
 // pointChange answers cs_ranking_point_change_req (msgid 6): the picked Jewels become Ranking Points on the exchange square
 // under the token. The reply carries the points added (f2), the text (f3), the account's place (f4) and the square's counts
@@ -225,7 +230,7 @@ func (s *treasureSession) pointRewardClaim(frame, data []byte) error {
 		text += ", " + economy.ItemName(row.Item)
 	}
 	body := pbVar(nil, 1, 0)
-	body = pbLen(body, 3, treasureRewardInfo(text))
+	body = pbLen(body, 3, treasureRewardInfo(text, row.Gems))
 	body = pbVar(body, 4, uint64(row.ID))
 	s.logger.Printf("TREASURE msgid=14 point reward aid=%d id=%d gems=%d item=%s result=0", s.aid, row.ID, row.Gems, row.Item)
 	return s.reply(frame, treasureRcPointReward, body)
@@ -275,7 +280,7 @@ func (s *treasureSession) classRewardClaim(frame []byte) error {
 		return s.refuse(frame, treasureRcClassReward)
 	}
 	body := pbVar(nil, 1, 0)
-	body = pbLen(body, 2, treasureRewardInfo(fmt.Sprintf("%s: %d Gems", treasureRewardNoteMailbox, gems)))
+	body = pbLen(body, 2, treasureRewardInfo(fmt.Sprintf("%s: %d Gems", treasureRewardNoteMailbox, gems), gems))
 	s.logger.Printf("TREASURE msgid=15 rank reward aid=%d gems=%d result=0", s.aid, gems)
 	return s.reply(frame, treasureRcClassReward, body)
 }
