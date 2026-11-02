@@ -14,6 +14,7 @@ import (
 	"cherry/internal/itemcode"
 	"cherry/internal/opdata"
 	"cherry/internal/store"
+	"cherry/internal/thumbs"
 )
 
 // Treasure World (Blue Marble board game), one solo board per season: the board, tickets, the exchange of Jewels for
@@ -108,14 +109,16 @@ type TreasureData struct {
 	TicketCap    TreasureTicketCap     `json:"ticket_cap"`
 }
 
-// TreasureSeason is the season's id, its name, its first day ("2006-01-02", 06:00 JST), its length in days and whether the
-// next season follows it (Repeat: season n+1 starts when the rank claim days after season n end; see at).
+// TreasureSeason is the season's id, its name, its first day ("2006-01-02", 06:00 JST), its length in days, whether the
+// next season follows it (Repeat: season n+1 starts when the rank claim days after season n end; see at) and the body text
+// of the season-end popup (EndMessage, sc 1 f7 in the reward period).
 type TreasureSeason struct {
-	ID     int64  `json:"id"`
-	Name   string `json:"name"`
-	Start  string `json:"start"`
-	Days   int64  `json:"days"`
-	Repeat bool   `json:"repeat"`
+	ID         int64  `json:"id"`
+	Name       string `json:"name"`
+	Start      string `json:"start"`
+	Days       int64  `json:"days"`
+	Repeat     bool   `json:"repeat"`
+	EndMessage string `json:"end_message"`
 }
 
 // TreasureNames are the client's currency texts: the dice ticket, the coin and the ranking point.
@@ -223,10 +226,12 @@ type TreasureMiniGame struct {
 	Multiples []int64 `json:"multiples"`
 }
 
-// TreasureNPC is one portrait the season shows (its name and gender only; the portrait is the client's).
+// TreasureNPC is one portrait the season shows: its name, its sex and its outfit (item codes, sent as the AvatarInfo items; the
+// portrait itself is the client's).
 type TreasureNPC struct {
-	Name   string `json:"name"`
-	Gender string `json:"gender"`
+	Name   string   `json:"name"`
+	Gender string   `json:"gender"`
+	Items  []string `json:"items"`
 }
 
 // TreasureExchangeRules: Multiple is the Ranking Points one Jewel gives at 1x, Tiles the rate of each exchange square (a
@@ -336,15 +341,38 @@ func ActiveTreasureData() *TreasureData { return treasureFile.Get() }
 // board with the probe squares; a refused file leaves the active one unchanged.
 func TreasureLoadFrom(path string) error { return treasureFile.LoadFrom(path) }
 
-// verifyTreasure checks the buff gacha items against the item archive at startup: each is a sold item with art (itemAvailable),
-// the same test a shop listing uses.
+// verifyTreasure checks the item archive at startup, when there is one (artVerifiable): each buff gacha item is a sold item with
+// art (itemAvailable, the test a shop listing uses), and each portrait item has art in the store index.
 func verifyTreasure(t *TreasureData) error {
+	if !artVerifiable() {
+		return nil
+	}
 	for i, it := range t.Buff.Items {
 		if !itemAvailable(it.Code) {
 			return fmt.Errorf("buff.items[%d] %q is not a sold item with art", i, it.Code)
 		}
 	}
+	for i, npc := range t.NPCs {
+		for j, code := range npc.Items {
+			if !treasureNPCItemArt(code) {
+				return fmt.Errorf("npcs[%d].items[%d] %q has no art in the item archive", i, j, code)
+			}
+		}
+	}
 	return nil
+}
+
+// treasureNPCItemCode reports whether code is a canonical clothing or face item code (attribute C; itemcode.ID round-trips it).
+func treasureNPCItemCode(code string) bool {
+	_, ok := itemcode.ID(code)
+	return ok && code[0] == 'C'
+}
+
+// treasureNPCItemArt reports whether the store index has art for a portrait item: its folder is dress (clothes and accessories)
+// or custom (faces and hair).
+func treasureNPCItemArt(code string) bool {
+	n, ok := itemcode.ID(code)
+	return ok && (thumbs.HasArt("dress", n) || thumbs.HasArt("custom", n))
 }
 
 // TreasureRingSize is the client's board: 4 corners and 6 squares per side, square 0 the bottom-left corner.
@@ -444,6 +472,9 @@ func checkTreasureData(t *TreasureData) error {
 	if strings.TrimSpace(t.Season.Name) == "" {
 		return errors.New("season.name must not be empty")
 	}
+	if strings.TrimSpace(t.Season.EndMessage) == "" {
+		return errors.New("season.end_message must not be empty (the season-end popup body)")
+	}
 	if _, _, err := treasureSeasonWindow(t.Season); err != nil {
 		return err
 	}
@@ -500,6 +531,14 @@ func checkTreasureData(t *TreasureData) error {
 		}
 		if npc.Gender != "MALE" && npc.Gender != "FEMALE" {
 			return fmt.Errorf("npcs[%d].gender must be MALE or FEMALE", i)
+		}
+		for j, code := range npc.Items {
+			switch {
+			case !treasureNPCItemCode(code):
+				return fmt.Errorf("npcs[%d].items[%d] %q is not a clothing or face item code", i, j, code)
+			case itemcode.AnimalOnly(code): // a human portrait cannot wear an animal part (the species rule of internal/itemcode)
+				return fmt.Errorf("npcs[%d].items[%d] %q is an animal part; a human portrait cannot wear it", i, j, code)
+			}
 		}
 	}
 	return checkTreasureRules(t)

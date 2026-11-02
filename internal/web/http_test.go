@@ -9,11 +9,13 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"cherry/internal/httpx"
@@ -544,12 +546,26 @@ func serveRequest(t *testing.T, req *http.Request) *httptest.ResponseRecorder {
 	return rec
 }
 
+// guestSeq gives each guestGenerate call its own device, so tests keep getting fresh accounts.
+var guestSeq atomic.Uint64
+
+// guestRequest is a guest login as the client sends it: uniqueCode body and the md5 header.
+func guestRequest(code string) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, "/v4/account/guest/generate", strings.NewReader(`{"uniqueCode":"`+code+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	sum := md5.Sum([]byte(code + guestSecret))
+	req.Header.Set("X-LINEPLAY-ACNT", hex.EncodeToString(sum[:]))
+	return req
+}
+
 func guestGenerate(t *testing.T) string {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/v4/account/guest/generate", strings.NewReader(`{"uniqueCode":"00000000-0000-0000-0000-000000000000"}`))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-LINEPLAY-ACNT", "test")
-	rec := serveRequest(t, req)
+	return guestGenerateCode(t, fmt.Sprintf("00000000-0000-0000-0000-%012d", guestSeq.Add(1)))
+}
+
+func guestGenerateCode(t *testing.T, code string) string {
+	t.Helper()
+	rec := serveRequest(t, guestRequest(code))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("generate: status = %d, want 200, body = %q", rec.Code, rec.Body.String())
 	}
@@ -844,7 +860,7 @@ func TestAccountStoreFailureDoesNotIssueCookie(t *testing.T) {
 	if err := os.WriteFile(parent, []byte("not a directory"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	rec := serve(t, http.MethodPost, "/v4/account/guest/generate")
+	rec := serveRequest(t, guestRequest("00000000-0000-0000-0000-00000000fa11"))
 	if rec.Code != http.StatusInternalServerError || rec.Header().Get("Set-Cookie") != "" {
 		t.Fatalf("failed save returned credential: %d", rec.Code)
 	}

@@ -38,10 +38,9 @@ func treasureAccount(t *testing.T, aid string) (int64, []store.MailRow) {
 // treasureDayNumber is the game day of the test clock (the same rule as treasureDay, written out).
 func treasureDayNumber(t time.Time) int64 { return (t.Unix() + 3*3600) / 86400 }
 
-// TestTreasureItemCodes: the three season dress items convert to their item codes (internal/itemcode) and round-trip. Two
-// have art Cherry can serve and grant; the third (225410737) has parts only in the lpbackup tree, which thumbs does not
-// read, so it is not granted and no point reward uses it (data/treasure.json note). This test fails when that changes, so
-// the reward table is reviewed then.
+// TestTreasureItemCodes: the three season dress items convert to their item codes (internal/itemcode) and round-trip. With the
+// store index each has dress art (thumbs.HasArt) and is grantable, and every item the data pays is one of them. This test
+// fails when a code loses its art, so the reward table is reviewed then.
 func TestTreasureItemCodes(t *testing.T) {
 	want := map[int64]string{225408332: "CUAH006FG", 225304426: "CUSH003EY", 225410737: "CUAH008A9"}
 	for id, code := range want {
@@ -51,23 +50,74 @@ func TestTreasureItemCodes(t *testing.T) {
 		if n, ok := itemcode.ID(code); !ok || n != id {
 			t.Fatalf("ID(%s) = %d %v, want %d", code, n, ok, id)
 		}
-	}
-	for _, code := range []string{"CUAH006FG", "CUSH003EY"} {
+		if !thumbs.HasArt("dress", id) {
+			t.Fatalf("season item %s (%d) has no dress art in the store index", code, id)
+		}
 		if !itemAvailable(code) {
 			t.Fatalf("season item %s has no art to grant", code)
 		}
 	}
-	if itemAvailable("CUAH008A9") {
-		t.Fatal("CUAH008A9 is grantable now: add it back to point reward 4 in data/treasure.json and update this test")
-	}
-	for _, p := range ActiveTreasureData().PointRewards {
+	d := ActiveTreasureData()
+	for _, p := range d.PointRewards {
 		if p.Item != "" && !itemAvailable(p.Item) {
 			t.Fatalf("point reward %d pays item %s, which is not available", p.ID, p.Item)
 		}
 	}
+	if err := verifyTreasure(d); err != nil {
+		t.Fatalf("the shipped buff items are refused: %v", err)
+	}
+	if d.Exchange.Multiple != 10 || len(d.PointRewards) != 4 || len(d.Quests.Pool) != 8 || len(d.Buff.Items) != 3 {
+		t.Fatalf("defaults: exchange %+v, %d point rewards, %d quests, %d buff items", d.Exchange, len(d.PointRewards), len(d.Quests.Pool), len(d.Buff.Items))
+	}
+}
+
+// TestTreasureMissionTypesCount: the type 3 (secret quest) and type 4 (Mystery Card) missions of the shipped pool count the
+// board's own events: a Mystery Card use (cs 10) counts the goldkey kind, a secret quest claim (cs 25) the secret kind, and a
+// roll counts neither.
+func TestTreasureMissionTypesCount(t *testing.T) {
 	d := ActiveTreasureData()
-	if d.Exchange.Multiple != 10 || len(d.PointRewards) != 4 || len(d.Quests.Pool) != 8 {
-		t.Fatalf("defaults: exchange %+v, %d point rewards, %d quests", d.Exchange, len(d.PointRewards), len(d.Quests.Pool))
+	secret, gold := int64(-1), int64(-1)
+	for i, task := range d.Missions.Pool {
+		if task.Kind == "secret" && task.Type == 3 && secret < 0 {
+			secret = int64(i)
+		}
+		if task.Kind == "goldkey" && task.Type == 4 && gold < 0 {
+			gold = int64(i)
+		}
+	}
+	if secret < 0 || gold < 0 {
+		t.Fatalf("the shipped pool has no type 3 secret or type 4 goldkey mission (%d, %d)", secret, gold)
+	}
+	slots := []store.TreasureSlot{{Task: gold}, {Task: secret}}
+	treasureRing(t, treasureProbeRing)
+	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Position: 2, Tickets: 10, Charged: treasureNow.UnixMilli(),
+		Missions: store.TreasureList{Set: 1, Slots: slots}})
+	treasureDie(t, 1) // a roll: nothing for these two missions
+	if _, err := TreasureRollDice("1001", treasureNow); err != nil {
+		t.Fatal(err)
+	}
+	if rec, _ := store.TreasureRecordOf("1001"); rec.Missions.Slots[0].Count != 0 || rec.Missions.Slots[1].Count != 0 {
+		t.Fatalf("a roll counted a goldkey or secret mission: %+v", rec.Missions.Slots)
+	}
+
+	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Position: 2, Tickets: 10, Charged: treasureNow.UnixMilli(),
+		KeyPending: true, Missions: store.TreasureList{Set: 1, Slots: slots}})
+	treasureRandSeq(t, 0, 2, 0) // a Mystery Card: type 1, 3 steps (the same card as TestTreasureGoldKeyCardLandsOnTravel)
+	if _, err := TreasureGoldKeyUse("1001", treasureNow); err != nil {
+		t.Fatal(err)
+	}
+	if rec, _ := store.TreasureRecordOf("1001"); rec.Missions.Slots[0].Count != 1 || rec.Missions.Slots[1].Count != 0 {
+		t.Fatalf("a Mystery Card use (cs 10) counted %+v, want goldkey 1 and secret 0", rec.Missions.Slots)
+	}
+
+	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Position: 4, Tickets: 10, Charged: treasureNow.UnixMilli(),
+		Secret: &store.TreasureSecret{Square: 4, Goal: 1, Count: 1, Enabled: true, Done: true}, Missions: store.TreasureList{Set: 1, Slots: slots}})
+	paid, _, err := TreasureSecretClaim("1001", treasureNow)
+	if err != nil || paid != d.Special.RewardTickets {
+		t.Fatalf("secret quest claim = %d, %v", paid, err)
+	}
+	if rec, _ := store.TreasureRecordOf("1001"); rec.Missions.Slots[0].Count != 0 || rec.Missions.Slots[1].Count != 1 {
+		t.Fatalf("a secret quest claim (cs 25) counted %+v, want goldkey 0 and secret 1", rec.Missions.Slots)
 	}
 }
 
@@ -472,6 +522,8 @@ func TestTreasureRulesRefusals(t *testing.T) {
 		{"quest without text", func(d *TreasureData) { d.Quests.Pool[0].Text = "" }},
 		{"mission reward zero", func(d *TreasureData) { d.Missions.Pool[0].Reward = 0 }},
 		{"mission picture 6", func(d *TreasureData) { d.Missions.Pool[0].Type = 6 }},
+		{"mission kind unknown", func(d *TreasureData) { d.Missions.Pool[8].Kind = "trap" }},
+		{"season end message blank", func(d *TreasureData) { d.Season.EndMessage = "  " }},
 		{"set larger than the pool", func(d *TreasureData) { d.Missions.SetSize = 6 }},
 		{"last grade not the rest", func(d *TreasureData) { d.Ranking.Grades[3].MaxRank = 10 }},
 		{"grades out of order", func(d *TreasureData) { d.Ranking.Grades[1].MaxRank = 1 }},

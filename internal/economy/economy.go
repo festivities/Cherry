@@ -260,6 +260,45 @@ func handleVoucherPurchase(w http.ResponseWriter, r *http.Request) {
 
 const adminAddr = "127.0.0.1:8099"
 
+// POST /admin/guestcode binds a device's guest uniqueCode (its UUID, from the device's "Start as Guest") to
+// an existing account, so that device's next guest login returns that account. A code another account
+// holds is refused with 409; aid "0" (no avatar yet) is refused because it names no single account.
+//
+//	curl -X POST http://127.0.0.1:8099/admin/guestcode -d "{\"aid\":\"1002\",\"uniqueCode\":\"<device uuid>\"}"
+func handleAdminGuestCode(w http.ResponseWriter, r *http.Request) {
+	if !adminLoopback(r) {
+		httpx.ServeNotFound(w)
+		return
+	}
+	var req struct {
+		Aid        string `json:"aid"`
+		UniqueCode string `json:"uniqueCode"`
+	}
+	if !readAdminJSON(r, &req) || !store.ValidGuestCode(req.UniqueCode) {
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
+	store.AccountsMu.Lock()
+	defer store.AccountsMu.Unlock()
+	acc := store.AccountByAidLocked(req.Aid)
+	if acc == nil || acc.Aid == "0" {
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
+	if holder := store.GuestAccountLocked(req.UniqueCode); holder != nil && holder != acc {
+		httpx.WriteJSON(w, http.StatusConflict, `{"errorCode":"409","errorMessage":"cherry: guest code held by another account"}`)
+		return
+	}
+	prev := acc.GuestCode
+	acc.GuestCode = req.UniqueCode
+	if err := store.SaveAccountsLocked(); err != nil {
+		acc.GuestCode = prev
+		httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
+		return
+	}
+	httpx.WriteObj(w, map[string]any{"aid": acc.Aid, "bound": true})
+}
+
 // NewAdminMux serves the staff tool; it is bound to loopback only and never mounted on
 // the public mux. Example (deltas may be negative; balances never go below 0):
 //
@@ -277,6 +316,7 @@ func NewAdminMux() *http.ServeMux {
 	mux.HandleFunc("/admin/attend", handleAdminAttend)
 	mux.HandleFunc("/admin/season", handleAdminSeason)
 	mux.HandleFunc("/admin/garden", handleAdminGarden)
+	mux.HandleFunc("/admin/guestcode", handleAdminGuestCode)
 	return mux
 }
 

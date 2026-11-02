@@ -5,12 +5,14 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"cherry/data"
 	"cherry/internal/opdata"
 	"cherry/internal/store"
+	"cherry/internal/testutil"
 )
 
 // treasureNow is 2026-11-10 12:00 JST, inside the default season (2026-11-01 06:00 JST for 28 days).
@@ -178,13 +180,17 @@ func TestTreasureBuffItemNeedsArt(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := verifyTreasure(d); err != nil {
-		t.Fatalf("default buff item refused: %v", err)
+		t.Fatalf("default buff items refused with the default archive: %v", err)
 	}
-	for _, code := range []string{"CUAH008A9", "NOSUCHITEM"} { // no art in the archive; not an item at all
-		d.Buff.Items = []TreasureBuffItem{{Code: code, Percent: 10}}
-		if err := verifyTreasure(d); err == nil {
-			t.Fatalf("buff item %s accepted", code)
-		}
+	d.Buff.Items = []TreasureBuffItem{{Code: "NOSUCHITEM", Percent: 10}} // not an item at all
+	if err := verifyTreasure(d); err == nil {
+		t.Fatal("buff item NOSUCHITEM accepted")
+	}
+	// The Mar dress has its art only in the lpbackup tree: with the santi root alone it is refused.
+	testutil.SetArchive(t, testutil.ArchiveMounts(testutil.SantiItems()))
+	d, _ = opdata.Decode[TreasureData](data.TreasureJSON, nil)
+	if err := verifyTreasure(d); err == nil || !strings.Contains(err.Error(), "CUAH008A9") {
+		t.Fatalf("buff pool without the lpbackup root: %v, want CUAH008A9 refused", err)
 	}
 }
 

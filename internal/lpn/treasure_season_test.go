@@ -115,6 +115,9 @@ func TestTreasureRewardPeriodOverTheGateway(t *testing.T) {
 	if cirVar(enter, 2) != treasureSeasonEnded || len(cirList(enter, 4)) != 0 || cirVar(enter, 5) != 0 {
 		t.Fatalf("reward period enter = %x, want status 2, no ring", enter)
 	}
+	if msg := string(cirBytes(enter, 7)); msg == "" || msg != economy.ActiveTreasureData().Season.EndMessage {
+		t.Fatalf("reward period Message (f7) = %q, want the season end text", msg)
+	}
 	if season := cirBytes(enter, 3); cirVar(season, 24) != uint64(cyc.End.Unix()) {
 		t.Fatalf("reward period SeasonEndDate = %d, want %d (seconds)", cirVar(season, 24), cyc.End.Unix())
 	}

@@ -5,6 +5,7 @@ package web
 import (
 	"compress/gzip"
 	"crypto/md5"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -604,17 +605,40 @@ func handleSplash(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, splashSkipBody)
 }
 
+// guestSecret keys the guest header (AGENTS Auth): X-LINEPLAY-ACNT = md5hex(uniqueCode + guestSecret).
+const guestSecret = "vocky7dkd722i1u8ak84o"
+
+// handleGuestGenerate: a device's uniqueCode is its UUID, so a device that lost its login gets its own
+// account back (store.GuestLogin). A body or header that does not check out is refused with 400.
 func handleGuestGenerate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		httpx.ServeNotFound(w)
 		return
 	}
-	acc, err := store.NewAccount()
+	var req struct {
+		UniqueCode string `json:"uniqueCode"`
+	}
+	raw, err := httpx.ReadNativeBody(r)
+	if err == nil {
+		_, err = httpx.UnmarshalNativeJSON(raw, &req)
+	}
+	if err != nil || !store.ValidGuestCode(req.UniqueCode) || !guestHeaderOK(r, req.UniqueCode) {
+		log.Printf("cherry: guest generate refused")
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
+	token, err := store.GuestLogin(req.UniqueCode)
 	if err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, `{"result":{"provider":"lineplay","accessToken":"`+acc.AccessToken+`"}}`)
+	httpx.WriteJSON(w, http.StatusOK, `{"result":{"provider":"lineplay","accessToken":"`+token+`"}}`)
+}
+
+func guestHeaderOK(r *http.Request, uniqueCode string) bool {
+	sum := md5.Sum([]byte(uniqueCode + guestSecret))
+	want := hex.EncodeToString(sum[:])
+	return subtle.ConstantTimeCompare([]byte(r.Header.Get("X-LINEPLAY-ACNT")), []byte(want)) == 1
 }
 
 func handleCreateSession(w http.ResponseWriter, r *http.Request) {

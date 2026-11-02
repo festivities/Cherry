@@ -126,6 +126,7 @@ type Account struct {
 	Dyes           map[string]int        // dye items owned by item number (economy/dye.go); replaced, never edited in place
 	DyeColors      map[string][]DyeColor // colours of dyed garments by item code (economy/dye.go); replaced, never edited in place
 	LuckySpinDay   int64                 // game day (economy.AttendDayKey) of the last free Lucky Spin (economy/spin.go); 0 = none
+	GuestCode      string                // device uniqueCode bound by the guest login (GuestLogin); "" = none
 }
 
 // FishingGear is the Square fishing gear an account bought (economy/fishing_shop.go): the item IDs
@@ -186,24 +187,92 @@ var (
 )
 
 func NewAccount() (*Account, error) {
+	AccountsMu.Lock()
+	defer AccountsMu.Unlock()
+	return newAccountLocked("")
+}
+
+// newAccountLocked creates an account bound to guestCode ("" = none); caller holds AccountsMu.
+func newAccountLocked(guestCode string) (*Account, error) {
 	acc := &Account{
 		AccessToken:  RandomToken(32),
 		SessionKey:   RandomToken(32),
 		Mid:          "1",
 		AvatarUserID: "3001",
 		Aid:          "0",
+		GuestCode:    guestCode,
 	}
-	AccountsMu.Lock()
 	Accounts[acc.AccessToken] = acc
 	previous := LatestAcc
 	LatestAcc = acc
-	err := SaveAccountsLocked()
-	if err != nil {
+	if err := SaveAccountsLocked(); err != nil {
 		delete(Accounts, acc.AccessToken)
 		LatestAcc = previous
+		return nil, err
 	}
-	AccountsMu.Unlock()
-	return acc, err
+	return acc, nil
+}
+
+// maxGuestCode bounds a device uniqueCode; the device UUID is 36 characters.
+const maxGuestCode = 64
+
+// ValidGuestCode reports whether code has the shape of a device uniqueCode: 1 to 64 ASCII letters, digits or dashes.
+func ValidGuestCode(code string) bool {
+	if code == "" || len(code) > maxGuestCode {
+		return false
+	}
+	for i := 0; i < len(code); i++ {
+		c := code[i]
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+// GuestAccountLocked returns the account bound to a device uniqueCode, or nil. A deleted account has
+// left Accounts (deleteAccount), so it is never returned. Caller holds AccountsMu.
+// ponytail: linear scan; index by guest code if the account table grows.
+func GuestAccountLocked(code string) *Account {
+	if code == "" {
+		return nil
+	}
+	for _, acc := range Accounts {
+		if acc.GuestCode == code {
+			return acc
+		}
+	}
+	return nil
+}
+
+// GuestLogin serves POST /v4/account/guest/generate for a validated device uniqueCode. The device's
+// account gets a new access token alias (the credential createSession reads as cc); a device without
+// one gets a new account bound to its code. A failed save leaves no alias or account behind.
+func GuestLogin(code string) (string, error) {
+	AccountsMu.Lock()
+	defer AccountsMu.Unlock()
+	acc := GuestAccountLocked(code)
+	if acc == nil {
+		created, err := newAccountLocked(code)
+		if err != nil {
+			return "", err
+		}
+		return created.AccessToken, nil
+	}
+	if Accounts[acc.AccessToken] == acc { // the account's own access token: the shape the client got at its first guest login
+		LatestAcc = acc
+		return acc.AccessToken, nil
+	}
+	token := RandomToken(256)
+	Accounts[token] = acc
+	previous := LatestAcc
+	LatestAcc = acc
+	if err := SaveAccountsLocked(); err != nil {
+		delete(Accounts, token)
+		LatestAcc = previous
+		return "", err
+	}
+	return token, nil
 }
 
 func RandomToken(n int) string {

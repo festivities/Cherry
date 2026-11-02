@@ -68,15 +68,23 @@ func ArchiveFound() bool {
 	return err == nil
 }
 
-// SantiItems is the santi device backup's item folder, the item root the tests always read by default.
+// SantiItems is the santi device backup's item folder.
 func SantiItems() string { return filepath.Join(santiFiles, "item") }
 
-// ArchiveMounts maps the original keys to the device backups: the item folders are santi's unless items are given (then
-// exactly those, in order, for a fixture); every other key reads santi, then lpbackup, as the uploader orders them. The
-// lpbackup-only items are not in the tests' item root, as before the store (they are live in R2).
+// LPBackupItems is the lpbackup device backup's item folder: the items production R2 holds beside santi's (the Treasure
+// World dress CUAH008A9 has its art only here).
+func LPBackupItems() string { return filepath.Join(lpFiles, "item") }
+
+// ArchiveMounts maps the original keys to the device backups, as production R2 holds them. The item folders are given
+// (exactly those, in order, for a fixture) or, by default, santi's then lpbackup's, the order the uploader reads them
+// (the first folder holding a file wins). lpbackup is left out when it is absent; every other key reads santi, then
+// lpbackup.
 func ArchiveMounts(items ...string) map[string][]string {
 	if len(items) == 0 {
 		items = []string{SantiItems()}
+		if _, err := os.Stat(LPBackupItems()); err == nil {
+			items = append(items, LPBackupItems())
+		}
 	}
 	craft := filepath.Join(santiFiles, "item", "craftitem")
 	return map[string][]string{

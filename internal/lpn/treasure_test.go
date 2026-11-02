@@ -25,7 +25,7 @@ import (
 // required fields fail). Field numbers are treasure-spec 9.1, transport-money 2.3 and 2.4, cells 6.1 to 6.7.
 var (
 	treCell   = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 0, req: true}, 4: {wire: 2, req: true}}
-	treNPC    = lpMsg{2: {wire: 2}, 3: {wire: 0}, 9: {wire: 2}}
+	treNPC    = lpMsg{2: {wire: 2}, 3: {wire: 0}, 9: {wire: 2}, 15: {wire: 2, rep: true, msg: treAvItem}}
 	treSeason = lpMsg{
 		1: {wire: 2, req: true}, 2: {wire: 2, req: true}, 3: {wire: 2, req: true}, 4: {wire: 2, req: true}, 5: {wire: 2, req: true},
 		6: {wire: 2, req: true}, 7: {wire: 0, req: true}, 8: {wire: 2, req: true}, 9: {wire: 2, req: true}, 10: {wire: 2, req: true},
@@ -36,8 +36,8 @@ var (
 	}
 	treEnter = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 2, req: true, msg: treSeason}, 4: {wire: 2, rep: true, msg: treCell}, 5: {wire: 0, req: true}}
 	// treEnterEnded is sc_room_enter_res with SeasonStatus 2: no ring, the one NPC portrait (AvatarInfo f6).
-	treEnterEnded = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 2, req: true, msg: treSeason}, 5: {wire: 0, req: true}, 6: {wire: 2, msg: treNPC}}
-	treOwn        = lpMsg{1: {wire: 0}, 2: {wire: 2}, 3: {wire: 0}, 9: {wire: 2}}
+	treEnterEnded = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 2, req: true, msg: treSeason}, 5: {wire: 0, req: true}, 6: {wire: 2, msg: treNPC}, 7: {wire: 2}}
+	treOwn        = lpMsg{1: {wire: 0}, 2: {wire: 2}, 3: {wire: 0}, 9: {wire: 2}, 15: {wire: 2, rep: true, msg: treAvItem}}
 	treRelay      = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 0, req: true}, 4: {wire: 0, req: true}, 5: {wire: 0, req: true}, 6: {wire: 0, req: true}, 7: {wire: 0}, 8: {wire: 2, msg: treOwn}, 9: {wire: 2, req: true, msg: treCell}, 10: {wire: 2, msg: treDetail}, 11: {wire: 2, msg: treMyRank}}
 	treItem       = lpMsg{1: {wire: 0}, 2: {wire: 2}, 3: {wire: 2}, 4: {wire: 0}}
 	treReward     = lpMsg{1: {wire: 0}, 2: {wire: 2, rep: true, msg: treItem}, 5: {wire: 2}}

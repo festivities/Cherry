@@ -98,7 +98,7 @@ func TestTreasureBuffPercentCap(t *testing.T) {
 	if got := treasureBuffPercent(both, ActiveTreasureData()); got != 20 {
 		t.Fatalf("both worn under a cap of 20 = %d%%, want 20", got)
 	}
-	if got := treasureBuffPercent(&store.Account{InventoryCodes: []string{"CUAH008A9"}, ItemCodes: []string{"CUAH008A9"}}, d); got != 0 {
+	if got := treasureBuffPercent(&store.Account{InventoryCodes: []string{"CUTO0006W"}, ItemCodes: []string{"CUTO0006W"}}, d); got != 0 {
 		t.Fatalf("an item outside the pool adds %d%%", got)
 	}
 	if got := treasureBuffPercent(&store.Account{InventoryCodes: []string{"CUSH003EY"}, ItemCodes: []string{"CUAH006FG"}}, d); got != 0 {
@@ -174,10 +174,14 @@ func TestTreasureBuffLandingPicksUnowned(t *testing.T) {
 		t.Fatalf("owning the first = %+v, want the one not owned, NEW", got)
 	}
 	treasureOwner(t, "1001", "CUAH006FG", "CUSH003EY")
-	if got := land(t, "1001", 0); got.Code != "CUAH006FG" || got.State != "INVEN" {
-		t.Fatalf("owning both = %+v, want the first, INVEN", got)
+	if got := land(t, "1001", 0); got.Code != "CUAH008A9" || got.Percent != 20 || got.State != "NEW" {
+		t.Fatalf("owning two = %+v, want the one not owned, CUAH008A9 at 20 percent, NEW", got)
 	}
-	treasureWearer(t, "1001", []string{"CUAH006FG", "CUSH003EY"}, []string{"CUAH006FG"})
+	treasureOwner(t, "1001", "CUAH006FG", "CUSH003EY", "CUAH008A9")
+	if got := land(t, "1001", 0); got.Code != "CUAH006FG" || got.State != "INVEN" {
+		t.Fatalf("owning all = %+v, want the first, INVEN", got)
+	}
+	treasureWearer(t, "1001", []string{"CUAH006FG", "CUSH003EY", "CUAH008A9"}, []string{"CUAH006FG"})
 	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Position: 2, Tickets: 10, Charged: treasureNow.UnixMilli()})
 	treasureDie(t, 1)
 	mv, err := TreasureRollDice("1001", treasureNow)

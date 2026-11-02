@@ -276,8 +276,8 @@ func (s *treasureSession) enter(frame []byte) error {
 }
 
 // treasureEnterBody is sc_room_enter_res: Result 0, SeasonStatus, SeasonInfo and the TutorialComplete flag. Status 1 adds the
-// ring (CellInfoList). Status 2 adds the one NPC portrait (AvatarInfo f6, the end popup's picture) and no ring. The Message
-// (f7, the end popup's body text) is left out: it would be Cherry-made text with no data entry for it.
+// ring (CellInfoList). Status 2 adds the one NPC portrait (AvatarInfo f6, the end popup's picture), the end popup's body
+// text (Message f7, string: season.end_message) and no ring.
 func treasureEnterBody(d *economy.TreasureData, cyc economy.TreasureCycle, status uint64, view economy.TreasureView) []byte {
 	body := pbVar(nil, 1, 0)
 	body = pbVar(body, 2, status)
@@ -288,6 +288,7 @@ func treasureEnterBody(d *economy.TreasureData, cyc economy.TreasureCycle, statu
 		}
 	} else {
 		body = pbLen(body, 6, treasureAvatar(d.NPCs[0]))
+		body = pbLen(body, 7, []byte(d.Season.EndMessage))
 	}
 	return pbVar(body, 5, boolUint(view.Tutorial))
 }
@@ -332,15 +333,16 @@ func treasureSeasonInfo(d *economy.TreasureData, cyc economy.TreasureCycle) []by
 	return b
 }
 
-// treasureAvatar is an NPC portrait: a name, a sex and a skin, no items (the portrait is the client's to draw).
+// treasureAvatar is an NPC portrait: a name, a sex, a skin and the outfit (the data's items, no dye).
 func treasureAvatar(npc economy.TreasureNPC) []byte {
 	b := pbLen(nil, 2, []byte(npc.Name))
 	b = pbVar(b, 3, squareSex(npc.Gender))
-	return pbLen(b, 9, []byte("1"))
+	b = pbLen(b, 9, []byte("1"))
+	return treasureItems(b, npc.Items, nil)
 }
 
-// treasureOwnAvatar is the caller's own avatar in the relay reply: id, name, sex and skin. No items are sent: the
-// MONOPOLY AvatarItemInfo layout is not decoded yet, so the token is drawn without the wardrobe [I, device check].
+// treasureOwnAvatar is the caller's own avatar in the relay reply: id, name, sex, skin and the equipped items with their dyes.
+// The codes are the account's appearance (store.AccountByAvatarID: the base items fill the empty slots).
 func treasureOwnAvatar(aid uint64) []byte {
 	acc, ok := store.AccountByAvatarID(strconv.FormatUint(aid, 10))
 	if !ok {
@@ -353,7 +355,37 @@ func treasureOwnAvatar(aid uint64) []byte {
 	b := pbVar(nil, 1, aid)
 	b = pbLen(b, 2, []byte(acc.Name))
 	b = pbVar(b, 3, squareSex(acc.Gender))
-	return pbLen(b, 9, []byte(skin))
+	b = pbLen(b, 9, []byte(skin))
+	return treasureItems(b, acc.ItemCodes, acc.DyeColors)
+}
+
+// treasureItems adds one AvatarInfo f15 (MONOPOLY::ItemInfo) per code the client can draw: a canonical clothing code, as
+// SquareNumericItem reads it. dyes maps a code to its colours; a dyed garment gets its dye (treasureDye).
+func treasureItems(b []byte, codes []string, dyes map[string][]store.DyeColor) []byte {
+	for _, code := range codes {
+		n, ok := SquareNumericItem(code)
+		if !ok {
+			continue
+		}
+		item := pbVar(nil, 1, n)
+		if colors, dyed := dyes[code]; dyed {
+			item = treasureDye(item, colors)
+		}
+		b = pbLen(b, 15, item)
+	}
+	return b
+}
+
+// treasureDye adds a dyed garment's dye to its ItemInfo (avatar-items-spec 1.2 and 1.3): dye type f3 (2, two layers) and
+// ColorAndTransparencies f5 {colorCode f1, transparency f2}, layer 0 first. Field 4 is InvenSeq in this message, so it is not used.
+func treasureDye(item []byte, colors []store.DyeColor) []byte {
+	item = pbVar(item, 3, store.DyeTypeTwoLayers)
+	for _, c := range store.DyeLayers(colors) {
+		layer := pbLen(nil, 1, []byte(c.ColorCode))
+		layer = pbVar(layer, 2, uint64(c.Transparency))
+		item = pbLen(item, 5, layer)
+	}
+	return item
 }
 
 // treasureCellInfo is CellInfo: position, id (the position: one id per square [I]), type and the facing side.
