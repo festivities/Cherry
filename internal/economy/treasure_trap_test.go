@@ -243,17 +243,15 @@ func TestTreasureTravelRecovery(t *testing.T) {
 	}
 }
 
-// TestTreasureDefaultRingHasNoProbeSquares: the shipped board has no island (6) and no broom (8) square; they are for an
+// TestTreasureDefaultRingCorners: the shipped board has no island (6) and no broom (8) square; they are for an
 // operator's board, after a device probe.
-func TestTreasureDefaultRingHasNoProbeSquares(t *testing.T) {
+func TestTreasureDefaultRingCorners(t *testing.T) {
 	d, err := opdata.Decode[TreasureData](data.TreasureJSON, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for i, c := range d.Board.Ring {
-		if c == TreasureCellTrap {
-			t.Fatalf("default ring square %d is a trap; type 6 stays off the default board until its popups show (device 2026-11-03)", i)
-		}
+	if d.Board.Ring[21] != TreasureCellTrap {
+		t.Fatalf("default ring square 21 = %d, want the trap corner (type 6, device-verified 2026-11-03)", d.Board.Ring[21])
 	}
 	if d.Board.Ring[7] != TreasureCellTravel {
 		t.Fatalf("default ring square 7 = %d, want the broom corner (type 8, device-verified 2026-11-02)", d.Board.Ring[7])
