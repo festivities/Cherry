@@ -113,7 +113,7 @@ const (
 	circleRcQuestList      = 52
 	circleRcQuestReward    = 53
 	circleRcPetRide        = 54
-	circleQuestNextResult  = 720897 // sc_quest_list_res Result with no mission left: "The next mission's now underway" (arts 5453) [S], then the popup closes
+	circleQuestNextResult  = 720897 // sc_quest_list_res Result with no mission left: box "The next mission's now underway. Stay tuned!" (arts 5453, OK) instead of the popup (device 2026-11-07)
 	circleQuestTypeStage   = 2      // SubQuestInfo Type of "Clear Stage %s for Circle points!" (arts 5485): SetCellLayer case 2 [S]
 )
 
@@ -853,7 +853,7 @@ func (s *circleSession) pointReward(frame, data []byte) error {
 }
 
 // questList answers cs_quest_list_req (msgid 34) with sc_quest_list_res (52): the member's current mission as one QuestInfo,
-// or Result 720897 with no Info once every mission is claimed (the client shows arts 5453 and closes the popup). A player
+// or Result 720897 with no Info once every mission is claimed (the client shows the arts 5453 box with OK instead of the mission popup; device 2026-11-07). A player
 // in no circle is refused.
 func (s *circleSession) questList(frame []byte) error {
 	if _, _, ok := economy.CircleOf(s.aidText()); !ok {
