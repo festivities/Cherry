@@ -34,6 +34,7 @@ type calSchedule struct {
 	Cycle      [7]calDay
 	Limited    []string         // limited shop items, on sale only inside Start..End (limitedSale)
 	Popup      *seasonPopupJSON // the season's image popup (popup.go), nil when it has none
+	Icon       *seasonIconJSON  // the season's Garden floating icon (homeicon.go), nil when it has none
 }
 
 // Calendars is data/calendars.json: the normal 7-day login calendar and the seasonal calendars that
@@ -48,6 +49,7 @@ type calSchedule struct {
 //	                  dates, each in one season only; a limited item is still obtainable from the
 //	                  gacha, mail and calendar grants.
 //	popup?            the season's image popup, shown once per cookie_hours while the season is in force (popup.go)
+//	icon?             the season's Garden floating icon, shown while the season is in force (homeicon.go)
 //	cycle row         {gems, cash, tickets, item}: the day pays gems, cash and Face Shop tickets. With
 //	                  item it pays that shop item, or its sell-back Gems when already owned; an item
 //	                  with no art pays the row's gems only. Items must have art in the item archive.
@@ -84,6 +86,7 @@ type seasonJSON struct {
 	Cycle   []calendarRow    `json:"cycle"`
 	Limited []string         `json:"limited"`
 	Popup   *seasonPopupJSON `json:"popup"`
+	Icon    *seasonIconJSON  `json:"icon"`
 }
 
 var calendarsFile = opdata.New("calendars.json", data.CalendarsJSON, checkCalendars, verifyCalendars)
@@ -154,6 +157,12 @@ func checkCalendars(c *Calendars) error {
 				return err
 			}
 			sc.Popup = s.Popup
+		}
+		if s.Icon != nil {
+			if err := checkSeasonIcon(s.Name, s.Icon); err != nil {
+				return err
+			}
+			sc.Icon = s.Icon
 		}
 		c.seasonScheds = append(c.seasonScheds, sc)
 	}

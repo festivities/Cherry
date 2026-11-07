@@ -41,9 +41,17 @@ type seasonPopupJSON struct {
 	ButtonSkin  int64  `json:"button_skin"`
 }
 
-// popupLinks are the goSomewhere names of the native scenes a popup button may open. They are the home
+// popupLinks are the goSomewhere names of the native scenes a popup button or a Garden icon may open. They are the home
 // menu rows (web.homeIconRows) that Cherry already serves; the router maps an unknown name to index 0.
 var popupLinks = []string{"closet", "diary", "myRoom", "interiorShop", "fashionShop", "gachaShop", "faceShop", "minipetShop"}
+
+// isNativeLink reports whether link is goSomewhere(<name>) with <name> in popupLinks. The WebView links
+// (html, event) and any other name fail it.
+func isNativeLink(link string) bool {
+	rest, hasOpen := strings.CutPrefix(link, "goSomewhere(")
+	name, hasClose := strings.CutSuffix(rest, ")")
+	return hasOpen && hasClose && slices.Contains(popupLinks, name)
+}
 
 // popupButtonSkins is the frame count of the button's MultiImage (Event_Popup_Cell_Btn.plist, filecount 15).
 const popupButtonSkins = 15
@@ -68,9 +76,7 @@ func checkSeasonPopup(season string, p *seasonPopupJSON, seen map[int64]bool) er
 	case p.ButtonSkin < 1 || p.ButtonSkin > popupButtonSkins:
 		return fmt.Errorf("season %s: popup button_skin must be 1 to %d", season, popupButtonSkins)
 	}
-	rest, hasOpen := strings.CutPrefix(p.Link, "goSomewhere(")
-	name, hasClose := strings.CutSuffix(rest, ")")
-	if !hasOpen || !hasClose || !slices.Contains(popupLinks, name) {
+	if !isNativeLink(p.Link) {
 		return fmt.Errorf("season %s: popup link %q is not a native scene (goSomewhere(<name>) with <name> in %s)", season, p.Link, strings.Join(popupLinks, ", "))
 	}
 	if _, err := parseHexColor(p.Background); err != nil {

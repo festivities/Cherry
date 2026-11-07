@@ -67,8 +67,12 @@ func RegisterEconomyRoutes(mux *http.ServeMux) {
 
 const EmptySpecialChanceBody = `{"result":{"items":[],"location":""}}`
 
-const homeIconBody = `{"result":{"starterIcon":{"achieveId":0,"iconType":"","available":false,"category":"","endDateTime":""},` +
-	`"packageIcon":{"achieveId":0,"iconType":"","available":false,"category":"","endDateTime":""}}}`
+// unavailableHomeIcons is the starterIcon/packageIcon object with nothing on sale. It is the bill/prod/icon result
+// and result.bill_prod_icon of the Garden home info (homeicon.go).
+const unavailableHomeIcons = `{"starterIcon":{"achieveId":0,"iconType":"","available":false,"category":"","endDateTime":""},` +
+	`"packageIcon":{"achieveId":0,"iconType":"","available":false,"category":"","endDateTime":""}}`
+
+const homeIconBody = `{"result":` + unavailableHomeIcons + `}`
 
 // ResExtraHeartBalanceURL @0x1b53c3c: totalCount, freeTotalCount, paidCount (asInt).
 const extraHeartBalanceBody = `{"result":{"totalCount":0,"freeTotalCount":0,"paidCount":0}}`

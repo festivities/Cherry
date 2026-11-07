@@ -324,6 +324,7 @@ func NewMux() http.Handler {
 	mux.HandleFunc("/v4/popup/isExists", economy.HandlePopupIsExists)
 	mux.HandleFunc("/v4/popup/list", economy.HandlePopupList)
 	mux.HandleFunc("/cherry/event/", economy.HandleEventPopupImage)
+	mux.HandleFunc("/v4/home/integrated/info", economy.HandleHomeIntegratedInfo)
 	mux.HandleFunc("/v4/eventFlag/flagList", httpx.HandleJSONBody(eventFlagListBody))
 	mux.HandleFunc("/v4/social/terms/sns", handleSnsTerms)
 	mux.HandleFunc("/v4/setting/term/all", httpx.HandleJSONBody(termAllBody))
