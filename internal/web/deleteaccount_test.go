@@ -48,6 +48,7 @@ func delSetup(t *testing.T) *delFixture {
 		{HostAvtNo: "9501", GuestHistNo: "2", GuestAvtNo: "9502"}, // written on it
 		{HostAvtNo: "9502", GuestHistNo: "3", GuestAvtNo: "9502"},
 	}
+	store.GuestbookRead = map[string]uint64{"9501": 2, "9502": 3}
 	store.SocialMu.Unlock()
 	f := &delFixture{dir: dir, acc: acc}
 	rec := socialTestRequestAs(t, "dtok", http.MethodGet, "/v4/avatar/9501/removeCode", "")
@@ -95,6 +96,9 @@ func TestDeleteAccountRemovesEverything(t *testing.T) {
 	if len(store.DiaryPosts) != 1 || store.DiaryPosts[0].AvatarID != "9502" || len(store.GuestbookEntries) != 1 || store.GuestbookEntries[0].GuestHistNo != "3" {
 		t.Fatalf("social rows left: %+v %+v", store.DiaryPosts, store.GuestbookEntries)
 	}
+	if _, kept := store.GuestbookRead["9501"]; kept || store.GuestbookRead["9502"] != 3 {
+		t.Fatalf("read markers = %v, want only 9502", store.GuestbookRead)
+	}
 	store.SocialMu.Unlock()
 
 	// Stores on disk reload cleanly (latest valid, no deleted aid).
@@ -108,7 +112,7 @@ func TestDeleteAccountRemovesEverything(t *testing.T) {
 	}
 	var b deletedBackup
 	if err := json.Unmarshal(raw, &b); err != nil || b.Account.Aid != "9501" || b.Account.Gems != 5 || len(b.Tokens) != 2 ||
-		len(b.Posts) != 1 || len(b.Guestbook) != 2 || len(b.Friendships) != 1 {
+		len(b.Posts) != 1 || len(b.Guestbook) != 2 || len(b.Friendships) != 1 || b.GuestbookRead != 2 {
 		t.Fatalf("backup = %s (%v)", raw, err)
 	}
 	if l := readLedger(t, f.dir); len(l) != 1 || l[0].Reason != "account deleted" || l[0].Aid != "9501" {
@@ -192,10 +196,10 @@ func TestDeleteAccountSaveFailureRollsBack(t *testing.T) {
 	store.AccountsMu.Unlock()
 	store.SocialMu.Lock()
 	state := store.Friendships[0].State
-	n, g := len(store.DiaryPosts), len(store.GuestbookEntries)
+	n, g, read := len(store.DiaryPosts), len(store.GuestbookEntries), store.GuestbookRead["9501"]
 	store.SocialMu.Unlock()
-	if !a1 || !a2 || latest != f.acc || state != "accepted" || n != 2 || g != 3 {
-		t.Fatalf("not rolled back: %v %v %v %s %d %d", a1, a2, latest, state, n, g)
+	if !a1 || !a2 || latest != f.acc || state != "accepted" || n != 2 || g != 3 || read != 2 {
+		t.Fatalf("not rolled back: %v %v %v %s %d %d %d", a1, a2, latest, state, n, g, read)
 	}
 	// accounts.json on disk still holds the account.
 	raw, _ := os.ReadFile(filepath.Join(f.dir, "accounts.json"))

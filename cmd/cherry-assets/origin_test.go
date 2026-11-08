@@ -5,6 +5,22 @@ import (
 	"testing"
 )
 
+// checkOrig lists the two default diary skin files of the santi backup by their exact paths and refuses any other file
+// under DiarySkin.
+func TestCheckOrigListsOnlyTheDiarySkinFiles(t *testing.T) {
+	folder := filepath.Join(defaultDataset, "DiarySkin")
+	for _, rel := range []string{"common/UIImage_hd/avatar_photo_bg.png", "00001/UIImage_hd/skin_info.json"} {
+		o := &object{key: "static/DiarySkin/" + rel, path: filepath.Join(folder, filepath.FromSlash(rel)), source: "DiarySkin", rel: rel}
+		if err := checkOrig(o); err != nil {
+			t.Errorf("%s refused: %v", o.key, err)
+		}
+	}
+	other := &object{key: "static/DiarySkin/00001/UIImage_hd/avatar_photo_bg.png", path: filepath.Join(folder, "00001", "UIImage_hd", "avatar_photo_bg.png"), source: "DiarySkin", rel: "00001/UIImage_hd/avatar_photo_bg.png"}
+	if err := checkOrig(other); err == nil {
+		t.Errorf("unlisted diary skin file accepted: %s", other.key)
+	}
+}
+
 // checkOrig accepts a DailyBonus original under its folder and refuses Cherry-made names, a foreign key and a path
 // outside the listed folder.
 func TestCheckOrigRefusesCherryMadeAndForeignFiles(t *testing.T) {

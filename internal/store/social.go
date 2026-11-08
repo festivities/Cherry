@@ -154,6 +154,7 @@ type savedSocial struct {
 	Likes            []DiaryLike           `json:"likes"`
 	NextLikeNo       uint64                `json:"nextLikeNo"`
 	NextReplyHistNo  uint64                `json:"nextReplyHistNo"`
+	GuestbookRead    map[string]uint64     `json:"guestbookRead"`
 }
 
 // Friendship is one record per unordered pair of real accounts. "pending":
@@ -174,6 +175,7 @@ var (
 	DiaryPosts       []DiaryPost
 	NextGuestHistNo  uint64
 	GuestbookEntries []SavedGuestbookEntry
+	GuestbookRead    map[string]uint64 // host aid -> highest GuestHistNo the host cleared (guestbookcount/clear)
 	Friendships      []Friendship
 	DiaryComments    []DiaryComment
 	NextCommentNo    uint64
@@ -238,6 +240,14 @@ func LoadSocialFrom(path string) error {
 			}
 		}
 	}
+	if state.GuestbookRead == nil {
+		state.GuestbookRead = map[string]uint64{}
+	}
+	// A read marker is a number in use: NextGuestHistNo is recomputed from the entries present, so a marker raises it,
+	// or a new entry could land at or below a marker whose entry was erased.
+	for _, seq := range state.GuestbookRead {
+		state.NextGuestHistNo = max(state.NextGuestHistNo, seq)
+	}
 	if state.Comments == nil {
 		state.Comments = []DiaryComment{}
 	}
@@ -268,6 +278,7 @@ func LoadSocialFrom(path string) error {
 	DiaryPosts = state.Posts
 	NextGuestHistNo = state.NextGuestHistNo
 	GuestbookEntries = state.Guestbook
+	GuestbookRead = state.GuestbookRead
 	DiaryComments = state.Comments
 	NextCommentNo = state.NextCommentNo
 	DiaryLikes = state.Likes
@@ -286,6 +297,7 @@ func ResetSocial() {
 	DiaryPosts = nil
 	NextGuestHistNo = 0
 	GuestbookEntries = nil
+	GuestbookRead = nil
 	Friendships = nil
 	DiaryComments = nil
 	NextCommentNo = 0
@@ -315,11 +327,15 @@ func SaveSocialLocked() error {
 	if likes == nil {
 		likes = []DiaryLike{}
 	}
+	read := GuestbookRead
+	if read == nil {
+		read = map[string]uint64{}
+	}
 	data, err := json.Marshal(savedSocial{
 		Version: 1, FriendRemoved: FriendRemoved, FriendBookmarked: FriendBookmarked,
 		NextDiaryNo: NextDiaryNo, Posts: posts, NextGuestHistNo: NextGuestHistNo, Guestbook: guestbook,
 		Friendships: Friendships, Comments: comments, NextCommentNo: NextCommentNo,
-		Likes: likes, NextLikeNo: NextLikeNo, NextReplyHistNo: NextReplyHistNo,
+		Likes: likes, NextLikeNo: NextLikeNo, NextReplyHistNo: NextReplyHistNo, GuestbookRead: read,
 	})
 	if err != nil {
 		return err

@@ -391,6 +391,35 @@ func (s *Store) ServeKey(w http.ResponseWriter, r *http.Request, key string) boo
 	return s != nil && s.serve(w, r, key)
 }
 
+// ServeDiarySkin answers the two diary skin originals (diarySkinKey) with or without streaming: the client downloads
+// what its skin_file.ini lists, and that list is served either way. ServeRoute answers them too when streaming is on.
+// A miss returns false.
+func (s *Store) ServeDiarySkin(w http.ResponseWriter, r *http.Request) bool {
+	key, ok := diarySkinKey(r.URL.Path)
+	return ok && r.Method == http.MethodGet && s.ServeKey(w, r, key)
+}
+
+// diarySkinFiles are the two diary skin originals the default skin's skin_file.ini lists (web: diarySkinLists), keyed by
+// the path under /arts_diaryskin_<lang>_00007/. The rest of the diary skin is not in R2 and has no key.
+var diarySkinFiles = map[string]string{
+	"common/UIImage_hd/avatar_photo_bg.png": "static/DiarySkin/common/UIImage_hd/avatar_photo_bg.png",
+	"00001/UIImage_hd/skin_info.json":       "static/DiarySkin/00001/UIImage_hd/skin_info.json",
+}
+
+// diarySkinKey maps /arts_diaryskin_{en,jp}_00007/<file> to its R2 key for the two files in diarySkinFiles.
+func diarySkinKey(p string) (string, bool) {
+	rest, ok := strings.CutPrefix(p, "/arts_diaryskin_")
+	if !ok {
+		return "", false
+	}
+	lang, tail, ok := strings.Cut(rest, "_00007/")
+	if !ok || (lang != "en" && lang != "jp") {
+		return "", false
+	}
+	key, ok := diarySkinFiles[tail]
+	return key, ok
+}
+
 // DeviceFiles is the device files/ tree under sub (for example "UIResource/UIImage_hd") as an fs.FS over the store. It
 // reads Archive at each Open, so a package variable can hold it before the store is set. The keys follow the
 // uploader: files/UIResource/<rel> is static/ui/<rel>, every other folder is static/<folder>/<rel>.
@@ -589,7 +618,8 @@ func ChatActionFile(name string) bool {
 // /arts_item_<kind>_<id>/<file> is static/item/<kind>/<id>/<file>; /arts_chatting_<ch>/action_hd/<file> is
 // static/chatting/action_hd/<file> whatever the ch digits (the client reads the icon version raw, and the
 // uploader stores them without it); the item loader also asks for every item file under /img/read/
-// (device 2026-10-26: /img/read/arts_item_custom_<id>/1409_iteminfo.artsitem).
+// (device 2026-10-26: /img/read/arts_item_custom_<id>/1409_iteminfo.artsitem). The two default diary skin files
+// (/arts_diaryskin_<lang>_00007/…) are static/DiarySkin/… (diarySkinKey); they are not a category.
 func fileKey(p string) (string, bool) {
 	if rest, ok := strings.CutPrefix(p, "/img/read"); ok {
 		if !strings.HasPrefix(rest, "/arts_item_") {
@@ -626,6 +656,9 @@ func fileKey(p string) (string, bool) {
 			return "", false
 		}
 		return "static/chatting/action_hd/" + file, true
+	}
+	if key, ok := diarySkinKey(p); ok {
+		return key, true
 	}
 	rest, ok := strings.CutPrefix(p, "/arts_")
 	if !ok {

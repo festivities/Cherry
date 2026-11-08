@@ -111,6 +111,90 @@ func TestGuestbookPersistencePaginationAndSecretVisibility(t *testing.T) {
 	}
 }
 
+// The unread badge: count is the entries past the host's read marker, clearing (the host's session only) moves the marker to
+// its highest entry, and a reload keeps the marker even after the entry that set it was erased.
+func TestGuestbookCountClearBadge(t *testing.T) {
+	installSocialTestAccounts(t, map[string]*store.Account{
+		"host-token":  {AccessToken: "host-token", Aid: "1", Name: "Host", Country: "JP"},
+		"guest-token": {AccessToken: "guest-token", Aid: "3", Name: "Guest", Country: "JP"},
+	})
+	store.ResetSocial()
+	t.Cleanup(store.ResetSocial)
+	storePath := filepath.Join(t.TempDir(), "social.json")
+	if err := store.LoadSocialFrom(storePath); err != nil {
+		t.Fatal(err)
+	}
+	write := func(content string) {
+		t.Helper()
+		body := `{"hostAvtNo":"1","guestAvtNo":"3","content":"` + content + `","secret":false}`
+		if rec := socialTestRequestAs(t, "guest-token", http.MethodPost, "/v4/guestbook/write", body); rec.Code != http.StatusOK {
+			t.Fatalf("write %s = %d %s", content, rec.Code, rec.Body.String())
+		}
+	}
+	count := func(want string) {
+		t.Helper()
+		if rec := serve(t, http.MethodGet, "/v4/guestbook3/count/1"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("count = %d %s, want %s", rec.Code, rec.Body.String(), want)
+		}
+	}
+	clearAs := func(token, want string) {
+		t.Helper()
+		rec := socialTestRequestAs(t, token, http.MethodGet, "/v4/guestbookcount/clear/1", "")
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), want) {
+			t.Fatalf("clear as %s = %d %s, want %s", token, rec.Code, rec.Body.String(), want)
+		}
+	}
+
+	write("first")
+	write("second")
+	count(`"count":2`)
+	clearAs("host-token", `{"result":{"count":0,"hostAvtNo":"1"}}`)
+	count(`"count":0`)
+	write("third")
+	count(`"count":1`)
+	clearAs("guest-token", `"count":1`) // not the host: the unread count, no change
+	count(`"count":1`)
+	if rec := serve(t, http.MethodGet, "/v4/guestbookcount/clear/1"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"count":1`) {
+		t.Fatalf("clear without a session = %d %s, want the unread count", rec.Code, rec.Body.String())
+	}
+	if rec := serve(t, http.MethodGet, "/v4/guestbookcount/clear/999"); rec.Code != http.StatusNotFound {
+		t.Fatalf("clear of an unknown host = %d, want 404", rec.Code)
+	}
+	if rec := serve(t, http.MethodPost, "/v4/guestbookcount/clear/1"); rec.Code != http.StatusNotFound {
+		t.Fatalf("POST clear = %d, want 404", rec.Code)
+	}
+	clearAs("host-token", `"count":0`)
+
+	// The marker sits at entry 3; erase that entry and reload. The marker survives, and the next entry still counts.
+	if rec := socialTestRequestAs(t, "host-token", http.MethodPost, "/v4/guestbook/erase/1/3", "null"); rec.Code != http.StatusOK {
+		t.Fatalf("erase = %d %s", rec.Code, rec.Body.String())
+	}
+	if err := store.LoadSocialFrom(storePath); err != nil {
+		t.Fatal(err)
+	}
+	count(`"count":0`)
+	write("fourth")
+	count(`"count":1`)
+
+	// A failed save answers 500 and leaves the marker where it was (entry 3 read, "fourth" unread).
+	blocked := filepath.Join(t.TempDir(), "social-directory")
+	if err := os.Mkdir(blocked, 0700); err != nil {
+		t.Fatal(err)
+	}
+	store.SocialMu.Lock()
+	store.SocialStorePath = blocked
+	store.SocialMu.Unlock()
+	if rec := socialTestRequestAs(t, "host-token", http.MethodGet, "/v4/guestbookcount/clear/1", ""); rec.Code != http.StatusInternalServerError {
+		t.Fatalf("clear with a failing store = %d %s", rec.Code, rec.Body.String())
+	}
+	store.SocialMu.Lock()
+	marker := store.GuestbookRead["1"]
+	store.SocialMu.Unlock()
+	if marker != 3 {
+		t.Fatalf("failed clear left marker %d, want 3", marker)
+	}
+}
+
 func TestGuestbookRejectsUntrustedActorsAndRollsBackSaveFailure(t *testing.T) {
 	installSocialTestAccounts(t, map[string]*store.Account{
 		"social-test-token": {AccessToken: "social-test-token", Aid: "1", Name: "Cherry"},

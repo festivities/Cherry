@@ -145,13 +145,78 @@ func handleGuestbookCount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	store.SocialMu.Lock()
-	count := 0
-	for _, entry := range store.GuestbookEntries {
-		if entry.HostAvtNo == host {
-			count++
+	count := unreadLocked(host)
+	store.SocialMu.Unlock()
+	writeGuestbookCount(w, host, count)
+}
+
+// handleGuestbookCountClear is GET /v4/guestbookcount/clear/<host> (spec A1): the host has read its guestbook, so the
+// marker moves to its highest entry and the count answers 0. Only the host's own session moves it; any other caller
+// gets the unread count and no change.
+func handleGuestbookCountClear(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		httpx.ServeNotFound(w)
+		return
+	}
+	host := strings.Trim(strings.TrimPrefix(r.URL.Path, "/v4/guestbookcount/clear/"), "/")
+	if !store.ValidAvatarID(host) || !store.KnownSocialAvatar(host) {
+		httpx.ServeNotFound(w)
+		return
+	}
+	actor, ok := store.AccountForRequest(r)
+	store.SocialMu.Lock()
+	if !ok || actor.Aid != host {
+		count := unreadLocked(host)
+		store.SocialMu.Unlock()
+		writeGuestbookCount(w, host, count)
+		return
+	}
+	if store.GuestbookRead == nil {
+		store.GuestbookRead = map[string]uint64{}
+	}
+	prev, marked := store.GuestbookRead[host]
+	store.GuestbookRead[host] = highestLocked(host)
+	err := store.SaveSocialLocked()
+	if err != nil {
+		if marked {
+			store.GuestbookRead[host] = prev
+		} else {
+			delete(store.GuestbookRead, host)
 		}
 	}
 	store.SocialMu.Unlock()
+	if err != nil {
+		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
+		return
+	}
+	writeGuestbookCount(w, host, 0)
+}
+
+// unreadLocked counts host's guestbook entries past its read marker, or all of them while it has no marker. Caller
+// holds SocialMu.
+func unreadLocked(host string) int {
+	read, marked := store.GuestbookRead[host]
+	count := 0
+	for _, entry := range store.GuestbookEntries {
+		if entry.HostAvtNo == host && (!marked || guestbookSeq(entry.GuestHistNo) > read) {
+			count++
+		}
+	}
+	return count
+}
+
+// highestLocked is the highest GuestHistNo among host's entries, 0 when it has none. Caller holds SocialMu.
+func highestLocked(host string) uint64 {
+	var high uint64
+	for _, entry := range store.GuestbookEntries {
+		if entry.HostAvtNo == host {
+			high = max(high, guestbookSeq(entry.GuestHistNo))
+		}
+	}
+	return high
+}
+
+func writeGuestbookCount(w http.ResponseWriter, host string, count int) {
 	data, _ := json.Marshal(map[string]any{"result": map[string]any{"hostAvtNo": host, "count": count}})
 	httpx.WriteJSON(w, http.StatusOK, string(data))
 }

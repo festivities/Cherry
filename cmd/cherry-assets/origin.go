@@ -13,7 +13,9 @@ import (
 // The originals the store serves that no device-backup root holds. Each listed folder is read from this machine and
 // stored under static/<top>/ with the folder's own layout, as byte copies: the 10.1.0.0 APK's avatar_data tree and the
 // 2016 APK's fish silhouette (lineplay-original-assets, never read by Cherry at runtime), and the lpbackup DailyBonus
-// folder (the calendar skin, read from the device backup's files/). A Cherry-made file never goes up (cherryMadeName).
+// folder (the calendar skin, read from the device backup's files/). The two default diary skin files are listed from
+// the santi backup: DiarySkin is not a bulk category (it would become a patcher category). A Cherry-made file never goes
+// up (cherryMadeName).
 const originalAssetsRoot = `D:\Dev\projects\Cherry\.opencode\line-play-artifacts\lineplay-original-assets`
 
 // origSource is one listed folder: the files under base\top\tree (tree "" is the whole top folder), or one file of top
@@ -31,6 +33,8 @@ var origSources = []origSource{
 	{top: "android-10.1.0.0-2024", base: originalAssetsRoot, tree: "avatar_data"},
 	{top: "android-4.0.0.0-2016", base: originalAssetsRoot, file: "animation/fish/fish_ani_0001.png"},
 	{top: "DailyBonus", base: extraDataset},
+	{top: "DiarySkin", base: defaultDataset, file: "common/UIImage_hd/avatar_photo_bg.png"},
+	{top: "DiarySkin", base: defaultDataset, file: "00001/UIImage_hd/skin_info.json"},
 }
 
 // origRoot is the folder a source's files are under.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"maps"
 	"math/big"
 	"net/http"
 	"os"
@@ -121,6 +122,8 @@ type deletedBackup struct {
 	Comments    []store.DiaryComment        `json:"comments"`
 	Likes       []store.DiaryLike           `json:"likes"`
 	Replies     []store.GuestbookReply      `json:"replies"`
+	// GuestbookRead is the account's guestbook read marker (0 for none; a 0 marker counts like none).
+	GuestbookRead uint64 `json:"guestbookRead"`
 }
 
 // deleteAccount removes acc, all its token aliases and its social rows. A full backup line is
@@ -187,6 +190,7 @@ func deleteAccount(acc *store.Account) error {
 	if err := appendDeletedBackup(deletedBackup{
 		Time: time.Now().UTC().Format(time.RFC3339), Account: store.StoredFrom(acc), Tokens: tokens,
 		Posts: posts, Guestbook: book, Friendships: rels, Comments: comments, Likes: likes, Replies: replies,
+		GuestbookRead: store.GuestbookRead[aid],
 	}); err != nil {
 		return err
 	}
@@ -214,11 +218,16 @@ func deleteAccount(acc *store.Account) error {
 	}
 	prevPosts, prevBook, prevFriends := store.DiaryPosts, store.GuestbookEntries, store.Friendships
 	prevComments, prevLikes := store.DiaryComments, store.DiaryLikes
+	prevRead := store.GuestbookRead
+	keepRead := maps.Clone(prevRead)
+	delete(keepRead, aid)
 	store.DiaryPosts, store.GuestbookEntries, store.Friendships = keepPosts, keepBook, newFriends
 	store.DiaryComments, store.DiaryLikes = keepComments, keepLikes
+	store.GuestbookRead = keepRead
 	if err := store.SaveSocialLocked(); err != nil {
 		store.DiaryPosts, store.GuestbookEntries, store.Friendships = prevPosts, prevBook, prevFriends
 		store.DiaryComments, store.DiaryLikes = prevComments, prevLikes
+		store.GuestbookRead = prevRead
 		store.Accounts, store.LatestAcc = prevAccounts, prevLatest
 		if rerr := store.SaveAccountsLocked(); rerr != nil {
 			log.Printf("cherry: delete account rollback save failed: %v", rerr)

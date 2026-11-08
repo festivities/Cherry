@@ -47,6 +47,15 @@ const tx543UpdateIniBody = `[start=1,end=1,size=454656,/arts_strings.ast:version
 
 const skinFileIniBody = `[empty]`
 
+// diarySkinLists are the skin_file.ini bodies that list the default skin's originals (spec B2, B5): the common list
+// names avatar_photo_bg.png and skin 00001's list names skin_info.json. Every other diary skin list stays skinFileIniBody.
+var diarySkinLists = map[string]string{
+	"/arts_diaryskin_en_00007/common/UIImage_hd/skin_file.ini": "[avatar_photo_bg.png]",
+	"/arts_diaryskin_jp_00007/common/UIImage_hd/skin_file.ini": "[avatar_photo_bg.png]",
+	"/arts_diaryskin_en_00007/00001/UIImage_hd/skin_file.ini":  "[skin_info.json]",
+	"/arts_diaryskin_jp_00007/00001/UIImage_hd/skin_file.ini":  "[skin_info.json]",
+}
+
 const eventFlagListBody = `{"result":[]}`
 
 const snsTermsBody = `{"result":true}`
@@ -358,6 +367,7 @@ func NewMux() http.Handler {
 	mux.HandleFunc("/v4/guestbook/erase/", handleGuestbookErase)
 	mux.HandleFunc("/v4/guestbook3/list/", handleGuestbookList)
 	mux.HandleFunc("/v4/guestbook3/count/", handleGuestbookCount)
+	mux.HandleFunc("/v4/guestbookcount/clear/", handleGuestbookCountClear)
 	mux.HandleFunc("/v4/guestbook/isErased/", handleGuestbookIsErased)
 	mux.HandleFunc("/v4/guestbookreply/write", handleGuestbookReplyWrite)
 	mux.HandleFunc("/v4/guestbookreply/erase/", handleGuestbookReplyErase)
@@ -1035,6 +1045,10 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 	if assets.Archive.ServeRoute(w, r) {
 		return
 	}
+	// The default diary skin's two originals (the skin_file.ini lists above name them), with or without streaming.
+	if assets.Archive.ServeDiarySkin(w, r) {
+		return
+	}
 	// Streaming off: the static-base craft art and photozone frames are read from the store's originals
 	// (streaming on: R2 alone answers them).
 	if !assets.Archive.Streaming() && economy.ServeGardenCraftArt(w, r) {
@@ -1068,9 +1082,13 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodGet && isSkinFileIniPath(r.URL.Path) {
+		body, ok := diarySkinLists[r.URL.Path]
+		if !ok {
+			body = skinFileIniBody
+		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(skinFileIniBody))
+		_, _ = w.Write([]byte(body))
 		return
 	}
 	if r.Method == http.MethodGet && strings.Contains(r.URL.Path, "arts_strings.ast") {

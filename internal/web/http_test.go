@@ -21,6 +21,7 @@ import (
 	"cherry/internal/httpx"
 	"cherry/internal/lpn"
 	"cherry/internal/store"
+	"cherry/internal/testutil"
 )
 
 type setInitConfResult struct {
@@ -369,12 +370,17 @@ func TestTx543UpdateIni(t *testing.T) {
 }
 
 func TestSkinFileIni(t *testing.T) {
-	paths := []string{
-		"/arts_diaryskin_jp_00007/common/UIImage_hd/skin_file.ini",
-		"/arts_diaryskin_jp/common/UIImage_hd/skin_file.ini",
-		"/arts_diaryskin_en_00007/00001/UIImage_hd/skin_file.ini",
+	// The default skin's two lists name their originals; every other diary skin list is [empty].
+	bodies := map[string]string{
+		"/arts_diaryskin_en_00007/common/UIImage_hd/skin_file.ini": "[avatar_photo_bg.png]",
+		"/arts_diaryskin_jp_00007/common/UIImage_hd/skin_file.ini": "[avatar_photo_bg.png]",
+		"/arts_diaryskin_en_00007/00001/UIImage_hd/skin_file.ini":  "[skin_info.json]",
+		"/arts_diaryskin_jp_00007/00001/UIImage_hd/skin_file.ini":  "[skin_info.json]",
+		"/arts_diaryskin_jp/common/UIImage_hd/skin_file.ini":       skinFileIniBody,
+		"/arts_diaryskin_jp_00007/00002/UIImage_hd/skin_file.ini":  skinFileIniBody,
+		"/arts_diaryskin_jp_00006/common/UIImage_hd/skin_file.ini": skinFileIniBody,
 	}
-	for _, path := range paths {
+	for path, want := range bodies {
 		rec := serve(t, http.MethodGet, path)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("%s: status = %d, want 200", path, rec.Code)
@@ -382,8 +388,8 @@ func TestSkinFileIni(t *testing.T) {
 		if ct := rec.Header().Get("Content-Type"); ct != "text/plain; charset=utf-8" {
 			t.Fatalf("%s: Content-Type = %q", path, ct)
 		}
-		if rec.Body.String() != skinFileIniBody || rec.Body.Len() == 0 {
-			t.Fatalf("%s: body = %q len=%d", path, rec.Body.String(), rec.Body.Len())
+		if rec.Body.String() != want {
+			t.Fatalf("%s: body = %q, want %q", path, rec.Body.String(), want)
 		}
 	}
 
@@ -398,6 +404,39 @@ func TestSkinFileIni(t *testing.T) {
 		rec := serve(t, http.MethodGet, path)
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("%s: status = %d, want 404", path, rec.Code)
+		}
+	}
+}
+
+// The default diary skin's two originals are answered from the store with streaming off (no streamed routes), at both
+// languages' paths; any other diary skin file has no key and answers 404.
+func TestDiarySkinFilesServedFromStore(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"common/UIImage_hd/avatar_photo_bg.png": "png-bytes",
+		"00001/UIImage_hd/skin_info.json":       `{"color":"#00d095"}`,
+	}
+	for rel, body := range files {
+		p := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	testutil.SetArchive(t, map[string][]string{"static/DiarySkin/": {dir}})
+	for _, lang := range []string{"en", "jp"} {
+		for rel, body := range files {
+			rec := serve(t, http.MethodGet, "/arts_diaryskin_"+lang+"_00007/"+rel)
+			if rec.Code != http.StatusOK || rec.Body.String() != body {
+				t.Fatalf("%s %s = %d %q, want 200 %q", lang, rel, rec.Code, rec.Body.String(), body)
+			}
+		}
+	}
+	for _, path := range []string{"/arts_diaryskin_en_00007/00002/UIImage_hd/skin_info.json", "/arts_diaryskin_en_00007/common/UIImage_hd/other.png"} {
+		if rec := serve(t, http.MethodGet, path); rec.Code != http.StatusNotFound {
+			t.Fatalf("%s = %d, want 404", path, rec.Code)
 		}
 	}
 }

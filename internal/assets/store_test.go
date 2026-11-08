@@ -166,6 +166,8 @@ func TestRouteParsing(t *testing.T) {
 		"/arts_item_interior_122013091/lpitem.aniproj":                    "static/item/interior/122013091/122013091.aniproj",
 		"/arts_item_dress_225408332/154_treasureworld_cat_pirate.aniproj": "static/item/dress/225408332/225408332_154_treasureworld_cat_pirate.aniproj",
 		"/arts_chatting_00005/action_hd/chatting_deco_action_hello.png":   "static/chatting/action_hd/chatting_deco_action_hello.png",
+		"/arts_diaryskin_en_00007/common/UIImage_hd/avatar_photo_bg.png":  "static/DiarySkin/common/UIImage_hd/avatar_photo_bg.png",
+		"/arts_diaryskin_jp_00007/00001/UIImage_hd/skin_info.json":        "static/DiarySkin/00001/UIImage_hd/skin_info.json",
 	}
 	for p, key := range files {
 		if got, ok := fileKey(p); !ok || got != key {
@@ -188,6 +190,12 @@ func TestRouteParsing(t *testing.T) {
 		"/arts_chatting_00005/action_hd/chatting_deco_action_..\\x.png",     // backslash
 		"/arts_chatting_abc/action_hd/chatting_deco_action_hello.png",       // version not digits
 		"/arts_chatting_00005/chatting_deco_action_hello.png",               // no action_hd folder
+		"/arts_diaryskin_en_00007/00001/UIImage_hd/avatar_photo_bg.png",     // the common file is not under 00001
+		"/arts_diaryskin_en_00007/common/UIImage_hd/skin_info.json",         // skin_info.json is under 00001 only
+		"/arts_diaryskin_en_00006/common/UIImage_hd/avatar_photo_bg.png",    // other version
+		"/arts_diaryskin_tw_00007/common/UIImage_hd/avatar_photo_bg.png",    // other language
+		"/arts_diaryskin_en_00007/common/UIImage_hd/skin_file.ini",          // a list is not an original
+		"/arts_diaryskin_en_00007/common/UIImage_hd/../avatar_photo_bg.png", // traversal
 	} {
 		if key, ok := fileKey(p); ok {
 			t.Errorf("fileKey(%s) accepted as %s", p, key)
