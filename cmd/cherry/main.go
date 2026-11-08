@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -28,6 +30,20 @@ const (
 
 func main() {
 	logger := log.New(os.Stdout, "", log.LstdFlags|log.Lmicroseconds)
+	// CHERRY_FAKE_NOW (RFC 3339) moves the game clock (economy.NowFunc) for season tests. Records written meanwhile
+	// carry the moved dates, so it runs only on a copy of the data: LOCALAPPDATA must point away from the real folder.
+	if v := os.Getenv("CHERRY_FAKE_NOW"); v != "" {
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			logger.Fatalf("cherry: CHERRY_FAKE_NOW: %v", err)
+		}
+		if dir, _ := os.UserCacheDir(); strings.EqualFold(filepath.Clean(dir), filepath.Join(os.Getenv("USERPROFILE"), "AppData", "Local")) {
+			logger.Fatalf("cherry: CHERRY_FAKE_NOW refused on the real data folder %s; set LOCALAPPDATA to a copy", dir)
+		}
+		off := time.Until(t)
+		economy.NowFunc = func() time.Time { return time.Now().Add(off) }
+		logger.Printf("cherry: FAKE CLOCK game time starts at %s (offset %s)", t.Format(time.RFC3339), off)
+	}
 	if err := store.LoadAccounts(); err != nil {
 		logger.Fatalf("cherry: load accounts: %v", err)
 	}
