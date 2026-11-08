@@ -42,7 +42,7 @@ func TestHomeIconInSeason(t *testing.T) {
 		t.Fatalf("home_icon row = %#v", rows[0])
 	}
 	want := map[string]any{"iconSeq": 1.0, "iconId": "halloween_17s", "iconName": "Halloween",
-		"linkTypeCode": "goSomewhere(fashionShop)", "linkDetail": ""}
+		"linkTypeCode": "goSomewhere(gachaShop)", "linkDetail": ""}
 	if len(row) != len(want) {
 		t.Fatalf("row %v has %d keys, want %d", row, len(row), len(want))
 	}
@@ -81,7 +81,7 @@ func TestHomeIconForcedSeason(t *testing.T) {
 	forceSeason(t, "winter")
 	_, res := homeIconReply(t)
 	rows, _ := res["home_icon"].([]any)
-	if len(rows) != 1 || rows[0].(map[string]any)["iconId"] != "49_frozen_r" {
+	if len(rows) != 1 || rows[0].(map[string]any)["iconId"] != "24_event_icon" {
 		t.Fatalf("forced winter home_icon = %#v", res["home_icon"])
 	}
 	forceSeason(t, "")
@@ -98,15 +98,15 @@ func TestHomeIconRefusals(t *testing.T) {
 	cases := []struct{ text, want string }{
 		{mutateDefault(t, raw, `"id": "halloween_17s"`, `"id": "halloween_17s/x"`),
 			`season halloween: icon id "halloween_17s/x" must be a plain icon_effect symbol name`},
-		{mutateDefault(t, raw, `"id": "49_frozen_r"`, `"id": ""`),
+		{mutateDefault(t, raw, `"id": "24_event_icon"`, `"id": ""`),
 			`season winter: icon id "" must be a plain icon_effect symbol name`},
 		{mutateDefault(t, raw, `"name": "Halloween", "link"`, `"name": "", "link"`),
 			"season halloween: icon name must not be empty"},
-		{mutateDefault(t, raw, `"name": "New Year", "link": "goSomewhere(fashionShop)"`, `"name": "New Year", "link": "html"`),
+		{mutateDefault(t, raw, `"name": "New Year", "link": "goSomewhere(gachaShop)"`, `"name": "New Year", "link": "html"`),
 			`season newyear: icon link "html" is not a native scene`},
-		{mutateDefault(t, raw, `"name": "Winter", "link": "goSomewhere(fashionShop)"`, `"name": "Winter", "link": "event"`),
+		{mutateDefault(t, raw, `"name": "Winter", "link": "goSomewhere(gachaShop)"`, `"name": "Winter", "link": "event"`),
 			`season winter: icon link "event" is not a native scene`},
-		{mutateDefault(t, raw, `"name": "Halloween", "link": "goSomewhere(fashionShop)"`, `"name": "Halloween", "link": "goSomewhere(square)"`),
+		{mutateDefault(t, raw, `"name": "Halloween", "link": "goSomewhere(gachaShop)"`, `"name": "Halloween", "link": "goSomewhere(square)"`),
 			`season halloween: icon link "goSomewhere(square)" is not a native scene`},
 	}
 	for _, c := range cases {

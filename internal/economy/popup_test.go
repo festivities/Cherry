@@ -54,7 +54,7 @@ func TestPopupRowShape(t *testing.T) {
 		}
 	}
 	want := map[string]any{
-		"popupNo": 9101.0, "cookieTime": 24.0, "linkType": "goSomewhere(fashionShop)", "linkData": "",
+		"popupNo": 9101.0, "cookieTime": 24.0, "linkType": "goSomewhere(gachaShop)", "linkData": "",
 		"imageUrl": "cherry/event/halloween.png", "startYmdt": "1792875600000", "endYmdt": "1794085199000",
 		"mainTitle": "Halloween is here!", "backgroundColorCode": "#3a1a08", "linkColorCode": 4.0,
 	}
@@ -133,7 +133,7 @@ func TestPopupRefusals(t *testing.T) {
 	t.Cleanup(resetOperatorData)
 	raw := data.CalendarsJSON
 	cases := []struct{ text, want string }{
-		{mutateDefault(t, raw, `"link": "goSomewhere(fashionShop)", "cookie_hours": 24, "background": "#1c3a5e"`,
+		{mutateDefault(t, raw, `"link": "goSomewhere(gachaShop)", "cookie_hours": 24, "background": "#1c3a5e"`,
 			`"link": "goSomewhere(square)", "cookie_hours": 24, "background": "#1c3a5e"`),
 			`season winter: popup link "goSomewhere(square)" is not a native scene`},
 		{mutateDefault(t, raw, `"no": 9201`, `"no": 9101`), "season halloween: popup no must be unique and inside the Cherry block 9101-9399"},
