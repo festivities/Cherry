@@ -8,17 +8,19 @@ When the user says they are **moving to another conversation whose agent has no 
 
 Earlier pairs (latest: Claude Code 2026-11-08 ~14:30 → Claude Code 2026-11-08, accepted, Diary social, guestbook badge and Diary skin, season simulation — the LAST section of HISTORY.md) are in HISTORY.md.
 
-### HANDOFF INITIATED — 2026-11-09 ~00:45 host time (Claude Code session → new Claude Code session with no context)
+### HANDOFF INITIATED — 2026-11-09 ~01:45 host time (Claude Code session → new Claude Code sessions with no context; first written ~00:45, revised after the user's answers)
+
+**Two sessions start from this handoff (user, 2026-11-09):** the **Cherry session** (this block: the server) and a **Raspberry session** (the client patcher, `D:\Dev\projects\Raspberry`, GitHub `festivities/Raspberry`, public; its context is `D:\Dev\projects\Raspberry\.agents\`). You are the Cherry session unless your working directory is Raspberry. How the two work side by side: [CONTRACT.md](CONTRACT.md) here (server half and shared definitions; the client half is Raspberry's `.agents\CONTRACT.md`, read-only for you) and AGENTS "Workflow" (Two sessions). **You own the lab Cherry instance** (restarts, deploys, `accounts.json`, the AVDs Cherry and Jerry, the checkpoint branch); the Raspberry session only uses the instance as a peer and brings its own test AVD. Never edit Raspberry's files; put requests in CONTRACT "Requests to Raspberry", and read its "Requests to Cherry" at the start of the session and before every auth slice.
 
 You are the receiving agent with **zero context**. Read all of [AGENTS.md](AGENTS.md) first. Above all:
 - **"Baseline"**, incl. the new rule: **`D:\Dev\projects\Cherry\.opencode\line-play-artifacts` must be preserved NO MATTER WHAT** (user, 2026-11-09).
-- **"Policies"**, incl. the **2026-11-09 change to the client-modification rule**, **no real-money paths**, **Cherry never reads the archive at runtime**, **never restore `accounts.json` wholesale**, and **operator-editable fabricated content**.
+- **"Policies"**, incl. the **2026-11-09 change to the client-modification rule**, the new **dependency rule**, **no real-money paths**, **Cherry never reads the archive at runtime**, **never restore `accounts.json` wholesale**, and **operator-editable fabricated content**.
 - The "Cherry-made content" table.
-- **"Workflow"**: delegation, "Tester practicalities", autonomous Commits, the deploy recipe.
+- **"Workflow"**: delegation, "Tester practicalities", autonomous Commits, the deploy recipe, "Season and date tests", "Two sessions".
 - **"Tooling rules"**: IDA work uses per-job copies of the PRISTINE `%TEMP%\opencode\cherry\libgame.so.i64` only.
 - "Lab", "Code map" and "Known client-inherent limits".
 
-Then read this block, "Status" and the whole **Roadmap**, above all the new **8 (Platform refactor)** and 5, 6. Read [DATASET.md](DATASET.md) if bucket work comes up. Do not edit `JICAMA.md`.
+Then read [CONTRACT.md](CONTRACT.md), this block, "Status" and the whole **Roadmap**, above all **8 (Platform refactor)** and 5, 6. Read [DATASET.md](DATASET.md) if bucket work comes up. Do not edit `JICAMA.md`.
 
 **The Read tool refuses large reads.** Read PLAN.md and HISTORY.md in chunks of 70–150 lines. Several lines are very long: Grep them or read them alone.
 
@@ -27,7 +29,7 @@ The previous pair (2026-11-08 ~14:30 → 2026-11-08: Diary social, guestbook bad
 Recheck the lab and append **HANDOFF ACCEPTED** with any corrections:
 - `git status` and the branches;
 - Cherry's PID, path and hash;
-- `adb devices`, plus `adb -s <serial> emu avd name` for each device;
+- `adb devices`, plus `adb -s <serial> emu avd name` for each device (a third emulator may now belong to the Raspberry session: leave it alone);
 - `lan=` in the Cherry log;
 - the contents of `config\`.
 
@@ -35,11 +37,11 @@ Then work through "Open tasks" in order. The host clock is UTC+8 (the emulators 
 
 **Focus (user, 2026-11-09):** "Handoff focuses on remaining open tasks." When those are done, run the **checkpoint**: branch `prototype` (task 2). After that comes the **platform refactor on `main`** (Roadmap 8; task 3). Do not start any refactor work before the checkpoint is pushed.
 
-**State snapshot (2026-11-09 ~00:40, each line observed at that time):**
+**State snapshot (2026-11-09 ~01:40, each line observed at that time):**
 - **Repo:**
   - `main`, level with origin after this handoff commit. The last code change is `17f305b` (`CHERRY_FAKE_NOW`).
   - No other branches. `prototype` does not exist yet.
-  - Gate green before the handoff commit: `gofmt -l .` empty, `go vet ./...`, `go test -race -count=1 -timeout 550s ./...`.
+  - Gate green before the handoff commits (docs only since): `gofmt -l .` empty, `go vet ./...`, `go test -race -count=1 -timeout 550s ./...`.
 - **Running:**
   - Cherry PID **43976** (started 2026-11-08 23:52:59), repo-root `cherry.exe` SHA-256 prefix `153b233a9b94e982` (built from `17f305b`).
   - Log: `%TEMP%\opencode\cherry\season-sim-20261108\cherry-real-after-sim.log`.
@@ -57,6 +59,8 @@ Then work through "Open tasks" in order. The host clock is UTC+8 (the emulators 
   - The data copy `%TEMP%\opencode\cherry\season-sim-20261108\Local\` holds the simulated Winter and New Year claims (+180 Gems for 1001, copy only). Its `static`, `generated`, `dp-cache` and `*-media` are **junctions into the real folder**.
   - If you delete the copy, remove the junctions with `rmdir` (not `rm -r`), or the real folders are emptied.
   - Backup of the real `accounts.json` before the token merge: `%TEMP%\opencode\cherry\economy-20261006\accounts-backup-pre-seasonsim-merge.json`.
+- **Raspberry repo (2026-11-09 ~01:30):** `D:\Dev\projects\Raspberry`, `festivities/Raspberry` (public, MIT, "Patch LINE PLAY for use with Cherry"). The handoff author committed `.gitignore` and `.agents/` (AGENTS, PLAN, CONTRACT, HISTORY); no code yet. Its session starts with a static spike (hosts, resolver path, AirArmor, WebView, login hook) and will ask for server behavior in its CONTRACT.
+- **Private production values** (the user's domain, random ports, the OCI checklist): `%LOCALAPPDATA%\Cherry\deploy\oci.md` and memory `oci-deployment`. This repo is public: never copy them into tracked files.
 
 **Done in the previous session (2026-11-08):** commits `7b69833` … `17f305b`; details in HISTORY's last pair.
 - The fish shop PriceType comment.
@@ -76,9 +80,9 @@ Then work through "Open tasks" in order. The host clock is UTC+8 (the emulators 
    - (d) **Carried-over classified items:** HISTORY pairs 2026-11-01 ~21:15 task 5 and ~13:50 tasks 4–5 (Jackpot odds ANR, Jerry MENU ANR, the dyed eye item's Closet view, …).
    - Do not offer these; Roadmap 8 covers them:
      - S3-compatible buckets;
-     - the gacha odds WebView (a publicly trusted cert);
+     - the gacha odds WebView (a publicly trusted cert, with Raspberry's web-URL rewrite);
      - LINE OAuth (replaced by Discord sign-in);
-     - distribution.
+     - distribution (the Raspberry patcher).
 
    Classified 2026-11-09, no action needed: Winter's limited `RUCH004RC` is a Garden attraction. It is listed LIMIT in the Interior Shop's default tab (`shop.go` lists landscapes first in `URCMD`, then `interiorRow` → `priceKeys` → `saleKeys`). It was absent in the simulation because 1001 owns it (`roomItems`), and an owned landscape is left out of that tab.
 2. **Checkpoint (user, 2026-11-09: save what we have before the refactor):**
@@ -92,10 +96,12 @@ Then work through "Open tasks" in order. The host clock is UTC+8 (the emulators 
      - its six entries: the 10.1.0.0 APK, `lineplay-original-assets`, `lpbackup`, `lpbase`, `miaw-backup` and `santi-backup-20260921`;
      - that `git check-ignore -v .opencode/line-play-artifacts` still names `.gitignore:35`.
 3. **Platform refactor (Roadmap 8), only after task 2.**
-   - First, read Roadmap 8 "User decisions" and "Open decisions". Ask the user about every decision still open; the agent's proposals are written there.
-   - Then run step 8.2, the reverse-engineering spike, in parallel with step 8.3.
+   - The user answered every open decision on 2026-11-09 (Roadmap 8, "User decisions, round 2"): **SQLite + Litestream, `modernc.org/sqlite` approved, Discord login alone for the public admin UI, accounts start fresh, the patched client lives in the separate Raspberry repo**. Ask the user only about what Roadmap 8 still lists as open, and only if it blocks you.
+   - Your first slices, in order: **8.3a** configuration foundation (listeners, data directory, `server.public`, `auth.mode`, hostnames as flags/environment/config; the lab keeps today's defaults), which also unblocks the Raspberry session's isolated runs; then **8.6a** the auth endpoints and the `dev-fake` mode of CONTRACT §3 on the new foundation so Raspberry has a real peer; then **8.3b** storage and the rest in Roadmap 8's order.
+   - Answer the Raspberry session through CONTRACT "Requests to Raspberry" and keep CONTRACT current (bump `contract`, changelog line).
    - Every slice follows the usual chain: spec → `cherry-worker` → main review + gate → deploy → `cherry-tester`. Commit and push when green.
-   - Keep the stock-client emulator lab working on `main` until the patched APK replaces it.
+   - Keep the stock-client emulator lab working on `main` in `lab-guest` mode until the patched APK replaces it.
+   - The user does the OCI setup; walk them through the checklist in Roadmap 8 when a slice needs a piece of it.
 
 **Hazards (carried):**
 - **A forced season defeats the calendar restart.** `AttendState` compares `scheduleAt(last attend)` with `scheduleAt(now)`. While `/admin/season` forces a season, both return the same schedule, so a forced calendar continues the old day count (day 2, not day 1).
@@ -103,6 +109,7 @@ Then work through "Open tasks" in order. The host clock is UTC+8 (the emulators 
   - To see real windows, use `CHERRY_FAKE_NOW` (AGENTS "Workflow", "Season and date tests").
 - **Garden event icons:** the New Year icon is a gold starburst that animates and is not always visible; Winter's is the yellow "EVENTS" bubble. Both sit at ~(1144,327) on AVD Cherry. The tap opens the Gacha Shop a few seconds later.
 - **The seasonal calendar's meadow background is the client's own;** only the digit colour and the cells are Cherry's.
+- **Two sessions share one machine:** one adb server (never `adb kill-server`), the host ports 443/80/10000/10123/53 (the lab instance holds them; Raspberry runs isolated stubs on other ports), `%TEMP%\opencode\` (Cherry: `cherry\`, Raspberry: `raspberry\`), IDA copies (separate names).
 
 ## Status (2026-11-08)
 
@@ -200,7 +207,7 @@ Older commit-by-commit evidence (M3 entry errors, keepalives, preload fixtures) 
 4. **Economy Phase E:** events, seasonal rewards, limited shops; mailbox giveaways with items. **Done:** slice 1 mailbox items + seasonal calendars (2026-10-22), slice 2 deals + limited items (2026-10-22/25), slice 3 event quests + season popup (2026-10-25), New Year season (forced on a device 2026-11-08: popup, Gacha Shop link, event icon, quests). **Phase E is complete (2026-11-08):** the event currency + exchange was **dropped by the user after the static check** (only Boss Coins short-fall cleanly in popup 116; any new coin reads "Not enough Cash." via GET `bill/prod/spot/cash` and has no header count — `phaseE-20261108\eventcoin-spec.md`); **Garden floating event icons built and device-verified** (`13a321a`, `96dcb33`: `GET /v4/home/integrated/info` → one `home_icon` row per season in force; ids from the original `icon_effect.aniproj` — Halloween `halloween_17s`, Winter `24_event_icon` "EVENTS" bubble (generic by user decision; the Frozen collab icon dropped), New Year `fireworks_5st_yellow`; every season's icon and popup button open `goSomewhere(gachaShop)` by user decision); New Year keeps winning Jan 1–5 (user). **Phase E leftovers (minor, watch-only unless the user asks):** the more-menu `eventIconList` (served empty), the newbie-account popup branch (msg 10727, unverified), the gather3 event-quest credit (unit-tested only), ~~Winter/New Year LIMIT rows and calendars in their own windows~~ (device-verified 2026-11-08 by date simulation, `CHERRY_FAKE_NOW`; both popups showed on cold start, so the one forced-Winter start without a popup stays unreproduced).
    - **User decisions 2026-10-22 (finish Phase D and E — everything):** hearts pay **+30 Gems/day** (5 hearts; faucet budget raised to ~330/day); Garden gathering **with the bag and crafting**; Square **boss fishing (solo first)** and **Riding Pet racing**; Phase E: mailbox item gifts + seasonal calendar, limited/sale shop flags, event quests + popups/icons, event currency + exchange. Order (one implementation slice at a time, research in parallel): hearts → mailbox items/seasonal calendar → shop flags → gathering + bag + crafting → boss fishing → event quests/popups/icons → event currency + exchange (shares LPN gacha 52/53 with the Boss Coin exchange office) → racing. Research (static, 2026-10-22): `%TEMP%\opencode\cherry\phaseDE-20261022\{hearts,gathering,boss-racing,phaseE}.md`. **Seasons (user 2026-10-22):** Halloween calendar Oct 25–Nov 7, Winter/Christmas Dec 15–Jan 5, New Year Jan 1–14 (overlap with winter to be resolved in the slice); the normal 7-day calendar runs outside events; generated skin per season. Seasonal calendars and mailbox gifts give **themed shop items, unowned first**; an already-owned item pays its sell-back Gems instead (the agent shortlists the codes for the user). Main-agent spot-checks: `quest/status` fields (ResQuestStatus 0x1aec460), postbox row keys (`sDataPostList::Post::ParserJSON` 0x1c0d378), `LP_hc_notify_gathering_reward` 0x1f826dc, and **`rc_fishboss_noteinfo_push` (rc74) → `SetTestMode(true)`** at 0x18d1790 — never send rc74.
 4a. **Operator data (user requirement 2026-10-25, AGENTS "Policies") — done 2026-10-25 (`244a201`, `70b2cca`, `6a71c03`; behavior-identical: an 8,613-line golden dump of prices, calendars, skins, deals, gacha pools/pulls, gathering/fish picks, quests, vouchers matched before/after, all tests unchanged).** Files in `data/` (embedded), each replaced by a same-named file in `%LOCALAPPDATA%\Cherry\config\`: `prices.json` (shop prices, animated ×, sell-back %, deals, face tickets, Cherry-made names), `gacha.json`, `gathering.json`, `fishing.json` (fish table, cap, rare %, shop gear), `calendars.json` (normal 7-day cycle, seasons with dates/cycles/item days/limited lists), `rewards.json` (welcome gift, quests, hearts, mail limits), `profiles.json` (tutorial clone avatars), `atelier.json`. Schemas are comments on the Go types; an invalid file stops Cherry naming file + entry; a limited item without art only logs (the lab archive lacks `CUON004SR`). **Follow-ups done 2026-10-25 (golden dump byte-identical):** `starter.json` (room starter codes — must include the default floor/wall/door/diary — and pet name pattern `Minipet {n}`, owned by `internal/room/starter.go`), `profiles.json` now owned by `internal/store/profiles.go` (+ `friend_name`, `lab_grant_codes`; `store.FriendName()`/`store.CuratedGrantCodes()` are functions), `dressup.json` (creation categories, dress lists, look sets per sex; `web/dressup.go`), `menu.json` (home-menu **labels** per link type; the link types, ids and order stay in `web/http.go`). Load order in `main.go`: store → room → economy → web operator data. **Still in code (Cherry-invented, low value):** lab showcase lists `room.RoomShowcaseCodes`/`PetShowcaseNums`, `roomDefaultPlaced` (door/diary placement), the pet race name "Minipet" in `petRepRow`, recycle cfg neutral fields. Original requirement text: a highly modular setup so server operators can add, change and remove everything Cherry fabricated. Original proposal (2026-10-25, implemented as described above): Cherry's defaults ship as data files under `data/` (embedded, as `face_codes.txt` already is), and an operator directory (e.g. `%LOCALAPPDATA%\Cherry\config\`) overrides or extends them per table; one stdlib JSON loader with validation at startup (unknown item codes, no-art items, bad weights → clear errors, not client crashes). Refactor targets, then hard-coded in Go: shop prices `ItemPrice` and Cherry-made item names (`shop.go`), gacha pools/odds/prices (`gacha.go`), gathering drops, names, caps and rewards (`gathering.go`), fish table and fish shop (`fishing.go`, `fishing_shop.go`), quest/hearts rewards (`quests.go`, `hearts.go`), login and seasonal calendars (`loginbonus.go`, `season.go`), deals (`deals.go`), welcome gift and other faucet amounts, synthetic clone-avatar profiles (`http.go`). The Atelier is built data-driven from the start (recipes, themes, blueprint prices, stamina). Every feature since ships its fabricated values as `data/*.json` (AGENTS "Cherry-made content").
-5. **Distribution (discussed 2026-10-11, deferred by the user — no decision):** how future players reach a public Cherry. The native client never verifies certificates, so only DNS for the ~17 game hosts must point at the server. Options discussed: (a) a small companion Android app using `VpnService` as a local DNS filter (no root, Wi-Fi and mobile data, stock client untouched — the agent's recommendation); (b) manual Wi-Fi DNS pointing at Cherry's DNS (fragile; routers/ISPs may intercept); (c) a patched APK with rewritten hostnames — AirArmor flags a re-signed APK (state 6 REPACKAGED → blocking popup), it redistributes LINE's binary, and it contradicts the stock-client mission. Raise again only when the user brings it up. **Decided 2026-11-09 (user): a minimally patched, endpoint-agnostic APK with Discord-only sign-in — Roadmap 8 (P5, P6, P10); this supersedes the options above.** Related (2026-11-02): a public host also needs its own asset bucket — [DATASET.md](DATASET.md) is the agent guide for building it from a host's own backups/APKs.
+5. **Distribution (discussed 2026-10-11, deferred by the user — no decision):** how future players reach a public Cherry. The native client never verifies certificates, so only DNS for the ~17 game hosts must point at the server. Options discussed: (a) a small companion Android app using `VpnService` as a local DNS filter (no root, Wi-Fi and mobile data, stock client untouched — the agent's recommendation); (b) manual Wi-Fi DNS pointing at Cherry's DNS (fragile; routers/ISPs may intercept); (c) a patched APK with rewritten hostnames — AirArmor flags a re-signed APK (state 6 REPACKAGED → blocking popup), it redistributes LINE's binary, and it contradicts the stock-client mission. Raise again only when the user brings it up. **Decided 2026-11-09 (user): a minimally patched, endpoint-agnostic APK with Discord-only sign-in, built in the separate Raspberry repo (`D:\Dev\projects\Raspberry`) — Roadmap 8 (P5, P6); this supersedes the options above.** Related (2026-11-02): a public host also needs its own asset bucket — [DATASET.md](DATASET.md) is the agent guide for building it from a host's own backups/APKs.
 6. **Deferred / open:** gacha shop thumbnails, categories and "Most Liked" list (empty/placeholder today; Gacha Category/Detail/Search pages blank); gacha odds page (→ Roadmap 8 P5: a publicly trusted cert on the operator's hostname; unreachable today: WebView rejects the self-signed cert; a device-side certificate install scoped to Cherry's hostnames — Cherry's current cert has `IsCA: true`, so it would need a non-CA leaf first — was discussed and not approved); ride pet 326400259 body (sub-armature displays); styling slots (zero-slot fixture today); Friend-profile CHAT (hangs) and Style Magazine (404s; the GIFT wish list is served since 2026-10-28); ~~guestbook replies, Diary comments/likes~~ (done 2026-11-08, `6806468`), video uploads; ~~friends-only Diary visibility~~ (client-inherent, AGENTS limits); POSTBOX home badge; Garden idx42 `ch_garden_enter_validate_req`; face-instance serial consistency on save (equipped faces report `invenSeq:"0"`); ~~LINE OAuth~~ (replaced by Discord sign-in, Roadmap 8 P6), minigames beyond Phase D, Windows client port; butler Book Chat, intimacy and skin shop (deferred by the user 2026-11-07); Pet Book Ride tab: three cards draw partial figures (stick-horse head, bunny ears + legs, ribbon + lollipop; 2026-11-08 `%TEMP%\opencode\cherry\miawpets-20261108\s27b-book-ride-scroll1-wait.png`) — likely props drawn without a rider; map the cards to ids before treating it as a gap.
 
 7. **Not-yet-built MENU features (removed from the MENU 2026-10-28 until built; re-add the link type to `homeLinks` + a `data/menu.json` label when done; specs under `%TEMP%\opencode\cherry\menu-audit-20261028\`):**
@@ -222,124 +229,80 @@ Older commit-by-commit evidence (M3 entry errors, keepalives, preload fixtures) 
    - **Treasure World** (Blue Marble board game): LPN MONOPOLY namespace (38 entries) login `BlueMarbleService::ReqServerLogin`, `LP_sc_login_res` MONOPOLY 0x16aaf8c (layout undecoded); today the row would spin forever. Largest. Spec `rows-e-spec.md` (92). Archive (checked 2026-11-01): 265 `marble_*`/treasure images in `UIResource/UIImage_hd` + 49 plists in `UIResource/` (santi = lpbackup), `animation/icon_effect/treasureworld_icon.png`, `animation/world_icon/treasureisland_npc_icon.png`, `animation/treasureisland_ef(.aniproj)`, `animation/marble_ef.aniproj`; `files/cache/bluemarble/` empty in both backups; no board map pack. **Built 2026-11-02 (slices 1–2):** gateway agent 9 (tunnel "1.1.114.0"), board cells come from `sc_room_enter_res` f4 (no map pack needed; the client's ring is a fixed 28 squares), season art is downloaded from SeasonInfo paths (the archive's season PNGs are transparent placeholders). Specs `%TEMP%\opencode\cherry\treasure-20261102\` (`treasure-spec.md` §9, `cells.md`, `transport-money.md`, `roll-gate.md`, `arrival.md`, `slice2-fixes.md`, `freeze.md`, then `trade-key.md`, `layout-audit.md`, `slice3-spec.md`, `slice3b-spec.md`, `season-end-spec.md`, `avatar-items-spec.md`, `broom-spec.md`, `island-spec.md`, `board-art-spec.md`; the user's production screenshots and notes in `user-pngs\`); progress and device evidence in HISTORY (pairs 2026-11-02 ~01:55, ~08:40 and ~19:00). **Completed 2026-11-03** (Status row "Treasure World"; reference AGENTS Code map + "Known client-inherent limits").
    Suggested order: ~~Butler~~ → ~~Colorant~~ (done) → ~~Story Gacha~~ (hidden, no original stories) → ~~spins~~ (done) → ~~Lounge Chat~~ (done) → ~~Circle~~ (done 2026-11-01) → ~~Treasure World~~ (done 2026-11-03). Roadmap 7 is complete. Each: `reverse-engineer` fills the open fields into a spec → `cherry-worker` implements (Cherry-made content as `data/*.json` with `origin: "cherry"`) → main review + gate + deploy → `cherry-tester` (re-add the MENU row first).
 
-8. **Platform refactor (user, 2026-11-09). Starts only after the `prototype` checkpoint (handoff task 2); the work happens on `main`.** Research notes go in `%TEMP%\opencode\cherry\platform-20261109\`.
+8. **Platform refactor (user, 2026-11-09). Starts only after the `prototype` checkpoint (handoff task 2); the work happens on `main`.** Research notes go in `%TEMP%\opencode\cherry\platform-20261109\`. The client patcher is a **separate repository, Raspberry** (`D:\Dev\projects\Raspberry`, GitHub `festivities/Raspberry`, public, MIT, "Patch LINE PLAY for use with Cherry"), worked on by its own Claude Code session since 2026-11-09. The interface between the two is [CONTRACT.md](CONTRACT.md).
 
-   **User decisions (2026-11-09):**
-   - Rewrite or refactor Cherry as needed so it scales and is concurrent. JSON files will not scale. The user leans toward **Cloudflare D1** and asked for better ideas.
-   - Add a **web UI for staff** that can change every part of the server that makes sense to change. Cherry becomes modular, and everything operator-editable can be edited without code changes.
+   **User decisions, round 1 (2026-11-09):**
+   - Rewrite or refactor Cherry as needed so it scales and is concurrent. JSON files will not scale. The user leaned toward Cloudflare D1 and asked for better ideas.
+   - A **web UI for staff** that can change every part of the server that makes sense to change: Cherry becomes modular and everything operator-editable can be edited without code changes.
    - **Production host:** the user's Oracle Ampere instance (arm64, 4 cores / 24 GB). Other demanding services already run on it, so plan on a small share: about 1 core and 1–2 GB for Cherry.
-   - **Minimally modified APK.**
-     - The patched client connects to the operator's server instead of LINE PLAY's servers. **It must work with ANY custom endpoint**, not one hard-coded server (user follow-up, 2026-11-09).
-     - Certificates may be patched if the in-game browser needs it.
-     - **The only sign-in is Discord OAuth/SSO**, so no passwords are ever stored.
-     - The user asked to be told if the APK work pollutes this repository with lots of code or is big enough to need a **separate GitHub repository**.
-   - **Security** is a requirement throughout.
-   - **Preserve `.opencode\line-play-artifacts` no matter what** (AGENTS "Baseline").
+   - A **minimally modified APK** that connects to the operator's server instead of LINE's. Certificates may be patched if the in-game browser needs it. **The only sign-in is Discord OAuth/SSO**, so no passwords are ever stored.
+   - **Security** is a requirement throughout. **Preserve `.opencode\line-play-artifacts` no matter what** (AGENTS "Baseline").
 
-   **Agent proposals (2026-11-09; the user asked for better ideas; each needs the user's yes):**
-   - **P1 Storage: SQLite on local disk, plus Litestream to R2, rather than D1 as the primary store.**
-     - D1 queried from outside Workers goes through the Cloudflare REST API, which is meant for admin use. That API shares the account-wide limit of 1,200 requests per 5 minutes; above it, every call gets 429 for 5 minutes. Production traffic would need a proxy Worker, which adds a network hop to every query. A D1 database also runs one query at a time.
-     - Cherry's real-time LPN handlers and HTTP routes touch the store on almost every message.
-     - SQLite (WAL mode, in-process) gives transactions and µs reads, which is plenty for a private server on one VM. Litestream (a sidecar binary) streams it continuously to the existing R2 bucket for off-site backup and point-in-time restore, inside the free tier. D1 keeps its current job, the asset-manifest mirror.
-     - **This needs one Go dependency, `modernc.org/sqlite`** (pure Go, no cgo, arm64), which breaks AGENTS "stdlib only". That is a user decision.
-     - If the user still wants D1: proxy Worker + batched writes + in-memory hot state with write-behind. That is clearly more complex and has more failure modes.
-   - **P2 Refactor, not rewrite.**
-     - Keep the protocol handlers: they hold months of device-verified client knowledge.
-     - Replace the internals of `internal/store` (accounts, social, circles, treasure, ledger) behind its API with DB tables, plus a one-shot importer from the JSON files (aids, ledger and media paths kept).
-     - Schema: hybrid first (key columns plus a JSON column for nested per-account state), then normalize the relational and hot parts (social, ledger, inventory).
-     - Replace the global `AccountsMu` / `SocialMu` locks and whole-file rewrites with transactions. These locks and rewrites are the real concurrency limit today.
-     - Prove each step with golden dumps before and after, as Roadmap 4a did.
-   - **P3 Operator data as documents.**
-     - The `data/*.json` operator files (prices, gacha, gathering, fishing, calendars, rewards, profiles, atelier, starter, dressup, menu, butlers, spin, lounge, circle, …) become versioned documents in the DB.
-     - Each change is drafted, validated by the existing `check*` validators, published, then hot-swapped atomically through the existing `opdata` `Get()` holders: no restart, with history, rollback and an audit log.
-     - The embedded defaults remain the seed. "Ground truth stays in code" (Policies) is unchanged.
-   - **P4 Admin UI.**
-     - Served by Cherry on its own listener bound to 127.0.0.1. Its only public route is a Cloudflare Tunnel guarded by Cloudflare Access (Zero Trust free tier), with no open port.
-     - Inside it: Discord login, with staff and owner roles from an allowlist of Discord user ids.
-     - Pages: `html/template` with a little plain JS, no SPA build chain.
-     - First, a generic validated editor for every operator document, so everything is editable on day one. Forms come later for the frequent ones: seasons/calendars, prices, mail giveaways, gacha.
-     - Player tools: lookup, grants (ledger reason names the staff id), mail, bans, season force / date simulation, log view.
-     - Security: CSRF tokens, `SameSite=Strict` HttpOnly Secure cookies, re-confirmation for destructive actions, and everything audited.
-     - Retire the loopback `/admin/*` tool. Its `adminLoopback` check is unsafe behind any local tunnel or reverse proxy, because every proxied request comes from 127.0.0.1.
-   - **P5 Endpoint-agnostic client patch.** Known facts:
-     - The native client never verifies certificates (Roadmap 5, AGENTS "Architecture").
-     - Cherry already routes on the ORIGINAL hostnames (SNI and Host).
-     - Native host strings are fixed-length strings in `libgame.so`.
-     - A re-signed APK trips **AirArmor state 6 REPACKAGED**, a blocking popup. The latch functions are in AGENTS "AirArmor enforcement". The patch must neutralize this; it is the main risk.
+   **User decisions, round 2 (2026-11-09, answers to the six open questions):**
+   1. Storage: **SQLite + Litestream** ("feel free").
+   2. **First Go dependency approved: `modernc.org/sqlite`.** Any other module needs a new yes. Litestream is an external binary, not a module.
+   3. Client patch: **the agent's recommendation** (a native resolver/connect hook with port remap; rewriting host strings only as a fallback) in a **separate repo named Raspberry**, which must connect to **any** endpoint ("don't hardcode to my server"). The user asked to be told if the APK work would pollute this repo or need its own: it needs its own, and it exists.
+   4. Admin UI exposure: **Discord login alone on a public port** ("I think the latter should be secure enough"): no Cloudflare Tunnel or Access, so P4 below carries the whole load.
+   5. Accounts **start fresh**: nothing is migrated from the lab (the user will create their own). The JSON importer stays a lab convenience.
+   6. Production: the user owns a domain and hosts on Oracle (OCI). The ports are **random**, drawn by the handoff author, and the user sets up OCI. The values are private (`%LOCALAPPDATA%\Cherry\deploy\oci.md`, memory `oci-deployment`); this repo and Raspberry never contain them.
 
-     The options:
-     - **(A) Rewrite the host strings in place.** Limited to names no longer than the originals. Each APK is built for one domain, and Cherry would have to learn the new names.
-     - **(B, recommended pending the 8.2 spike) A small injected native library that hooks name resolution** (`getaddrinfo`/`gethostbyname` as `libgame.so` and the Java stack use them). It maps every LINE PLAY host to the endpoint configured on the device.
-       - No length limit; any operator's server.
-       - Original hostnames are kept, so Cherry's routing is unchanged.
-       - The endpoint comes from a build-time default (patcher flag) plus an in-app setting, for example a first-launch prompt.
-     - **WebView:** pages that Cherry links (gacha odds, notices) should use the operator's public hostname with a publicly trusted cert, so no trust patch is needed. Inventory the client's hard-coded WebView URLs. A `network_security_config` patch is the fallback, which the user allows.
-     - **TLS:** the client offers only static-RSA suites, so a public certificate needs an RSA key.
-     - **LPN gateway addresses** that Cherry advertises (today `sinkIPFor`/`lanIP`) must come from the operator's config (public address or hostname).
-     - **Signing:** the patched APK carries the operator's own signature and needs a fresh install. Existing lab accounts move by linking a Discord id to an aid (admin tool).
-     - **Never commit or redistribute LINE's binaries.** The patcher takes the operator's own APK, checks its SHA-256 against the 10.1.0.0 baseline, and writes the output outside every repo.
-   - **P6 Discord sign-in, server-mediated, so the APK holds no per-operator secret.**
-     - The client opens `https://<endpoint>/auth/discord/start` in a Custom Tab or WebView.
-     - Cherry runs the OAuth 2 authorization-code flow with PKCE and `state`, scope `identify` only, and an exact redirect URI. It then returns a one-time code through an app deep link, which the client trades for Cherry's session.
-     - Alternative if the RE spike makes it cheaper: point the LINE SDK login at Cherry, which acts as the authorization server and delegates to Discord.
-     - The server enforces it:
-       - guest `generate` is refused;
-       - every account must have a Discord id (unique mapping Discord id → aid);
-       - Cherry's own session tokens are stored only as SHA-256 hashes (today the aliases are raw);
-       - the Discord client secret lives in a 0600 secret file or env var, never in Git or logs.
-     - No passwords anywhere.
-   - **P7 Security baseline. Treat every client as hostile:** modified clients exist whatever we ship.
-     - **Requests:**
-       - authorization on every route (actor = session);
-       - size, length and count limits on input;
-       - per-account and per-IP rate limits;
-       - LPN frame-size caps, read/idle deadlines and per-IP connection caps.
-     - **Network:**
-       - **No DNS listener on a public host**: `netsvc` DNS would be an open resolver, an amplification risk. It becomes a lab-only option.
-       - The client's static-RSA TLS has no forward secrecy. It is client-inherent: document it and keep modern suites for WebView and the admin UI.
-       - Open only the needed ports: the Oracle security list plus the host firewall allow 443, 80 (ACME), 10000 and 10123.
-     - **Secrets and host:**
-       - secrets (`cloudflare.json`, the Discord secret, a scoped R2 token for Litestream) are 0600 and owned by a dedicated `cherry` user;
-       - systemd hardening: `NoNewPrivileges`, `ProtectSystem=strict`, only `CAP_NET_BIND_SERVICE`;
-       - backups go only to the private bucket.
-     - **Gate:** add `govulncheck`. The gate keeps "no real-money paths".
-   - **P8 Deployability:**
-     - a Linux arm64 build (`GOOS=linux GOARCH=arm64`);
-     - the data/config directory from a flag or env, replacing the Windows `os.UserCacheDir` / `%LOCALAPPDATA%` assumptions;
-     - a systemd unit, a health endpoint, structured logs;
-     - the Windows emulator lab stays as the test bed (DNS-sink mode lab-only).
-   - **P9 Scale, realistically:** one process on one VM is right for this. Go is already concurrent, and P1/P2 remove the real limits. No multi-node or sharding (LPN rooms live in memory) unless evidence demands it.
-   - **P10 Separate repository for the client patch (answer to the user's question):**
-     - **Recommended.** The patcher has its own toolchain (apktool/smali, Android NDK C for the hook library, `apksigner`), unlike Cherry's Go server.
-     - It has its own release cadence and must never hold LINE's binaries.
-     - Expected size: modest (smali edits for loader, login, AirArmor and endpoint setting, a few hundred lines of C, build scripts), but foreign to this repo.
-     - Cherry keeps only the server side (auth endpoints, endpoint config) and a doc link.
-     - Confirm after the 8.2 spike sizes it; the user decides and creates the GitHub repo.
+   **Design (agent, decided unless marked open; the user asked for better ideas and approved the storage choice):**
+   - **P1 Storage: SQLite (WAL, `modernc.org/sqlite`, pure Go, builds for linux/arm64) on local disk, replicated by Litestream to a private R2 bucket.** D1 keeps its current job (the asset manifest). Reasons: D1 from outside Workers goes through Cloudflare's REST API, which is meant for admin use, shares the account-wide limit of 1,200 requests per 5 minutes (excess calls get 429 for five minutes) and needs a proxy Worker for app traffic; a D1 database also runs one query at a time. Cherry touches its data on almost every game message, so an in-process database with µs reads and real transactions fits. Litestream settings: `sync-interval` of 30 s or more to stay inside R2's free tier (1,000,000 Class A operations a month); a restore drill into an empty directory before go-live; the backup bucket and its token are separate from `cherry-assets`.
+   - **P2 Refactor, not rewrite.** Keep the protocol handlers (months of device-verified client knowledge). Replace the internals of `internal/store` behind its API with tables: hybrid first (key columns plus a JSON column for nested per-account state), then normalize the relational and hot parts (social, ledger, inventory). Replace the global `AccountsMu`/`SocialMu` locks and the whole-file rewrites with transactions; they are the real concurrency limit today. Golden dumps before and after each step, as Roadmap 4a did. Production starts empty (decision 5); the lab importer is `cmd/cherry-import`, lab only.
+   - **P3 Operator data as documents.** The `data/*.json` operator files become versioned documents in the DB: draft → validate with the existing `check*` validators → publish → atomic hot swap through the `opdata` `Get()` holders, with history, rollback and audit. The embedded defaults remain the seed; "ground truth stays in code" (Policies) is unchanged.
+   - **P4 Admin UI, public, Discord login alone (decision 4).**
+     - **Listener:** its own port and its own `tls.Config` (TLS 1.2 ECDHE-GCM and 1.3 only, no static-RSA suites); no admin route on the game listener and no player route on this one; HSTS.
+     - **Login:** Discord OAuth2 authorization code (confidential client, exact redirect URI, `prompt=consent` so each login is a fresh approval, `state` bound to a pre-login cookie). Only Discord user ids on the **allowlist** get in (the owner id comes from configuration; the owner manages staff in the UI). **Refuse identities whose `mfa_enabled` is false**: the field is part of the `identify` response (checked in Discord's docs 2026-11-09), so Discord's own two-factor protects the session.
+     - **Session:** `__Host-` cookie (Secure, HttpOnly, SameSite=Strict, Path=/), a random 256-bit id stored hashed; idle timeout 30 min, absolute 8 h; a fresh Discord login within 5 minutes is required for privileged actions (grants, bans, document publish, staff changes).
+     - **Requests:** state changes are POST only, with a per-session CSRF token plus an `Origin`/`Sec-Fetch-Site` check; no side effects on GET; strict CSP (`default-src 'self'`, no inline script or style, `frame-ancestors 'none'`), `nosniff`, `Referrer-Policy: no-referrer`; `html/template` escaping only, no raw HTML from data.
+     - **Abuse:** rate limits and temporary blocks per IP on login, a counted and logged trail of non-allowlisted attempts, no default or fallback credentials, no registration.
+     - **Audit:** an append-only table (who, when, what, before/after for documents, IP) shown in the UI.
+     - **Optional hardening by the user:** limit the admin port's source IPs in the OCI security list.
+     - **Pages:** a generic validated editor for every operator document first (everything editable on day one), then forms for the frequent ones (seasons and calendars, prices, mail and grants, gacha); player lookup and grants (the ledger reason names the staff id), bans, season force and date simulation, logs.
+     - The loopback `/admin/*` tool (`127.0.0.1:8099`) stays for the Windows lab only; its `adminLoopback` check is unsafe behind any local proxy.
+   - **P5 Endpoint-agnostic patched client: Raspberry** (decision 3). Contract: endpoint descriptor with port map, redirect rules that mirror the lab-proven DNS sink, fail-closed, names unchanged in SNI/Host so Cherry's routing is untouched ([CONTRACT.md](CONTRACT.md) §1–2). Raspberry's S1 spike finalizes the host list and the hook details.
+   - **P6 Discord sign-in, server side** ([CONTRACT.md](CONTRACT.md) §3): `auth.mode` `discord` | `lab-guest` | `dev-fake`; `guest/generate` accepts only codes minted through Discord in `discord` mode; hashed tickets and codes; PKCE between the app and Cherry; the Discord client secret in a 0600 secret file; no passwords anywhere. `lab-guest` keeps the emulator lab working and refuses to run on a public server.
+   - **P7 Security baseline.** Treat every client as hostile: modified clients exist whatever Raspberry ships.
+     - **Requests:** authorization on every route (the actor is the session); size, length and count limits; per-account and per-IP rate limits; LPN frame caps, read/idle deadlines and per-IP connection caps.
+     - **Network:** no DNS listener on a public host (an open resolver is an amplification risk; the DNS sink is lab-only); only the needed ports open. The client's static-RSA TLS has no forward secrecy: client-inherent, document it; the admin UI and the operator-hostname pages get modern suites.
+     - **Host and secrets:** secrets (`cloudflare.json`, the Discord secret, the Litestream R2 token) are 0600 and owned by a dedicated `cherry` user; systemd hardening (`NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`, only `CAP_NET_BIND_SERVICE` if a low port is used); backups only to the private bucket.
+     - **Small share of a busy box:** `GOMEMLIMIT` about 1 GiB, `GOMAXPROCS` 2, systemd `MemoryHigh`/`MemoryMax`/`CPUQuota`, bounded queues and caches.
+     - **Gate:** add `govulncheck`; "no real-money paths" stays.
+   - **P8 Deployability.**
+     - A linux/arm64 build (`CGO_ENABLED=0`).
+     - One place resolves the data directory (today `os.UserCacheDir`/`%LOCALAPPDATA%` assumptions are scattered) from a flag or environment.
+     - A systemd unit, a health endpoint, structured logs to stdout (journald); `launch-detached.py` stays Windows-lab only.
+     - **Certificates:** an RSA certificate for the operator hostname from an external ACME client (DNS-01 through a Cloudflare token limited to that zone's DNS), supplied as PEM files that Cherry reloads without restart.
+     - **Ports:** all configurable; the production values are private. The patched client remaps 443/80/10000/10123 through its endpoint descriptor.
+   - **P9 Scale, realistically.** One process on one VM is right here. Go is already concurrent and P1/P2 remove the real limits; LPN rooms stay in memory. No multi-node or sharding unless measurements demand it.
+   - **P10 Separate repository for the patcher: decided and created** (Raspberry).
 
-   **Open decisions to ask the user at the start (record the answers here):**
-   1. Storage: SQLite + Litestream (P1), or D1 anyway?
-   2. Allow the first Go dependency (`modernc.org/sqlite`), or keep stdlib only?
-   3. Client patch: endpoint resolution (B) vs host-string rewrite (A); a separate repo and its name (P10).
-   4. Admin exposure: Cloudflare Tunnel + Access, or Discord login alone on a public port.
-   5. Account migration: link the existing lab accounts to Discord ids, or start fresh.
-   6. The production domain and public ports on the Oracle host. Docs and code stay endpoint-agnostic either way.
+   **Still open (ask the user only if it blocks you):**
+   - Confirm the endpoint hostname (proposed `cherry.<their domain>`; private file).
+   - The Discord application (created by the user) and the owner's Discord user id: needed by slices 8.6a and 8.7.
+   - The private R2 bucket and token for Litestream: needed by slice 8.3b.
+   - Whether the gateway/session ports 10000/10123 should also be random (default: unchanged).
 
-   **Suggested order** (each slice: spec → `cherry-worker` → main review + gate → deploy → `cherry-tester`):
-   - **8.0** Checkpoint (`prototype`).
-   - **8.1** The decisions above.
-   - **8.2** RE spike, parallel with 8.3. `reverse-engineer` writes `platform-20261109\apk-spec.md` covering:
-     - every hostname and how it is resolved (native and Java);
-     - the hard-coded WebView URLs;
-     - AirArmor repackaging and injection checks, and how to neutralize them;
-     - the login entry points (guest, LINE SDK) and the cheapest Discord hook;
-     - a patch size estimate for P10.
-   - **8.3** Storage layer + importer + golden tests. `main` stays deployable in the lab.
-   - **8.4** Concurrency: per-request transactions; the global locks go.
-   - **8.5** Operator documents in the DB, with hot reload.
-   - **8.6** Server-side Discord auth + staff auth.
-   - **8.7** Admin UI.
-   - **8.8** Client patcher (repo per P10). It is scripted and reproducible from the pristine APK, and its output goes outside every repo.
-   - **8.9** Linux deploy on the Oracle host, a main-agent security review, then a device test against the public endpoint with the patched APK.
+   **User setup checklist (the user does these on OCI; the session walks them through when a slice needs a piece; the values are in the private file):**
+   1. DNS: an A record for the endpoint hostname to a reserved public IP of the instance. If the zone is on Cloudflare: **DNS only (grey cloud)**; the game ports are not HTTP and the client's TLS cannot pass a proxy.
+   2. OCI ingress rules (security list or NSG), TCP only: the HTTPS, HTTP, gateway, session and admin ports. Never UDP 53.
+   3. The instance's own firewall (Ubuntu images ship restrictive iptables rules, Oracle Linux uses firewalld): open the same ports and persist the rules.
+   4. A Discord application with two redirect URIs (player callback on the HTTPS port, admin callback on the admin port), scope `identify`; the client secret goes only into the server's secret file.
+   5. TLS: an external ACME client for the RSA certificate, and a Cloudflare token limited to DNS edit on the one zone.
+   6. A private R2 bucket plus a token scoped to it for Litestream.
+
+   **Suggested order** (each slice: spec → `cherry-worker` → main review + gate → deploy → `cherry-tester`; commit and push when green):
+   - **8.0** Checkpoint (`prototype`), handoff task 2.
+   - **8.1** Decisions: done (rounds 1 and 2).
+   - **8.2** (Raspberry session) the reverse-engineering spike, the hook, the patcher. Cherry's part: answer its CONTRACT requests.
+   - **8.3a** Configuration foundation: listeners (HTTPS, HTTP, session, gateway, admin), the data directory, `server.public`, `auth.mode`, hostnames; flags/environment/config file; the lab keeps today's defaults.
+   - **8.6a** Player auth endpoints, the `dev-fake` mode and `/cherry/v1/info` ([CONTRACT.md](CONTRACT.md)); early so Raspberry has a real peer; may start on a small `auth` table before 8.3b moves the accounts.
+   - **8.3b** Storage: the SQLite layer behind `internal/store`, schema v1 (hybrid), migrations, WAL, Litestream config and restore drill, `cmd/cherry-import` (lab), golden tests before/after.
+   - **8.4** Concurrency: per-request transactions replace the global locks and whole-file saves; a load test with synthetic clients.
+   - **8.5** Operator documents in the DB with hot reload, history and rollback.
+   - **8.6b** The rest of auth: bans, revocation, the `guest/generate` enforcement for `discord` mode, rate limits.
+   - **8.7** Admin UI (P4).
+   - **8.8** Deploy on OCI: linux/arm64 build, systemd, TLS reload, Litestream, ports; a main-agent security review; a device test with the patched APK (Raspberry's output) against the public endpoint.
 
 ## Feature reference (current)
 
