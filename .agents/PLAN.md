@@ -35,12 +35,12 @@ Recheck the lab and append **HANDOFF ACCEPTED** with any corrections:
 
 Then work through "Open tasks" in order. The host clock is UTC+8 (the emulators run UTC). The game day resets at 06:00 JST (05:00 host time), which opens the daily calendar on each emulator.
 
-**Focus (user, 2026-11-09):** "Handoff focuses on remaining open tasks." When those are done, run the **checkpoint**: branch `prototype` (task 2). After that comes the **platform refactor on `main`** (Roadmap 8; task 3). Do not start any refactor work before the checkpoint is pushed.
+**Focus (user, 2026-11-09):** "Handoff focuses on remaining open tasks." The **checkpoint** branch `prototype` was saved on 2026-11-09 when the user pointed out the handoff had left it for later (task 2: done, with three follow-ups). After the open tasks comes the **platform refactor on `main`** (Roadmap 8; task 3). Do not start any refactor work before `prototype` is up to date with the last pre-refactor `main` commit.
 
 **State snapshot (2026-11-09 ~01:40, each line observed at that time):**
 - **Repo:**
   - `main`, level with origin after this handoff commit. The last code change is `17f305b` (`CHERRY_FAKE_NOW`).
-  - No other branches. `prototype` does not exist yet.
+  - Branches: `main` and **`prototype`** (the checkpoint, created and pushed 2026-11-09 at `91c52c2`; task 2). `main` is one docs commit ahead of it after this note.
   - Gate green before the handoff commits (docs only since): `gofmt -l .` empty, `go vet ./...`, `go test -race -count=1 -timeout 550s ./...`.
 - **Running:**
   - Cherry PID **43976** (started 2026-11-08 23:52:59), repo-root `cherry.exe` SHA-256 prefix `153b233a9b94e982` (built from `17f305b`).
@@ -85,16 +85,14 @@ Then work through "Open tasks" in order. The host clock is UTC+8 (the emulators 
      - distribution (the Raspberry patcher).
 
    Classified 2026-11-09, no action needed: Winter's limited `RUCH004RC` is a Garden attraction. It is listed LIMIT in the Interior Shop's default tab (`shop.go` lists landscapes first in `URCMD`, then `interiorRow` → `priceKeys` → `saleKeys`). It was absent in the simulation because 1001 owns it (`roomItems`), and an owned landscape is left out of that tab.
-2. **Checkpoint (user, 2026-11-09: save what we have before the refactor):**
-   - Prerequisites: task 1's picks are done, the gate is green, the build is deployed and device-verified, and `main` is clean and pushed.
-   - Then:
-     - `git switch -c prototype`, then `git push -u origin prototype`, then `git switch main`.
-   - `prototype` is the final state of the stdlib/JSON-file Cherry: never rebase, reset or delete it.
-   - Also copy the live data as a data checkpoint: `%LOCALAPPDATA%\Cherry\`, without `static\` and `generated\` (re-downloadable). Copy it to `%TEMP%\opencode\cherry\checkpoint-prototype-<date>\` (private, never in Git). Record both the commit and the folder in PLAN.
-   - **Before and after the switch, confirm that `.opencode\line-play-artifacts` is untouched:**
-     - its size (≈2.0 GB);
-     - its six entries: the 10.1.0.0 APK, `lineplay-original-assets`, `lpbackup`, `lpbase`, `miaw-backup` and `santi-backup-20260921`;
-     - that `git check-ignore -v .opencode/line-play-artifacts` still names `.gitignore:35`.
+2. **Checkpoint — branch DONE 2026-11-09** (user: "save this repo to a new branch prototype"; the user noticed the first version of this handoff had left it for later):
+   - Branch **`prototype`** was created at `91c52c2` (= `main` with the handoff docs; code `17f305b`, gate green) and pushed with upstream tracking (`git branch prototype 91c52c2`, `git push -u origin prototype`; no switch, `main` stayed checked out). `.opencode\line-play-artifacts` was checked before and after: 2.0 GB, six entries, still ignored at `.gitignore:35`.
+   - `prototype` is the final state of the stdlib/JSON-file Cherry: **never rebase, reset, force-push or delete it.**
+   - **Follow-ups, in this order:**
+     - (a) If task 1 adds commits to `main`, bring `prototype` up to date with a **fast-forward-only** push of the last pre-refactor commit (`git push origin <sha>:prototype` is refused unless it is a fast-forward, which is the point) and record the new sha here.
+     - (b) Before slice 8.3b touches storage, copy the live data to `%TEMP%\opencode\cherry\checkpoint-prototype-<date>\` (private, never in Git): `%LOCALAPPDATA%\Cherry\` without `static\` and `generated\` (re-downloadable). Each JSON save is temp+rename, so every file is consistent on its own. Record the folder here.
+     - (c) Around every branch operation confirm that `.opencode\line-play-artifacts` is untouched: its size (≈2.0 GB), its six entries (the 10.1.0.0 APK, `lineplay-original-assets`, `lpbackup`, `lpbase`, `miaw-backup`, `santi-backup-20260921`) and that `git check-ignore -v .opencode/line-play-artifacts` still names `.gitignore:35`.
+   - Optional, for the user: GitHub branch protection on `prototype` (no force-push, no deletion).
 3. **Platform refactor (Roadmap 8), only after task 2.**
    - The user answered every open decision on 2026-11-09 (Roadmap 8, "User decisions, round 2"): **SQLite + Litestream, `modernc.org/sqlite` approved, Discord login alone for the public admin UI, accounts start fresh, the patched client lives in the separate Raspberry repo**. Ask the user only about what Roadmap 8 still lists as open, and only if it blocks you.
    - Your first slices, in order: **8.3a** configuration foundation (listeners, data directory, `server.public`, `auth.mode`, hostnames as flags/environment/config; the lab keeps today's defaults), which also unblocks the Raspberry session's isolated runs; then **8.6a** the auth endpoints and the `dev-fake` mode of CONTRACT §3 on the new foundation so Raspberry has a real peer; then **8.3b** storage and the rest in Roadmap 8's order.
@@ -292,7 +290,7 @@ Older commit-by-commit evidence (M3 entry errors, keepalives, preload fixtures) 
    6. A private R2 bucket plus a token scoped to it for Litestream.
 
    **Suggested order** (each slice: spec → `cherry-worker` → main review + gate → deploy → `cherry-tester`; commit and push when green):
-   - **8.0** Checkpoint (`prototype`), handoff task 2.
+   - **8.0** Checkpoint: branch `prototype` saved 2026-11-09 at `91c52c2` (handoff task 2; fast-forward it first if `main` moved, and take the private data copy before 8.3b).
    - **8.1** Decisions: done (rounds 1 and 2).
    - **8.2** (Raspberry session) the reverse-engineering spike, the hook, the patcher. Cherry's part: answer its CONTRACT requests.
    - **8.3a** Configuration foundation: listeners (HTTPS, HTTP, session, gateway, admin), the data directory, `server.public`, `auth.mode`, hostnames; flags/environment/config file; the lab keeps today's defaults.
