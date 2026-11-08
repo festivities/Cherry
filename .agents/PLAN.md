@@ -6,42 +6,103 @@ Feature status, roadmap and the current per-feature protocol reference. Rules, l
 
 When the user says they are **moving to another conversation whose agent has no context at all**, the outgoing agent MUST record it here as **HANDOFF INITIATED** with a self-sufficient state snapshot, and the receiving agent MUST append **HANDOFF ACCEPTED** (dated, with any state corrections) once it has loaded context. Older INITIATED/ACCEPTED pairs move to HISTORY.md once accepted.
 
-Earlier pairs (latest: Claude Code 2026-11-08 ~02:45 → Claude Code 2026-11-08, accepted, Economy Phase E: event currency dropped, Garden event icons, Winter/New Year forced device checks — the LAST section of HISTORY.md) are in HISTORY.md.
+Earlier pairs (latest: Claude Code 2026-11-08 ~14:30 → Claude Code 2026-11-08, accepted, Diary social, guestbook badge and Diary skin, season simulation — the LAST section of HISTORY.md) are in HISTORY.md.
 
-### HANDOFF INITIATED — 2026-11-08 ~14:30 host time (Claude Code session → new Claude Code session with no context)
+### HANDOFF INITIATED — 2026-11-09 ~00:45 host time (Claude Code session → new Claude Code session with no context)
 
-You are the receiving agent with **zero context**. Read all of [AGENTS.md](AGENTS.md), above all "Policies" (incl. **no real-money paths**, **Cherry never reads the archive at runtime**, **never restore `accounts.json` wholesale**, **operator-editable fabricated content**), the **"Cherry-made content"** table, "Workflow" (delegation, "Tester practicalities", autonomous Commits, deploy recipe), "Tooling rules" (IDA: per-job copies of the PRISTINE `%TEMP%\opencode\cherry\libgame.so.i64` only), "Lab", "Code map", "Known client-inherent limits". Then this block, "Status" and the whole **Roadmap** (above all 4, 5 and 6). [DATASET.md](DATASET.md) if bucket work comes up (§4 = other S3-compatible stores). Do not edit `JICAMA.md`. **The Read tool refuses large reads: read PLAN.md and HISTORY.md in chunks (70–150 lines); several lines are very long — Grep them or read them alone.** The previous pair (2026-11-08 ~02:45 → 2026-11-08, Phase E, with its decisions and device notes) is HISTORY's LAST section. Recheck the lab (`git status`, Cherry PID/path/hash, `adb devices` + `adb -s <serial> emu avd name`, `lan=` in the Cherry log, `config\` contents), append **HANDOFF ACCEPTED** with corrections, then work through "Open tasks" in order. Host clock is UTC+8 (emulators run UTC); the game day resets 06:00 JST (05:00 host time), which opens the daily calendar on each emulator.
+You are the receiving agent with **zero context**. Read all of [AGENTS.md](AGENTS.md) first. Above all:
+- **"Baseline"**, incl. the new rule: **`D:\Dev\projects\Cherry\.opencode\line-play-artifacts` must be preserved NO MATTER WHAT** (user, 2026-11-09).
+- **"Policies"**, incl. the **2026-11-09 change to the client-modification rule**, **no real-money paths**, **Cherry never reads the archive at runtime**, **never restore `accounts.json` wholesale**, and **operator-editable fabricated content**.
+- The "Cherry-made content" table.
+- **"Workflow"**: delegation, "Tester practicalities", autonomous Commits, the deploy recipe.
+- **"Tooling rules"**: IDA work uses per-job copies of the PRISTINE `%TEMP%\opencode\cherry\libgame.so.i64` only.
+- "Lab", "Code map" and "Known client-inherent limits".
 
-**Focus: the remaining tasks (user, 2026-11-08: "Handoff focuses on remaining tasks").** Economy Phase E is complete; no feature is half-built. What is left is the user's pick from the open list below, plus small watch items.
+Then read this block, "Status" and the whole **Roadmap**, above all the new **8 (Platform refactor)** and 5, 6. Read [DATASET.md](DATASET.md) if bucket work comes up. Do not edit `JICAMA.md`.
 
-**State snapshot (2026-11-08 ~14:25, each line observed at that time):**
-- **Repo:** `main`, level with origin after this handoff commit (docs only; last code change `96dcb33`). Gate green at `96dcb33` (`gofmt -l .` empty, `go vet ./...`, `go test -race -count=1 -timeout 550s ./...`).
-- **Running:** Cherry PID **15700** (started 2026-11-08 14:15:29), repo-root `cherry.exe` SHA-256 prefix `72493c920fdf5f8b`, log `%TEMP%\opencode\cherry\phaseE-20261108\cherry-icons4.log` (`lan=192.168.1.7`), season selection **auto** (no season in force until Winter on Dec 15), `calendars.json` from the embedded default. `%LOCALAPPDATA%\Cherry\config\` holds only `streaming.json`. YunDetectService PID 26868 (never stop it). emulator-5554 = AVD **Cherry** (1001), emulator-5556 = AVD **Jerry** (1006); LINE PLAY runs on AVD Cherry (Garden). The user sometimes plays on the emulators.
-- **Accounts (`accounts.json`, values read without keys):** 1001 "Cherry" 1,800 Gems / 15 Cash / 9 Face Shop tickets / 31 Smiles / 67 Boss Coins; 1002 "test" 1,240 Gems / 70 Cash; 1006 "jerry" 1,125 Gems / 0 Cash; `nextAvatarId` 1006. Ride Points and Treasure World state were not rechecked (02:40 values in HISTORY's last pair: 1001 60 Ride Points; Treasure season 1950000001 plays until 2026-11-29 06:00 JST).
-- **Seasons (`data/calendars.json`):** normal 7-day calendar until **Winter (Dec 15–Jan 5)**; **New Year (Jan 1–14)** wins Jan 1–5 (user, 2026-11-08). Each season: calendar (item days 3, 7), LIMIT shop rows, three event quests, popup (9101/9201/9301) and a Garden event icon; icon + popup button → `goSomewhere(gachaShop)`.
+**The Read tool refuses large reads.** Read PLAN.md and HISTORY.md in chunks of 70–150 lines. Several lines are very long: Grep them or read them alone.
 
-**Done this session (2026-11-08, commits `379208e` … `96dcb33`; details in HISTORY's last pair):** event currency researched and **dropped by the user**; Garden floating event icons built (`internal/economy/homeicon.go`, `GET /v4/home/integrated/info`) and device-verified; Winter icon switched to the generic `24_event_icon` and all season links to the Gacha Shop (user); Winter and New Year device-checked with the season forced (popup, calendar claim, icon, quests).
+The previous pair (2026-11-08 ~14:30 → 2026-11-08: Diary social, guestbook badge, Diary skin, season simulation) is HISTORY's LAST section.
 
-**Open tasks, in order (fix or classify each with evidence; memories `gaps-fix-or-classify`, `user-game-memory-wins`):**
-1. **Small cleanup, no question needed:** `internal/economy/fishing_shop.go:16` says PriceType 1 = Gem, while the client's lack-of-money code treats 1 as Cash (`%TEMP%\opencode\cherry\phaseE-20261108\eventcoin-spec.md`; variable caller 0x1dab598) [?]. Fish shop Gem purchases were device-verified, so it is most likely the comment. Settle it statically (`reverse-engineer`, per-job IDA copy, a few lines added to that spec) and fix the comment, or record why the code is right.
-2. **Ask the user what is next** (one AskUserQuestion round, recommended option first). Candidates:
-   - (a) **Roadmap 6 deferred list:** Gacha Shop categories / thumbnails / "Most Liked" (Category, Detail, Search pages blank); guestbook replies, Diary comments/likes, friends-only Diary visibility; POSTBOX home badge; Friend-profile CHAT (hangs) and Style Magazine (404s); styling slots; Pet Book Ride cards (map the three partial figures to ids first); ride pet 326400259 body; face-instance serial on save; Garden idx42 `ch_garden_enter_validate_req`. Recommend the Gacha Shop pages (the season links now land there, so its blank sections are seen more often).
-   - (b) **S3-compatible bucket support** (DATASET §4: `internal/assets/r2.go` has the region fixed to `"auto"`; only R2 tested).
-   - (c) **Phase E minor leftovers:** the more-menu `eventIconList` (served empty), the newbie-account popup branch (msg 10727), a device proof of the gather3 event-quest credit.
-   - (d) **Carried-over classified items** (HISTORY pairs 2026-11-01 ~21:15 task 5 and ~13:50 tasks 4–5: Jackpot odds ANR, Jerry MENU ANR, the dyed eye item's Closet view, …).
-   - Distribution (Roadmap 5) only when the user raises it; butler Book Chat / intimacy / skin shop stay deferred (user 2026-11-07).
-3. **Season watch — DONE 2026-11-08 by simulation** (user asked to simulate the dates, not wait): Cherry ran on a data copy (`LOCALAPPDATA=%TEMP%\opencode\cherry\season-sim-20261108\Local`) with `CHERRY_FAKE_NOW` = Dec 15 06:30 JST, then Jan 1 06:30 JST, AVD Cherry (1001). **Winter:** popup "Winter is here!" on cold start → GO NOW → Gacha Shop; calendar restarts at **day 1** (+90, ledger `daily login winter day 1`); EVENTS icon → Gacha Shop; Tasks list ends with the three Winter quests; accessory tab led by 8 LIMITED rows. **New Year:** "Happy New Year!" popup → Gacha Shop; calendar restarts at day 1 after the Winter claim (`daily login newyear day 1`); gold starburst icon (animates, not always visible) → Gacha Shop; three New Year quests, no Winter ones; LIMITED rows in accessories and shoes (shoes: New Year `CUSH003E1` + Winter `CUSH002Z1`, Winter's window runs to Jan 5). No missing popup. Screens `season-sim-20261108\{winter,newyear}\`. Real data untouched except the 2 token aliases the sim issued to 1001, merged back (backup `accounts-backup-pre-seasonsim-merge.json`). Not covered: `RUCH004RC` in the limited list is a Garden attraction, not a Fashion/Interior catalog row.
+Recheck the lab and append **HANDOFF ACCEPTED** with any corrections:
+- `git status` and the branches;
+- Cherry's PID, path and hash;
+- `adb devices`, plus `adb -s <serial> emu avd name` for each device;
+- `lan=` in the Cherry log;
+- the contents of `config\`.
 
-**Hazards learned 2026-11-08:**
-- **A forced season defeats the calendar restart:** `AttendState` compares `scheduleAt(last attend)` with `scheduleAt(now)`; while `/admin/season` forces a season both answer the same, so a forced calendar continues the old day count (day 2, not day 1). Not a bug; real windows restart at day 1 (unit-tested). `/admin/season` is process-local and resets on every Cherry restart.
-- **Simulated dates (`CHERRY_FAKE_NOW`, 2026-11-08):** an RFC 3339 time in that env var moves the game clock (`economy.NowFunc`) at startup. Records written meanwhile carry the moved dates, so `cmd/cherry` refuses it unless `LOCALAPPDATA` points away from the real folder. Recipe: copy the JSON files + `config` + `cloudflare.json` to `<dir>\Cherry\`, junction `static`, `generated`, `dp-cache`, `*-media`; launch with both env vars; afterwards merge only the NEW `aliases` keys of the copy's accounts.json into the real one (checkSession rotates tokens) and restart without the env var. Unlike `/admin/season`, this shows the real day-1 calendar restart.
-- **Icon symbol names mislead:** `49_frozen_r` is a "FROZEN ©Disney" Olaf bubble and `50_commonevent_r` a "5th ANNIVERSARY" medallion. Look at an icon on the device before choosing it. Quick way to compare several without a rebuild: copy `data/calendars.json` to `%LOCALAPPDATA%\Cherry\config\calendars.json` with one candidate id per season, restart Cherry (operator files load only at startup), force each season in turn, screenshot, then DELETE the copy and restart. Seen art: `24_event_icon` yellow "EVENTS" bubble, `14_gift_r` white bubble with a gift box, `87_home_free_gift` blue film tile "FREE GIFT", `fireworks_5st_yellow` gold starburst, `halloween_17s` Halloween.
-- **Garden event icon tap:** the Gacha Shop opens a few seconds after the tap; testers must wait before the screenshot (one tester first reported "still in the Garden").
-- **Seasonal calendar art:** the meadow background is the client's own; only the digit colour and cells are Cherry's (a tester stopped on this once).
+Then work through "Open tasks" in order. The host clock is UTC+8 (the emulators run UTC). The game day resets at 06:00 JST (05:00 host time), which opens the daily calendar on each emulator.
 
-### HANDOFF ACCEPTED — 2026-11-08 (new Claude Code session)
+**Focus (user, 2026-11-09):** "Handoff focuses on remaining open tasks." When those are done, run the **checkpoint**: branch `prototype` (task 2). After that comes the **platform refactor on `main`** (Roadmap 8; task 3). Do not start any refactor work before the checkpoint is pushed.
 
-Context loaded (AGENTS in full, PLAN handoff/Status/Roadmap). Lab rechecked, no corrections: `main` clean at `9c821b8`; Cherry PID 15700 (`D:\Dev\projects\Cherry\cherry.exe`, started 14:15:29, SHA-256 prefix `72493c920fdf5f8b`), log `cherry-icons4.log` `lan=192.168.1.7`; `config\` holds only `streaming.json`; YunDetectService PID 26868; emulator-5554 = AVD Cherry, emulator-5556 = AVD Jerry. Working the open tasks in order. **Task 1 done:** the fish shop has its own PriceType numbering (wire 1 = Gem, 2 = Cash; the client uses wire − 1 as ITEM_PRICE_TYPE: pre-check `GetGem`/`GetCash` and lack popup type at 0x1dab598, icons in `NaFishingShopCell::RefreshUI` 0x1db3504) [S] — Cherry's value was right; the comments in `fishing_shop.go` / `square_fishing.go` now say so (`eventcoin-spec.md` §9). **Task 2:** the user picked Roadmap 6 "Diary social". Spec `%TEMP%\opencode\cherry\diary-social-20261108\diary-social-spec.md` (static); built `6806468` (Status row "Diary comments, likes, guestbook replies"); friends-only visibility classified client-inherent (AGENTS limits). **Found on the device run — FIXED 2026-11-08 (device-verified, see Status row "Guestbook badge, default Diary skin"):** `GET /v4/guestbookcount/clear/<aid>` 404 (the Guestbook tab badge "1" likely stays because of it [I]) and the long-known `GET /v4/diary2/skinInfo/Android` 404; on AVD Jerry (app data wiped 2026-11-08) the Diary header is blank white and own names draw near-white, while AVD Cherry draws the green skin — likely a Diary skin Jerry never cached [I].
+**State snapshot (2026-11-09 ~00:40, each line observed at that time):**
+- **Repo:**
+  - `main`, level with origin after this handoff commit. The last code change is `17f305b` (`CHERRY_FAKE_NOW`).
+  - No other branches. `prototype` does not exist yet.
+  - Gate green before the handoff commit: `gofmt -l .` empty, `go vet ./...`, `go test -race -count=1 -timeout 550s ./...`.
+- **Running:**
+  - Cherry PID **43976** (started 2026-11-08 23:52:59), repo-root `cherry.exe` SHA-256 prefix `153b233a9b94e982` (built from `17f305b`).
+  - Log: `%TEMP%\opencode\cherry\season-sim-20261108\cherry-real-after-sim.log`.
+  - Real data folder, normal clock: no `CHERRY_FAKE_NOW`.
+  - `%LOCALAPPDATA%\Cherry\config\` holds only `streaming.json`.
+  - YunDetectService: never stop it.
+  - emulator-5554 = AVD **Cherry** (1001), emulator-5556 = AVD **Jerry** (1006). Both apps were relaunched at 23:53, and both `checkSession` returned 200.
+- **Accounts (`accounts.json`, values read without keys):**
+  - 1001 "Cherry": 1,800 Gems / 15 Cash.
+  - 1002 "test": 1,240 Gems / 70 Cash.
+  - 1006 "jerry": 1,215 Gems / 0 Cash.
+  - `nextAvatarId` 1006.
+  - 1001's Guestbook badge was cleared on 2026-11-08 (`guestbookRead` marker). Jerry's like on 1001's Jackpot Spin post (post 18) is still there.
+- **Season simulation leftovers:**
+  - The data copy `%TEMP%\opencode\cherry\season-sim-20261108\Local\` holds the simulated Winter and New Year claims (+180 Gems for 1001, copy only). Its `static`, `generated`, `dp-cache` and `*-media` are **junctions into the real folder**.
+  - If you delete the copy, remove the junctions with `rmdir` (not `rm -r`), or the real folders are emptied.
+  - Backup of the real `accounts.json` before the token merge: `%TEMP%\opencode\cherry\economy-20261006\accounts-backup-pre-seasonsim-merge.json`.
+
+**Done in the previous session (2026-11-08):** commits `7b69833` … `17f305b`; details in HISTORY's last pair.
+- The fish shop PriceType comment.
+- **Diary social:** comments, likes, guestbook replies and report routes.
+- **Guestbook badge clear and default Diary skin** (R2 `static/DiarySkin/…`).
+- `CHERRY_FAKE_NOW` season simulation: **Winter and New Year device-verified in their own date windows.**
+
+**Open tasks, in order.** Fix or classify each with evidence (memories `gaps-fix-or-classify`, `user-game-memory-wins`).
+
+1. **Finish the remaining open items, then nothing new.** Ask the user once (AskUserQuestion, multiSelect) which of these to finish before the checkpoint. "None — checkpoint now" is a valid answer.
+   - (a) **Gacha Shop:** the Category, Detail and Search pages are blank; thumbnails and "Most Liked" are missing. Recommended: the season popups and icons now land there.
+   - (b) **Roadmap 6 leftovers:** the POSTBOX home badge; Friend-profile CHAT (hangs) and Style Magazine (404s); styling slots; Pet Book Ride cards (map the three partial figures to ids first); ride pet 326400259 body; the face-instance serial on save; Garden idx42 `ch_garden_enter_validate_req`.
+   - (c) **Phase E minor leftovers:**
+     - the more-menu `eventIconList` (served empty);
+     - the newbie-account popup branch (msg 10727);
+     - a device proof of the gather3 event-quest credit.
+   - (d) **Carried-over classified items:** HISTORY pairs 2026-11-01 ~21:15 task 5 and ~13:50 tasks 4–5 (Jackpot odds ANR, Jerry MENU ANR, the dyed eye item's Closet view, …).
+   - Do not offer these; Roadmap 8 covers them:
+     - S3-compatible buckets;
+     - the gacha odds WebView (a publicly trusted cert);
+     - LINE OAuth (replaced by Discord sign-in);
+     - distribution.
+
+   Classified 2026-11-09, no action needed: Winter's limited `RUCH004RC` is a Garden attraction. It is listed LIMIT in the Interior Shop's default tab (`shop.go` lists landscapes first in `URCMD`, then `interiorRow` → `priceKeys` → `saleKeys`). It was absent in the simulation because 1001 owns it (`roomItems`), and an owned landscape is left out of that tab.
+2. **Checkpoint (user, 2026-11-09: save what we have before the refactor):**
+   - Prerequisites: task 1's picks are done, the gate is green, the build is deployed and device-verified, and `main` is clean and pushed.
+   - Then:
+     - `git switch -c prototype`, then `git push -u origin prototype`, then `git switch main`.
+   - `prototype` is the final state of the stdlib/JSON-file Cherry: never rebase, reset or delete it.
+   - Also copy the live data as a data checkpoint: `%LOCALAPPDATA%\Cherry\`, without `static\` and `generated\` (re-downloadable). Copy it to `%TEMP%\opencode\cherry\checkpoint-prototype-<date>\` (private, never in Git). Record both the commit and the folder in PLAN.
+   - **Before and after the switch, confirm that `.opencode\line-play-artifacts` is untouched:**
+     - its size (≈2.0 GB);
+     - its six entries: the 10.1.0.0 APK, `lineplay-original-assets`, `lpbackup`, `lpbase`, `miaw-backup` and `santi-backup-20260921`;
+     - that `git check-ignore -v .opencode/line-play-artifacts` still names `.gitignore:35`.
+3. **Platform refactor (Roadmap 8), only after task 2.**
+   - First, read Roadmap 8 "User decisions" and "Open decisions". Ask the user about every decision still open; the agent's proposals are written there.
+   - Then run step 8.2, the reverse-engineering spike, in parallel with step 8.3.
+   - Every slice follows the usual chain: spec → `cherry-worker` → main review + gate → deploy → `cherry-tester`. Commit and push when green.
+   - Keep the stock-client emulator lab working on `main` until the patched APK replaces it.
+
+**Hazards (carried):**
+- **A forced season defeats the calendar restart.** `AttendState` compares `scheduleAt(last attend)` with `scheduleAt(now)`. While `/admin/season` forces a season, both return the same schedule, so a forced calendar continues the old day count (day 2, not day 1).
+  - `/admin/season` is process-local and resets on every Cherry restart.
+  - To see real windows, use `CHERRY_FAKE_NOW` (AGENTS "Workflow", "Season and date tests").
+- **Garden event icons:** the New Year icon is a gold starburst that animates and is not always visible; Winter's is the yellow "EVENTS" bubble. Both sit at ~(1144,327) on AVD Cherry. The tap opens the Gacha Shop a few seconds later.
+- **The seasonal calendar's meadow background is the client's own;** only the digit colour and the cells are Cherry's.
 
 ## Status (2026-11-08)
 
@@ -96,8 +157,8 @@ Only M0–M4 are numbered. Later work is tracked as features:
 | Garden maps as operator data (`gardens.json`, default 1908231803, per-map fish spot), Garden landscapes (Interior Shop 30 Cash, stock skin editor via home menu "Garden Edit": list idx4→5 with `using` on the current map, preview 6→7, change 5→6), R2/D1 split (`static/` originals, `cherry/` Cherry-made) | Device-verified 2026-10-26 on AVD Cherry: new default on both AVDs, islet fishing begins, buy GULS0000Y 60→30 Cash, editor Background tab → preview → SAVE → Garden re-enters on 2002201201. **v6 thumbnails (Go port) device-verified 2026-10-26 21:40 on AVD Cherry:** shop row and editor cell draw the generated scene; bought Golden palace GULS0255E (Cash 30→0), preview → SAVE → `garden-room-enter map=2303271138`; `arts_item_garden_428499986` artsitem + dp.png 200 from Cherry, never the stream; its `fl_l0_a00.png` 404 is the shop preview pane (originals have no such file either) | handoff commit (2026-10-26 evening); v6 port `c8445a9` |
 | Dataset completeness (lpbackup fills items/packs, 24th Garden pack) + chat action icons (`ch` "00005") | Device-verified 2026-10-26 on AVD Cherry: 24 MB lab update, `1908261114` on device, LINE City entry with zero chat icon requests, sticker panel drawn | handoff commit (2026-10-26) |
 | Garden landscape thumbnails v6 (Go port, sky in `gardens.json`) | Device-verified 2026-10-26 (AVD Cherry: shop + editor draw the scene, bought Golden palace, SAVE → map 2303271138) | `c8445a9` |
-| Economy Phase E: New Year season (items, popup 9301, quests 9301–9303) | Device-verified 2026-11-08 with the season forced (AVD Cherry: popup, GO NOW, event icon, quests); its own window Jan 1–14 not yet seen | `c8445a9`, `96dcb33` |
-| Economy Phase E: Garden floating event icons (`home/integrated/info`, one icon per season, native links → Gacha Shop) | Device-verified 2026-11-08 (AVD Cherry, Winter and New Year forced) | `13a321a`, `96dcb33` |
+| Economy Phase E: New Year season (items, popup 9301, quests 9301–9303) | Device-verified 2026-11-08 with the season forced (AVD Cherry: popup, GO NOW, event icon, quests); its own window simulated 2026-11-08 (`CHERRY_FAKE_NOW` Jan 1 06:30 JST: popup, day-1 calendar, starburst icon, quests, LIMIT rows) | `c8445a9`, `96dcb33` |
+| Economy Phase E: Garden floating event icons (`home/integrated/info`, one icon per season, native links → Gacha Shop) | Device-verified 2026-11-08 (AVD Cherry, Winter and New Year forced; both again in their own windows by date simulation the same night) | `13a321a`, `96dcb33` |
 | Square boss fishing: full catch, result-screen hang fix (`/https://` prefix) | Catch user-verified 2026-10-26 (AVD Cherry); result screens close (device 2026-10-27) | `c8445a9` |
 | Square boss book (rc75 pages, rc76 claim) | User-verified 2026-10-26 (claim: "Reward Claimed", +50 Gems +5 Boss Coins) | `c8445a9` |
 | Square boss multiplayer rooms | Device-verified 2026-10-27 (AVD Cherry + Jerry: join, kick, rejoin, ready/start, shared HP, time-out, handover); leave mid-battle device-verified 2026-10-27 evening (joiner back key → YES → LINE City, `leave … fight=true`, master's battle runs on to its own finish with members=1) | `c8445a9`, `15d68dc` |
@@ -136,11 +197,11 @@ Older commit-by-commit evidence (M3 entry errors, keepalives, preload fixtures) 
 1. **Code restructure — done 2026-10-07:** the flat `package main` became `cmd/cherry` + `internal/{store,httpx,web,economy,room,lpn,thumbs,netsvc,testutil}` + `data/` with no behavior change (209 tests pass before and after; all 39 persisted/serialized types keep identical JSON tags). `internal/httpx` and `internal/testutil` were added to avoid import cycles. Build with `go build -o cherry.exe ./cmd/cherry`. Layout: AGENTS "Code map".
 2. **Economy Phase C — done 2026-10-11:** clothing/furniture/pet shops priced from Cherry's table, **sell-back at 100% of price** (lab accounts may sell their showcase items), profile pictures, generated pet thumbnails, gacha v1 (100 / 900 Gems, 90/10 odds, duplicate refunds). Preset slots / extra floors stay free (user decision). The stock Closet has no shop button (its Go-Shop opens Storage), so "Closet shows owned items, shops the rest" = home-menu Fashion/Interior/Minipet Shop rows. Reference: "Economy" below.
 3. **Economy Phase D — slices 1–2 done 2026-10-11, hearts + gathering 2026-10-22:** Garden daily quests (150 Gems/day, server-completed) and Square fishing (150 Gems/day cap, fish shop for Gems, catch book). Reference: "Phase D slice 1/2" under "Economy". **Phase D since:** hearts quest (slice 3, `7318d72`), Garden gathering + Bag (`6d3087c`), the Atelier (`244a201`), boss fishing (`6f05c51`, multiplayer `c8445a9`/`15d68dc`), the Boss Coin office (`6f05c51`), racing (`e9d61e9`) and the Ride Point shop (`0beef13`) are done — Phase D is complete; racing is parked (map, "Garden"). Research notes: `%TEMP%\opencode\cherry\phaseD-20261011\{quests.md,quest-gaps.txt,gathering.txt}`.
-4. **Economy Phase E:** events, seasonal rewards, limited shops; mailbox giveaways with items. **Done:** slice 1 mailbox items + seasonal calendars (2026-10-22), slice 2 deals + limited items (2026-10-22/25), slice 3 event quests + season popup (2026-10-25), New Year season (forced on a device 2026-11-08: popup, Gacha Shop link, event icon, quests). **Phase E is complete (2026-11-08):** the event currency + exchange was **dropped by the user after the static check** (only Boss Coins short-fall cleanly in popup 116; any new coin reads "Not enough Cash." via GET `bill/prod/spot/cash` and has no header count — `phaseE-20261108\eventcoin-spec.md`); **Garden floating event icons built and device-verified** (`13a321a`, `96dcb33`: `GET /v4/home/integrated/info` → one `home_icon` row per season in force; ids from the original `icon_effect.aniproj` — Halloween `halloween_17s`, Winter `24_event_icon` "EVENTS" bubble (generic by user decision; the Frozen collab icon dropped), New Year `fireworks_5st_yellow`; every season's icon and popup button open `goSomewhere(gachaShop)` by user decision); New Year keeps winning Jan 1–5 (user). **Phase E leftovers (minor, watch-only unless the user asks):** the more-menu `eventIconList` (served empty), the newbie-account popup branch (msg 10727, unverified), the gather3 event-quest credit (unit-tested only), Winter/New Year LIMIT rows and calendars in their own windows (Dec 15 / Jan 1; forced runs only so far), one forced-Winter cold start without its popup (not reproduced, PLAN 2026-11-08 round 3 note).
+4. **Economy Phase E:** events, seasonal rewards, limited shops; mailbox giveaways with items. **Done:** slice 1 mailbox items + seasonal calendars (2026-10-22), slice 2 deals + limited items (2026-10-22/25), slice 3 event quests + season popup (2026-10-25), New Year season (forced on a device 2026-11-08: popup, Gacha Shop link, event icon, quests). **Phase E is complete (2026-11-08):** the event currency + exchange was **dropped by the user after the static check** (only Boss Coins short-fall cleanly in popup 116; any new coin reads "Not enough Cash." via GET `bill/prod/spot/cash` and has no header count — `phaseE-20261108\eventcoin-spec.md`); **Garden floating event icons built and device-verified** (`13a321a`, `96dcb33`: `GET /v4/home/integrated/info` → one `home_icon` row per season in force; ids from the original `icon_effect.aniproj` — Halloween `halloween_17s`, Winter `24_event_icon` "EVENTS" bubble (generic by user decision; the Frozen collab icon dropped), New Year `fireworks_5st_yellow`; every season's icon and popup button open `goSomewhere(gachaShop)` by user decision); New Year keeps winning Jan 1–5 (user). **Phase E leftovers (minor, watch-only unless the user asks):** the more-menu `eventIconList` (served empty), the newbie-account popup branch (msg 10727, unverified), the gather3 event-quest credit (unit-tested only), ~~Winter/New Year LIMIT rows and calendars in their own windows~~ (device-verified 2026-11-08 by date simulation, `CHERRY_FAKE_NOW`; both popups showed on cold start, so the one forced-Winter start without a popup stays unreproduced).
    - **User decisions 2026-10-22 (finish Phase D and E — everything):** hearts pay **+30 Gems/day** (5 hearts; faucet budget raised to ~330/day); Garden gathering **with the bag and crafting**; Square **boss fishing (solo first)** and **Riding Pet racing**; Phase E: mailbox item gifts + seasonal calendar, limited/sale shop flags, event quests + popups/icons, event currency + exchange. Order (one implementation slice at a time, research in parallel): hearts → mailbox items/seasonal calendar → shop flags → gathering + bag + crafting → boss fishing → event quests/popups/icons → event currency + exchange (shares LPN gacha 52/53 with the Boss Coin exchange office) → racing. Research (static, 2026-10-22): `%TEMP%\opencode\cherry\phaseDE-20261022\{hearts,gathering,boss-racing,phaseE}.md`. **Seasons (user 2026-10-22):** Halloween calendar Oct 25–Nov 7, Winter/Christmas Dec 15–Jan 5, New Year Jan 1–14 (overlap with winter to be resolved in the slice); the normal 7-day calendar runs outside events; generated skin per season. Seasonal calendars and mailbox gifts give **themed shop items, unowned first**; an already-owned item pays its sell-back Gems instead (the agent shortlists the codes for the user). Main-agent spot-checks: `quest/status` fields (ResQuestStatus 0x1aec460), postbox row keys (`sDataPostList::Post::ParserJSON` 0x1c0d378), `LP_hc_notify_gathering_reward` 0x1f826dc, and **`rc_fishboss_noteinfo_push` (rc74) → `SetTestMode(true)`** at 0x18d1790 — never send rc74.
 4a. **Operator data (user requirement 2026-10-25, AGENTS "Policies") — done 2026-10-25 (`244a201`, `70b2cca`, `6a71c03`; behavior-identical: an 8,613-line golden dump of prices, calendars, skins, deals, gacha pools/pulls, gathering/fish picks, quests, vouchers matched before/after, all tests unchanged).** Files in `data/` (embedded), each replaced by a same-named file in `%LOCALAPPDATA%\Cherry\config\`: `prices.json` (shop prices, animated ×, sell-back %, deals, face tickets, Cherry-made names), `gacha.json`, `gathering.json`, `fishing.json` (fish table, cap, rare %, shop gear), `calendars.json` (normal 7-day cycle, seasons with dates/cycles/item days/limited lists), `rewards.json` (welcome gift, quests, hearts, mail limits), `profiles.json` (tutorial clone avatars), `atelier.json`. Schemas are comments on the Go types; an invalid file stops Cherry naming file + entry; a limited item without art only logs (the lab archive lacks `CUON004SR`). **Follow-ups done 2026-10-25 (golden dump byte-identical):** `starter.json` (room starter codes — must include the default floor/wall/door/diary — and pet name pattern `Minipet {n}`, owned by `internal/room/starter.go`), `profiles.json` now owned by `internal/store/profiles.go` (+ `friend_name`, `lab_grant_codes`; `store.FriendName()`/`store.CuratedGrantCodes()` are functions), `dressup.json` (creation categories, dress lists, look sets per sex; `web/dressup.go`), `menu.json` (home-menu **labels** per link type; the link types, ids and order stay in `web/http.go`). Load order in `main.go`: store → room → economy → web operator data. **Still in code (Cherry-invented, low value):** lab showcase lists `room.RoomShowcaseCodes`/`PetShowcaseNums`, `roomDefaultPlaced` (door/diary placement), the pet race name "Minipet" in `petRepRow`, recycle cfg neutral fields. Original requirement text: a highly modular setup so server operators can add, change and remove everything Cherry fabricated. Original proposal (2026-10-25, implemented as described above): Cherry's defaults ship as data files under `data/` (embedded, as `face_codes.txt` already is), and an operator directory (e.g. `%LOCALAPPDATA%\Cherry\config\`) overrides or extends them per table; one stdlib JSON loader with validation at startup (unknown item codes, no-art items, bad weights → clear errors, not client crashes). Refactor targets, then hard-coded in Go: shop prices `ItemPrice` and Cherry-made item names (`shop.go`), gacha pools/odds/prices (`gacha.go`), gathering drops, names, caps and rewards (`gathering.go`), fish table and fish shop (`fishing.go`, `fishing_shop.go`), quest/hearts rewards (`quests.go`, `hearts.go`), login and seasonal calendars (`loginbonus.go`, `season.go`), deals (`deals.go`), welcome gift and other faucet amounts, synthetic clone-avatar profiles (`http.go`). The Atelier is built data-driven from the start (recipes, themes, blueprint prices, stamina). Every feature since ships its fabricated values as `data/*.json` (AGENTS "Cherry-made content").
-5. **Distribution (discussed 2026-10-11, deferred by the user — no decision):** how future players reach a public Cherry. The native client never verifies certificates, so only DNS for the ~17 game hosts must point at the server. Options discussed: (a) a small companion Android app using `VpnService` as a local DNS filter (no root, Wi-Fi and mobile data, stock client untouched — the agent's recommendation); (b) manual Wi-Fi DNS pointing at Cherry's DNS (fragile; routers/ISPs may intercept); (c) a patched APK with rewritten hostnames — AirArmor flags a re-signed APK (state 6 REPACKAGED → blocking popup), it redistributes LINE's binary, and it contradicts the stock-client mission. Raise again only when the user brings it up. Related (2026-11-02): a public host also needs its own asset bucket — [DATASET.md](DATASET.md) is the agent guide for building it from a host's own backups/APKs.
-6. **Deferred / open:** gacha shop thumbnails, categories and "Most Liked" list (empty/placeholder today; Gacha Category/Detail/Search pages blank); gacha odds page (unreachable: WebView rejects the self-signed cert; a device-side certificate install scoped to Cherry's hostnames — Cherry's current cert has `IsCA: true`, so it would need a non-CA leaf first — was discussed and not approved); ride pet 326400259 body (sub-armature displays); styling slots (zero-slot fixture today); Friend-profile CHAT (hangs) and Style Magazine (404s; the GIFT wish list is served since 2026-10-28); ~~guestbook replies, Diary comments/likes~~ (done 2026-11-08, `6806468`), video uploads; ~~friends-only Diary visibility~~ (client-inherent, AGENTS limits); POSTBOX home badge; Garden idx42 `ch_garden_enter_validate_req`; face-instance serial consistency on save (equipped faces report `invenSeq:"0"`); LINE OAuth, minigames beyond Phase D, Windows client port; butler Book Chat, intimacy and skin shop (deferred by the user 2026-11-07); Pet Book Ride tab: three cards draw partial figures (stick-horse head, bunny ears + legs, ribbon + lollipop; 2026-11-08 `%TEMP%\opencode\cherry\miawpets-20261108\s27b-book-ride-scroll1-wait.png`) — likely props drawn without a rider; map the cards to ids before treating it as a gap.
+5. **Distribution (discussed 2026-10-11, deferred by the user — no decision):** how future players reach a public Cherry. The native client never verifies certificates, so only DNS for the ~17 game hosts must point at the server. Options discussed: (a) a small companion Android app using `VpnService` as a local DNS filter (no root, Wi-Fi and mobile data, stock client untouched — the agent's recommendation); (b) manual Wi-Fi DNS pointing at Cherry's DNS (fragile; routers/ISPs may intercept); (c) a patched APK with rewritten hostnames — AirArmor flags a re-signed APK (state 6 REPACKAGED → blocking popup), it redistributes LINE's binary, and it contradicts the stock-client mission. Raise again only when the user brings it up. **Decided 2026-11-09 (user): a minimally patched, endpoint-agnostic APK with Discord-only sign-in — Roadmap 8 (P5, P6, P10); this supersedes the options above.** Related (2026-11-02): a public host also needs its own asset bucket — [DATASET.md](DATASET.md) is the agent guide for building it from a host's own backups/APKs.
+6. **Deferred / open:** gacha shop thumbnails, categories and "Most Liked" list (empty/placeholder today; Gacha Category/Detail/Search pages blank); gacha odds page (→ Roadmap 8 P5: a publicly trusted cert on the operator's hostname; unreachable today: WebView rejects the self-signed cert; a device-side certificate install scoped to Cherry's hostnames — Cherry's current cert has `IsCA: true`, so it would need a non-CA leaf first — was discussed and not approved); ride pet 326400259 body (sub-armature displays); styling slots (zero-slot fixture today); Friend-profile CHAT (hangs) and Style Magazine (404s; the GIFT wish list is served since 2026-10-28); ~~guestbook replies, Diary comments/likes~~ (done 2026-11-08, `6806468`), video uploads; ~~friends-only Diary visibility~~ (client-inherent, AGENTS limits); POSTBOX home badge; Garden idx42 `ch_garden_enter_validate_req`; face-instance serial consistency on save (equipped faces report `invenSeq:"0"`); ~~LINE OAuth~~ (replaced by Discord sign-in, Roadmap 8 P6), minigames beyond Phase D, Windows client port; butler Book Chat, intimacy and skin shop (deferred by the user 2026-11-07); Pet Book Ride tab: three cards draw partial figures (stick-horse head, bunny ears + legs, ribbon + lollipop; 2026-11-08 `%TEMP%\opencode\cherry\miawpets-20261108\s27b-book-ride-scroll1-wait.png`) — likely props drawn without a rider; map the cards to ids before treating it as a gap.
 
 7. **Not-yet-built MENU features (removed from the MENU 2026-10-28 until built; re-add the link type to `homeLinks` + a `data/menu.json` label when done; specs under `%TEMP%\opencode\cherry\menu-audit-20261028\`):**
    - **Built so far:** Butler (2026-10-28; original roster 2026-10-29) and Colorant Shop + Inventory (2026-10-29), Dye Base Shop + Bleach (2026-11-01), butler gathering (2026-11-01). Story Gacha is hidden (below). Lucky + Jackpot Spin built 2026-10-30. Lounge Chat built 2026-10-30 (row re-added, last; stickers blank, no Cherry-made art by user decision 2026-10-31). **Circle built and device-verified 2026-11-01** (row re-added, last; leftovers in the handoff block). **Treasure World built 2026-11-02 and completed 2026-11-03** (row re-added, last; the few unproven display items are in the handoff block). Every 2026-10-28 MENU removal is now built or hidden by decision.
@@ -160,6 +221,125 @@ Older commit-by-commit evidence (M3 entry errors, keepalives, preload fixtures) 
    - **Lounge Chat — built and device-verified 2026-10-30 (`c391ee2`), spec `menu-audit-20261028\lounge-chat-spec.md`.** Requests are LO op 0x0A (`BE16(L) || T || JSON`; T is skipped unread), replies op 0x1A (`BE16(200) || JSON`, same txn), pushes op 0x1B (`catg "tchat"`). The server builds count-change pushes too, because the client refetches members only on a push. Open items were closed 2026-10-31 (AGENTS limits "Lounge Chat"). The earlier note: session channel (:10123) command 1101 `RequestThemeChatCategoryList` 0x1ba8114 → `processThemeChatPacket` 0x1c35c70 / `parseCategoryList` 0x1ac33e8 (`catgList[] {catgId int, catgName, catgIconImg, onlineMemberCnt int}`), join reply 1001, send `sendThemeChatMsg` 0x1ba7ea8; session frame format for these commands undecoded. Themed public chat rooms. Spec `rows-c-spec.md` §6.
    - **Treasure World** (Blue Marble board game): LPN MONOPOLY namespace (38 entries) login `BlueMarbleService::ReqServerLogin`, `LP_sc_login_res` MONOPOLY 0x16aaf8c (layout undecoded); today the row would spin forever. Largest. Spec `rows-e-spec.md` (92). Archive (checked 2026-11-01): 265 `marble_*`/treasure images in `UIResource/UIImage_hd` + 49 plists in `UIResource/` (santi = lpbackup), `animation/icon_effect/treasureworld_icon.png`, `animation/world_icon/treasureisland_npc_icon.png`, `animation/treasureisland_ef(.aniproj)`, `animation/marble_ef.aniproj`; `files/cache/bluemarble/` empty in both backups; no board map pack. **Built 2026-11-02 (slices 1–2):** gateway agent 9 (tunnel "1.1.114.0"), board cells come from `sc_room_enter_res` f4 (no map pack needed; the client's ring is a fixed 28 squares), season art is downloaded from SeasonInfo paths (the archive's season PNGs are transparent placeholders). Specs `%TEMP%\opencode\cherry\treasure-20261102\` (`treasure-spec.md` §9, `cells.md`, `transport-money.md`, `roll-gate.md`, `arrival.md`, `slice2-fixes.md`, `freeze.md`, then `trade-key.md`, `layout-audit.md`, `slice3-spec.md`, `slice3b-spec.md`, `season-end-spec.md`, `avatar-items-spec.md`, `broom-spec.md`, `island-spec.md`, `board-art-spec.md`; the user's production screenshots and notes in `user-pngs\`); progress and device evidence in HISTORY (pairs 2026-11-02 ~01:55, ~08:40 and ~19:00). **Completed 2026-11-03** (Status row "Treasure World"; reference AGENTS Code map + "Known client-inherent limits").
    Suggested order: ~~Butler~~ → ~~Colorant~~ (done) → ~~Story Gacha~~ (hidden, no original stories) → ~~spins~~ (done) → ~~Lounge Chat~~ (done) → ~~Circle~~ (done 2026-11-01) → ~~Treasure World~~ (done 2026-11-03). Roadmap 7 is complete. Each: `reverse-engineer` fills the open fields into a spec → `cherry-worker` implements (Cherry-made content as `data/*.json` with `origin: "cherry"`) → main review + gate + deploy → `cherry-tester` (re-add the MENU row first).
+
+8. **Platform refactor (user, 2026-11-09). Starts only after the `prototype` checkpoint (handoff task 2); the work happens on `main`.** Research notes go in `%TEMP%\opencode\cherry\platform-20261109\`.
+
+   **User decisions (2026-11-09):**
+   - Rewrite or refactor Cherry as needed so it scales and is concurrent. JSON files will not scale. The user leans toward **Cloudflare D1** and asked for better ideas.
+   - Add a **web UI for staff** that can change every part of the server that makes sense to change. Cherry becomes modular, and everything operator-editable can be edited without code changes.
+   - **Production host:** the user's Oracle Ampere instance (arm64, 4 cores / 24 GB). Other demanding services already run on it, so plan on a small share: about 1 core and 1–2 GB for Cherry.
+   - **Minimally modified APK.**
+     - The patched client connects to the operator's server instead of LINE PLAY's servers. **It must work with ANY custom endpoint**, not one hard-coded server (user follow-up, 2026-11-09).
+     - Certificates may be patched if the in-game browser needs it.
+     - **The only sign-in is Discord OAuth/SSO**, so no passwords are ever stored.
+     - The user asked to be told if the APK work pollutes this repository with lots of code or is big enough to need a **separate GitHub repository**.
+   - **Security** is a requirement throughout.
+   - **Preserve `.opencode\line-play-artifacts` no matter what** (AGENTS "Baseline").
+
+   **Agent proposals (2026-11-09; the user asked for better ideas; each needs the user's yes):**
+   - **P1 Storage: SQLite on local disk, plus Litestream to R2, rather than D1 as the primary store.**
+     - D1 queried from outside Workers goes through the Cloudflare REST API, which is meant for admin use. That API shares the account-wide limit of 1,200 requests per 5 minutes; above it, every call gets 429 for 5 minutes. Production traffic would need a proxy Worker, which adds a network hop to every query. A D1 database also runs one query at a time.
+     - Cherry's real-time LPN handlers and HTTP routes touch the store on almost every message.
+     - SQLite (WAL mode, in-process) gives transactions and µs reads, which is plenty for a private server on one VM. Litestream (a sidecar binary) streams it continuously to the existing R2 bucket for off-site backup and point-in-time restore, inside the free tier. D1 keeps its current job, the asset-manifest mirror.
+     - **This needs one Go dependency, `modernc.org/sqlite`** (pure Go, no cgo, arm64), which breaks AGENTS "stdlib only". That is a user decision.
+     - If the user still wants D1: proxy Worker + batched writes + in-memory hot state with write-behind. That is clearly more complex and has more failure modes.
+   - **P2 Refactor, not rewrite.**
+     - Keep the protocol handlers: they hold months of device-verified client knowledge.
+     - Replace the internals of `internal/store` (accounts, social, circles, treasure, ledger) behind its API with DB tables, plus a one-shot importer from the JSON files (aids, ledger and media paths kept).
+     - Schema: hybrid first (key columns plus a JSON column for nested per-account state), then normalize the relational and hot parts (social, ledger, inventory).
+     - Replace the global `AccountsMu` / `SocialMu` locks and whole-file rewrites with transactions. These locks and rewrites are the real concurrency limit today.
+     - Prove each step with golden dumps before and after, as Roadmap 4a did.
+   - **P3 Operator data as documents.**
+     - The `data/*.json` operator files (prices, gacha, gathering, fishing, calendars, rewards, profiles, atelier, starter, dressup, menu, butlers, spin, lounge, circle, …) become versioned documents in the DB.
+     - Each change is drafted, validated by the existing `check*` validators, published, then hot-swapped atomically through the existing `opdata` `Get()` holders: no restart, with history, rollback and an audit log.
+     - The embedded defaults remain the seed. "Ground truth stays in code" (Policies) is unchanged.
+   - **P4 Admin UI.**
+     - Served by Cherry on its own listener bound to 127.0.0.1. Its only public route is a Cloudflare Tunnel guarded by Cloudflare Access (Zero Trust free tier), with no open port.
+     - Inside it: Discord login, with staff and owner roles from an allowlist of Discord user ids.
+     - Pages: `html/template` with a little plain JS, no SPA build chain.
+     - First, a generic validated editor for every operator document, so everything is editable on day one. Forms come later for the frequent ones: seasons/calendars, prices, mail giveaways, gacha.
+     - Player tools: lookup, grants (ledger reason names the staff id), mail, bans, season force / date simulation, log view.
+     - Security: CSRF tokens, `SameSite=Strict` HttpOnly Secure cookies, re-confirmation for destructive actions, and everything audited.
+     - Retire the loopback `/admin/*` tool. Its `adminLoopback` check is unsafe behind any local tunnel or reverse proxy, because every proxied request comes from 127.0.0.1.
+   - **P5 Endpoint-agnostic client patch.** Known facts:
+     - The native client never verifies certificates (Roadmap 5, AGENTS "Architecture").
+     - Cherry already routes on the ORIGINAL hostnames (SNI and Host).
+     - Native host strings are fixed-length strings in `libgame.so`.
+     - A re-signed APK trips **AirArmor state 6 REPACKAGED**, a blocking popup. The latch functions are in AGENTS "AirArmor enforcement". The patch must neutralize this; it is the main risk.
+
+     The options:
+     - **(A) Rewrite the host strings in place.** Limited to names no longer than the originals. Each APK is built for one domain, and Cherry would have to learn the new names.
+     - **(B, recommended pending the 8.2 spike) A small injected native library that hooks name resolution** (`getaddrinfo`/`gethostbyname` as `libgame.so` and the Java stack use them). It maps every LINE PLAY host to the endpoint configured on the device.
+       - No length limit; any operator's server.
+       - Original hostnames are kept, so Cherry's routing is unchanged.
+       - The endpoint comes from a build-time default (patcher flag) plus an in-app setting, for example a first-launch prompt.
+     - **WebView:** pages that Cherry links (gacha odds, notices) should use the operator's public hostname with a publicly trusted cert, so no trust patch is needed. Inventory the client's hard-coded WebView URLs. A `network_security_config` patch is the fallback, which the user allows.
+     - **TLS:** the client offers only static-RSA suites, so a public certificate needs an RSA key.
+     - **LPN gateway addresses** that Cherry advertises (today `sinkIPFor`/`lanIP`) must come from the operator's config (public address or hostname).
+     - **Signing:** the patched APK carries the operator's own signature and needs a fresh install. Existing lab accounts move by linking a Discord id to an aid (admin tool).
+     - **Never commit or redistribute LINE's binaries.** The patcher takes the operator's own APK, checks its SHA-256 against the 10.1.0.0 baseline, and writes the output outside every repo.
+   - **P6 Discord sign-in, server-mediated, so the APK holds no per-operator secret.**
+     - The client opens `https://<endpoint>/auth/discord/start` in a Custom Tab or WebView.
+     - Cherry runs the OAuth 2 authorization-code flow with PKCE and `state`, scope `identify` only, and an exact redirect URI. It then returns a one-time code through an app deep link, which the client trades for Cherry's session.
+     - Alternative if the RE spike makes it cheaper: point the LINE SDK login at Cherry, which acts as the authorization server and delegates to Discord.
+     - The server enforces it:
+       - guest `generate` is refused;
+       - every account must have a Discord id (unique mapping Discord id → aid);
+       - Cherry's own session tokens are stored only as SHA-256 hashes (today the aliases are raw);
+       - the Discord client secret lives in a 0600 secret file or env var, never in Git or logs.
+     - No passwords anywhere.
+   - **P7 Security baseline. Treat every client as hostile:** modified clients exist whatever we ship.
+     - **Requests:**
+       - authorization on every route (actor = session);
+       - size, length and count limits on input;
+       - per-account and per-IP rate limits;
+       - LPN frame-size caps, read/idle deadlines and per-IP connection caps.
+     - **Network:**
+       - **No DNS listener on a public host**: `netsvc` DNS would be an open resolver, an amplification risk. It becomes a lab-only option.
+       - The client's static-RSA TLS has no forward secrecy. It is client-inherent: document it and keep modern suites for WebView and the admin UI.
+       - Open only the needed ports: the Oracle security list plus the host firewall allow 443, 80 (ACME), 10000 and 10123.
+     - **Secrets and host:**
+       - secrets (`cloudflare.json`, the Discord secret, a scoped R2 token for Litestream) are 0600 and owned by a dedicated `cherry` user;
+       - systemd hardening: `NoNewPrivileges`, `ProtectSystem=strict`, only `CAP_NET_BIND_SERVICE`;
+       - backups go only to the private bucket.
+     - **Gate:** add `govulncheck`. The gate keeps "no real-money paths".
+   - **P8 Deployability:**
+     - a Linux arm64 build (`GOOS=linux GOARCH=arm64`);
+     - the data/config directory from a flag or env, replacing the Windows `os.UserCacheDir` / `%LOCALAPPDATA%` assumptions;
+     - a systemd unit, a health endpoint, structured logs;
+     - the Windows emulator lab stays as the test bed (DNS-sink mode lab-only).
+   - **P9 Scale, realistically:** one process on one VM is right for this. Go is already concurrent, and P1/P2 remove the real limits. No multi-node or sharding (LPN rooms live in memory) unless evidence demands it.
+   - **P10 Separate repository for the client patch (answer to the user's question):**
+     - **Recommended.** The patcher has its own toolchain (apktool/smali, Android NDK C for the hook library, `apksigner`), unlike Cherry's Go server.
+     - It has its own release cadence and must never hold LINE's binaries.
+     - Expected size: modest (smali edits for loader, login, AirArmor and endpoint setting, a few hundred lines of C, build scripts), but foreign to this repo.
+     - Cherry keeps only the server side (auth endpoints, endpoint config) and a doc link.
+     - Confirm after the 8.2 spike sizes it; the user decides and creates the GitHub repo.
+
+   **Open decisions to ask the user at the start (record the answers here):**
+   1. Storage: SQLite + Litestream (P1), or D1 anyway?
+   2. Allow the first Go dependency (`modernc.org/sqlite`), or keep stdlib only?
+   3. Client patch: endpoint resolution (B) vs host-string rewrite (A); a separate repo and its name (P10).
+   4. Admin exposure: Cloudflare Tunnel + Access, or Discord login alone on a public port.
+   5. Account migration: link the existing lab accounts to Discord ids, or start fresh.
+   6. The production domain and public ports on the Oracle host. Docs and code stay endpoint-agnostic either way.
+
+   **Suggested order** (each slice: spec → `cherry-worker` → main review + gate → deploy → `cherry-tester`):
+   - **8.0** Checkpoint (`prototype`).
+   - **8.1** The decisions above.
+   - **8.2** RE spike, parallel with 8.3. `reverse-engineer` writes `platform-20261109\apk-spec.md` covering:
+     - every hostname and how it is resolved (native and Java);
+     - the hard-coded WebView URLs;
+     - AirArmor repackaging and injection checks, and how to neutralize them;
+     - the login entry points (guest, LINE SDK) and the cheapest Discord hook;
+     - a patch size estimate for P10.
+   - **8.3** Storage layer + importer + golden tests. `main` stays deployable in the lab.
+   - **8.4** Concurrency: per-request transactions; the global locks go.
+   - **8.5** Operator documents in the DB, with hot reload.
+   - **8.6** Server-side Discord auth + staff auth.
+   - **8.7** Admin UI.
+   - **8.8** Client patcher (repo per P10). It is scripted and reproducible from the pristine APK, and its output goes outside every repo.
+   - **8.9** Linux deploy on the Oracle host, a main-agent security review, then a device test against the public endpoint with the patched APK.
 
 ## Feature reference (current)
 
