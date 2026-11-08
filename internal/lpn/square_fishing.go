@@ -106,7 +106,7 @@ func squareShopRow(it economy.FishingItem, displayIdx uint64) []byte {
 	row = pbVar(row, 2, displayIdx)                      // DisplayIdx
 	row = pbVar(row, 3, uint64(it.ID))                   // ItemId
 	row = pbLen(row, 4, squareLang(it.Name))             // Name
-	row = pbVar(row, 5, 1)                               // PriceType: 1 = Gems
+	row = pbVar(row, 5, 1)                               // PriceType: fish-shop numbering, 1 = Gems (2 = Cash)
 	row = pbVar(row, 6, uint64(it.Price))                // Price
 	row = pbVar(row, 7, 1)                               // Count
 	row = pbLen(row, 12, url)                            // ImageUrl

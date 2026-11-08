@@ -38,6 +38,10 @@ You are the receiving agent with **zero context**. Read all of [AGENTS.md](AGENT
 - **Garden event icon tap:** the Gacha Shop opens a few seconds after the tap; testers must wait before the screenshot (one tester first reported "still in the Garden").
 - **Seasonal calendar art:** the meadow background is the client's own; only the digit colour and cells are Cherry's (a tester stopped on this once).
 
+### HANDOFF ACCEPTED — 2026-11-08 (new Claude Code session)
+
+Context loaded (AGENTS in full, PLAN handoff/Status/Roadmap). Lab rechecked, no corrections: `main` clean at `9c821b8`; Cherry PID 15700 (`D:\Dev\projects\Cherry\cherry.exe`, started 14:15:29, SHA-256 prefix `72493c920fdf5f8b`), log `cherry-icons4.log` `lan=192.168.1.7`; `config\` holds only `streaming.json`; YunDetectService PID 26868; emulator-5554 = AVD Cherry, emulator-5556 = AVD Jerry. Working the open tasks in order. **Task 1 done:** the fish shop has its own PriceType numbering (wire 1 = Gem, 2 = Cash; the client uses wire − 1 as ITEM_PRICE_TYPE: pre-check `GetGem`/`GetCash` and lack popup type at 0x1dab598, icons in `NaFishingShopCell::RefreshUI` 0x1db3504) [S] — Cherry's value was right; the comments in `fishing_shop.go` / `square_fishing.go` now say so (`eventcoin-spec.md` §9). **Task 2:** the user picked "another Roadmap 6 item" (which one: asked).
+
 ## Status (2026-11-08)
 
 | Milestone | Scope | Status |

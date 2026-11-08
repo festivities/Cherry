@@ -13,7 +13,9 @@ import (
 )
 
 // Square fish shop (Economy Phase D slice 3). The shop sells fishing rods and bait for EARNED Gems
-// only: the client's PriceType 1 is Gem, and no billing code is ever sent. Each item is bought
+// only: the fish shop's wire PriceType 1 is Gem (2 = Cash; the client uses wire-1 as its generic
+// ITEM_PRICE_TYPE, where 1 is Cash — NaFishingShopPurchasePopup::OnClickButton 0x1dab598,
+// eventcoin-spec.md §9), and no billing code is ever sent. Each item is bought
 // once and kept in accounts.json (store.FishingGear). One rod and one bait can be in use; they add
 // rare-catch chance points. The daily Gem cap (daily_cap) is not changed by gear.
 // Wire notes: %TEMP%\opencode\cherry\phaseD-20261011\gathering.txt, "Resolution (shop, book, bag, boss)".
