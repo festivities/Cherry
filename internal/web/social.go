@@ -420,11 +420,14 @@ func handleDiaryUnfold(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, post)
 	}
-	store.SocialMu.Unlock()
 	lastData := len(items) <= size
 	if len(items) > size {
 		items = items[:size]
 	}
+	for i := range items {
+		items[i].CommentCount, items[i].LikeCount, items[i].MyLikeType = diaryCountsLocked(items[i].AvatarID, items[i].DiaryNo, viewer.Aid)
+	}
+	store.SocialMu.Unlock()
 	body, err := json.Marshal(map[string]any{"result": map[string]any{"lastData": lastData, "items": items}})
 	if err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
@@ -462,11 +465,14 @@ func handleDiaryPhotoAlbum(w http.ResponseWriter, r *http.Request) {
 		store.NormalizeDiaryPost(&post)
 		items = append(items, post)
 	}
-	store.SocialMu.Unlock()
 	lastData := len(items) <= size
 	if len(items) > size {
 		items = items[:size]
 	}
+	for i := range items {
+		items[i].CommentCount, items[i].LikeCount, items[i].MyLikeType = diaryCountsLocked(items[i].AvatarID, items[i].DiaryNo, viewer.Aid)
+	}
+	store.SocialMu.Unlock()
 	body, err := json.Marshal(map[string]any{"result": map[string]any{"lastData": lastData, "items": items}})
 	if err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
@@ -520,6 +526,14 @@ func handleDiaryLook(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+	var comments []store.DiaryComment
+	var likes []store.DiaryLike
+	commentsLast, likesLast := true, true
+	if found != nil {
+		found.CommentCount, found.LikeCount, found.MyLikeType = diaryCountsLocked(found.AvatarID, found.DiaryNo, viewer.Aid)
+		comments, commentsLast = commentPageLocked(found.AvatarID, found.DiaryNo, -1, diaryPageSize)
+		likes, _, likesLast = likePageLocked(found.AvatarID, found.DiaryNo, -1, diaryPageSize)
+	}
 	store.SocialMu.Unlock()
 	if found == nil {
 		httpx.ServeNotFound(w)
@@ -532,6 +546,8 @@ func handleDiaryLook(w http.ResponseWriter, r *http.Request) {
 		"imageLocationType": found.ImageLocationType, "feelingState": found.FeelingState,
 		"commentCount": found.CommentCount, "likeCount": found.LikeCount, "myLikeType": found.MyLikeType,
 		"blind": found.Blind, "images": found.Images,
+		"comments": map[string]any{"items": commentRows(comments), "lastData": commentsLast},
+		"likes":    map[string]any{"items": likeRows(likes), "lastData": likesLast},
 	}
 	if found.AchieveType != "" {
 		result["achieveType"], result["achieveTypeLevel"] = found.AchieveType, found.AchieveTypeLevel
@@ -758,25 +774,24 @@ func handleDiaryErase(w http.ResponseWriter, r *http.Request) {
 	diaryNo, _, _ := strings.Cut(rest, "/")
 	store.SocialMu.Lock()
 	prev := append([]store.DiaryPost(nil), store.DiaryPosts...)
-	kept := store.DiaryPosts[:0]
-	removed := false
-	for _, post := range store.DiaryPosts {
-		if post.DiaryNo == diaryNo && post.AvatarID == actor.Aid {
-			removed = true
-			continue
-		}
-		kept = append(kept, post)
-	}
-	if kept == nil {
-		kept = []store.DiaryPost{}
-	}
-	store.DiaryPosts = kept
+	prevComments, prevLikes := store.DiaryComments, store.DiaryLikes
+	kept, dropped := splitIf(store.DiaryPosts, func(post store.DiaryPost) bool {
+		return post.DiaryNo == diaryNo && post.AvatarID == actor.Aid
+	})
 	var err error
-	if removed {
+	if len(dropped) > 0 {
+		// The post's comments and likes go with it.
+		store.DiaryPosts = kept
+		store.DiaryComments, _ = splitIf(prevComments, func(c store.DiaryComment) bool {
+			return c.OwnerAvatarID == actor.Aid && c.DiaryNo == diaryNo
+		})
+		store.DiaryLikes, _ = splitIf(prevLikes, func(l store.DiaryLike) bool {
+			return l.OwnerAvatarID == actor.Aid && l.DiaryNo == diaryNo
+		})
 		err = store.SaveSocialLocked()
 	}
 	if err != nil {
-		store.DiaryPosts = prev
+		store.DiaryPosts, store.DiaryComments, store.DiaryLikes = prev, prevComments, prevLikes
 	}
 	store.SocialMu.Unlock()
 	if err != nil {

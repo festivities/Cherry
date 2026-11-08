@@ -411,7 +411,7 @@ func TestFriendSearchPaginationAndDiaryPhotoMetadata(t *testing.T) {
 		t.Fatalf("photo album = %d %s", album.Code, album.Body.String())
 	}
 	look := serve(t, http.MethodGet, "/v4/diary2/ext/look/1/"+post.Result.DiaryNo)
-	if look.Code != http.StatusOK || !bytes.Contains(look.Body.Bytes(), []byte(`"imageTypeKind":"photo"`)) || !bytes.Contains(look.Body.Bytes(), []byte(`"imageLocationType":"obs"`)) || bytes.Contains(look.Body.Bytes(), []byte(`"comments"`)) || bytes.Contains(look.Body.Bytes(), []byte(`"likes"`)) {
+	if look.Code != http.StatusOK || !bytes.Contains(look.Body.Bytes(), []byte(`"imageTypeKind":"photo"`)) || !bytes.Contains(look.Body.Bytes(), []byte(`"imageLocationType":"obs"`)) || !bytes.Contains(look.Body.Bytes(), []byte(`"comments":{"items":[],"lastData":true}`)) || !bytes.Contains(look.Body.Bytes(), []byte(`"likes":{"items":[],"lastData":true}`)) {
 		t.Fatalf("diary detail = %d %s", look.Code, look.Body.String())
 	}
 	badImage := strings.Replace(photo, imageURL, "https://elsewhere.invalid/photo", 1)

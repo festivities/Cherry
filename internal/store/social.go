@@ -12,48 +12,48 @@ import (
 )
 
 type SavedGuestbookEntry struct {
-	HostAvtNo                    string `json:"hostAvtNo"`
-	GuestHistNo                  string `json:"guestHistNo"`
-	GuestAvtNo                   string `json:"guestAvtNo"`
-	GuestAvtLocale               string `json:"guestAvtLocale"`
-	GuestNickname                string `json:"guestNickname"`
-	GuestProfile                 string `json:"guestProfile"`
-	GuestBg                      string `json:"guestBg"`
-	GuestWholeProfile            string `json:"guestWholeProfile"`
-	ObsProfileImagePath          string `json:"obsProfileImagePath"`
-	ObsWholeBodyProfileImagePath string `json:"obsWholeBodyProfileImagePath"`
-	Content                      string `json:"content"`
-	RegYmdt                      string `json:"regYmdt"`
-	Secret                       bool   `json:"secret"`
-	Blind                        bool   `json:"blind"`
-	IsPenalty                    bool   `json:"isPenalty"`
-	GuestIsExist                 bool   `json:"guestIsExist"`
-	Reply                        []any  `json:"reply"`
+	HostAvtNo                    string           `json:"hostAvtNo"`
+	GuestHistNo                  string           `json:"guestHistNo"`
+	GuestAvtNo                   string           `json:"guestAvtNo"`
+	GuestAvtLocale               string           `json:"guestAvtLocale"`
+	GuestNickname                string           `json:"guestNickname"`
+	GuestProfile                 string           `json:"guestProfile"`
+	GuestBg                      string           `json:"guestBg"`
+	GuestWholeProfile            string           `json:"guestWholeProfile"`
+	ObsProfileImagePath          string           `json:"obsProfileImagePath"`
+	ObsWholeBodyProfileImagePath string           `json:"obsWholeBodyProfileImagePath"`
+	Content                      string           `json:"content"`
+	RegYmdt                      string           `json:"regYmdt"`
+	Secret                       bool             `json:"secret"`
+	Blind                        bool             `json:"blind"`
+	IsPenalty                    bool             `json:"isPenalty"`
+	GuestIsExist                 bool             `json:"guestIsExist"`
+	Reply                        []GuestbookReply `json:"reply"`
 }
 
 type GuestbookRow struct {
-	GuestHistNo             string `json:"guestHistNo"`
-	GuestAvtNo              string `json:"guestAvtNo"`
-	GuestAvtLocale          string `json:"guestAvtLocale"`
-	GuestNickname           string `json:"guestNickname"`
-	GuestProfile            string `json:"guestProfile"`
-	GuestBg                 string `json:"guestBg"`
-	GuestWholeProfile       string `json:"guestWholeProfile"`
-	ObsProfileImagePath     string `json:"obsProfileImagePath"`
-	ObsWholeBodyProfilePath string `json:"obsWholeBodyProfileImagePath"`
-	Content                 string `json:"content"`
-	RegYmdt                 string `json:"regYmdt"`
-	Secret                  bool   `json:"secret"`
-	Blind                   bool   `json:"blind"`
-	IsPenalty               bool   `json:"isPenalty"`
-	GuestIsExist            bool   `json:"guestIsExist"`
-	Reply                   []any  `json:"reply"`
+	GuestHistNo             string           `json:"guestHistNo"`
+	GuestAvtNo              string           `json:"guestAvtNo"`
+	GuestAvtLocale          string           `json:"guestAvtLocale"`
+	GuestNickname           string           `json:"guestNickname"`
+	GuestProfile            string           `json:"guestProfile"`
+	GuestBg                 string           `json:"guestBg"`
+	GuestWholeProfile       string           `json:"guestWholeProfile"`
+	ObsProfileImagePath     string           `json:"obsProfileImagePath"`
+	ObsWholeBodyProfilePath string           `json:"obsWholeBodyProfileImagePath"`
+	Content                 string           `json:"content"`
+	RegYmdt                 string           `json:"regYmdt"`
+	Secret                  bool             `json:"secret"`
+	Blind                   bool             `json:"blind"`
+	IsPenalty               bool             `json:"isPenalty"`
+	GuestIsExist            bool             `json:"guestIsExist"`
+	Reply                   []GuestbookReply `json:"reply"`
 }
 
 func (e SavedGuestbookEntry) Row() GuestbookRow {
 	reply := e.Reply
 	if reply == nil {
-		reply = []any{}
+		reply = []GuestbookReply{}
 	}
 	return GuestbookRow{
 		GuestHistNo: e.GuestHistNo, GuestAvtNo: e.GuestAvtNo, GuestAvtLocale: e.GuestAvtLocale,
@@ -62,6 +62,42 @@ func (e SavedGuestbookEntry) Row() GuestbookRow {
 		ObsWholeBodyProfilePath: e.ObsWholeBodyProfileImagePath, Content: e.Content, RegYmdt: e.RegYmdt,
 		Secret: e.Secret, Blind: e.Blind, IsPenalty: e.IsPenalty, GuestIsExist: e.GuestIsExist, Reply: reply,
 	}
+}
+
+// GuestbookReply is one reply inside a guestbook entry: the 8 row keys the client reads (spec 2.3).
+// The entry it answers is ParentHistNo; replies are kept oldest first.
+type GuestbookReply struct {
+	ReplyHistNo    string `json:"replyHistNo"`
+	ParentHistNo   string `json:"parentHistNo"`
+	ReplyAvtNo     string `json:"replyAvtNo"`
+	ReplyAvtLocale string `json:"replyAvtLocale"`
+	ReplyNickname  string `json:"replyNickname"`
+	Content        string `json:"content"`
+	Blind          bool   `json:"blind"`
+	RegYmdt        string `json:"regYmdt"`
+}
+
+// DiaryComment is one comment on a Diary post. OwnerAvatarID is the post's owner; CommentAvatarID is the writer.
+// Comments are kept in commentNo order (oldest first).
+type DiaryComment struct {
+	CommentNo           string `json:"commentNo"`
+	DiaryNo             string `json:"diaryNo"`
+	OwnerAvatarID       string `json:"ownerAvatarId"`
+	CommentAvatarID     string `json:"commentAvatarId"`
+	CommentAvatarLocale string `json:"commentAvatarLocale"`
+	Nickname            string `json:"nickname"`
+	Content             string `json:"content"`
+	Date                string `json:"date"`
+}
+
+// DiaryLike is one player's like on a Diary post. A player has at most one per post; LikeType 1..6 is changed in place.
+type DiaryLike struct {
+	LikeNo        string `json:"likeNo"`
+	DiaryNo       string `json:"diaryNo"`
+	OwnerAvatarID string `json:"ownerAvatarId"`
+	LikeAvatarID  string `json:"likeAvatarId"`
+	Nickname      string `json:"nickname"`
+	LikeType      int    `json:"likeType"`
 }
 
 func ValidAvatarID(id string) bool {
@@ -113,6 +149,11 @@ type savedSocial struct {
 	NextGuestHistNo  uint64                `json:"nextGuestHistNo"`
 	Guestbook        []SavedGuestbookEntry `json:"guestbook"`
 	Friendships      []Friendship          `json:"friendships,omitempty"`
+	Comments         []DiaryComment        `json:"comments"`
+	NextCommentNo    uint64                `json:"nextCommentNo"`
+	Likes            []DiaryLike           `json:"likes"`
+	NextLikeNo       uint64                `json:"nextLikeNo"`
+	NextReplyHistNo  uint64                `json:"nextReplyHistNo"`
 }
 
 // Friendship is one record per unordered pair of real accounts. "pending":
@@ -134,6 +175,11 @@ var (
 	NextGuestHistNo  uint64
 	GuestbookEntries []SavedGuestbookEntry
 	Friendships      []Friendship
+	DiaryComments    []DiaryComment
+	NextCommentNo    uint64
+	DiaryLikes       []DiaryLike
+	NextLikeNo       uint64
+	NextReplyHistNo  uint64
 )
 
 func LoadSocial() error {
@@ -144,6 +190,8 @@ func LoadSocial() error {
 	return LoadSocialFrom(filepath.Join(dir, "Cherry", "social.json"))
 }
 
+// LoadSocialFrom reads social.json. Files written before comments, likes and guestbook replies existed load
+// with empty lists; the counters are raised to the highest number already in use.
 func LoadSocialFrom(path string) error {
 	data, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -182,7 +230,28 @@ func LoadSocialFrom(path string) error {
 			state.NextGuestHistNo = seq
 		}
 		if entry.Reply == nil {
-			entry.Reply = []any{}
+			entry.Reply = []GuestbookReply{}
+		}
+		for _, reply := range entry.Reply {
+			if n, err := strconv.ParseUint(reply.ReplyHistNo, 10, 64); err == nil && n > state.NextReplyHistNo {
+				state.NextReplyHistNo = n
+			}
+		}
+	}
+	if state.Comments == nil {
+		state.Comments = []DiaryComment{}
+	}
+	for _, c := range state.Comments {
+		if n, err := strconv.ParseUint(c.CommentNo, 10, 64); err == nil && n > state.NextCommentNo {
+			state.NextCommentNo = n
+		}
+	}
+	if state.Likes == nil {
+		state.Likes = []DiaryLike{}
+	}
+	for _, l := range state.Likes {
+		if n, err := strconv.ParseUint(l.LikeNo, 10, 64); err == nil && n > state.NextLikeNo {
+			state.NextLikeNo = n
 		}
 	}
 	for _, f := range state.Friendships {
@@ -199,6 +268,11 @@ func LoadSocialFrom(path string) error {
 	DiaryPosts = state.Posts
 	NextGuestHistNo = state.NextGuestHistNo
 	GuestbookEntries = state.Guestbook
+	DiaryComments = state.Comments
+	NextCommentNo = state.NextCommentNo
+	DiaryLikes = state.Likes
+	NextLikeNo = state.NextLikeNo
+	NextReplyHistNo = state.NextReplyHistNo
 	SocialMu.Unlock()
 	return nil
 }
@@ -213,6 +287,11 @@ func ResetSocial() {
 	NextGuestHistNo = 0
 	GuestbookEntries = nil
 	Friendships = nil
+	DiaryComments = nil
+	NextCommentNo = 0
+	DiaryLikes = nil
+	NextLikeNo = 0
+	NextReplyHistNo = 0
 	SocialMu.Unlock()
 }
 
@@ -228,10 +307,19 @@ func SaveSocialLocked() error {
 	if guestbook == nil {
 		guestbook = []SavedGuestbookEntry{}
 	}
+	comments := DiaryComments
+	if comments == nil {
+		comments = []DiaryComment{}
+	}
+	likes := DiaryLikes
+	if likes == nil {
+		likes = []DiaryLike{}
+	}
 	data, err := json.Marshal(savedSocial{
 		Version: 1, FriendRemoved: FriendRemoved, FriendBookmarked: FriendBookmarked,
 		NextDiaryNo: NextDiaryNo, Posts: posts, NextGuestHistNo: NextGuestHistNo, Guestbook: guestbook,
-		Friendships: Friendships,
+		Friendships: Friendships, Comments: comments, NextCommentNo: NextCommentNo,
+		Likes: likes, NextLikeNo: NextLikeNo, NextReplyHistNo: NextReplyHistNo,
 	})
 	if err != nil {
 		return err

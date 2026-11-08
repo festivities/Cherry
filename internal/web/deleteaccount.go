@@ -118,6 +118,9 @@ type deletedBackup struct {
 	Posts       []store.DiaryPost           `json:"posts"`
 	Guestbook   []store.SavedGuestbookEntry `json:"guestbook"`
 	Friendships []store.Friendship          `json:"friendships"`
+	Comments    []store.DiaryComment        `json:"comments"`
+	Likes       []store.DiaryLike           `json:"likes"`
+	Replies     []store.GuestbookReply      `json:"replies"`
 }
 
 // deleteAccount removes acc, all its token aliases and its social rows. A full backup line is
@@ -160,6 +163,20 @@ func deleteAccount(acc *store.Account) error {
 			keepBook = append(keepBook, e)
 		}
 	}
+	// Comments and likes the account wrote, and those on its own posts, go. Replies it wrote on the kept entries go;
+	// replies on removed entries are inside those entries in the backup.
+	keepComments, comments := splitIf(store.DiaryComments, func(c store.DiaryComment) bool {
+		return c.CommentAvatarID == aid || c.OwnerAvatarID == aid
+	})
+	keepLikes, likes := splitIf(store.DiaryLikes, func(l store.DiaryLike) bool {
+		return l.LikeAvatarID == aid || l.OwnerAvatarID == aid
+	})
+	var replies []store.GuestbookReply
+	for i := range keepBook {
+		var dropped []store.GuestbookReply
+		keepBook[i].Reply, dropped = splitIf(keepBook[i].Reply, func(r store.GuestbookReply) bool { return r.ReplyAvtNo == aid })
+		replies = append(replies, dropped...)
+	}
 	newFriends := append([]store.Friendship(nil), store.Friendships...)
 	for i, f := range newFriends {
 		if f.A == aid || f.B == aid {
@@ -169,7 +186,7 @@ func deleteAccount(acc *store.Account) error {
 	}
 	if err := appendDeletedBackup(deletedBackup{
 		Time: time.Now().UTC().Format(time.RFC3339), Account: store.StoredFrom(acc), Tokens: tokens,
-		Posts: posts, Guestbook: book, Friendships: rels,
+		Posts: posts, Guestbook: book, Friendships: rels, Comments: comments, Likes: likes, Replies: replies,
 	}); err != nil {
 		return err
 	}
@@ -196,9 +213,12 @@ func deleteAccount(acc *store.Account) error {
 		return err
 	}
 	prevPosts, prevBook, prevFriends := store.DiaryPosts, store.GuestbookEntries, store.Friendships
+	prevComments, prevLikes := store.DiaryComments, store.DiaryLikes
 	store.DiaryPosts, store.GuestbookEntries, store.Friendships = keepPosts, keepBook, newFriends
+	store.DiaryComments, store.DiaryLikes = keepComments, keepLikes
 	if err := store.SaveSocialLocked(); err != nil {
 		store.DiaryPosts, store.GuestbookEntries, store.Friendships = prevPosts, prevBook, prevFriends
+		store.DiaryComments, store.DiaryLikes = prevComments, prevLikes
 		store.Accounts, store.LatestAcc = prevAccounts, prevLatest
 		if rerr := store.SaveAccountsLocked(); rerr != nil {
 			log.Printf("cherry: delete account rollback save failed: %v", rerr)
