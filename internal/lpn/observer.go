@@ -409,6 +409,12 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 					return
 				}
 			}
+			if agent == 10 && msgid == gardenEnterValidateReq { // any tunnel, relay or not: the visit is checked before it starts
+				if err := gardenValidateHandle(conn, frame, logger); err != nil {
+					logger.Printf("OBS %s garden-validate remote=%s err=%v", addr, remote, err)
+					return
+				}
+			}
 			continue
 		}
 		logger.Printf("OBS %s frame remote=%s agent=%d subtype=%d bytes=%d", addr, remote, agent, subtype, length)

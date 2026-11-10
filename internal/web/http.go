@@ -267,6 +267,10 @@ const storageDisplayBody = `{"result":false}`
 
 const styleSlotListBody = `{"result":{"styleSlotResponses":[]}}`
 
+// styleMagazineListBody is the empty magazine (spec topic 3): editableYn false and no slots, so the client closes the
+// page with its own toast instead of a Network Error. Cherry does not build styling slots.
+const styleMagazineListBody = `{"result":{"editableYn":false,"wearItemViewableYn":false,"magazineAvatarGender":"FEMALE","magazineAvatarSkin":"1","basicFaceList":[],"styleSlotResponses":[]}}`
+
 // Empty questProgress maps to enum 0 (no active quest), avoiding the client's per-frame status retry.
 const questStatusBody = `{"result":{"heart":0,"heartBase":0,"heartRewardCoin":0,"questProgress":"","toExpire":"0"}}`
 
@@ -354,7 +358,7 @@ func NewMux() http.Handler {
 	mux.HandleFunc("/v4/buddy/list/type/0", handleFriendSync)
 	mux.HandleFunc("/v4/square/friends/search", handleFriendSearch)
 	mux.HandleFunc("/v4/line/buddy/v4/list", httpx.HandleJSONBody(friendLineBuddyBody))
-	mux.HandleFunc("/v4/badge/infos/", httpx.HandleJSONBody(badgeInfosBody))
+	mux.HandleFunc("/v4/badge/infos/", handleBadgeInfos)
 	mux.HandleFunc("/v4/friends/invitation/mission/info", httpx.HandleJSONBody(inviteMissionBody))
 	mux.HandleFunc("/v4/friends/invitation/list", httpx.HandleJSONBody(inviteListBody))
 	mux.HandleFunc("/v4/recommend/code", handleRecommendCode)
@@ -412,6 +416,7 @@ func NewMux() http.Handler {
 	mux.HandleFunc("/v4/inven/closet/items/all", handleClosetItemsAll)
 	mux.HandleFunc("/v4/storage/display", httpx.HandleJSONBody(storageDisplayBody))
 	mux.HandleFunc("/v4/style/slot/list", httpx.HandleJSONBody(styleSlotListBody))
+	mux.HandleFunc("/v4/style/magazine/list/", httpx.HandleJSONBody(styleMagazineListBody))
 	mux.HandleFunc("/v4/avatar/save/v2", handleAvatarSaveV2)
 	mux.HandleFunc("/v4/photozone/shop/info/", economy.HandlePhotoZoneShopInfo)
 	mux.HandleFunc("/v4/r/badge/reset/", handleBadgeReset)
@@ -484,6 +489,22 @@ func NewMux() http.Handler {
 		}
 		mux.ServeHTTP(w, r)
 	})
+}
+
+// handleBadgeInfos serves GET /v4/badge/infos/. Only POSTBOX depends on the account: its unread mail count
+// (0 without a session); every other key stays as badgeInfosBody has it.
+func handleBadgeInfos(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		httpx.ServeNotFound(w)
+		return
+	}
+	store.AccountsMu.Lock()
+	postbox := 0
+	if acc := store.SessionAccountLocked(r); acc != nil {
+		postbox = economy.UnreadMail(acc, economy.NowFunc())
+	}
+	store.AccountsMu.Unlock()
+	httpx.WriteJSON(w, http.StatusOK, strings.Replace(badgeInfosBody, `"POSTBOX":0`, `"POSTBOX":`+strconv.Itoa(postbox), 1))
 }
 
 // handleBadgeReset acknowledges POST /v4/r/badge/reset/<BADGE> (e.g. CSET, FACE after a

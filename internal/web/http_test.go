@@ -1122,6 +1122,40 @@ func TestClosetStaticRoutes(t *testing.T) {
 	}
 }
 
+// TestStyleMagazineEmptyReply: the empty magazine is 200 with every spec key at its type (arrays as []).
+func TestStyleMagazineEmptyReply(t *testing.T) {
+	rec := serve(t, http.MethodGet, "/v4/style/magazine/list/9401")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET magazine: status = %d", rec.Code)
+	}
+	var reply struct {
+		Result map[string]any `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &reply); err != nil {
+		t.Fatal(err)
+	}
+	res := reply.Result
+	if editable, ok := res["editableYn"].(bool); !ok || editable {
+		t.Fatalf("editableYn = %v", res["editableYn"])
+	}
+	if _, ok := res["wearItemViewableYn"].(bool); !ok {
+		t.Fatalf("wearItemViewableYn = %v", res["wearItemViewableYn"])
+	}
+	for _, k := range []string{"magazineAvatarGender", "magazineAvatarSkin"} {
+		if _, ok := res[k].(string); !ok {
+			t.Fatalf("%s = %v, want string", k, res[k])
+		}
+	}
+	for _, k := range []string{"basicFaceList", "styleSlotResponses"} {
+		if list, ok := res[k].([]any); !ok || len(list) != 0 {
+			t.Fatalf("%s = %v, want an empty array", k, res[k])
+		}
+	}
+	if rec := serve(t, http.MethodPost, "/v4/style/magazine/list/9401"); rec.Code != http.StatusNotFound {
+		t.Fatalf("POST magazine: status = %d, want 404", rec.Code)
+	}
+}
+
 func TestAvatarSaveV2RoundTrip(t *testing.T) {
 	store.AccountsMu.Lock()
 	previousAccounts, previousLatest, previousID, previousPath := store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath

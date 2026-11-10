@@ -87,6 +87,10 @@ func liveMail(acc *store.Account, now time.Time) []store.MailRow {
 	return out
 }
 
+// UnreadMail is the POSTBOX badge count: mail has no read flag, so the unexpired rows still in the mailbox
+// (unclaimed) count. Call under store.AccountsMu.
+func UnreadMail(acc *store.Account, now time.Time) int { return len(liveMail(acc, now)) }
+
 // addMailLocked appends a row to a fresh slice (rollback copies of *acc share the old one)
 // and drops expired rows. It returns false when the mailbox is full.
 func addMailLocked(acc *store.Account, row store.MailRow, days int, now time.Time) bool {
