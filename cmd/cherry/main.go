@@ -56,6 +56,9 @@ func main() {
 	if err := store.LoadTreasure(); err != nil {
 		logger.Fatalf("cherry: load treasure: %v", err)
 	}
+	if err := lpn.LoadAvatarChat(); err != nil {
+		logger.Fatalf("cherry: load chat rooms: %v", err)
+	}
 	// The original-asset store comes first: the operator checks below ask it which items have art.
 	if err := assets.LoadArchive(); err != nil {
 		logger.Fatalf("cherry: asset store: %v", err)

@@ -2,7 +2,9 @@ package lpn
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
+	"maps"
 	"net/http"
 	"slices"
 	"strconv"
@@ -19,9 +21,14 @@ import (
 // session channel, like Lounge Chat, and get the same 0x1A reply and 0x1B push frames. The layouts and reply rules are the
 // slice-1 minimum in avatarchat-spec.md, section 7.
 //
-// ponytail: memory only. A restart empties every room and message, and the room ids start again, so a room id a client
-// kept may name another pair. Every command checks membership, so that id reaches nobody new. Persist rooms and messages
-// in the DB with Roadmap 8 storage.
+// The room registry survives a restart (chatrooms.json, store/chatrooms.go): each room's id, members, serial ceiling and
+// each member's last ack, and the next room id. So a restart never hands out a room id or a serial again, and a client's
+// cached history for a pair cannot clash with a new message. Message text is memory only.
+//
+// ponytail: chunked serial reservation. A room's serials run up to its ceiling; a send past it raises the ceiling by
+// avatarChatChunk and rewrites the file, so there is one rewrite per 100 messages per room and one per room creation
+// (acks ride along). A restart resumes at the saved ceiling, so a gap of up to 100 serials is normal. Becomes rows in the
+// DB with Roadmap 8 storage.
 
 // CherryChatRoomFirst and CherryChatRoomLast bound the room ids Cherry makes. The client takes a room id as a JSON string
 // (spec 1.1), so the ids go out as decimal strings.
@@ -55,6 +62,7 @@ const (
 	avatarChatHistoryMax  = 200 // messages kept per room; the oldest go first, the serials keep counting
 	avatarChatRoomsMax    = 200 // rooms per account (a room exists per friend pair)
 	avatarChatPushCommand = 13001
+	avatarChatChunk       = 100 // serials reserved per ceiling raise (one registry write per chunk)
 )
 
 // avatarChatMsg is one stored message: the serial, the unix seconds, the sender and the text.
@@ -65,11 +73,14 @@ type avatarChatMsg struct {
 	text   string
 }
 
-// avatarChatRoom is a room between two friends: a < b, the newest messages (oldest first) and the newest serial.
+// avatarChatRoom is a room between two friends: a < b, the newest messages (oldest first), the newest serial lastSn, the
+// serial ceiling ceil (persisted; lastSn never passes it) and each member's last acked serial, never above lastSn.
 type avatarChatRoom struct {
-	a, b   uint64
-	msgs   []avatarChatMsg
-	lastSn int64
+	a, b       uint64
+	msgs       []avatarChatMsg
+	lastSn     int64
+	ceil       int64
+	ackA, ackB int64
 }
 
 // other is the member of r that is not aid.
@@ -80,8 +91,26 @@ func (r *avatarChatRoom) other(aid uint64) uint64 {
 	return r.a
 }
 
+// ackOf is the ack slot of aid, a member of r.
+func (r *avatarChatRoom) ackOf(aid uint64) *int64 {
+	if r.a == aid {
+		return &r.ackA
+	}
+	return &r.ackB
+}
+
+// offset is offsetMsgSn: the serial just below the oldest message r still holds, so the client asks for no serial the
+// server has dropped. With no message held (a fresh room, or after a restart) it is lastSn. Caller holds avatarChatMu.
+func (r *avatarChatRoom) offset() int64 {
+	if len(r.msgs) == 0 {
+		return r.lastSn
+	}
+	return r.msgs[0].sn - 1
+}
+
 // avatarChatMu guards every room, the pair index and the next id. Pushes are built under the lock and written after it
-// is released (sendLoungePushes), and no store lookup runs under it.
+// is released (sendLoungePushes), and no account or friend lookup runs under it. A registry save runs under it
+// (avatarChatSaveLocked); store.SaveChatRooms takes only its own leaf lock, so the order is avatarChatMu, then that one.
 var (
 	avatarChatMu    sync.Mutex
 	avatarChatRooms = map[int64]*avatarChatRoom{}
@@ -103,6 +132,7 @@ type avatarChatReq struct {
 	Msg        string           `json:"msg"`
 	StartMsgSn int64            `json:"startMsgSn"`
 	EndMsgSn   int64            `json:"endMsgSn"`
+	MsgSn      int64            `json:"msgSn"`
 }
 
 // avatarChatMember is one row of the 1006 memberList (spec 5.2 and section 7.1).
@@ -204,8 +234,10 @@ func avatarChatCall(cmd int64, payload json.RawMessage, aid uint64, bound bool) 
 	case acSync:
 		// The sync is answered empty: the history comes from 3003, and the client's gap fetch needs nothing else (spec 7.1).
 		return avatarChatMemberReply(req.RoomID, aid, map[string]any{"msgList": []avatarChatRow{}})
-	case acDelete, acRoomConfig, acAck:
-		// Accepted, nothing stored: the client's delete is local, and the push-on flag and read marks are not kept (spec 7.2).
+	case acAck:
+		return avatarChatAck(req.RoomID, req.MsgSn, aid)
+	case acDelete, acRoomConfig:
+		// Accepted, nothing stored: the client's delete is local, and the push-on flag is not kept (spec 7.2).
 		return avatarChatMemberReply(req.RoomID, aid, map[string]any{})
 	}
 	return avatarChatErr(acInternal), 0
@@ -259,8 +291,82 @@ func avatarChatOpen(members []avatarChatUser, aid uint64) (tcReply, int64) {
 		avatarChatNext++
 		avatarChatRooms[id] = &avatarChatRoom{a: pair[0], b: pair[1]}
 		avatarChatPairs[pair] = id
+		if err := avatarChatSaveLocked(); err != nil {
+			// Not persisted, so the id must not be handed out: take the room back and refuse the open.
+			avatarChatNext--
+			delete(avatarChatRooms, id)
+			delete(avatarChatPairs, pair)
+			return avatarChatErr(acInternal), 0
+		}
 	}
 	return tcReply{result: map[string]any{"roomId": strconv.FormatInt(id, 10)}}, id
+}
+
+// avatarChatSaveLocked writes the registry: every room's id, members, ceiling and acks, and the next room id. Caller holds
+// avatarChatMu.
+func avatarChatSaveLocked() error {
+	book := store.ChatRoomBook{NextID: avatarChatNext}
+	for _, id := range slices.Sorted(maps.Keys(avatarChatRooms)) {
+		r := avatarChatRooms[id]
+		a, b := strconv.FormatUint(r.a, 10), strconv.FormatUint(r.b, 10)
+		book.Rooms = append(book.Rooms, store.ChatRoom{
+			ID: id, Aids: [2]string{a, b}, Ceil: r.ceil, Acks: map[string]int64{a: r.ackA, b: r.ackB},
+		})
+	}
+	return store.SaveChatRooms(book)
+}
+
+// LoadAvatarChat loads the room registry at startup (chatrooms.json; none is an empty registry). A corrupt file, or a record
+// outside the room block, is an error and Cherry does not start.
+func LoadAvatarChat() error {
+	book, err := store.LoadChatRooms()
+	if err != nil {
+		return err
+	}
+	return avatarChatRestore(book)
+}
+
+// avatarChatRestore replaces the in-memory registry with book. A room's serials resume at its saved ceiling, and its acks
+// are clamped to that. It refuses a room outside the id block or below the next id, a repeated room or pair, a member that
+// is not an aid in ascending order, and an ack for a non-member.
+func avatarChatRestore(book store.ChatRoomBook) error {
+	next := book.NextID
+	if next == 0 {
+		next = CherryChatRoomFirst
+	}
+	if next < CherryChatRoomFirst || next > CherryChatRoomLast+1 {
+		return fmt.Errorf("chat room store: next id %d outside the room block", next)
+	}
+	rooms := map[int64]*avatarChatRoom{}
+	pairs := map[[2]uint64]int64{}
+	for _, cr := range book.Rooms {
+		var m [2]uint64
+		for i, s := range cr.Aids {
+			v, err := strconv.ParseUint(s, 10, 64)
+			if err != nil || v == 0 || strconv.FormatUint(v, 10) != s {
+				return fmt.Errorf("chat room %d: bad member %q", cr.ID, s)
+			}
+			m[i] = v
+		}
+		if m[0] >= m[1] || cr.ID < CherryChatRoomFirst || cr.ID >= next || cr.Ceil < 0 ||
+			rooms[cr.ID] != nil || pairs[m] != 0 {
+			return fmt.Errorf("chat room %d: invalid record", cr.ID)
+		}
+		r := &avatarChatRoom{a: m[0], b: m[1], ceil: cr.Ceil, lastSn: cr.Ceil}
+		for s, ack := range cr.Acks {
+			v, err := strconv.ParseUint(s, 10, 64)
+			if err != nil || (v != r.a && v != r.b) {
+				return fmt.Errorf("chat room %d: ack for a non-member %q", cr.ID, s)
+			}
+			*r.ackOf(v) = min(max(ack, 0), r.lastSn)
+		}
+		rooms[cr.ID] = r
+		pairs[m] = cr.ID
+	}
+	avatarChatMu.Lock()
+	defer avatarChatMu.Unlock()
+	avatarChatRooms, avatarChatPairs, avatarChatNext = rooms, pairs, next
+	return nil
 }
 
 // avatarChatRoomCount is how many rooms aid is in (under avatarChatMu). It runs only when a room is created.
@@ -298,18 +404,19 @@ func avatarChatMemberOf(aid uint64) avatarChatMember {
 func avatarChatRoomInfo(roomID string, aid uint64) (tcReply, int64) {
 	avatarChatMu.Lock()
 	r, id := avatarChatRoomOf(roomID, aid)
-	var lastSn int64
+	var lastSn, offset, lastAck, peerAck int64
 	var friend uint64
 	if r != nil {
-		lastSn, friend = r.lastSn, r.other(aid)
+		lastSn, offset, friend = r.lastSn, r.offset(), r.other(aid)
+		lastAck, peerAck = *r.ackOf(aid), *r.ackOf(friend)
 	}
 	avatarChatMu.Unlock()
 	if r == nil {
 		return avatarChatErr(acRefused), id
 	}
 	return tcReply{result: map[string]any{
-		"groupType": 0, "bgUrl": "", "offsetMsgSn": 0, "lastMsgSn": lastSn, "lastAckSn": 0, "unreadCnt": 0,
-		"peerAckMsgSn": 0, "attribute": "", "pushYn": 1, "msgList": []avatarChatRow{},
+		"groupType": 0, "bgUrl": "", "offsetMsgSn": offset, "lastMsgSn": lastSn, "lastAckSn": lastAck, "unreadCnt": 0,
+		"peerAckMsgSn": peerAck, "attribute": "", "pushYn": 1, "msgList": []avatarChatRow{},
 		"memberList": []avatarChatMember{avatarChatMemberOf(aid), avatarChatMemberOf(friend)},
 	}}, id
 }
@@ -362,6 +469,14 @@ func avatarChatSend(roomID string, msgType int64, msg string, aid uint64) (tcRep
 	if r == nil || msgType != avatarChatTypeText || text == "" || utf8.RuneCountInString(text) > avatarChatTextMax {
 		return avatarChatErr(acRefused), id
 	}
+	if r.lastSn+1 > r.ceil {
+		// Reserve the next chunk on disk before a serial in it is used, so a restart never hands the serial out again.
+		r.ceil += avatarChatChunk
+		if err := avatarChatSaveLocked(); err != nil {
+			r.ceil -= avatarChatChunk
+			return avatarChatErr(acInternal), id
+		}
+	}
 	r.lastSn++
 	m := avatarChatMsg{sn: r.lastSn, sec: economy.NowFunc().Unix(), sender: aid, text: text}
 	r.msgs = append(r.msgs, m)
@@ -372,6 +487,20 @@ func avatarChatSend(roomID string, msgType int64, msg string, aid uint64) (tcRep
 		result: map[string]any{"msgSn": m.sn, "msgTimeSec": m.sec},
 		pushes: []loungePush{avatarChatPush(id, r.other(aid), aid, m.sn)},
 	}, id
+}
+
+// avatarChatAck records aid's read mark (3004): the room's ack for aid becomes the larger of the old one and msgSn, never
+// past lastSn. It is memory only and reaches the registry with the next chunk or creation save.
+func avatarChatAck(roomID string, msgSn int64, aid uint64) (tcReply, int64) {
+	avatarChatMu.Lock()
+	defer avatarChatMu.Unlock()
+	r, id := avatarChatRoomOf(roomID, aid)
+	if r == nil {
+		return avatarChatErr(acRefused), id
+	}
+	p := r.ackOf(aid)
+	*p = max(*p, min(msgSn, r.lastSn))
+	return tcReply{result: map[string]any{}}, id
 }
 
 // avatarChatPush is the 13001 push that tells the other member a message is in the room (spec 2.1). An open chat with this

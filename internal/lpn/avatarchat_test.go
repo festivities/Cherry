@@ -6,6 +6,9 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -28,7 +31,7 @@ func setAvatarFriends(t *testing.T, pairs ...[2]string) {
 	})
 }
 
-// resetAvatarChat empties the 1:1 registry: no rooms, and the first room id next.
+// resetAvatarChat empties the 1:1 registry: no rooms, the first room id next, and no save target (memory only).
 func resetAvatarChat(t *testing.T) {
 	t.Helper()
 	avatarChatMu.Lock()
@@ -36,6 +39,7 @@ func resetAvatarChat(t *testing.T) {
 	avatarChatRooms = map[int64]*avatarChatRoom{}
 	avatarChatPairs = map[[2]uint64]int64{}
 	avatarChatNext = CherryChatRoomFirst
+	store.ResetChatRooms()
 }
 
 // avMembers is the 1001 payload naming the ids, in the order given.
@@ -442,5 +446,243 @@ func TestAvatarChatRoomListForMembers(t *testing.T) {
 	HandleAvatarChatRoomList(rec, req)
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("POST status %d, want 404", rec.Code)
+	}
+}
+
+// avRestart simulates a restart: the registry is replaced by the file at path, which is the save target from now on. A
+// missing file is an empty registry.
+func avRestart(t *testing.T, path string) {
+	t.Helper()
+	book, err := store.LoadChatRoomsFrom(path)
+	if err != nil {
+		t.Fatalf("load %s: %v", path, err)
+	}
+	if err := avatarChatRestore(book); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+}
+
+// avOpen opens the room of the pair (aid, peer) for aid through the command and returns its room id.
+func avOpen(t *testing.T, aid, peer string) string {
+	t.Helper()
+	id, err := strconv.ParseUint(aid, 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep, _ := avatarChatCall(acCreate, json.RawMessage(avMembers(aid, peer)), id, true)
+	if rep.code != 0 {
+		t.Fatalf("open by %s with %s: code %d", aid, peer, rep.code)
+	}
+	return rep.result.(map[string]any)["roomId"].(string)
+}
+
+// avSend sends one text from aid to room through the command and returns its msgSn.
+func avSend(t *testing.T, aid, room, text string) int64 {
+	t.Helper()
+	id, err := strconv.ParseUint(aid, 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep, _ := avatarChatCall(acSend, json.RawMessage(fmt.Sprintf(`{"roomId":%q,"msgType":1,"msg":%q}`, room, text)), id, true)
+	if rep.code != 0 {
+		t.Fatalf("send by %s: code %d", aid, rep.code)
+	}
+	return rep.result.(map[string]any)["msgSn"].(int64)
+}
+
+// TestAvatarChatRestartKeepsRoomsAndSerials: after a restart the pair keeps its room id, a new pair gets a new id, the next
+// serial is above every serial the old run issued, the old history is empty, and 1006 reports the saved serial. A room
+// outside the id block is refused at load.
+func TestAvatarChatRestartKeepsRoomsAndSerials(t *testing.T) {
+	avSetup(t)
+	setAvatarFriends(t, [2]string{"9981", "9983"})
+	t.Cleanup(store.ResetChatRooms)
+	path := filepath.Join(t.TempDir(), "chatrooms.json")
+	avRestart(t, path)
+
+	room := avOpen(t, "9981", "9982")
+	if room != "1960000000" {
+		t.Fatalf("first room = %s", room)
+	}
+	for _, text := range []string{"one", "two", "three"} {
+		avSend(t, "9981", room, text)
+	}
+
+	avRestart(t, path)
+	rep, _ := avatarChatRoomInfo(room, 9981)
+	info := rep.result.(map[string]any)
+	if info["lastMsgSn"] != int64(100) || info["offsetMsgSn"] != int64(100) {
+		t.Fatalf("1006 after restart: lastMsgSn %v offsetMsgSn %v, want 100 and 100", info["lastMsgSn"], info["offsetMsgSn"])
+	}
+	if got := avOpen(t, "9981", "9982"); got != room {
+		t.Fatalf("same pair after restart got room %s, want %s", got, room)
+	}
+	if other := avOpen(t, "9981", "9983"); other == room || other != "1960000001" {
+		t.Fatalf("new pair after restart got room %s", other)
+	}
+	rep, _ = avatarChatCall(acGetMsgs, json.RawMessage(`{"roomId":"1960000000","startMsgSn":1,"endMsgSn":3}`), 9981, true)
+	if rows := rep.result.(map[string]any)["msgList"].([]avatarChatRow); len(rows) != 0 {
+		t.Fatalf("old range after restart has %d rows, want 0", len(rows))
+	}
+	if sn := avSend(t, "9981", room, "four"); sn != 101 {
+		t.Fatalf("first send after restart msgSn = %d, want 101 (above 3 and the saved ceiling 100)", sn)
+	}
+
+	bad := filepath.Join(t.TempDir(), "bad.json")
+	if err := os.WriteFile(bad, []byte(`{"version":1,"nextId":1960000005,"rooms":[{"id":1959999999,"aids":["9981","9982"],"ceil":0}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	badBook, err := store.LoadChatRoomsFrom(bad)
+	if err != nil {
+		t.Fatalf("load bad file: %v", err)
+	}
+	if err := avatarChatRestore(badBook); err == nil {
+		t.Fatal("a room outside the id block was accepted")
+	}
+}
+
+// TestAvatarChatChunkSaves: 150 sends after the room is made cause exactly 2 registry writes (the first send reserves
+// serials 1-100, the 101st reserves 101-200), the serials are 1..150 with no gap, and the saved ceiling is 200.
+func TestAvatarChatChunkSaves(t *testing.T) {
+	avSetup(t)
+	t.Cleanup(store.ResetChatRooms)
+	path := filepath.Join(t.TempDir(), "chatrooms.json")
+	avRestart(t, path)
+	room := avOpen(t, "9981", "9982")
+	before := store.ChatRoomWrites()
+	for i := int64(1); i <= 150; i++ {
+		if sn := avSend(t, "9981", room, "m"); sn != i {
+			t.Fatalf("send %d got msgSn %d", i, sn)
+		}
+	}
+	if n := store.ChatRoomWrites() - before; n != 2 {
+		t.Fatalf("%d registry writes for 150 sends, want 2", n)
+	}
+	book, err := store.LoadChatRoomsFrom(path)
+	if err != nil || len(book.Rooms) != 1 || book.Rooms[0].Ceil != 200 {
+		t.Fatalf("saved registry = %+v (err %v), want one room with ceiling 200", book, err)
+	}
+}
+
+// TestAvatarChatAckClampAndSaves: an ack is clamped to the newest serial and kept in memory without a write; the next chunk
+// save writes it, and after a restart it is still there.
+func TestAvatarChatAckClampAndSaves(t *testing.T) {
+	avSetup(t)
+	t.Cleanup(store.ResetChatRooms)
+	path := filepath.Join(t.TempDir(), "chatrooms.json")
+	avRestart(t, path)
+	room := avOpen(t, "9981", "9982")
+	avSend(t, "9981", room, "hi")
+	before := store.ChatRoomWrites()
+
+	if rep, _ := avatarChatCall(acAck, json.RawMessage(`{"roomId":"1960000000","msgSn":999}`), 9982, true); rep.code != 0 {
+		t.Fatalf("ack code %d", rep.code)
+	}
+	if store.ChatRoomWrites() != before {
+		t.Fatal("an ack wrote the registry")
+	}
+	rep, _ := avatarChatRoomInfo(room, 9981)
+	if got := rep.result.(map[string]any)["peerAckMsgSn"]; got != int64(1) {
+		t.Fatalf("Ann's peerAckMsgSn = %v, want 1 (the ack clamped to lastSn)", got)
+	}
+	rep, _ = avatarChatRoomInfo(room, 9982)
+	if got := rep.result.(map[string]any)["lastAckSn"]; got != int64(1) {
+		t.Fatalf("Ben's lastAckSn = %v, want 1", got)
+	}
+
+	for i := 2; i <= 101; i++ {
+		avSend(t, "9981", room, "m")
+	}
+	if store.ChatRoomWrites() != before+1 {
+		t.Fatalf("writes after the next chunk = %d, want %d", store.ChatRoomWrites(), before+1)
+	}
+	avRestart(t, path)
+	rep, _ = avatarChatRoomInfo(room, 9982)
+	if info := rep.result.(map[string]any); info["lastAckSn"] != int64(1) || info["lastMsgSn"] != int64(200) {
+		t.Fatalf("after restart Ben's 1006 lastAckSn %v lastMsgSn %v, want 1 and 200", info["lastAckSn"], info["lastMsgSn"])
+	}
+}
+
+// TestAvatarChatSaveFailureRefuses: when the registry cannot be written, the open is refused with no room and no id used,
+// and a send that needs a new chunk is refused with no serial used; once the write works, the same requests succeed.
+func TestAvatarChatSaveFailureRefuses(t *testing.T) {
+	avSetup(t)
+	t.Cleanup(store.ResetChatRooms)
+	dir := filepath.Join(t.TempDir(), "sub")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	avRestart(t, filepath.Join(dir, "chatrooms.json"))
+	// A file where the folder should be: the save cannot create the folder.
+	blocked := func() {
+		if err := os.RemoveAll(dir); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(dir, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	open := func() tcReply {
+		rep, _ := avatarChatCall(acCreate, json.RawMessage(avMembers("9981", "9982")), 9981, true)
+		return rep
+	}
+
+	blocked()
+	if rep := open(); rep.code != acInternal {
+		t.Fatalf("open with a failing save: code %d, want %d", rep.code, acInternal)
+	}
+	avatarChatMu.Lock()
+	if len(avatarChatRooms) != 0 || avatarChatNext != CherryChatRoomFirst {
+		t.Fatalf("failed open left %d rooms, next %d", len(avatarChatRooms), avatarChatNext)
+	}
+	avatarChatMu.Unlock()
+
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	room := avOpen(t, "9981", "9982")
+	if room != "1960000000" {
+		t.Fatalf("open after the write works: room %s, want 1960000000", room)
+	}
+
+	blocked()
+	rep, _ := avatarChatCall(acSend, json.RawMessage(`{"roomId":"1960000000","msgType":1,"msg":"x"}`), 9981, true)
+	if rep.code != acInternal {
+		t.Fatalf("send needing a chunk with a failing save: code %d, want %d", rep.code, acInternal)
+	}
+	avatarChatMu.Lock()
+	if r := avatarChatRooms[1960000000]; r.lastSn != 0 || r.ceil != 0 {
+		t.Fatalf("failed send consumed a serial: lastSn %d ceil %d", r.lastSn, r.ceil)
+	}
+	avatarChatMu.Unlock()
+
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if sn := avSend(t, "9981", room, "x"); sn != 1 {
+		t.Fatalf("send after the write works: msgSn %d, want 1", sn)
+	}
+}
+
+// TestAvatarChatMemoryOnly: with no save target everything works (150 sends across two chunks) and nothing is written.
+func TestAvatarChatMemoryOnly(t *testing.T) {
+	avSetup(t)
+	room := avOpen(t, "9981", "9982")
+	before := store.ChatRoomWrites()
+	for i := 1; i <= 150; i++ {
+		avSend(t, "9981", room, "m")
+	}
+	if store.ChatRoomWrites() != before {
+		t.Fatalf("memory-only run wrote the registry %d times", store.ChatRoomWrites()-before)
+	}
+	rep, _ := avatarChatRoomInfo(room, 9981)
+	if got := rep.result.(map[string]any)["lastMsgSn"]; got != int64(150) {
+		t.Fatalf("lastMsgSn = %v, want 150", got)
 	}
 }
