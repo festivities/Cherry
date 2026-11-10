@@ -63,7 +63,7 @@ func mailPostJSON(m store.MailRow, host string) map[string]any {
 func receiveLocked(acc *store.Account, row store.MailRow) ([]store.LedgerLine, error) {
 	reason := "mail receive " + strconv.FormatInt(row.Seq, 10)
 	if row.Type == store.MailTypeItem {
-		return grantItemLocked(acc, row.Item, reason)
+		return grantItemLocked(acc, row.Item, reason, row.Gift)
 	}
 	return store.SpendLocked(acc, row.Deltas(), reason)
 }

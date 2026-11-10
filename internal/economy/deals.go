@@ -73,8 +73,11 @@ func saleKeys(row map[string]any, code string, deals dealSet, now time.Time) {
 
 // soldPrice is what an owned item pays back: sell_back_percent of what it cost, the Gems it was
 // bought for when that was a deal (paid, 0 = no record) else its table price. Only a paid price
-// below the table price counts.
+// below the table price counts. A negative paid is a player's Gift Shop gift (giftPaid): it pays nothing.
 func soldPrice(code string, paid int64) int64 {
+	if paid < 0 {
+		return 0
+	}
 	price, _, _, _ := ItemPrice(code)
 	if paid > 0 && paid < price {
 		price = paid

@@ -149,6 +149,8 @@ Context loaded: AGENTS, PLAN and CONTRACT in full, and Raspberry's `.agents\CONT
 - `.opencode\line-play-artifacts`: six entries, still ignored at `.gitignore:35`.
 - **Raspberry's requests read** (its CONTRACT §4, four entries to 2026-11-10): configurable listeners/data directory, the `dev-fake` peer and `/cherry/v1/info` (= slices 8.3a and 8.6a, after task 1 by the user's order); three exact native hosts to add to the host set (`terms.line.me`, `notice2.line.me`, `help2.line.me`); marker-based routing instead of endpoint-IP matching (no server change); a browser-trusted endpoint for the `dev-fake` peer (needs the user's certificate setup). To be answered in CONTRACT "Requests to Raspberry" with slice 8.3a.
 
+**Task 1 (e) — server side done 2026-11-10 (unit-tested, gate green; device run gift → receive → recycle still owed):** Gift Shop mail carries `MailRow.Gift`; claiming it never pays sell-back (a duplicate grants and pays nothing); a newly granted gift is marked with a negative paid price (`giftPaid` = -1 in `PaidPrices[code]` / `RoomItem.Paid`), and `soldPrice` returns 0 for it, so the closet/room row shows price 0 and a recycle keeps the item and reports it in `invalidItems` (the existing price-0 path, as for faces). Staff mail, calendar, spin and exchange duplicates are unchanged; gift mails stored before this change keep the old rule (the lab has one: 1002's unread CAAE0009J).
+
 **Order of work:** task 1 (e) first (fully specified, server-side), then (a)–(d) with the user's answers item by item; then 2(a); then task 3.
 
 ## Status (2026-11-08)

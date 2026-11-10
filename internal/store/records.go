@@ -22,6 +22,7 @@ type MailRow struct {
 	Sender  string `json:"sender"`
 	Created int64  `json:"created"`
 	Expires int64  `json:"expires"`
+	Gift    bool   `json:"gift,omitempty"` // a player's Gift Shop item (economy HandleGiftSend): claiming it pays no sell-back
 }
 
 func (m MailRow) Deltas() LedgerDeltas {
@@ -70,7 +71,7 @@ type PetItem struct {
 type RoomItem struct {
 	Seq  int64  `json:"seq"`
 	Cd   string `json:"cd"`
-	Paid int64  `json:"paid,omitempty"` // Gems paid at a daily deal (economy/deals.go); sell-back pays it
+	Paid int64  `json:"paid,omitempty"` // economy/deals.go: >0 the Gems paid at a daily deal, <0 a player's gift (sells for nothing), 0 no record; sell-back pays it
 }
 
 type RoomPlaced struct {

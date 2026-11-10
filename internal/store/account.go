@@ -111,7 +111,7 @@ type Account struct {
 	BossCaught     map[int64]int64       // Square boss catches per boss id (economy/fishboss.go); replaced, never edited in place
 	BossBook       map[int64]bool        // Square boss book reward claimed per boss id (economy/fishboss.go); replaced, never edited in place
 	Hearts         *Hearts               // heart quest state, economy/hearts.go; replaced, never edited in place
-	PaidPrices     map[string]int64      // clothing codes bought at a daily deal: Gems paid (economy/deals.go); replaced, never edited in place
+	PaidPrices     map[string]int64      // clothing codes bought at a daily deal: Gems paid; negative = a player's gift, sells for nothing (economy/deals.go); replaced, never edited in place
 	Smiles         int64                 // earned Smiles (Garden gathering, economy/gathering.go); ledger-backed like Gems
 	GardenBag      []GardenBagStack      // Garden materials in the Bag (economy/gathering.go); replaced, never edited in place
 	Gather         *GatherDay            // Garden gathering caps and Gem bonus for one game day (economy/gathering.go); replaced, never edited in place

@@ -147,7 +147,7 @@ func TestGiftSendHappy(t *testing.T) {
 		t.Errorf("sender gems = %d, want %d", gems, 1000-want)
 	}
 	_, mail := giftState("9602")
-	if len(mail) != 1 || mail[0].Type != store.MailTypeItem || mail[0].Item != code || mail[0].Message != "enjoy" || mail[0].Sender != "Sender" {
+	if len(mail) != 1 || mail[0].Type != store.MailTypeItem || mail[0].Item != code || mail[0].Message != "enjoy" || mail[0].Sender != "Sender" || !mail[0].Gift {
 		t.Fatalf("receiver mail = %+v, want one item %s from Sender saying enjoy", mail, code)
 	}
 	lines := gachaLedger(t, dir)
@@ -214,26 +214,108 @@ func TestGiftSendMailboxFullRollsBack(t *testing.T) {
 	}
 }
 
-// TestGiftOwnedItemSellsBackOnReceive: a gift the receiver already owns pays the receiver its sell-back Gems when
-// the mail is received (the existing item grant rule), and grants nothing new.
-func TestGiftOwnedItemSellsBackOnReceive(t *testing.T) {
-	phaseEClock(t, time.Date(2026, time.October, 28, 12, 0, 0, 0, time.UTC))
-	giftFixture(t, 0, "accepted")
-	const code = "CUTO00001"
+// claimMail receives one item mail as the receiver 9602 and returns the ledger lines.
+func claimMail(t *testing.T, row store.MailRow) []store.LedgerLine {
+	t.Helper()
 	store.AccountsMu.Lock()
-	recv := store.AccountByAidLocked("9602")
-	recv.InventoryCodes = []string{code}
-	lines, err := receiveLocked(recv, store.MailRow{Seq: 1, Type: store.MailTypeItem, Item: code, Expires: NowFunc().Add(time.Hour).UnixMilli()})
-	store.AccountsMu.Unlock()
+	defer store.AccountsMu.Unlock()
+	lines, err := receiveLocked(store.AccountByAidLocked("9602"), row)
 	if err != nil {
-		t.Fatalf("receive: %v", err)
+		t.Fatalf("claim %s: %v", row.Item, err)
 	}
-	if gems, _ := giftState("9602"); gems != sellBackGems(code) || len(lines) != 1 {
-		t.Errorf("receiver gems = %d lines %d, want sell-back %d in one line", gems, len(lines), sellBackGems(code))
+	return lines
+}
+
+// giftRecycle posts a closet (interior false) or room recycle as the token's account.
+func giftRecycle(token string, interior bool, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(body))
+	req.Header.Set("Cookie", `AV_AUTH="`+token+`"`)
+	rec := httptest.NewRecorder()
+	handleRecycle(interior)(rec, req)
+	return rec
+}
+
+// TestGiftClaimPaysNothing: a player's gift pays no sell-back when claimed, owned or not. An unowned gift is granted
+// marked, so it recycles for nothing (the closet keeps it, the room keeps it). Staff mail (Gift false) still pays
+// sell-back for a duplicate.
+func TestGiftClaimPaysNothing(t *testing.T) {
+	phaseEClock(t, time.Date(2026, time.October, 28, 12, 0, 0, 0, time.UTC))
+	const cloth, furn = "CUTO00001", "RUCH00001"
+	mail := func(code string, gift bool) store.MailRow {
+		return store.MailRow{Seq: 1, Type: store.MailTypeItem, Item: code, Gift: gift, Expires: NowFunc().Add(time.Hour).UnixMilli()}
 	}
-	if got := store.AccountOwnedCodes(recv); len(got) != 1 {
-		t.Errorf("owned = %v, want the one code it had", got)
-	}
+	t.Run("unowned clothing gift: granted, recycles for nothing", func(t *testing.T) {
+		giftFixture(t, 0, "accepted")
+		if lines := claimMail(t, mail(cloth, true)); len(lines) != 0 {
+			t.Fatalf("claim lines %+v, want none", lines)
+		}
+		store.AccountsMu.Lock()
+		recv := store.AccountByAidLocked("9602")
+		owned := slices.Contains(store.AccountOwnedCodes(recv), cloth)
+		price, _ := ClosetPrice(recv.PaidPrices, cloth)
+		store.AccountsMu.Unlock()
+		if !owned || price != 0 {
+			t.Fatalf("owned = %v closet price = %d, want owned at 0", owned, price)
+		}
+		rec := giftRecycle("gs-recv", false, `{"recycleItems":[{"invenSeq":"1","itemCode":"`+cloth+`","count":1,"exepectedPrice":"1","price":"1"}]}`)
+		res := giftReply(t, rec)
+		if invalid, _ := res["invalidItems"].([]any); rec.Code != http.StatusOK || len(invalid) != 1 || res["balance"] != float64(0) {
+			t.Fatalf("recycle = %d %v, want the gift kept in invalidItems at balance 0", rec.Code, res)
+		}
+		store.AccountsMu.Lock()
+		owned = slices.Contains(store.AccountOwnedCodes(store.AccountByAidLocked("9602")), cloth)
+		store.AccountsMu.Unlock()
+		if !owned {
+			t.Errorf("the recycled gift is no longer owned")
+		}
+	})
+	t.Run("unowned furniture gift: granted with paid marker, recycles for nothing", func(t *testing.T) {
+		giftFixture(t, 0, "accepted")
+		if lines := claimMail(t, mail(furn, true)); len(lines) != 0 {
+			t.Fatalf("claim lines %+v, want none", lines)
+		}
+		store.AccountsMu.Lock()
+		var it store.RoomItem
+		for _, ri := range store.AccountByAidLocked("9602").RoomItems {
+			if ri.Cd == furn {
+				it = ri
+			}
+		}
+		store.AccountsMu.Unlock()
+		if it.Cd == "" || it.Paid >= 0 {
+			t.Fatalf("granted room item = %+v, want %s with a negative paid marker", it, furn)
+		}
+		if p, _ := RoomItemPrice(it); p != 0 {
+			t.Errorf("room price of the gift = %d, want 0", p)
+		}
+	})
+	t.Run("owned clothing gift: claim succeeds, pays nothing", func(t *testing.T) {
+		giftFixture(t, 0, "accepted")
+		store.AccountsMu.Lock()
+		store.AccountByAidLocked("9602").InventoryCodes = []string{cloth}
+		store.AccountsMu.Unlock()
+		if lines := claimMail(t, mail(cloth, true)); len(lines) != 0 {
+			t.Errorf("claim lines %+v, want none", lines)
+		}
+		if gems, _ := giftState("9602"); gems != 0 {
+			t.Errorf("receiver gems = %d, want 0", gems)
+		}
+		if got := store.AccountOwnedCodes(store.AccountByAidLocked("9602")); len(got) != 1 {
+			t.Errorf("owned = %v, want the one code it had", got)
+		}
+	})
+	t.Run("staff mail duplicate still pays sell-back", func(t *testing.T) {
+		giftFixture(t, 0, "accepted")
+		store.AccountsMu.Lock()
+		store.AccountByAidLocked("9602").InventoryCodes = []string{cloth}
+		store.AccountsMu.Unlock()
+		if lines := claimMail(t, mail(cloth, false)); len(lines) != 1 {
+			t.Fatalf("claim lines %+v, want one sell-back line", lines)
+		}
+		if gems, _ := giftState("9602"); gems != sellBackGems(cloth) {
+			t.Errorf("receiver gems = %d, want sell-back %d", gems, sellBackGems(cloth))
+		}
+	})
 }
 
 // TestGiftSendRefusesHumanOnlyToAnimal: an animal friend cannot wear hair, so a gift of it is refused before any Gem

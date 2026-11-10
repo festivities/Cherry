@@ -156,7 +156,8 @@ func giftError(w http.ResponseWriter, r *http.Request, code, msg string) {
 
 // HandleGiftSend serves POST /v4/gift/send. Gems only: the price must be the item's current price, the receiver an
 // accepted friend with an account. The item goes to the receiver's mailbox as an item mail carrying the sender's
-// name and gift message; the receive path (grantItemLocked) pays sell-back Gems if the receiver already owns it.
+// name and gift message, flagged Gift: on claim an item the receiver already owns pays no sell-back Gems, and a new
+// one is granted marked as a gift, so it sells for nothing later (grantItemLocked, deals.go soldPrice).
 func HandleGiftSend(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		httpx.ServeNotFound(w)
@@ -234,7 +235,7 @@ func HandleGiftSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, code := range codes {
-		row := store.MailRow{Type: store.MailTypeItem, Item: code, Message: req.GiftMessage, Sender: acc.Name}
+		row := store.MailRow{Type: store.MailTypeItem, Item: code, Message: req.GiftMessage, Sender: acc.Name, Gift: true}
 		if !addMailLocked(recv, row, ActiveRewards().Mail.DefaultDays, now) {
 			*acc, *recv = prevSender, prevRecv
 			giftError(w, r, errUnknown, "receiver mailbox is full")

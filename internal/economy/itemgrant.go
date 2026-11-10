@@ -84,37 +84,65 @@ func seasonItemAvailable(code string) bool {
 // cannot wear (itemcode.HumanOnly) is paid the same way. It moves no currency itself, so callers can
 // add the Gems to other credits in one ledger line.
 func itemGrantLocked(acc *store.Account, code string) (sellBack int64, err error) {
+	granted, err := grantNewItemLocked(acc, code, false)
+	if err != nil || granted {
+		return 0, err
+	}
+	return sellBackGems(code), nil
+}
+
+// giftPaid is the paid marker of an item a player sent through the Gift Shop (store.Account.PaidPrices,
+// store.RoomItem.Paid): negative, so soldPrice pays nothing for it when it is recycled.
+const giftPaid = -1
+
+// grantNewItemLocked grants code unless acc already has it or an ANIMAL cannot wear it (itemcode.HumanOnly),
+// and reports whether it granted. gift marks a granted item as a player's gift (giftPaid).
+func grantNewItemLocked(acc *store.Account, code string, gift bool) (bool, error) {
 	if !itemAvailable(code) {
-		return 0, errItemUnknown
+		return false, errItemUnknown
 	}
 	_, kind := classify(code)
 	switch kind {
 	case kindInterior: // lab accounts get their showcase seeded first, so ownership is exact
 		if err := room.EnsureRoomLocked(acc); err != nil {
-			return 0, err
+			return false, err
 		}
 	case kindPet:
 		if err := room.EnsurePetsLocked(acc); err != nil {
-			return 0, err
+			return false, err
 		}
 	}
 	if itemOwnedLocked(acc, code) || acc.Gender == "ANIMAL" && itemcode.HumanOnly(code) {
-		return sellBackGems(code), nil
+		return false, nil
 	}
 	switch kind {
 	case kindFashion:
 		acc.InventoryCodes = store.AppendUniqueItemCodes(store.AccountInventoryCodes(acc), []string{code})
+		if gift {
+			acc.PaidPrices = withPaid(acc.PaidPrices, map[string]int64{code: giftPaid})
+		}
 	case kindInterior:
 		grantRoomItemsLocked(acc, []string{code})
+		if gift { // the one item just granted is the last row; the slice is cloned, so the old one is untouched
+			items := slices.Clone(acc.RoomItems)
+			items[len(items)-1].Paid = giftPaid
+			acc.RoomItems = items
+		}
 	default:
 		acc.Pets = append(slices.Clone(acc.Pets), room.NewPetLocked(acc, code))
 	}
-	return 0, nil
+	return true, nil
 }
 
 // grantItemLocked is the mailbox form of itemGrantLocked: a duplicate pays its sell-back Gems in
-// their own ledger line. The caller saves and flushes the lines (nil for a grant).
-func grantItemLocked(acc *store.Account, code, reason string) ([]store.LedgerLine, error) {
+// their own ledger line. A gift (gift true: a player's Gift Shop mail) pays nothing: a duplicate grants
+// nothing, and a new item is marked as a gift so it sells for nothing later. The caller saves and
+// flushes the lines (nil for a grant).
+func grantItemLocked(acc *store.Account, code, reason string, gift bool) ([]store.LedgerLine, error) {
+	if gift {
+		_, err := grantNewItemLocked(acc, code, true)
+		return nil, err
+	}
 	sellBack, err := itemGrantLocked(acc, code)
 	if err != nil || sellBack == 0 {
 		return nil, err

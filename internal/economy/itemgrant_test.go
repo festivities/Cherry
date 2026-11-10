@@ -22,7 +22,7 @@ func TestItemGrantHumanOnlyPaysSellBackForAnimal(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			acc := &store.Account{Aid: "9951", Name: "Grant", Gender: c.gender}
-			lines, err := grantItemLocked(acc, c.code, "mail")
+			lines, err := grantItemLocked(acc, c.code, "mail", false)
 			if err != nil {
 				t.Fatalf("grant: %v", err)
 			}

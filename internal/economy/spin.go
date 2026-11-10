@@ -571,7 +571,7 @@ func handleSpinPlay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if slot.Item != "" {
-		grantLines, err := grantItemLocked(acc, slot.Item, reason)
+		grantLines, err := grantItemLocked(acc, slot.Item, reason, false)
 		if err != nil {
 			*acc = previous
 			httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
