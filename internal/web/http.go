@@ -239,11 +239,23 @@ type homeListExtResult struct {
 	EventIconList []homeIconEntry `json:"eventIconList"`
 }
 
+// gachaHomeLink is the link value of a gacha home row (spec gacha-pages section 6): gachaDetail reads it as the gacha id,
+// gachaCatg and gachaCatgNotap as the category id. The other rows send no value.
+func gachaHomeLink(linkType string) string {
+	switch linkType {
+	case "goSomewhere(gachaDetail)":
+		return strconv.FormatInt(economy.ActiveGacha().ID, 10)
+	case "goSomewhere(gachaCatg)", "goSomewhere(gachaCatgNotap)":
+		return strconv.FormatInt(economy.ActiveGacha().Category.ID, 10)
+	}
+	return ""
+}
+
 func buildHomeListExtBody() string {
 	rows := homeIconRows()
 	icons := make([]homeIconEntry, len(rows))
 	for i, row := range rows {
-		icons[i] = homeIconEntry{ID: i + 1, Name: row.Name, Image: row.Image, LinkType: row.LinkType}
+		icons[i] = homeIconEntry{ID: i + 1, Name: row.Name, Image: row.Image, LinkType: row.LinkType, Link: gachaHomeLink(row.LinkType)}
 	}
 	payload, _ := json.Marshal(struct {
 		Result homeListExtResult `json:"result"`

@@ -38,18 +38,35 @@ import (
 //	collection_max    rows served on the detail page
 //	kinds             the pool: "fashion" (clothing) and/or "interior" (furniture); pets and faces never
 //	exclude           item codes never drawn (each must be a sellable code)
+//	category          the Category section's one tile (id, name, desc); its detail page lists this gacha
+//	keyword           the one search keyword (id, name); the New link asks for id 2
 type Gacha struct {
 	opdata.Provenance
-	ID            int64    `json:"id"`
-	Name          string   `json:"name"`
-	CoinPrice     int64    `json:"coin_price"`
-	BundlePrice   int64    `json:"bundle_price"`
-	BundleSize    int      `json:"bundle_size"`
-	RarePercent   int      `json:"rare_percent"`
-	RefundPercent int64    `json:"refund_percent"`
-	CollectionMax int      `json:"collection_max"`
-	Kinds         []string `json:"kinds"`
-	Exclude       []string `json:"exclude"`
+	ID            int64         `json:"id"`
+	Name          string        `json:"name"`
+	CoinPrice     int64         `json:"coin_price"`
+	BundlePrice   int64         `json:"bundle_price"`
+	BundleSize    int           `json:"bundle_size"`
+	RarePercent   int           `json:"rare_percent"`
+	RefundPercent int64         `json:"refund_percent"`
+	CollectionMax int           `json:"collection_max"`
+	Kinds         []string      `json:"kinds"`
+	Exclude       []string      `json:"exclude"`
+	Category      gachaCategory `json:"category"`
+	Keyword       gachaKeyword  `json:"keyword"`
+}
+
+// gachaCategory is the Category section's one tile; catg/all/<id> lists the gacha when id is this one.
+type gachaCategory struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+	Desc string `json:"desc"`
+}
+
+// gachaKeyword is the one search keyword; keyword/<id> lists the gacha when id is this one.
+type gachaKeyword struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
 }
 
 var gachaFile = opdata.New("gacha.json", data.GachaJSON, checkGacha, nil)
@@ -75,6 +92,10 @@ func checkGacha(g *Gacha) error {
 		return fmt.Errorf("id %d is outside the Cherry block %d-%d", g.ID, CherryGachaFirst, CherryGachaLast)
 	case g.Name == "":
 		return errors.New("name must not be empty")
+	case g.Category.ID < 1 || strings.TrimSpace(g.Category.Name) == "":
+		return errors.New("category needs an id of at least 1 and a name")
+	case g.Keyword.ID < 1 || strings.TrimSpace(g.Keyword.Name) == "":
+		return errors.New("keyword needs an id of at least 1 and a name")
 	case g.CoinPrice < 0 || g.BundlePrice < 0:
 		return errors.New("coin_price and bundle_price must not be negative")
 	case g.BundleSize < 1 || g.BundleSize > 50:
@@ -207,7 +228,7 @@ func gachaRowFor(p gachaPool) gachaRow {
 	}
 	coin := int(g.CoinPrice)
 	return gachaRow{
-		ItemCode: code, ItemID: int(g.ID), GachaID: int(g.ID), GachaName: g.Name,
+		ItemCode: code, ItemID: int(g.ID), GachaID: int(g.ID), GachaName: g.Name, GachaMainBannerImageURL: gachaCardURL(code),
 		GachaDesc: fmt.Sprintf("%d%% normal / %d%% RARE", 100-g.RarePercent, g.RarePercent), GachaType: "S",
 		Price: coin, DiscountedPrice: coin, FirstBuyPrice: coin, RetryPrice: coin,
 		BundleGachaEnabled: true, BundleGachaQuantity: g.BundleSize, BundlePrice: int(g.BundlePrice),
@@ -336,22 +357,72 @@ type gachaCollectionItem struct {
 	ArchiveItem       bool   `json:"archiveItem"`
 }
 
-// gachaDetailItem is items[0] of the detail reply: the row plus its collection.
+// gachaDetailItem is items[0] of the detail reply: the row, its collection and the per-item keys the parser reads
+// from the item (sDataGachaShopCollectionList::SetData, spec section 5b). newUpgradeItems stays an array.
 type gachaDetailItem struct {
 	gachaRow
-	Collection gachaCollection `json:"collection"`
+	PreviewImageURL       string          `json:"previewImageUrl"`
+	PreviewGardenImageURL string          `json:"previewGardenImageUrl"`
+	NewUpgradeItems       []any           `json:"newUpgradeItems"`
+	SimilarGachas         []any           `json:"similarGachas"`
+	Collection            gachaCollection `json:"collection"`
 }
 
 type gachaDetailReply struct {
-	NextCursor            string            `json:"nextCursor"`
-	PreviousCursor        string            `json:"previousCursor"`
-	TotalCount            string            `json:"totalCount"`
-	PreviewImageURL       string            `json:"previewImageUrl"`
-	PreviewGardenImageURL string            `json:"previewGardenImageUrl"`
-	Items                 []gachaDetailItem `json:"items"`
-	NewUpgradeItems       []any             `json:"newUpgradeItems"`
-	SimilarGachas         []any             `json:"similarGachas"`
-	VipGachaDiscountRate  int               `json:"vipGachaDiscountRate"`
+	NextCursor           string            `json:"nextCursor"`
+	PreviousCursor       string            `json:"previousCursor"`
+	TotalCount           string            `json:"totalCount"`
+	Items                []gachaDetailItem `json:"items"`
+	VipGachaDiscountRate int               `json:"vipGachaDiscountRate"`
+}
+
+// gachaCategoryRow is one row of the Category section (sDataGachaShopCategoryList: result is an array of these).
+type gachaCategoryRow struct {
+	ID             int64           `json:"id"`
+	Name           string          `json:"name"`
+	Image          string          `json:"image"`
+	Flag           string          `json:"flag"`
+	Link           string          `json:"link"`
+	NMarkTimestamp string          `json:"nMarkTimestamp"`
+	NMark          bool            `json:"nMark"`
+	Delimiter      bool            `json:"delimiter"`
+	LinkType       string          `json:"linkType"`
+	Desc           string          `json:"desc"`
+	NewGachaNames  []string        `json:"newGachaNames"`
+	RepGachaList   []gachaRepGacha `json:"repGachaList"`
+}
+
+// gachaRepGacha is one tile picture of a category: the gacha's name, its colour and its card picture.
+type gachaRepGacha struct {
+	GachaName string `json:"gachaName"`
+	BgColor   string `json:"bgColor"`
+	ImgURL    string `json:"imgUrl"`
+}
+
+// gachaKeywordRow is one search keyword (sDataGachaListKeyword: the keyword list is an array of these).
+type gachaKeywordRow struct {
+	KeywordID  int64  `json:"keywordId"`
+	KeywordGrp string `json:"keywordGrp"`
+	KeywordSeq int    `json:"keywordSeq"`
+	KeywordNm  string `json:"keywordNm"`
+	SpecialYn  bool   `json:"specialYn"`
+	LikeYn     bool   `json:"likeYn"`
+}
+
+// gachaLikeGroup and gachaLikeItem are ResGachaLikeItemList's result: one group per category, its items the gacha's RARE rows.
+type gachaLikeGroup struct {
+	CategoryName string          `json:"categoryName"`
+	Items        []gachaLikeItem `json:"items"`
+}
+
+type gachaLikeItem struct {
+	GachaID                int64  `json:"gachaId"`
+	Grade                  string `json:"grade"`
+	ItemID                 int64  `json:"itemId"`
+	ItemCode               string `json:"itemCode"`
+	BgColor                string `json:"bgColor"`
+	ItemSpecialEffectsType string `json:"itemSpecialEffectsType"`
+	RepresentImagePath     string `json:"representImagePath"`
 }
 
 // gachaRewardLog is sDataGachaRewardLogs: the single-pull keys, and each gachaRewardLogs entry.
@@ -432,14 +503,20 @@ func grantRoomItemsLocked(acc *store.Account, codes []string) {
 
 // ---- routes ----
 
+// gachaListEmpty is the list object with no rows.
+func gachaListEmpty() gachaListReply {
+	return gachaListReply{NextCursor: "0", PreviousCursor: "0", TotalCount: "0", VipGrade: "NONE",
+		Items: []gachaRow{}, BannerList: []any{}}
+}
+
+// handleGachaList serves top/all (the one gacha row) and new/all (no rows).
 func handleGachaList(top bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			httpx.ServeNotFound(w)
 			return
 		}
-		rep := gachaListReply{NextCursor: "0", PreviousCursor: "0", TotalCount: "0", VipGrade: "NONE",
-			Items: []gachaRow{}, BannerList: []any{}}
+		rep := gachaListEmpty()
 		if top {
 			rep.TotalCount, rep.Items = "1", []gachaRow{gachaRowFor(gachaPoolFor(r))}
 		}
@@ -447,17 +524,99 @@ func handleGachaList(top bool) http.HandlerFunc {
 	}
 }
 
+// handleGachaCategory serves catg/all/<id>: the gacha row when <id> is the Cherry category, the empty list otherwise.
+func handleGachaCategory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		httpx.ServeNotFound(w)
+		return
+	}
+	g := ActiveGacha()
+	rep := gachaListEmpty()
+	if strings.TrimPrefix(r.URL.Path, "/v4/shop/gachaList2/catg/all/") == strconv.FormatInt(g.Category.ID, 10) {
+		rep.TotalCount, rep.Items, rep.CategroyNm = "1", []gachaRow{gachaRowFor(gachaPoolFor(r))}, g.Category.Name
+	}
+	httpx.WriteObj(w, gachaResult[gachaListReply]{rep})
+}
+
+// handleGachaKeywordList serves keyword/<n>: the gacha row when <n> is the Cherry keyword, the empty list otherwise.
+func handleGachaKeywordList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		httpx.ServeNotFound(w)
+		return
+	}
+	g := ActiveGacha()
+	rep := gachaListEmpty()
+	if strings.TrimPrefix(r.URL.Path, "/v4/shop/gachaList2/keyword/") == strconv.FormatInt(g.Keyword.ID, 10) {
+		rep.TotalCount, rep.Items, rep.KeywordNm = "1", []gachaRow{gachaRowFor(gachaPoolFor(r))}, g.Keyword.Name
+	}
+	httpx.WriteObj(w, gachaResult[gachaListReply]{rep})
+}
+
+// handleGachaKeywords serves the keyword list: the one keyword row. Its group is "Etc", the group the client passes
+// for keyword 2 itself (specificGachaKeyword("2","Etc"), spec section 6).
+func handleGachaKeywords(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		httpx.ServeNotFound(w)
+		return
+	}
+	g := ActiveGacha()
+	row := gachaKeywordRow{KeywordID: g.Keyword.ID, KeywordGrp: "Etc", KeywordSeq: 1, KeywordNm: g.Keyword.Name}
+	httpx.WriteObj(w, gachaResult[[]gachaKeywordRow]{[]gachaKeywordRow{row}})
+}
+
+// handleGachaCategories serves home/sublist/gacha: the Category section's array with the one category row. Its link and
+// linkType name the category page (goSomewhere(gachaCatg), as the home rows do), for a parser that reads them (the More
+// Gacha list is not traced; see the report).
+func handleGachaCategories(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		httpx.ServeNotFound(w)
+		return
+	}
+	g := ActiveGacha()
+	row := gachaCategoryRow{ID: g.Category.ID, Name: g.Category.Name, Link: strconv.FormatInt(g.Category.ID, 10),
+		LinkType: "goSomewhere(gachaCatg)", NMarkTimestamp: "0", Desc: g.Category.Desc, NewGachaNames: []string{},
+		RepGachaList: []gachaRepGacha{{GachaName: g.Name, ImgURL: gachaRowFor(gachaPoolFor(r)).GachaMainBannerImageURL}}}
+	httpx.WriteObj(w, gachaResult[[]gachaCategoryRow]{[]gachaCategoryRow{row}})
+}
+
+// gachaLikeMax caps the most-liked list. ponytail: the list is the RARE tier, not real like counts (Cherry keeps none);
+// add ranking by counted likes when they exist.
+const gachaLikeMax = 10
+
+// gachaLikesFor is the most-liked group: the first gachaLikeMax RARE items of the pool the request sees, named for the
+// category. A pool with no RARE item gives an empty result.
+func gachaLikesFor(p gachaPool) []gachaLikeGroup {
+	if len(p.rare) == 0 {
+		return []gachaLikeGroup{}
+	}
+	g := ActiveGacha()
+	items := []gachaLikeItem{}
+	for _, e := range p.rare[:min(len(p.rare), gachaLikeMax)] {
+		items = append(items, gachaLikeItem{GachaID: g.ID, Grade: "R", ItemID: g.ID, ItemCode: e.code})
+	}
+	return []gachaLikeGroup{{CategoryName: g.Category.Name, Items: items}}
+}
+
+// handleGachaLikes serves likes/popular/item.
+func handleGachaLikes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		httpx.ServeNotFound(w)
+		return
+	}
+	httpx.WriteObj(w, gachaResult[[]gachaLikeGroup]{gachaLikesFor(gachaPoolFor(r))})
+}
+
 func handleGachaDetail(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		httpx.ServeNotFound(w)
 		return
 	}
-	rep := gachaDetailReply{NextCursor: "0", PreviousCursor: "0", TotalCount: "0",
-		Items: []gachaDetailItem{}, NewUpgradeItems: []any{}, SimilarGachas: []any{}}
+	rep := gachaDetailReply{NextCursor: "0", PreviousCursor: "0", TotalCount: "0", Items: []gachaDetailItem{}}
 	if strings.TrimPrefix(r.URL.Path, "/v4/shop/gacha/detail/target/") == strconv.FormatInt(ActiveGacha().ID, 10) {
 		p := gachaPoolFor(r)
 		rep.TotalCount = "1"
-		rep.Items = []gachaDetailItem{{gachaRow: gachaRowFor(p), Collection: gachaCollectionFor(p)}}
+		rep.Items = []gachaDetailItem{{gachaRow: gachaRowFor(p), Collection: gachaCollectionFor(p),
+			NewUpgradeItems: []any{}, SimilarGachas: []any{}}}
 	}
 	httpx.WriteObj(w, gachaResult[gachaDetailReply]{rep})
 }
@@ -641,26 +800,28 @@ func handleGachaRetired(w http.ResponseWriter, r *http.Request) {
 
 func registerGachaRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/v4/shop/gachaList2/top/all", handleGachaList(true))
-	// ReqGachaCategroy (catg/all/-1) parses result as an array (sDataGachaShopCategoryList::SetData);
-	// ReqGachaCategroy_Detail (catg/all/<id>, incl. 0) parses the list object. No categories exist.
+	// ReqGachaCategroy (catg/all/-1) parses result as an array (sDataGachaShopCategoryList::SetData); it stays empty.
+	// ReqGachaCategroy_Detail (catg/all/<id>, incl. 0) parses the list object: one row for the Cherry category.
 	mux.HandleFunc("/v4/shop/gachaList2/catg/all/-1", httpx.HandleJSONBody(`{"result":[]}`))
-	mux.HandleFunc("/v4/shop/gachaList2/catg/all/", handleGachaList(false))
+	mux.HandleFunc("/v4/shop/gachaList2/catg/all/", handleGachaCategory)
 	mux.HandleFunc("/v4/shop/gachaList2/new/all", handleGachaList(false))
 	// banner/all, banner/top and banner/promotion all parse as sDataGachaBannerAll (result object).
 	mux.HandleFunc("/v4/shop/gachaList2/banner/", httpx.HandleJSONBody(`{"result":{"mainTopBannerList":[],"mainPromotionBannerList":[],"mainVipLeftList":[],"mainVipRightList":[],"moreVipCategoryId":0}}`))
 	// The exact path is the keyword list (ReqGachaKeywords 0x1b999a0 → ResGachaKeywords 0x1b4c43c walks result
 	// as an array). keyword/<n> is the search result list (ReqGachaList_By_Keyword 0x1b99224 → sDataGachaShopList
 	// ::SetData 0x2608bc0, the object shape of catg/all/<id>). The client's gachaNew link asks keyword/2.
-	mux.HandleFunc("/v4/shop/gachaList2/keyword", httpx.HandleJSONBody(`{"result":[]}`))
-	mux.HandleFunc("/v4/shop/gachaList2/keyword/", handleGachaList(false))
+	mux.HandleFunc("/v4/shop/gachaList2/keyword", handleGachaKeywords)
+	mux.HandleFunc("/v4/shop/gachaList2/keyword/", handleGachaKeywordList)
 	mux.HandleFunc("/v4/shop/gacha/detail/target/", handleGachaDetail)
 	// ResGachaLikeItemList: result is an array of {categoryName, items} (walked with size()).
-	mux.HandleFunc("/v4/likes/popular/item", httpx.HandleJSONBody(`{"result":[]}`))
+	mux.HandleFunc("/v4/likes/popular/item", handleGachaLikes)
 	// Action 3/8 (home sub-list, .nhn URL) feeds the shop's Category section through ResGachaCategroy
 	// (sDataGachaShopCategoryList walks result as an array). Runtime 2026-10-11: a list object here
 	// crashed the client (SIGSEGV in SetData, Json::Value::operator[](unsigned)); a 404 showed
 	// "Unable to load data.".
-	mux.HandleFunc("/v4/home/sublist/gacha/", httpx.HandleJSONBody(`{"result":[]}`))
+	mux.HandleFunc("/v4/home/sublist/gacha/", handleGachaCategories)
+	// The gacha card picture: a relative path the client prefixes with its static base (like /cherry/fishing/).
+	mux.HandleFunc("/cherry/gacha/", HandleGachaCardImage)
 	// ResGachaBonusInfo parses (and may pop up) only when result has gachaNo: no bonus = empty result.
 	mux.HandleFunc("/v4/gacha/bonus/info", httpx.HandleJSONBody(`{"result":{}}`))
 	mux.HandleFunc("/v4/purchase/gacha/coin", handleGachaPurchase(false))

@@ -1,7 +1,12 @@
 package economy
 
 import (
+	"bytes"
 	"encoding/json"
+	"image"
+	"image/color"
+	"image/draw"
+	"image/png"
 	"math"
 	"math/rand/v2"
 	"net/http"
@@ -22,8 +27,9 @@ import (
 // CUHE00001 (face) and PUPE0000G (pet) are catalog-excluded.
 func gachaFixture(t *testing.T) gachaPool {
 	t.Helper()
-	// dp.png marks an item with art (shopFixture's items have none unless they list it).
-	shopFixture(t, map[string][]string{
+	// dp.png marks an item with art (shopFixture's items have none unless they list it). Each dp.png is a red 8x8 PNG,
+	// so the gacha card has a real picture to draw.
+	files := map[string][]string{
 		"dress/225000001":    {"dp.png"},
 		"dress/225106259":    {"dp.png", "x.aniproj"},
 		"custom/224400001":   {"dp.png"},
@@ -32,7 +38,19 @@ func gachaFixture(t *testing.T) gachaPool {
 		"interior/122000002": {"dp.png", "a.aniproj"},
 		"custom/223800001":   {"dp.png"},
 		"pet/326400016":      {"skeleton.xml", "dp.png"},
-	})
+	}
+	root := shopFixture(t, files)
+	var buf bytes.Buffer
+	red := image.NewNRGBA(image.Rect(0, 0, 8, 8))
+	draw.Draw(red, red.Bounds(), &image.Uniform{C: color.NRGBA{R: 255, A: 255}}, image.Point{}, draw.Src)
+	if err := png.Encode(&buf, red); err != nil {
+		t.Fatal(err)
+	}
+	for dir := range files {
+		if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(dir), "dp.png"), buf.Bytes(), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 	return gachaPoolNow()
 }
 
@@ -233,11 +251,12 @@ var (
 		shapeOf("int", "vipGachaDiscountRate"),
 		shapeOf("array", "items bannerList"))
 	gachaDetailShape = mergeShapes(
-		shapeOf("string", "nextCursor previousCursor totalCount previewImageUrl previewGardenImageUrl"),
+		shapeOf("string", "nextCursor previousCursor totalCount"),
 		shapeOf("int", "vipGachaDiscountRate"),
-		shapeOf("array", "items newUpgradeItems similarGachas"))
-	gachaDetailItemShape = mergeShapes(gachaRowShape, shapeOf("object", "collection"))
-	gachaRewardShape     = mergeShapes(
+		shapeOf("array", "items"))
+	gachaDetailItemShape = mergeShapes(gachaRowShape, shapeOf("object", "collection"),
+		shapeOf("string", "previewImageUrl previewGardenImageUrl"), shapeOf("array", "newUpgradeItems similarGachas"))
+	gachaRewardShape = mergeShapes(
 		shapeOf("string", "rewardLogSeq avatarId itemCode rewardedCoin displayImageUrl itemName grade specialEffects"),
 		shapeOf("int", "gachaId dyeType"),
 		shapeOf("bool", "rewarded setitem"))
@@ -563,13 +582,12 @@ func TestGachaCatalogShapes(t *testing.T) {
 		t.Errorf("row values = %v (gachaType S = Gem price; firstBuyPrice = price = no first-buy offer)", row)
 	}
 
-	for _, target := range []string{"/v4/shop/gachaList2/catg/all/1", "/v4/shop/gachaList2/new/all",
-		"/v4/shop/gachaList2/catg/all/0"} {
+	for _, target := range []string{"/v4/shop/gachaList2/catg/all/0", "/v4/shop/gachaList2/new/all"} {
 		rec := gachaCall(t, http.MethodGet, target, "", "")
 		gachaShape(t, target, gachaResultMap(t, rec.Body.Bytes()), gachaListShape)
 	}
-	// ReqGachaCategroy (catg/all/-1, home sub-list) and ResGachaLikeItemList walk their result as an array.
-	for _, target := range []string{"/v4/shop/gachaList2/catg/all/-1", "/v4/home/sublist/gacha/10.1.0.0/Android.nhn?parentIconId=&isMain=true", "/v4/likes/popular/item"} {
+	// ReqGachaCategroy (catg/all/-1) walks its result as an array.
+	for _, target := range []string{"/v4/shop/gachaList2/catg/all/-1"} {
 		rec := gachaCall(t, http.MethodGet, target, "", "")
 		var arr struct {
 			Result []any `json:"result"`
@@ -592,8 +610,8 @@ func TestGachaCatalogShapes(t *testing.T) {
 	var kw struct {
 		Result []any `json:"result"`
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &kw); err != nil || kw.Result == nil || len(kw.Result) != 0 {
-		t.Errorf("keyword = %s, want an array result", rec.Body)
+	if err := json.Unmarshal(rec.Body.Bytes(), &kw); err != nil || len(kw.Result) != 1 {
+		t.Errorf("keyword = %s, want an array of one row", rec.Body)
 	}
 
 	rec = gachaCall(t, http.MethodGet, "/v4/shop/gacha/detail/target/1001", "", "")

@@ -1,6 +1,6 @@
 {
   "origin": "cherry",
-  "note": "Cherry-made gacha: the id 1001 (inside CherryGachaFirst/Last 1001-2999; no archive holds an original gacha id), the name, prices, rates, refund and collection size. The kinds (fashion, interior) are the client's category names, chosen by Cherry.",
+  "note": "Cherry-made gacha: the id 1001 (inside CherryGachaFirst/Last 1001-2999; no archive holds an original gacha id), the name, prices, rates, refund and collection size. The kinds (fashion, interior) are the client's category names, chosen by Cherry. The category (the Category section tile and its page, id 1 and its name and desc) and the keyword (the search chip, id 2 because the client's New menu link asks keyword 2) are Cherry-made names; the ids must be above 0 and the names non-empty (checkGacha). The gacha card picture is drawn by Cherry from the first RARE item.",
   "id": 1001,
   "name": "Cherry Gacha",
   "coin_price": 100,
@@ -10,5 +10,7 @@
   "refund_percent": 50,
   "collection_max": 60,
   "kinds": ["fashion", "interior"],
-  "exclude": []
+  "exclude": [],
+  "category": {"id": 1, "name": "Cherry Gacha", "desc": "Clothing and furniture from Cherry's own gacha"},
+  "keyword": {"id": 2, "name": "New"}
 }
