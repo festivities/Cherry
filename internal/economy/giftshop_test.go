@@ -244,7 +244,7 @@ func TestGiftClaimPaysNothing(t *testing.T) {
 	mail := func(code string, gift bool) store.MailRow {
 		return store.MailRow{Seq: 1, Type: store.MailTypeItem, Item: code, Gift: gift, Expires: NowFunc().Add(time.Hour).UnixMilli()}
 	}
-	t.Run("unowned clothing gift: granted, recycles for nothing", func(t *testing.T) {
+	t.Run("unowned clothing gift: granted, sells for 0 Gems", func(t *testing.T) {
 		giftFixture(t, 0, "accepted")
 		if lines := claimMail(t, mail(cloth, true)); len(lines) != 0 {
 			t.Fatalf("claim lines %+v, want none", lines)
@@ -259,14 +259,15 @@ func TestGiftClaimPaysNothing(t *testing.T) {
 		}
 		rec := giftRecycle("gs-recv", false, `{"recycleItems":[{"invenSeq":"1","itemCode":"`+cloth+`","count":1,"exepectedPrice":"1","price":"1"}]}`)
 		res := giftReply(t, rec)
-		if invalid, _ := res["invalidItems"].([]any); rec.Code != http.StatusOK || len(invalid) != 1 || res["balance"] != float64(0) {
-			t.Fatalf("recycle = %d %v, want the gift kept in invalidItems at balance 0", rec.Code, res)
+		if invalid, _ := res["invalidItems"].([]any); rec.Code != http.StatusOK || len(invalid) != 0 || res["balance"] != float64(0) {
+			t.Fatalf("recycle = %d %v, want the gift sold for nothing (no invalidItems: they loop the client) at balance 0", rec.Code, res)
 		}
 		store.AccountsMu.Lock()
-		owned = slices.Contains(store.AccountOwnedCodes(store.AccountByAidLocked("9602")), cloth)
+		recv = store.AccountByAidLocked("9602")
+		owned, marked := slices.Contains(store.AccountOwnedCodes(recv), cloth), recv.PaidPrices[cloth] != 0
 		store.AccountsMu.Unlock()
-		if !owned {
-			t.Errorf("the recycled gift is no longer owned")
+		if owned || marked {
+			t.Errorf("after the recycle owned = %v, gift marker left = %v, want the gift gone with its marker", owned, marked)
 		}
 	})
 	t.Run("unowned furniture gift: granted with paid marker, recycles for nothing", func(t *testing.T) {

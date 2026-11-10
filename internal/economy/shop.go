@@ -858,7 +858,9 @@ func handleRecycle(interior bool) http.HandlerFunc {
 				return
 			}
 			price := soldPrice(it.ItemCode, paid)
-			if price == 0 { // faces/unpriced: kept, reported back so the client keeps them too
+			// A player's gift (paid < 0) is sold for 0 Gems like any sale: reporting it in invalidItems made the
+			// client re-send the recycle without end (device 2026-11-11, ~14 requests a second).
+			if price == 0 && paid >= 0 { // faces/unpriced: kept, reported back so the client keeps them too
 				delete(sellCodes, it.ItemCode)
 				delete(sellSeqs, seq)
 				invalid = append(invalid, map[string]any{"invenSeq": strconv.FormatInt(seq, 10), "itemCode": it.ItemCode, "representPrice": 0, "purchasePrice": 0})
