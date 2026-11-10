@@ -138,6 +138,19 @@ The user's request for this session: revise `.agents` for stale information and 
 - Roadmap 8 "User decisions, round 3" holds the answers: an admin hostname, sign-up open to any Discord account, uploads on with an admin-switchable bucket copy (off for now), the load target, GitHub Actions approved.
 - **Raspberry's emulator (user, 2026-11-10):** by the time the next Cherry session starts, the Raspberry session runs its AVD on port **5559**, and always there from then on (AGENTS "Lab"). The `emulator-5554` seen above was a one-off.
 
+### HANDOFF ACCEPTED — 2026-11-10 ~evening host time (Claude Code, Cherry session; works the open tasks)
+
+Context loaded: AGENTS, PLAN and CONTRACT in full, and Raspberry's `.agents\CONTRACT.md` (read-only). REFERENCE and TESTING are read per task; HISTORY, JICAMA and DATASET not re-read.
+
+**State corrections (each observed read-only at acceptance):**
+- **Repo:** `main` clean and level with origin at `41fe1e8`; `prototype` at `91c52c2` (`main` is docs-only commits ahead). Follow-up 2(a) still due before the first refactor commit.
+- **Lab still down:** no `cherry.exe` process; only YunDetectService (PID 27984) listens, on loopback :10000. Repo-root `cherry.exe` SHA-256 prefix `153b233a9b94e982`; `accounts.json` last written 2026-11-08 23:53; `config\` holds only `streaming.json`; LAN IP 192.168.1.7.
+- **Serial hazard is live:** the only emulator is `emulator-5554` = AVD **Raspberry** (qemu started 2026-11-10 12:25 without a `-port` flag, i.e. before the user's port-5559 rule took effect). While it holds 5554, AVDs Cherry and Jerry would come up as 5556/5558 and the tap allow-list (5554/5556) would cover the wrong pair. No Cherry AVD is started and no device test is run until the Raspberry AVD is on port 5559 (its session or the user restarts it; this session never touches it).
+- `.opencode\line-play-artifacts`: six entries, still ignored at `.gitignore:35`.
+- **Raspberry's requests read** (its CONTRACT §4, four entries to 2026-11-10): configurable listeners/data directory, the `dev-fake` peer and `/cherry/v1/info` (= slices 8.3a and 8.6a, after task 1 by the user's order); three exact native hosts to add to the host set (`terms.line.me`, `notice2.line.me`, `help2.line.me`); marker-based routing instead of endpoint-IP matching (no server change); a browser-trusted endpoint for the `dev-fake` peer (needs the user's certificate setup). To be answered in CONTRACT "Requests to Raspberry" with slice 8.3a.
+
+**Order of work:** task 1 (e) first (fully specified, server-side), then (a)–(d) with the user's answers item by item; then 2(a); then task 3.
+
 ## Status (2026-11-08)
 
 | Milestone | Scope | Status |
