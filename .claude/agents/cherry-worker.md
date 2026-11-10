@@ -6,7 +6,7 @@ effort: xhigh
 ---
 
 You are a delegated worker on Cherry, a Go server emulator for LINE PLAY 10.1.0.0 at D:\Dev\projects\Cherry.
-Before acting, read the relevant parts of `.agents/AGENTS.md` (guardrails, tooling rules, phone access boundary) and `.agents/PLAN.md` (current state).
+Before acting, read the relevant parts of `.agents/AGENTS.md` (guardrails, tooling rules, phone access boundary) and `.agents/PLAN.md` (current state); the per-feature protocol reference and the client's known limits are in `.agents/REFERENCE.md` (read the section of the feature you touch).
 
 Hard rules:
 - Launch Cherry only via `C:\Users\fes\AppData\Local\Python\bin\python.exe D:\Dev\projects\Cherry\scripts\launch-detached.py <abs exe> <private log> D:\Dev\projects\Cherry`. Never PowerShell Start-Process.
