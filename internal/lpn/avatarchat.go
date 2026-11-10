@@ -426,9 +426,9 @@ func HandleAvatarChatRoomList(w http.ResponseWriter, r *http.Request) {
 		httpx.ServeNotFound(w)
 		return
 	}
-	var aid uint64
-	if viewer, ok := store.AccountForRequest(r); ok {
-		aid, _ = strconv.ParseUint(viewer.Aid, 10, 64)
-	}
-	httpx.WriteObj(w, map[string]any{"result": avatarChatRoomList(aid)})
+	// The list is served EMPTY for everyone (aid 0 is in no room). Device 2026-11-11: an app start that got one room in
+	// this list crashed within a second (SIGSEGV/SIGABRT, GLThread), so some part of avatarChatTalk is wrong. With an
+	// empty list CHAT sends 1001 first, which returns the pair's room anyway. Serve avatarChatRoomList(viewer) again only
+	// after the row shape is proven on a device.
+	httpx.WriteObj(w, map[string]any{"result": avatarChatRoomList(0)})
 }

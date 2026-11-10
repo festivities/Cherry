@@ -428,8 +428,8 @@ func TestAvatarChatRoomListForMembers(t *testing.T) {
 		}
 		return list
 	}
-	if got := get("av-9981"); len(got) != 1 {
-		t.Fatalf("Ann's route list has %d rows, want 1", len(got))
+	if got := get("av-9981"); len(got) != 0 { // the route never lists rooms: a listed room crashed the client at login
+		t.Fatalf("Ann's route list has %d rows, want 0", len(got))
 	}
 	if got := get("av-9983"); len(got) != 0 {
 		t.Fatalf("stranger's route list has %d rows, want 0", len(got))
