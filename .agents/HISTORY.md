@@ -1523,3 +1523,166 @@ You are the receiving agent with **zero context**. Read all of [AGENTS.md](AGENT
 Context loaded (AGENTS in full, PLAN handoff/Status/Roadmap). Lab rechecked, no corrections: `main` clean at `9c821b8`; Cherry PID 15700 (`D:\Dev\projects\Cherry\cherry.exe`, started 14:15:29, SHA-256 prefix `72493c920fdf5f8b`), log `cherry-icons4.log` `lan=192.168.1.7`; `config\` holds only `streaming.json`; YunDetectService PID 26868; emulator-5554 = AVD Cherry, emulator-5556 = AVD Jerry. Working the open tasks in order. **Task 1 done:** the fish shop has its own PriceType numbering (wire 1 = Gem, 2 = Cash; the client uses wire − 1 as ITEM_PRICE_TYPE: pre-check `GetGem`/`GetCash` and lack popup type at 0x1dab598, icons in `NaFishingShopCell::RefreshUI` 0x1db3504) [S] — Cherry's value was right; the comments in `fishing_shop.go` / `square_fishing.go` now say so (`eventcoin-spec.md` §9). **Task 2:** the user picked Roadmap 6 "Diary social". Spec `%TEMP%\opencode\cherry\diary-social-20261108\diary-social-spec.md` (static); built `6806468` (Status row "Diary comments, likes, guestbook replies"); friends-only visibility classified client-inherent (AGENTS limits). **Found on the device run — FIXED 2026-11-08 (device-verified, see Status row "Guestbook badge, default Diary skin"):** `GET /v4/guestbookcount/clear/<aid>` 404 (the Guestbook tab badge "1" likely stays because of it [I]) and the long-known `GET /v4/diary2/skinInfo/Android` 404; on AVD Jerry (app data wiped 2026-11-08) the Diary header is blank white and own names draw near-white, while AVD Cherry draws the green skin — likely a Diary skin Jerry never cached [I]. **Session result (2026-11-08):** Diary social built and device-verified (`6806468`); guestbook badge clear + default Diary skin (`fbaeed4`, R2 `static/DiarySkin/…` uploaded by the user); task 3 done by date simulation instead of waiting (`17f305b`, `CHERRY_FAKE_NOW`; a scheduling commit `09074f3` was reverted by `c3447df` at the user's request). Closed with a handoff 2026-11-09 ~00:45 (platform refactor = Roadmap 8).
 
 Session closed 2026-11-09 ~00:45 with a handoff at the user's request (platform refactor planned as PLAN Roadmap 8; next pair in PLAN).
+
+## From PLAN.md — handoff pair 2026-11-09 ~01:45 → 2026-11-10 (accepted twice; moved verbatim 2026-11-11 ~06:30; docs split and Roadmap 8 revision, then task 1: gift rule, Gacha Shop pages, Roadmap 6 leftovers, 1:1 friend chat slice 1)
+
+### HANDOFF INITIATED — 2026-11-09 ~01:45 host time (Claude Code session → new Claude Code sessions with no context; first written ~00:45, revised after the user's answers)
+
+**Two sessions start from this handoff (user, 2026-11-09):** the **Cherry session** (this block: the server) and a **Raspberry session** (the client patcher, `D:\Dev\projects\Raspberry`, GitHub `festivities/Raspberry`, public; its context is `D:\Dev\projects\Raspberry\.agents\`). You are the Cherry session unless your working directory is Raspberry. How the two work side by side: [CONTRACT.md](CONTRACT.md) here (server half and shared definitions; the client half is Raspberry's `.agents\CONTRACT.md`, read-only for you) and AGENTS "Workflow" (Two sessions). **You own the lab Cherry instance** (restarts, deploys, `accounts.json`, the AVDs Cherry and Jerry, the checkpoint branch); the Raspberry session only uses the instance as a peer and brings its own test AVD. Never edit Raspberry's files; put requests in CONTRACT "Requests to Raspberry", and read its "Requests to Cherry" at the start of the session and before every auth slice.
+
+**Read "HANDOFF ACCEPTED — 2026-11-10" below this block before acting on it:** the lab is down since a host reboot, the docs were split (REFERENCE.md, TESTING.md) and Roadmap 8 was revised that day. The reading instructions in this block were updated for the new layout; the state snapshot is as written on 2026-11-09.
+
+You are the receiving agent with **zero context**. Read all of [AGENTS.md](AGENTS.md) first (about 90 KB since the 2026-11-10 split). Above all:
+- **"Baseline"**, incl. the new rule: **`D:\Dev\projects\Cherry\.opencode\line-play-artifacts` must be preserved NO MATTER WHAT** (user, 2026-11-09).
+- **"Policies"**, incl. the **2026-11-09 change to the client-modification rule**, the new **dependency rule**, **no real-money paths**, **Cherry never reads the archive at runtime**, **never restore `accounts.json` wholesale**, and **operator-editable fabricated content**.
+- The "Cherry-made content" table.
+- **"Workflow"**: delegation, device testing (the notes are in [TESTING.md](TESTING.md); read it before a tester brief), autonomous Commits, the deploy recipe, "Season and date tests", "Two sessions".
+- **"Tooling rules"**: IDA work uses per-job copies of the PRISTINE `%TEMP%\opencode\cherry\libgame.so.i64` only.
+- "Lab" and "Code map" (incl. "Where the platform refactor starts").
+
+Then read [CONTRACT.md](CONTRACT.md), this block, "Status" and the whole **Roadmap**, above all **8 (Platform refactor)** and 5, 6. [REFERENCE.md](REFERENCE.md) (feature reference, "Known client-inherent limits") is read by section when a task touches that feature. Read [DATASET.md](DATASET.md) if bucket work comes up. Do not edit `JICAMA.md`.
+
+**The Read tool refuses large reads.** Read PLAN.md, REFERENCE.md and HISTORY.md in chunks of 70–150 lines. Several lines are very long: Grep them or read them alone.
+
+The previous pair (2026-11-08 ~14:30 → 2026-11-08: Diary social, guestbook badge, Diary skin, season simulation) is HISTORY's LAST section.
+
+Recheck the lab and append **HANDOFF ACCEPTED** with any corrections:
+- `git status` and the branches;
+- Cherry's PID, path and hash;
+- `adb devices`, plus `adb -s <serial> emu avd name` for each device (a third emulator may now belong to the Raspberry session: leave it alone);
+- `lan=` in the Cherry log;
+- the contents of `config\`.
+
+Then work through "Open tasks" in order. The host clock is UTC+8 (the emulators run UTC). The game day resets at 06:00 JST (05:00 host time), which opens the daily calendar on each emulator.
+
+**Focus (user, 2026-11-09):** "Handoff focuses on remaining open tasks." The **checkpoint** branch `prototype` was saved on 2026-11-09 when the user pointed out the handoff had left it for later (task 2: done, with three follow-ups). After the open tasks comes the **platform refactor on `main`** (Roadmap 8; task 3). Do not start any refactor work before `prototype` is up to date with the last pre-refactor `main` commit.
+
+**State snapshot (2026-11-09 ~01:40, each line observed at that time):**
+- **Repo:**
+  - `main`, level with origin after this handoff commit. The last code change is `17f305b` (`CHERRY_FAKE_NOW`).
+  - Branches: `main` and **`prototype`** (the checkpoint, created and pushed 2026-11-09 at `91c52c2`; task 2). `main` is one docs commit ahead of it after this note.
+  - Gate green before the handoff commits (docs only since): `gofmt -l .` empty, `go vet ./...`, `go test -race -count=1 -timeout 550s ./...`.
+- **Running:**
+  - Cherry PID **43976** (started 2026-11-08 23:52:59), repo-root `cherry.exe` SHA-256 prefix `153b233a9b94e982` (built from `17f305b`).
+  - Log: `%TEMP%\opencode\cherry\season-sim-20261108\cherry-real-after-sim.log`.
+  - Real data folder, normal clock: no `CHERRY_FAKE_NOW`.
+  - `%LOCALAPPDATA%\Cherry\config\` holds only `streaming.json`.
+  - YunDetectService: never stop it.
+  - emulator-5554 = AVD **Cherry** (1001), emulator-5556 = AVD **Jerry** (1006). Both apps were relaunched at 23:53, and both `checkSession` returned 200.
+- **Accounts (`accounts.json`, values read without keys):**
+  - 1001 "Cherry": 1,800 Gems / 15 Cash.
+  - 1002 "test": 1,240 Gems / 70 Cash.
+  - 1006 "jerry": 1,215 Gems / 0 Cash.
+  - `nextAvatarId` 1006.
+  - 1001's Guestbook badge was cleared on 2026-11-08 (`guestbookRead` marker). Jerry's like on 1001's Jackpot Spin post (post 18) is still there.
+- **Season simulation leftovers:**
+  - The data copy `%TEMP%\opencode\cherry\season-sim-20261108\Local\` holds the simulated Winter and New Year claims (+180 Gems for 1001, copy only). Its `static`, `generated`, `dp-cache` and `*-media` are **junctions into the real folder**.
+  - If you delete the copy, remove the junctions with `rmdir` (not `rm -r`), or the real folders are emptied.
+  - Backup of the real `accounts.json` before the token merge: `%TEMP%\opencode\cherry\economy-20261006\accounts-backup-pre-seasonsim-merge.json`.
+- **Raspberry repo (2026-11-09 ~01:30; its session has started since, see ACCEPTED below):** `D:\Dev\projects\Raspberry`, `festivities/Raspberry` (public, MIT, "Patch LINE PLAY for use with Cherry"). The handoff author committed `.gitignore` and `.agents/` (AGENTS, PLAN, CONTRACT, HISTORY); no code at that time. Its session starts with a static spike (hosts, resolver path, AirArmor, WebView, login hook) and will ask for server behavior in its CONTRACT.
+- **Private production values** (the user's domain, random ports, the OCI checklist): `%LOCALAPPDATA%\Cherry\deploy\oci.md` and memory `oci-deployment`. This repo is public: never copy them into tracked files.
+
+**Done in the previous session (2026-11-08):** commits `7b69833` … `17f305b`; details in HISTORY's last pair.
+- The fish shop PriceType comment.
+- **Diary social:** comments, likes, guestbook replies and report routes.
+- **Guestbook badge clear and default Diary skin** (R2 `static/DiarySkin/…`).
+- `CHERRY_FAKE_NOW` season simulation: **Winter and New Year device-verified in their own date windows.**
+
+**Open tasks, in order.** Fix or classify each with evidence (memories `gaps-fix-or-classify`, `user-game-memory-wins`).
+
+1. **Finish the remaining open items, then nothing new.** ~~Ask the user once which of these to finish before the checkpoint.~~ **Answered by the user on 2026-11-10: all of them, (a) to (d), plus (e).** Do not ask which ones again; ask the user the questions each item raises as you reach it (AskUserQuestion), and fix or classify each with evidence.
+   - (a) **Gacha Shop:** the Category, Detail and Search pages are blank; thumbnails and "Most Liked" are missing. Recommended: the season popups and icons now land there.
+   - (b) **Roadmap 6 leftovers:** the POSTBOX home badge; Friend-profile CHAT (hangs) and Style Magazine (404s); styling slots; Pet Book Ride cards (map the three partial figures to ids first); ride pet 326400259 body; the face-instance serial on save; Garden idx42 `ch_garden_enter_validate_req`.
+   - (c) **Phase E minor leftovers:**
+     - the more-menu `eventIconList` (served empty);
+     - the newbie-account popup branch (msg 10727);
+     - a device proof of the gather3 event-quest credit.
+   - (d) **Carried-over classified items:** HISTORY pairs 2026-11-01 ~21:15 task 5 and ~13:50 tasks 4–5 (Jackpot odds ANR, Jerry MENU ANR, the dyed eye item's Closet view, …).
+   - (e) **A gifted item sells back for nothing (user decision 2026-11-10, Roadmap 8 round 3 and P7).** Today a Gift Shop gift moves Gems between accounts at par: the sender pays the price (`economy/giftshop.go` `HandleGiftSend`), and the receiver either sells the item back at 100 % or, if they already own it, is paid its sell-back Gems on receipt (`economy/itemgrant.go` `grantItemLocked`). Make both paths pay nothing for a player-sent gift, and only for those: staff mail, calendar and gacha duplicates keep their sell-back. The price actually paid already drives sell-back (`paidPrices` per clothing code, `roomItems[].paid` per furniture seq, REFERENCE "Phase E slice 2"); check what a recorded 0 does on the client first (price-0 rows such as faces come back in `invalidItems`). Unit tests plus one device run of gift → receive → recycle.
+   - Not part of this task; Roadmap 8 covers them:
+     - S3-compatible buckets;
+     - the gacha odds WebView (a publicly trusted cert, with Raspberry's web-URL rewrite);
+     - LINE OAuth (replaced by Discord sign-in);
+     - distribution (the Raspberry patcher).
+
+   Classified 2026-11-09, no action needed: Winter's limited `RUCH004RC` is a Garden attraction. It is listed LIMIT in the Interior Shop's default tab (`shop.go` lists landscapes first in `URCMD`, then `interiorRow` → `priceKeys` → `saleKeys`). It was absent in the simulation because 1001 owns it (`roomItems`), and an owned landscape is left out of that tab.
+2. **Checkpoint — branch DONE 2026-11-09** (user: "save this repo to a new branch prototype"; the user noticed the first version of this handoff had left it for later):
+   - Branch **`prototype`** was created at `91c52c2` (= `main` with the handoff docs; code `17f305b`, gate green) and pushed with upstream tracking (`git branch prototype 91c52c2`, `git push -u origin prototype`; no switch, `main` stayed checked out). `.opencode\line-play-artifacts` was checked before and after: 2.0 GB, six entries, still ignored at `.gitignore:35`.
+   - `prototype` is the final state of the stdlib/JSON-file Cherry: **never rebase, reset, force-push or delete it.**
+   - **Follow-ups, in this order:**
+     - (a) If task 1 adds commits to `main`, bring `prototype` up to date with a **fast-forward-only** push of the last pre-refactor commit (`git push origin <sha>:prototype` is refused unless it is a fast-forward, which is the point) and record the new sha here.
+     - (b) Before slice 8.3b touches storage, copy the live data to `%TEMP%\opencode\cherry\checkpoint-prototype-<date>\` (private, never in Git): `%LOCALAPPDATA%\Cherry\` without `static\` and `generated\` (re-downloadable). Each JSON save is temp+rename, so every file is consistent on its own. Record the folder here.
+     - (c) Around every branch operation confirm that `.opencode\line-play-artifacts` is untouched: its size (≈2.0 GB), its six entries (the 10.1.0.0 APK, `lineplay-original-assets`, `lpbackup`, `lpbase`, `miaw-backup`, `santi-backup-20260921`) and that `git check-ignore -v .opencode/line-play-artifacts` still names `.gitignore:35`.
+   - **GitHub enforces it (2026-11-09, at the user's request):** the ruleset "prototype checkpoint (no force-push, no deletion)" (id 26805682, active, no bypass actors, created with `gh api` on the user's `repo`-scope login) blocks deletion and non-fast-forward updates of `refs/heads/prototype`; `main` is unaffected and fast-forward pushes still work. Only the user lifts it (GitHub Settings → Rules → Rulesets); an agent never removes or works around it.
+3. **Platform refactor (Roadmap 8), only after task 2.**
+   - The user answered every open decision on 2026-11-09 (Roadmap 8, "User decisions, round 2"): **SQLite + Litestream, `modernc.org/sqlite` approved, Discord login alone for the public admin UI, accounts start fresh, the patched client lives in the separate Raspberry repo**. Ask the user only about what Roadmap 8 still lists as open, and only if it blocks you.
+   - Your first slices, in order: **8.3a** configuration foundation (listeners, data directory, `server.public`, `auth.mode`, hostnames as flags/environment/config; the lab keeps today's defaults), which also unblocks the Raspberry session's isolated runs; then **8.6a** the auth endpoints and the `dev-fake` mode of CONTRACT §3 on the new foundation so Raspberry has a real peer; then **8.3b** storage and the rest in Roadmap 8's order.
+   - Answer the Raspberry session through CONTRACT "Requests to Raspberry" and keep CONTRACT current (bump `contract`, changelog line).
+   - Every slice follows the usual chain: spec → `cherry-worker` → main review + gate → deploy → `cherry-tester`. Commit and push when green.
+   - Keep the stock-client emulator lab working on `main` in `lab-guest` mode until the patched APK replaces it.
+   - The user does the OCI setup; walk them through the checklist in Roadmap 8 when a slice needs a piece of it.
+
+**Hazards (carried):**
+- **A forced season defeats the calendar restart.** `AttendState` compares `scheduleAt(last attend)` with `scheduleAt(now)`. While `/admin/season` forces a season, both return the same schedule, so a forced calendar continues the old day count (day 2, not day 1).
+  - `/admin/season` is process-local and resets on every Cherry restart.
+  - To see real windows, use `CHERRY_FAKE_NOW` (AGENTS "Workflow", "Season and date tests").
+- **Garden event icons:** the New Year icon is a gold starburst that animates and is not always visible; Winter's is the yellow "EVENTS" bubble. Both sit at ~(1144,327) on AVD Cherry. The tap opens the Gacha Shop a few seconds later.
+- **The seasonal calendar's meadow background is the client's own;** only the digit colour and the cells are Cherry's.
+- **Two sessions share one machine:** one adb server (never `adb kill-server`), the host ports 443/80/10000/10123/53 (the lab instance holds them; Raspberry runs isolated stubs on other ports), `%TEMP%\opencode\` (Cherry: `cherry\`, Raspberry: `raspberry\`), IDA copies (separate names).
+
+### HANDOFF ACCEPTED — 2026-11-10 ~17:30 host time (Claude Code, Cherry session; docs revision only, no code change)
+
+The user's request for this session: revise `.agents` for stale information and for better approaches to the refactor, ignore Raspberry (its session is already under way), commit and push. No open task was started. Context loaded: AGENTS, PLAN, CONTRACT and DATASET in full; HISTORY and JICAMA not re-read; **Raspberry's `.agents\CONTRACT.md` was NOT read** (user: ignore Raspberry) — read its "Requests to Cherry" before slice 8.3a and before every auth slice.
+
+**State corrections (each observed 2026-11-10 ~17:30, read-only):**
+- **Repo:** `main` clean and level with origin at `d9c62ab` before this session's docs commits; `prototype` still at `91c52c2` (`main` is docs-only commits ahead). Follow-up 2(a) is still due: fast-forward `prototype` to the last pre-refactor `main` commit right before the first refactor commit.
+- **Cherry is not running.** The host rebooted on 2026-11-10 10:20; PID 43976 is gone and nothing listens on 443/80/10123/8099 or UDP 53. The repo-root `cherry.exe` still has SHA-256 prefix `153b233a9b94e982`. The last log line is 2026-11-09 01:19. `lan=` could not be read from a log; `ipconfig` still shows 192.168.1.7.
+- **YunDetectService** is PID 27984 on loopback :10000 (was 26868).
+- **Devices:** `adb devices` shows one emulator, `emulator-5554`, and `emu avd name` says **Raspberry** (the other session's AVD; left alone). AVDs Cherry and Jerry are not running. `emulator -list-avds`: Cherry, Jerry, Raspberry.
+- **Data:** `%LOCALAPPDATA%\Cherry\config\` holds only `streaming.json`; `accounts.json` (313 KB) was last written 2026-11-08 23:53, so the snapshot balances hold. The season-simulation copy and its junctions still exist (hazard above).
+- `.opencode\line-play-artifacts`: six entries, still ignored at `.gitignore:35` (no branch operation was done).
+
+**Done in this session (docs only):**
+- **Split** (verbatim, line conservation checked by script, commit `ceb1c5e`): PLAN "Feature reference" and the Roadmap 7 build notes plus AGENTS "Known client-inherent limits" → [REFERENCE.md](REFERENCE.md); AGENTS "Tester practicalities" → [TESTING.md](TESTING.md). PLAN 204 KB → 87 KB and AGENTS 124 KB → 92 KB, both including this revision's additions.
+- **Stale facts fixed:** AGENTS "Lab" (lab down, PIDs, the Raspberry AVD and its serial hazard), Code map (`circle.json`, no module dependency yet), DATASET (object count, `DiarySkin` row, dependency and client-patch rules, data directory note), cross-references to the moved sections.
+- **Measured starting point** for the refactor: AGENTS "Code map" → "Where the platform refactor starts".
+- **Roadmap 8 revised:** "Revision 2026-11-10" lists what changed and why. The user's decisions of rounds 1 and 2 are untouched.
+
+**Open tasks: none started in this session; the user answered the open questions the same day.**
+- **Task 1: do all of it** — (a) to (d) and the new (e) (gifts sell back for nothing). The next session asks the user its questions item by item.
+- Then task 2(a) (fast-forward `prototype` to the last pre-refactor commit), then task 3 in the revised order of Roadmap 8.
+- Roadmap 8 "User decisions, round 3" holds the answers: an admin hostname, sign-up open to any Discord account, uploads on with an admin-switchable bucket copy (off for now), the load target, GitHub Actions approved.
+- **Raspberry's emulator (user, 2026-11-10):** by the time the next Cherry session starts, the Raspberry session runs its AVD on port **5559**, and always there from then on (AGENTS "Lab"). The `emulator-5554` seen above was a one-off.
+
+### HANDOFF ACCEPTED — 2026-11-10 ~evening host time (Claude Code, Cherry session; works the open tasks)
+
+Context loaded: AGENTS, PLAN and CONTRACT in full, and Raspberry's `.agents\CONTRACT.md` (read-only). REFERENCE and TESTING are read per task; HISTORY, JICAMA and DATASET not re-read.
+
+**State corrections (each observed read-only at acceptance):**
+- **Repo:** `main` clean and level with origin at `41fe1e8`; `prototype` at `91c52c2` (`main` is docs-only commits ahead). Follow-up 2(a) still due before the first refactor commit.
+- **Lab still down:** no `cherry.exe` process; only YunDetectService (PID 27984) listens, on loopback :10000. Repo-root `cherry.exe` SHA-256 prefix `153b233a9b94e982`; `accounts.json` last written 2026-11-08 23:53; `config\` holds only `streaming.json`; LAN IP 192.168.1.7.
+- **Serial hazard is live:** the only emulator is `emulator-5554` = AVD **Raspberry** (qemu started 2026-11-10 12:25 without a `-port` flag, i.e. before the user's port-5559 rule took effect). While it holds 5554, AVDs Cherry and Jerry would come up as 5556/5558 and the tap allow-list (5554/5556) would cover the wrong pair. No Cherry AVD is started and no device test is run until the Raspberry AVD is on port 5559 (its session or the user restarts it; this session never touches it).
+- `.opencode\line-play-artifacts`: six entries, still ignored at `.gitignore:35`.
+- **Raspberry's requests read** (its CONTRACT §4, four entries to 2026-11-10): configurable listeners/data directory, the `dev-fake` peer and `/cherry/v1/info` (= slices 8.3a and 8.6a, after task 1 by the user's order); three exact native hosts to add to the host set (`terms.line.me`, `notice2.line.me`, `help2.line.me`); marker-based routing instead of endpoint-IP matching (no server change); a browser-trusted endpoint for the `dev-fake` peer (needs the user's certificate setup). To be answered in CONTRACT "Requests to Raspberry" with slice 8.3a.
+
+**Task 1 (e) — device-verified 2026-11-11 01:15 (AVD Cherry → AVD Jerry; shots `%TEMP%\opencode\cherry\gift-20261111\device{,2,3}\`):** gift CAAE000BO (100 Gems, 1001 1,880 → 1,780) → Jerry RECEIVE pays nothing → recycle screen shows 0 Gems → RECYCLE: one `inven/recycle/closet/v2` 200, the item is gone, Gems unchanged, no ledger line. **Bug found and fixed on the way (`386c716`):** the first design kept a gift on recycle and reported it in `invalidItems`; the client then re-sent the recycle without end (~14 requests/s until the app was force-stopped). A gift is now a normal sale that pays 0. **Hazard left:** `invalidItems` is still the reply for faces and unpriced items (`shop.go` recycle, price 0 with no gift marker); whether a batch made only of such items loops the same way is NOT checked — look before relying on it. A duplicate gift is consumed (sender pays, receiver gets nothing; the client still says "added to your Closet"): told to the user 2026-11-11, no change asked. Lab side effects: 1006 sold its older necklace CAAE0008L for 100 in the first run (1,465 Gems), 1001 has 1,790. Design as built:
+
+**Task 1 (b), first part — 2026-11-11 (`cce6694`; static spec `%TEMP%\opencode\cherry\roadmap6-20261110\leftovers-spec.md`, user decisions the same day):**
+- **POSTBOX badge: classified client-inherent.** `badge/infos` now carries the real count (`POSTBOX` = unclaimed unexpired mail, `economy.UnreadMail`); with 1 unclaimed mail and 7 `badge/infos` fetches the device showed no badge on the Garden HUD, the MENU Postbox cell (its link index 35 is not in `NaHomeMoreViewCell::GetBadgeInfoType` 0x16a1a60, which maps only 31, 63, 28) or the launcher icon. Nothing more to do server-side.
+- **Style Magazine:** `style/magazine/list/<aid>` serves the valid empty page; device: 200, no "Network Error", nothing opens (no toast seen). Styling slots stay a zero-slot fixture (user: clean empty pages; the feature is deferred). Routes and shapes for a later build: spec topics 3–4.
+- **Garden idx42 → idx49 enter-validate reply** (`lpn/garden_validate.go`): unit-tested only. Not reachable on a device today: its sender is the footprint (visitor list) popup and both lab accounts have 0 footprints (Cherry records none). The refusal result value 1 is a guess (the spec only gives the success value 197420).
+- **Face serial `invenSeq:"0"`: classified, no change** (the client omits the serial when it is 0 on closet and styling saves; spec topic 5).
+- **Friend-profile CHAT: 1:1 friend chat built, slice 1 device-verified 2026-11-11 03:38 on both AVDs** (user chose to build it; `cd911ed`, `f027410`, `2758185`; spec `%TEMP%\opencode\cherry\avatarchat-20261111\avatarchat-spec.md`, crash notes `recv-crash.md`, shots `device{,3,4}\`; code `lpn/avatarchat.go`, `store/chatrooms.go`).
+  - **Works:** CHAT opens the pair's room (session op 0x0A: 1001 → 1006 → 3003), both figures and pets drawn; text both ways live within ~5 s (3001 + push 13001 → the open chat fetches 3003); "Read" marks (3004 acks, 1006 `lastAckSn`/`peerAckMsgSn`); history on re-entry in order; a message sent while the friend is outside is there on entry; CHAT with the synthetic Friend → "Cannot connect to server" (result 402), no hang. Friends only, sender = the session's account, text ≤ 500 characters, newest 200 messages per room.
+  - **Storage:** message text is memory only (lost at a restart; the client then shows an empty room, its own cache is not shown). `%LOCALAPPDATA%\Cherry\chatrooms.json` (private) keeps the room registry: ids (block 1960000000–1969999999, `CherryChatRoomFirst/Last`), members, a serial ceiling raised in chunks of 100, acks. **Why:** the client caches history by room id + `msgSn` and drops a serial it already has; when serials restarted at 1 after a server restart, the first new message was replaced by a cached one on both devices (device 2026-11-11 03:14). The lab file was seeded by hand with room 1960000000 (1001, 1006), ceil 100.
+  - **Open / limits:** (1) after a restart a room's serial jumps to its ceiling; on the next entry the client sent ~89 `3003` in one burst (one per missing serial [I]; bounded by the chunk size) — harmless once, watch it. (2) `chat/roomlist/sync` is served EMPTY for everyone: an app start that got one room row crashed within a second (01:38:54, fdsan SIGABRT + SIGSEGV); not proven to be the row (the same fdsan abort killed Jerry's app once at 03:17 with no chat request near), so re-enable only with a device proof of the row shape. (3) The first-ever CHAT on AVD Jerry crashed (SIGSEGV, GLThread) in the second it downloaded Cherry's pet files for the scene; it never recurred with the files cached — a first-download race in the client is the working guess [I]; not reproduced on purpose (needs a device without that pet's files). (4) No banner/badge when a message arrives outside the chat. (5) Not built: stickers, photos, block/report, chat-list scene, MENU row `avatarChat`, room delete (accepted, history returns), unfriending does not close a room (members can keep chatting until P11 moderation adds a check).
+- **Still open in (b):** Pet Book Ride cards and ride pet 326400259 (the card is Cherry's own generated `dp.png`, so this is a `thumbs/dppet.go` rendering fix; spec topic 7 gives the client's armature selection), styling slots (deferred).
+
+Task 1 (e) design notes: Gift Shop mail carries `MailRow.Gift`; claiming it never pays sell-back (a duplicate grants and pays nothing); a newly granted gift is marked with a negative paid price (`giftPaid` = -1 in `PaidPrices[code]` / `RoomItem.Paid`), and `soldPrice` returns 0 for it, so the closet/room row shows price 0 and a recycle keeps the item and reports it in `invalidItems` (the existing price-0 path, as for faces). Staff mail, calendar, spin and exchange duplicates are unchanged; gift mails stored before this change keep the old rule (the lab has one: 1002's unread CAAE0009J).
+
+**Task 1 (a) Gacha Shop pages — server side done 2026-11-10 (unit-tested, gate green; NOT device-tested, the lab was down).** Static spec `%TEMP%\opencode\cherry\gacha-pages-20261110\gacha-pages-spec.md` (parsers, key types, link values; its section 9 lists what is still unknown). User decisions 2026-11-10: one Cherry-made category and one search keyword (`data/gacha.json` `category` {id 1}, `keyword` {id 2 — the client's `gachaNew` link asks keyword 2}; both required by `checkGacha`, so an operator override of `gacha.json` needs them); a Cherry-made card picture; "Most Liked" = the gacha's RARE items (Cherry-picked, not like counts).
+- Served now: `home/sublist/gacha/…` → array with the one category row; `catg/all/<category id>` and `keyword/<keyword id>` → the single gacha row (other ids empty, `catg/all/-1` still `[]`); `gachaList2/keyword` → the one keyword row (`keywordGrp` "Etc"); `likes/popular/item` → one group with up to 10 RARE rows of the requester's pool; detail: `newUpgradeItems`, `similarGachas`, `previewImageUrl`, `previewGardenImageUrl` moved from the reply root into `items[0]`, where `sDataGachaShopCollectionList::SetData` 0x260cd6c reads them; home-menu rows `gachaDetail` / `gachaCatg` / `gachaCatgNotap` now carry `link` (gacha id / category id).
+- Card: `gachaMainBannerImageUrl` and the category tile's `repGachaList[].imgUrl` = relative `cherry/gacha/<code>-<crc>.png` (the client prefixes its static base, which reaches Cherry), drawn in `economy/gachaart.go` from the first RARE item's dp.png on a plain panel, cached `dp-cache\gc1_*`; "" without the asset store. **Calibration point:** `gachaCardSize` 320×320 is a guess (the spec found no cell size).
+- **Device-verified 2026-11-10 ~22:30 on AVD Cherry (1001; tester run, main agent viewed the key screenshots; shots `…\gacha-pages-20261110\device\`):** no crash. Shop main: the card picture draws uncropped in its square cell (320×320 is right); Category section shows the "Cherry Gacha" tile with the card in a circle; "Most Liked items | Cherry Gacha" draws 6 item thumbnails (no "loading…"), a tap opens COLLECTION; CATEGORY tab lists one row ("Best! Cherry Gacha"); SEARCH shows the chip "#New" beside the client's own #NEW/#SALE/#ENDING SOON, tap → one row; detail unchanged; MENU rows Gacha Category / Detail / Search / New / Top / Main and More Gacha all open their page. `/cherry/gacha/<code>-<crc>.png` 200, `home/sublist/gacha` 200 twice (isMain true/false). **Client layout, not gaps:** the Category section always draws six tile slots (five stay grey placeholders with one category) and "Popular Gachas" five row slots (four blank with one gacha). Not run: an animal account, MENU "Gacha Category No Tap". The card shows the first RARE item (white earrings on the dark panel for 1001's pool): plain but correct.
+
+**Order of work:** task 1 (e) first (fully specified, server-side), then (a)–(d) with the user's answers item by item; then 2(a); then task 3.
