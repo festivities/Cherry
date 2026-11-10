@@ -456,6 +456,7 @@ func NewMux() http.Handler {
 	mux.HandleFunc("/v4/room/random", lpn.HandleRoomRandom)
 	mux.HandleFunc("/v4/room/random/hostaid", lpn.HandleRandomGardenHost)
 	mux.HandleFunc("/v4/room/", lpn.HandleRoom)
+	mux.HandleFunc("/v4/chat/roomlist/sync/", lpn.HandleAvatarChatRoomList)
 	mux.HandleFunc("/v4/cherrytip/list/", economy.HandleCherryTipList)
 	mux.HandleFunc("/v4/diary/profile/image/", handleDiaryProfileImage)
 	mux.HandleFunc("/v4/diary/profile/", handleDiaryProfile)

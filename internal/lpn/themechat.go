@@ -178,12 +178,16 @@ func parseThemeChat(body []byte) (int64, json.RawMessage, error) {
 
 // handleThemeChat answers one request on conn with the request's txn. A malformed request is logged and dropped: no
 // reply, and the link stays open for everyone. It returns false only when the reply cannot be written, and the caller
-// then closes the link, as it does for the configure reply.
+// then closes the link, as it does for the configure reply. Op 0x0A also carries the 1:1 chat; the payload picks it
+// (avatarChatOwns).
 func handleThemeChat(conn *lockedConn, remote string, txn uint64, body []byte, logger *log.Logger) bool {
 	cmd, payload, err := parseThemeChat(body)
 	if err != nil {
 		logger.Printf("SESSION themechat remote=%s dropped len=%d: %v", remote, len(body), err)
 		return true
+	}
+	if avatarChatOwns(cmd, payload) {
+		return handleAvatarChat(conn, remote, txn, cmd, payload, logger)
 	}
 	aid, bound := sessionAidOf(conn)
 	rep, err := themeChatCall(cmd, payload, aid, bound)
@@ -191,14 +195,12 @@ func handleThemeChat(conn *lockedConn, remote string, txn uint64, body []byte, l
 		logger.Printf("SESSION themechat remote=%s cmd=%d dropped: %v", remote, cmd, err)
 		return true
 	}
-	reply, err := json.Marshal(map[string]any{"resultCode": rep.code, "resultMsg": "", "payload": rep.result})
+	frame, err := chatReplyFrame(txn, rep)
 	if err != nil {
 		logger.Printf("SESSION themechat remote=%s cmd=%d reply err=%v", remote, cmd, err)
 		return true
 	}
-	frame := binary.BigEndian.AppendUint16(nil, themeChatStatusOK)
-	frame = append(frame, reply...)
-	if _, err := conn.Write(buildLOFrame(loOpThemeChatReply, txn, frame)); err != nil {
+	if _, err := conn.Write(frame); err != nil {
 		logger.Printf("SESSION themechat remote=%s cmd=%d reply err=%v", remote, cmd, err)
 		return false
 	}
@@ -207,6 +209,18 @@ func handleThemeChat(conn *lockedConn, remote string, txn uint64, body []byte, l
 	}
 	sendLoungePushes(rep.pushes, logger)
 	return true
+}
+
+// chatReplyFrame is the 0x1A frame that answers the request with txn: BE16(200) || JSON {resultCode, resultMsg, payload}.
+// Lounge Chat and the 1:1 chat both send it.
+func chatReplyFrame(txn uint64, rep tcReply) ([]byte, error) {
+	reply, err := json.Marshal(map[string]any{"resultCode": rep.code, "resultMsg": "", "payload": rep.result})
+	if err != nil {
+		return nil, err
+	}
+	frame := binary.BigEndian.AppendUint16(nil, themeChatStatusOK)
+	frame = append(frame, reply...)
+	return buildLOFrame(loOpThemeChatReply, txn, frame), nil
 }
 
 // themeChatCall runs one command for the account aid (bound: whether the session has one). An error means the payload
