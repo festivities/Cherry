@@ -5,12 +5,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"cherry/internal/store"
+	"cherry/internal/testutil"
 )
 
 func TestGuestbookPersistencePaginationAndSecretVisibility(t *testing.T) {
@@ -19,15 +18,12 @@ func TestGuestbookPersistencePaginationAndSecretVisibility(t *testing.T) {
 	})
 	store.ResetSocial()
 	t.Cleanup(store.ResetSocial)
-	dir := t.TempDir()
-	storePath := filepath.Join(dir, "social.json")
-	legacy := `{"version":1,"friendRemoved":true,"friendBookmarked":true,"nextDiaryNo":7,"posts":[{"diaryNo":"7","avatarId":"1","nickname":"Cherry","images":[]}]}`
-	if err := os.WriteFile(storePath, []byte(legacy), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.LoadSocialFrom(storePath); err != nil {
-		t.Fatal(err)
-	}
+	store.SocialMu.Lock()
+	store.FriendRemoved, store.FriendBookmarked = true, true
+	store.NextDiaryNo = 7
+	store.DiaryPosts = []store.DiaryPost{{DiaryNo: "7", AvatarID: "1", Nickname: "Cherry", Images: []store.DiaryImage{}}}
+	store.SocialMu.Unlock()
+	testutil.UseDatabase(t)
 
 	write := func(content string, secret bool) *httptest.ResponseRecorder {
 		t.Helper()
@@ -87,7 +83,7 @@ func TestGuestbookPersistencePaginationAndSecretVisibility(t *testing.T) {
 		t.Fatalf("guestbook count = %d %s", count.Code, count.Body.String())
 	}
 
-	if err := store.LoadSocialFrom(storePath); err != nil {
+	if err := store.ReloadSocial(); err != nil {
 		t.Fatal(err)
 	}
 	store.SocialMu.Lock()
@@ -95,10 +91,6 @@ func TestGuestbookPersistencePaginationAndSecretVisibility(t *testing.T) {
 	store.SocialMu.Unlock()
 	if !removed || !bookmarked || posts != 1 || seq != 3 || entries != 3 {
 		t.Fatalf("reloaded social state removed=%t bookmarked=%t posts=%d seq=%d guestbook=%d", removed, bookmarked, posts, seq, entries)
-	}
-	data, err := os.ReadFile(storePath)
-	if err != nil || !bytes.Contains(data, []byte(`"nextGuestHistNo":3`)) || !bytes.Contains(data, []byte(`"guestbook":[`)) || !bytes.Contains(data, []byte(`"nextDiaryNo":7`)) {
-		t.Fatalf("saved social store = %s (%v)", data, err)
 	}
 
 	erased := socialTestRequest(t, http.MethodPost, "/v4/guestbook/erase/100000/3", "null")
@@ -120,10 +112,7 @@ func TestGuestbookCountClearBadge(t *testing.T) {
 	})
 	store.ResetSocial()
 	t.Cleanup(store.ResetSocial)
-	storePath := filepath.Join(t.TempDir(), "social.json")
-	if err := store.LoadSocialFrom(storePath); err != nil {
-		t.Fatal(err)
-	}
+	testutil.UseDatabase(t)
 	write := func(content string) {
 		t.Helper()
 		body := `{"hostAvtNo":"1","guestAvtNo":"3","content":"` + content + `","secret":false}`
@@ -169,7 +158,7 @@ func TestGuestbookCountClearBadge(t *testing.T) {
 	if rec := socialTestRequestAs(t, "host-token", http.MethodPost, "/v4/guestbook/erase/1/3", "null"); rec.Code != http.StatusOK {
 		t.Fatalf("erase = %d %s", rec.Code, rec.Body.String())
 	}
-	if err := store.LoadSocialFrom(storePath); err != nil {
+	if err := store.ReloadSocial(); err != nil {
 		t.Fatal(err)
 	}
 	count(`"count":0`)
@@ -177,13 +166,7 @@ func TestGuestbookCountClearBadge(t *testing.T) {
 	count(`"count":1`)
 
 	// A failed save answers 500 and leaves the marker where it was (entry 3 read, "fourth" unread).
-	blocked := filepath.Join(t.TempDir(), "social-directory")
-	if err := os.Mkdir(blocked, 0700); err != nil {
-		t.Fatal(err)
-	}
-	store.SocialMu.Lock()
-	store.SocialStorePath = blocked
-	store.SocialMu.Unlock()
+	testutil.FailSaves(t)
 	if rec := socialTestRequestAs(t, "host-token", http.MethodGet, "/v4/guestbookcount/clear/1", ""); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("clear with a failing store = %d %s", rec.Code, rec.Body.String())
 	}
@@ -216,13 +199,7 @@ func TestGuestbookRejectsUntrustedActorsAndRollsBackSaveFailure(t *testing.T) {
 		t.Fatalf("unknown host = %d %s", response.Code, response.Body.String())
 	}
 
-	blockedPath := filepath.Join(t.TempDir(), "social-directory")
-	if err := os.Mkdir(blockedPath, 0700); err != nil {
-		t.Fatal(err)
-	}
-	store.SocialMu.Lock()
-	store.SocialStorePath = blockedPath
-	store.SocialMu.Unlock()
+	testutil.FailSaves(t)
 	failed := socialTestRequest(t, http.MethodPost, "/v4/guestbook/write", body)
 	if failed.Code != http.StatusInternalServerError {
 		t.Fatalf("write with failing store = %d %s", failed.Code, failed.Body.String())

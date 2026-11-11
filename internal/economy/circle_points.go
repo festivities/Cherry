@@ -120,7 +120,7 @@ func CirclePointEarn(aid, kind string, now time.Time) int64 {
 	if !changed {
 		return 0
 	}
-	if err := store.SaveCirclesLocked(next); err != nil {
+	if err := store.SaveCirclesLocked(store.CircleState, next); err != nil {
 		log.Printf("cherry: circle points save failed aid=%s kind=%s err=%v", aid, kind, err)
 		return 0
 	}

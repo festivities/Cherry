@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"cherry/internal/store"
+	"cherry/internal/testutil"
 )
 
 const (
@@ -407,16 +408,15 @@ func TestGuestbookRepliesWriteListErase(t *testing.T) {
 
 func TestSocialStoreLoadsOldFormatAndKeepsNewRows(t *testing.T) {
 	diarySocialAccounts(t)
-	path := filepath.Join(t.TempDir(), "social.json")
-	legacy := `{"version":1,"friendRemoved":false,"friendBookmarked":false,"nextDiaryNo":1,` +
-		`"posts":[{"diaryNo":"1","avatarId":"1","nickname":"Cherry","openState":"public","images":[]}],` +
-		`"nextGuestHistNo":1,"guestbook":[{"hostAvtNo":"1","guestHistNo":"1","guestAvtNo":"3","content":"old","reply":[]}]}`
-	if err := os.WriteFile(path, []byte(legacy), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.LoadSocialFrom(path); err != nil {
-		t.Fatal(err)
-	}
+	store.SocialMu.Lock()
+	store.NextDiaryNo = 1
+	store.DiaryPosts = []store.DiaryPost{{DiaryNo: "1", AvatarID: "1", Nickname: "Cherry", OpenState: "public", Images: []store.DiaryImage{}}}
+	store.NextGuestHistNo = 1
+	store.GuestbookEntries = []store.SavedGuestbookEntry{{HostAvtNo: "1", GuestHistNo: "1", GuestAvtNo: "3", Content: "old", Reply: []store.GuestbookReply{}}}
+	store.DiaryComments, store.DiaryLikes = []store.DiaryComment{}, []store.DiaryLike{}
+	store.GuestbookRead = map[string]uint64{}
+	store.SocialMu.Unlock()
+	testutil.UseDatabase(t)
 	store.SocialMu.Lock()
 	loaded := len(store.DiaryComments) == 0 && len(store.DiaryLikes) == 0 && store.GuestbookEntries[0].Reply != nil && len(store.GuestbookEntries[0].Reply) == 0
 	store.SocialMu.Unlock()
@@ -433,18 +433,9 @@ func TestSocialStoreLoadsOldFormatAndKeepsNewRows(t *testing.T) {
 	if rec := diaryCall(t, "social-test-token", dsPost, "/v4/guestbookreply/write", `{"hostAvtNo":"1","replyAvtNo":"1","parentHistNo":"1","content":"ok"}`); rec.Code != http.StatusOK {
 		t.Fatalf("reply = %d %s", rec.Code, rec.Body.String())
 	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, want := range []string{`"comments":[{`, `"likes":[{`, `"nextCommentNo":1`, `"nextLikeNo":1`, `"nextReplyHistNo":1`, `"reply":[{"replyHistNo":"1"`} {
-		if !bytes.Contains(raw, []byte(want)) {
-			t.Fatalf("saved social.json lacks %s: %s", want, raw)
-		}
-	}
 
 	// A reload keeps the rows and the counters.
-	if err := store.LoadSocialFrom(path); err != nil {
+	if err := store.ReloadSocial(); err != nil {
 		t.Fatal(err)
 	}
 	if got := lookCounts(t, "friend-token", "1"); got.CommentCount != 1 || got.LikeCount != 1 || got.MyLikeType != 4 {
@@ -483,13 +474,7 @@ func TestDiaryPostEraseDropsItsCommentsAndLikes(t *testing.T) {
 func TestDiaryCommentAndLikeWritesRollBackOnSaveFailure(t *testing.T) {
 	diarySocialAccounts(t)
 	no := diaryPost(t, "social-test-token", "1", "public")
-	blocked := filepath.Join(t.TempDir(), "social-directory")
-	if err := os.Mkdir(blocked, 0700); err != nil {
-		t.Fatal(err)
-	}
-	store.SocialMu.Lock()
-	store.SocialStorePath = blocked
-	store.SocialMu.Unlock()
+	testutil.FailSaves(t)
 	if rec := diaryCall(t, "friend-token", dsPost, "/v4/diary2/comment/write/1", fmt.Sprintf(`{"diaryNo":%s,"avatarID":"3","content":"c"}`, no)); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("comment with failing store = %d %s", rec.Code, rec.Body.String())
 	}
@@ -553,22 +538,38 @@ func TestDiarySocialArraysAreNeverNull(t *testing.T) {
 
 func TestDeleteAccountDropsCommentsLikesAndReplies(t *testing.T) {
 	f := delSetup(t)
-	store.SocialMu.Lock()
-	store.DiaryComments = []store.DiaryComment{
-		{CommentNo: "1", DiaryNo: "1", OwnerAvatarID: "9501", CommentAvatarID: "9502"}, // on the deleted account's post
-		{CommentNo: "2", DiaryNo: "2", OwnerAvatarID: "9502", CommentAvatarID: "9501"}, // written by the deleted account
-		{CommentNo: "3", DiaryNo: "2", OwnerAvatarID: "9502", CommentAvatarID: "9502"}, // kept
+	// The rows are added one at a time, the way the handlers add them: each save names the one row it adds, at the end of
+	// its list (the safety net checks that the database holds what memory holds after every save).
+	addRows := func(add func(), change store.SocialChange) {
+		t.Helper()
+		store.SocialMu.Lock()
+		defer store.SocialMu.Unlock()
+		add()
+		if err := store.SaveSocialLocked(change); err != nil {
+			t.Fatal(err)
+		}
 	}
-	store.DiaryLikes = []store.DiaryLike{
-		{LikeNo: "1", DiaryNo: "2", OwnerAvatarID: "9502", LikeAvatarID: "9501"}, // dropped
-		{LikeNo: "2", DiaryNo: "2", OwnerAvatarID: "9502", LikeAvatarID: "9502"}, // kept
-	}
-	store.GuestbookEntries[2].Reply = []store.GuestbookReply{
-		{ReplyHistNo: "1", ParentHistNo: "3", ReplyAvtNo: "9501"}, // dropped
-		{ReplyHistNo: "2", ParentHistNo: "3", ReplyAvtNo: "9502"}, // kept
-	}
-	store.SocialMu.Unlock()
-
+	addRows(func() {
+		store.DiaryComments = append(store.DiaryComments, store.DiaryComment{CommentNo: "1", DiaryNo: "1", OwnerAvatarID: "9501", CommentAvatarID: "9502"}) // on the deleted account's post
+	}, store.SocialChange{Comments: []string{"1"}, Scalars: true})
+	addRows(func() {
+		store.DiaryComments = append(store.DiaryComments, store.DiaryComment{CommentNo: "2", DiaryNo: "2", OwnerAvatarID: "9502", CommentAvatarID: "9501"}) // written by the deleted account
+	}, store.SocialChange{Comments: []string{"2"}})
+	addRows(func() {
+		store.DiaryComments = append(store.DiaryComments, store.DiaryComment{CommentNo: "3", DiaryNo: "2", OwnerAvatarID: "9502", CommentAvatarID: "9502"}) // kept
+	}, store.SocialChange{Comments: []string{"3"}})
+	addRows(func() {
+		store.DiaryLikes = append(store.DiaryLikes, store.DiaryLike{LikeNo: "1", DiaryNo: "2", OwnerAvatarID: "9502", LikeAvatarID: "9501"}) // dropped
+	}, store.SocialChange{Likes: []string{"1"}, Scalars: true})
+	addRows(func() {
+		store.DiaryLikes = append(store.DiaryLikes, store.DiaryLike{LikeNo: "2", DiaryNo: "2", OwnerAvatarID: "9502", LikeAvatarID: "9502"}) // kept
+	}, store.SocialChange{Likes: []string{"2"}})
+	addRows(func() {
+		store.GuestbookEntries[2].Reply = append(store.GuestbookEntries[2].Reply, store.GuestbookReply{ReplyHistNo: "1", ParentHistNo: "3", ReplyAvtNo: "9501"}) // dropped
+	}, store.SocialChange{Replies: []string{"1"}, Scalars: true})
+	addRows(func() {
+		store.GuestbookEntries[2].Reply = append(store.GuestbookEntries[2].Reply, store.GuestbookReply{ReplyHistNo: "2", ParentHistNo: "3", ReplyAvtNo: "9502"}) // kept
+	}, store.SocialChange{Replies: []string{"2"}})
 	if rec := f.del(t, "dtok"); rec.Code != http.StatusOK {
 		t.Fatalf("delete = %d %s", rec.Code, rec.Body.String())
 	}

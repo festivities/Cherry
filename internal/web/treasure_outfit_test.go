@@ -18,6 +18,7 @@ func TestTreasureBuffFollowsClosetSave(t *testing.T) {
 	testutil.SetLab(t, "9301", false)
 	store.ResetTreasure()
 	t.Cleanup(store.ResetTreasure)
+	testutil.UseDatabase(t)
 	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.FixedZone("JST", 9*60*60))
 	if _, err := store.UpdateTreasure("9301", func(r *store.TreasureRecord) {
 		*r = store.TreasureRecord{Season: economy.ActiveTreasureData().Season.ID, Tickets: 10, Charged: now.UnixMilli()}

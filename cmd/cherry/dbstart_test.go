@@ -71,3 +71,30 @@ func TestOpenAccountsLoadsDatabaseBesideLegacyFile(t *testing.T) {
 		t.Fatalf("accounts = %d, want the 1 in the database", n)
 	}
 }
+
+// TestOpenAccountsRefusesStoreWithoutRowsBesideItsFile: a database with accounts but no social rows, beside a social.json
+// that holds rows (the lab right after the upgrade), refuses to start with one line that names cherry-import -stores social.
+func TestOpenAccountsRefusesStoreWithoutRowsBesideItsFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := store.OpenStore(filepath.Join(dir, store.DBFileName)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.NewAccount(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CloseStore(); err != nil {
+		t.Fatal(err)
+	}
+	social := `{"version":1,"nextDiaryNo":1,"posts":[{"diaryNo":"1","avatarId":"1","nickname":"Cherry","images":[]}]}`
+	if err := os.WriteFile(filepath.Join(dir, "social.json"), []byte(social), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.CloseStore() })
+	err := openAccounts(dir)
+	if err == nil || !strings.Contains(err.Error(), "-stores social") || strings.Contains(err.Error(), "\n") {
+		t.Fatalf("openAccounts = %v, want a one-line refusal that names -stores social", err)
+	}
+	if err := store.CloseStore(); err != nil {
+		t.Fatalf("the refused database was left open: %v", err)
+	}
+}

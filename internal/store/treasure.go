@@ -1,22 +1,21 @@
 package store
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"os"
-	"path/filepath"
 	"slices"
 	"sync"
-
-	"cherry/internal/config"
+	"testing"
 )
 
 // Treasure World board state (economy/treasure.go): each account's season, token position, tickets and their refill
-// timer, jewels, tutorial flag, Ranking Points, exchange counters, ticket cap raises, quest and mission sets and claims,
-// in %LOCALAPPDATA%\Cherry\treasure.json beside circles.json. Absence means no state. The rules live in economy; this
-// file holds the book and saves it.
+// timer, jewels, tutorial flag, Ranking Points, exchange counters, ticket cap raises, quest and mission sets and claims.
+// The book lives in the cherry.db table treasure_records (one row per aid); treasure.json is read only by cmd/cherry-import.
+// The rules live in economy; this file holds the book and saves one board at a time.
 
 // TreasureRecord is one account's board state. Charged is the Unix millisecond the refill timer started (0: not started).
 // Points are the season's Ranking Points. Exchanged holds the Jewels exchanged today per ring position (key: the position
@@ -100,51 +99,54 @@ type savedTreasure struct {
 var (
 	// TreasureMu guards TreasureAccounts and its saves. No other store lock is taken while it is held.
 	TreasureMu sync.Mutex
-	// TreasureStorePath is treasure.json ("" in tests: nothing is written).
-	TreasureStorePath string
-	// TreasureAccounts maps an account's aid to its board state. Writers replace the whole map (UpdateTreasure).
+	// TreasureAccounts maps an account's aid to its board state. UpdateTreasure changes one entry.
 	TreasureAccounts = map[string]TreasureRecord{}
 )
 
-// LoadTreasure reads %LOCALAPPDATA%\Cherry\treasure.json (none is not an error).
-func LoadTreasure() error {
-	dir, err := config.DataDir()
-	if err != nil {
-		return err
+// loadTreasureFromDB reads the board rows of d into memory (OpenStore, ReloadStores). A nil d empties the book.
+func loadTreasureFromDB(d *DB) error {
+	m := map[string]TreasureRecord{}
+	if d != nil {
+		if err := d.View(func(q Querier) error {
+			var err error
+			m, err = readTreasure(q)
+			return err
+		}); err != nil {
+			return err
+		}
 	}
-	return LoadTreasureFrom(filepath.Join(dir, "treasure.json"))
+	TreasureMu.Lock()
+	defer TreasureMu.Unlock()
+	TreasureAccounts = m
+	return nil
 }
 
-// LoadTreasureFrom loads the board state at path; a missing file is an empty book.
-func LoadTreasureFrom(path string) error {
+// parseTreasureFile reads a treasure.json the way the server used to load it, for cmd/cherry-import and the startup guard.
+// A missing file is an empty book.
+func parseTreasureFile(path string) (map[string]TreasureRecord, error) {
 	data, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+		return nil, err
 	}
 	accounts := map[string]TreasureRecord{}
 	if err == nil {
 		var saved savedTreasure
 		if err := json.Unmarshal(data, &saved); err != nil {
-			return fmt.Errorf("invalid treasure store: %w", err)
+			return nil, fmt.Errorf("invalid treasure store: %w", err)
 		}
 		if saved.Version != 1 {
-			return errors.New("invalid treasure store version")
+			return nil, errors.New("invalid treasure store version")
 		}
 		if saved.Accounts != nil {
 			accounts = saved.Accounts
 		}
 	}
-	TreasureMu.Lock()
-	TreasureStorePath = path
-	TreasureAccounts = accounts
-	TreasureMu.Unlock()
-	return nil
+	return accounts, nil
 }
 
-// ResetTreasure empties the book and forgets its path (tests).
+// ResetTreasure empties the book in memory (tests). It does not touch an attached database.
 func ResetTreasure() {
 	TreasureMu.Lock()
-	TreasureStorePath = ""
 	TreasureAccounts = map[string]TreasureRecord{}
 	TreasureMu.Unlock()
 }
@@ -165,54 +167,45 @@ func TreasureSnapshot() map[string]TreasureRecord {
 	return maps.Clone(TreasureAccounts)
 }
 
-// UpdateTreasure applies fn to aid's board state and saves the book. The change is kept only when the save works, and
-// the record after fn is returned either way.
-// ponytail: the whole book is copied and saved per update; per-account locks and a per-account file if the book grows
-// past a few thousand boards.
+// UpdateTreasure applies fn to aid's board state and saves that one row. The change is kept only when the save works, and
+// the record after fn is returned either way. Only the row of aid is written: the save names the one board it changed.
 func UpdateTreasure(aid string, fn func(*TreasureRecord)) (TreasureRecord, error) {
 	TreasureMu.Lock()
 	defer TreasureMu.Unlock()
-	rec := TreasureAccounts[aid]
+	prev, had := TreasureAccounts[aid]
+	rec := prev
 	fn(&rec)
-	next := make(map[string]TreasureRecord, len(TreasureAccounts)+1)
-	maps.Copy(next, TreasureAccounts)
-	next[aid] = rec
-	if err := saveTreasureLocked(next); err != nil {
+	TreasureAccounts[aid] = rec
+	if err := saveTreasureRowLocked(aid, rec); err != nil {
+		if had {
+			TreasureAccounts[aid] = prev
+		} else {
+			delete(TreasureAccounts, aid)
+		}
 		return rec, err
 	}
-	TreasureAccounts = next
 	return rec, nil
 }
 
-// saveTreasureLocked writes accounts to treasure.json (temp file, then rename). Caller holds TreasureMu. Nothing is
-// written when TreasureStorePath is "".
-func saveTreasureLocked(accounts map[string]TreasureRecord) error {
-	if TreasureStorePath == "" {
+// saveTreasureRowLocked writes the row of aid with rec in one transaction. Without an attached database nothing is written.
+// Caller holds TreasureMu.
+func saveTreasureRowLocked(aid string, rec TreasureRecord) error {
+	d := attachedDB()
+	if d == nil {
 		return nil
 	}
-	data, err := json.Marshal(savedTreasure{Version: 1, Accounts: accounts})
+	site := callerSite()
+	data, err := rowJSON(rec)
 	if err != nil {
 		return err
 	}
-	dir := filepath.Dir(TreasureStorePath)
-	if err := os.MkdirAll(dir, 0700); err != nil {
+	if err := d.Update(func(tx *sql.Tx) error {
+		return upsertRow(tx, "treasure_records", slotBack, []string{"aid", "data"}, []any{aid, data}, "aid = ?", aid)
+	}); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, ".treasure-*.tmp")
-	if err != nil {
-		return err
+	if testing.Testing() {
+		netCheckTreasure(d, site)
 	}
-	defer os.Remove(tmp.Name())
-	if _, err = tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err = tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err = tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), TreasureStorePath)
+	return nil
 }

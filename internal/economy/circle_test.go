@@ -1,10 +1,9 @@
 package economy
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -18,7 +17,7 @@ import (
 )
 
 // circFixture installs accounts (aid -> Gems) under tokens "ctok-<aid>", a temp dir for accounts.json (so ledger.jsonl
-// and circles.json are written there), and an empty circle book. Everything is restored when the test ends.
+// and the ledger is in the database), and an empty circle book. Everything is restored when the test ends.
 func circFixture(t *testing.T, gems map[string]int64) string {
 	t.Helper()
 	entries := map[string]*store.Account{}
@@ -27,13 +26,23 @@ func circFixture(t *testing.T, gems map[string]int64) string {
 	}
 	testutil.InstallAccounts(t, entries)
 	dir := t.TempDir()
-	testutil.UseDatabase(t)
 	store.ResetCircles()
-	store.CirclesMu.Lock()
-	store.CirclesStorePath = filepath.Join(dir, "circles.json")
-	store.CirclesMu.Unlock()
+	testutil.UseDatabase(t)
 	t.Cleanup(store.ResetCircles)
 	return dir
+}
+
+// circleNamed reports whether the circle book in memory holds a circle called name.
+func circleNamed(t *testing.T, name string) bool {
+	t.Helper()
+	store.CirclesMu.Lock()
+	defer store.CirclesMu.Unlock()
+	for _, c := range store.CircleState.Circles {
+		if c.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 // circValidCreate is a request that passes every check, with circle name and join type set by the caller.
@@ -171,8 +180,12 @@ func TestCreateCircleChargesGemsOnce(t *testing.T) {
 	if len(lines) != 1 || !strings.Contains(lines[0], `"delta":-5000`) || !strings.Contains(lines[0], `"reason":"circle:create:1940000001"`) {
 		t.Fatalf("ledger = %q", lines)
 	}
-	if b, err := os.ReadFile(filepath.Join(dir, "circles.json")); err != nil || !strings.Contains(string(b), "Sushi Club") {
-		t.Fatalf("circles.json: %v %s", err, b)
+	// The book is in the database: a restart reads the circle back.
+	if err := store.ReloadStores(); err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if !circleNamed(t, "Sushi Club") {
+		t.Fatal("the created circle is not in the database after a reload")
 	}
 	if _, err := CreateCircle("ctok-1101", circValidCreate("Second"), circNow); !isRefusal(err, 190202) {
 		t.Fatalf("second circle: err = %v, want 190202", err)
@@ -524,5 +537,32 @@ func TestInviteStatusRows(t *testing.T) {
 		if row.InviteStatus != want[i] {
 			t.Fatalf("row %d = %+v, want %s", i, row, want[i])
 		}
+	}
+}
+
+// TestCreateCircleSaveRefusedKeepsBookAndGems: a circle the database refuses is not kept: the book in memory stays as it
+// was and the price is not charged.
+func TestCreateCircleSaveRefusedKeepsBookAndGems(t *testing.T) {
+	circFixture(t, map[string]int64{"1101": 6000})
+	if err := store.AttachedDB().Update(func(tx *sql.Tx) error {
+		_, err := tx.Exec(`CREATE TRIGGER circle_refused BEFORE INSERT ON circles BEGIN SELECT RAISE(ABORT, 'refused'); END`)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CreateCircle("ctok-1101", circValidCreate("Refused"), circNow); err == nil {
+		t.Fatal("a refused circle was created")
+	}
+	store.CirclesMu.Lock()
+	n := len(store.CircleState.Circles)
+	store.CirclesMu.Unlock()
+	if n != 0 {
+		t.Fatalf("refused circle kept in memory: %d circles", n)
+	}
+	if g := gemsOf(t, "1101"); g != 6000 {
+		t.Fatalf("refused create changed gems to %d", g)
+	}
+	if lines := ledgerLines(t, ""); len(lines) != 0 {
+		t.Fatalf("refused create wrote ledger lines: %q", lines)
 	}
 }

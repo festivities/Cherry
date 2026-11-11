@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -182,14 +180,15 @@ func TestDiarySequenceResumesFromStoredPostsAndRejectsOverflow(t *testing.T) {
 	})
 	store.ResetSocial()
 	t.Cleanup(store.ResetSocial)
-	path := filepath.Join(t.TempDir(), "social.json")
-	legacy := `{"version":1,"nextDiaryNo":1,"posts":[{"diaryNo":"9","avatarId":"1","nickname":"Cherry","title":"legacy photo","content":"keep me","openState":"public","imageTypeKind":"obs","images":[{"imageUrl":"/lineplay/d/download.nhn?oid=42_1710000000&ctime=1710000000&userid=42"}]}]}`
-	if err := os.WriteFile(path, []byte(legacy), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.LoadSocialFrom(path); err != nil {
-		t.Fatal(err)
-	}
+	// The legacy photo post as the old file held it, normalized as the load did; the database holds it from the attach.
+	legacy := store.DiaryPost{DiaryNo: "9", AvatarID: "1", Nickname: "Cherry", Title: "legacy photo", Content: "keep me", OpenState: "public", ImageTypeKind: "obs",
+		Images: []store.DiaryImage{{ImageURL: "/lineplay/d/download.nhn?oid=42_1710000000&ctime=1710000000&userid=42"}}}
+	store.NormalizeDiaryPost(&legacy)
+	store.SocialMu.Lock()
+	store.NextDiaryNo = 9
+	store.DiaryPosts = []store.DiaryPost{legacy}
+	store.SocialMu.Unlock()
+	testutil.UseDatabase(t)
 	store.SocialMu.Lock()
 	legacyPost := store.DiaryPosts[0]
 	store.SocialMu.Unlock()
@@ -281,10 +280,7 @@ func TestSocialFriendAndDiary(t *testing.T) {
 	}
 
 	store.ResetSocial()
-	dir := t.TempDir()
-	store.SocialMu.Lock()
-	store.SocialStorePath = filepath.Join(dir, "social.json")
-	store.SocialMu.Unlock()
+	testutil.UseDatabase(t)
 	raw := append([]byte(`{"avatarId":"1","content":"hello","title":"","openState":"public"}`), 0)
 	var gz bytes.Buffer
 	zw := gzip.NewWriter(&gz)
@@ -307,10 +303,7 @@ func TestSocialFriendAndDiary(t *testing.T) {
 	if err := json.Unmarshal(wrote.Body.Bytes(), &created); err != nil || created.Result.DiaryNo == "" || created.Result.Images == nil {
 		t.Fatalf("write body = %s %v", wrote.Body.String(), err)
 	}
-	store.SocialMu.Lock()
-	path := store.SocialStorePath
-	store.SocialMu.Unlock()
-	if err := store.LoadSocialFrom(path); err != nil {
+	if err := store.ReloadSocial(); err != nil {
 		t.Fatal(err)
 	}
 	unfold := serve(t, http.MethodGet, "/v4/diary2/ext/unfold/1/?lastSeq=-1&size=10")
@@ -362,10 +355,7 @@ func TestFriendSearchPaginationAndDiaryPhotoMetadata(t *testing.T) {
 		t.Fatalf("search exposed account tokens: %s", first.Body.String())
 	}
 
-	dir := t.TempDir()
-	store.SocialMu.Lock()
-	store.SocialStorePath = filepath.Join(dir, "social.json")
-	store.SocialMu.Unlock()
+	testutil.UseDatabase(t)
 	imageURL := "/lineplay/d/download.nhn?oid=42_1710000000&ctime=1710000000&userid=42"
 	if !store.ValidDiaryImage(store.DiaryImage{ImageURL: "lineplay/d/download.nhn?userid=42&ctime=1710000000&oid=42_1710000000&tid=306x0.r"}) {
 		t.Fatal("valid media tuple with optional tid rejected")
@@ -395,7 +385,7 @@ func TestFriendSearchPaginationAndDiaryPhotoMetadata(t *testing.T) {
 	if err := json.Unmarshal(wrote.Body.Bytes(), &imageShape); err != nil || imageShape.Result.ImageTypeKind != "photo" || imageShape.Result.ImageLocationType != "obs" || len(imageShape.Result.Images) != 1 || imageShape.Result.Images[0]["imageTypeKind"] != nil {
 		t.Fatalf("photo metadata placement = %s (%v)", wrote.Body.String(), err)
 	}
-	if err := store.LoadSocialFrom(filepath.Join(dir, "social.json")); err != nil {
+	if err := store.ReloadSocial(); err != nil {
 		t.Fatal(err)
 	}
 	unfold := serve(t, http.MethodGet, "/v4/diary2/ext/unfold/1/?lastSeq=-1&size=10")
@@ -484,10 +474,7 @@ func TestRealFriendships(t *testing.T) {
 	})
 	store.ResetSocial()
 	t.Cleanup(store.ResetSocial)
-	path := filepath.Join(t.TempDir(), "social.json")
-	if err := store.LoadSocialFrom(path); err != nil {
-		t.Fatal(err)
-	}
+	testutil.UseDatabase(t)
 	do := func(token, method, target, body string) int {
 		return socialTestRequestAs(t, token, method, target, body).Code
 	}
@@ -563,7 +550,7 @@ func TestRealFriendships(t *testing.T) {
 
 	// Persistence round trip.
 	store.ResetSocial()
-	if err := store.LoadSocialFrom(path); err != nil {
+	if err := store.ReloadSocial(); err != nil {
 		t.Fatal(err)
 	}
 	if rows, _ := syncRowsAs(t, "t2"); rows["1"].Status != 1 {

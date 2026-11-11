@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -15,9 +14,24 @@ import (
 	"strings"
 )
 
-// The importer behind cmd/cherry-import: it loads a data directory's JSON stores with the server's own loaders, writes
-// them to a database (one transaction per store), reads the database back and compares. It never writes the data
-// directory. The loaders set the process-wide stores, so resetStores puts them back when the import ends.
+// The importer behind cmd/cherry-import: it parses a data directory's JSON stores with the parsers the server used to load
+// them with, writes them to a database (one transaction per store), reads the database back and compares. It never writes
+// the data directory and never touches the process-wide stores.
+
+// StoreNames are the stores that still live in JSON files and can be re-imported into a live database (cherry-import
+// -stores). The accounts, tokens and ledger are not among them: they are written by the server.
+var StoreNames = []string{"social", "circles", "treasure", "chat"}
+
+// storeFiles are the JSON file of each store in StoreNames.
+var storeFiles = map[string]string{"social": "social.json", "circles": "circles.json", "treasure": "treasure.json", "chat": "chatrooms.json"}
+
+// storeTables are the tables each store's rows live in (CheckImported asks whether they are empty).
+var storeTables = map[string][]string{
+	"social":   {"diary_posts", "diary_comments", "diary_likes", "guestbook_entries", "friendships", "guestbook_read"},
+	"circles":  {"circles"},
+	"treasure": {"treasure_records"},
+	"chat":     {"chat_rooms"},
+}
 
 // ImportReport counts what ImportDir loaded and wrote.
 type ImportReport struct {
@@ -42,7 +56,6 @@ type loadedDir struct {
 // ImportDir writes the stores of dir to d and verifies the result: the database is read back and compared with what the
 // loaders produced. The error names the first difference by store and by JSON key or index, never by content.
 func ImportDir(d *DB, dir string) (ImportReport, error) {
-	defer resetStores()
 	in, err := loadDataDir(dir)
 	if err != nil {
 		return ImportReport{}, err
@@ -96,7 +109,7 @@ func PrepareDBPath(path string, force bool) error {
 	return nil
 }
 
-// loadDataDir runs the server's loaders on the files of dir (a missing file is an empty store) and copies the result out.
+// loadDataDir parses the files of dir (a missing file is an empty store) and returns what the server would hold.
 func loadDataDir(dir string) (loadedDir, error) {
 	var in loadedDir
 	f, err := readAccountFile(filepath.Join(dir, "accounts.json"))
@@ -104,26 +117,212 @@ func loadDataDir(dir string) (loadedDir, error) {
 		return in, loadError("accounts.json", err)
 	}
 	in.accounts, in.latest, in.nextAvatarID = f.byToken, f.latest, f.nextID
-	if err := LoadSocialFrom(filepath.Join(dir, "social.json")); err != nil {
-		return in, loadError("social.json", err)
+	if err := in.loadStores(dir, StoreNames); err != nil {
+		return in, err
 	}
-	in.social = socialSnapshot()
-	if err := LoadCirclesFrom(filepath.Join(dir, "circles.json")); err != nil {
-		return in, loadError("circles.json", err)
-	}
-	in.circles = circlesSnapshot()
-	if err := LoadTreasureFrom(filepath.Join(dir, "treasure.json")); err != nil {
-		return in, loadError("treasure.json", err)
-	}
-	in.treasure = treasureSnapshot()
-	chat, err := LoadChatRoomsFrom(filepath.Join(dir, "chatrooms.json"))
-	if err != nil {
-		return in, loadError("chatrooms.json", err)
-	}
-	chat.Rooms = nonNilList(chat.Rooms)
-	in.chat = chat
 	in.ledger, err = readLedgerFile(filepath.Join(dir, "ledger.jsonl"))
 	return in, err
+}
+
+// loadStores parses the JSON files of the named stores of dir into in.
+func (in *loadedDir) loadStores(dir string, names []string) error {
+	var err error
+	for _, name := range names {
+		file := storeFiles[name]
+		switch name {
+		case "social":
+			in.social, err = parseSocialFile(filepath.Join(dir, file))
+		case "circles":
+			in.circles, err = parseCirclesFile(filepath.Join(dir, file))
+			in.circles.Circles = nonNilList(in.circles.Circles)
+		case "treasure":
+			in.treasure, err = parseTreasureFile(filepath.Join(dir, file))
+		case "chat":
+			in.chat, err = parseChatFile(filepath.Join(dir, file))
+			in.chat.Rooms = nonNilList(in.chat.Rooms)
+		}
+		if err != nil {
+			return loadError(file, err)
+		}
+	}
+	return nil
+}
+
+// CountAccounts is the number of account rows of d (cmd/cherry-import refuses a full import over a database that has any).
+func CountAccounts(d *DB) (int, error) {
+	var n int
+	err := d.View(func(q Querier) error {
+		return q.QueryRow(`SELECT COUNT(*) FROM accounts`).Scan(&n)
+	})
+	return n, err
+}
+
+// ImportStores replaces the rows of the named stores (StoreNames) of the existing database d with the JSON files in dir, one
+// transaction per store, then reads those stores back and compares them with what was parsed. The database must hold
+// accounts (it is a live server database); the accounts, tokens, ledger and the account meta keys are not touched.
+func ImportStores(d *DB, dir string, names []string) (ImportReport, error) {
+	var rep ImportReport
+	want := map[string]bool{}
+	for _, n := range names {
+		if _, ok := storeFiles[n]; !ok {
+			return rep, fmt.Errorf("unknown store %q", n)
+		}
+		want[n] = true
+	}
+	accounts, err := CountAccounts(d)
+	if err != nil {
+		return rep, err
+	}
+	if accounts == 0 {
+		return rep, errors.New("the database holds no accounts; a database with no accounts is imported without -stores")
+	}
+	var in loadedDir
+	var selected []string
+	for _, n := range StoreNames {
+		if want[n] {
+			selected = append(selected, n)
+		}
+	}
+	if err := in.loadStores(dir, selected); err != nil {
+		return rep, err
+	}
+	full := in.report()
+	for _, n := range selected {
+		write := storeWriter(in, n)
+		if err := d.Update(write); err != nil {
+			return rep, fmt.Errorf("writing %s: %w", n, err)
+		}
+		rep.set(n, full)
+	}
+	if err := verifyStores(d, in, want); err != nil {
+		return rep, err
+	}
+	return rep, nil
+}
+
+// storeWriter is the replace writer of one store of a parsed directory.
+func storeWriter(in loadedDir, name string) func(tx *sql.Tx) error {
+	switch name {
+	case "social":
+		return func(tx *sql.Tx) error { return writeSocialTx(tx, in.social) }
+	case "circles":
+		return func(tx *sql.Tx) error { return writeCirclesTx(tx, in.circles) }
+	case "treasure":
+		return func(tx *sql.Tx) error { return writeTreasureTx(tx, in.treasure) }
+	}
+	return func(tx *sql.Tx) error { return writeChatRoomsTx(tx, in.chat) }
+}
+
+// set copies the counts of one store from the full report into r.
+func (r *ImportReport) set(name string, full ImportReport) {
+	switch name {
+	case "social":
+		r.DiaryPosts, r.DiaryComments, r.DiaryLikes = full.DiaryPosts, full.DiaryComments, full.DiaryLikes
+		r.GuestbookEntries, r.GuestbookReplies, r.GuestbookRead, r.Friendships = full.GuestbookEntries, full.GuestbookReplies, full.GuestbookRead, full.Friendships
+	case "circles":
+		r.Circles, r.CircleLeaves = full.Circles, full.CircleLeaves
+	case "treasure":
+		r.TreasureRecords = full.TreasureRecords
+	case "chat":
+		r.ChatRooms, r.ChatMessages = full.ChatRooms, full.ChatMessages
+	}
+}
+
+// verifyStores reads the wanted stores back in one snapshot and compares them with the parsed input.
+func verifyStores(d *DB, in loadedDir, want map[string]bool) error {
+	return d.View(func(q Querier) error {
+		if want["social"] {
+			social, err := readSocial(q)
+			if err != nil {
+				return err
+			}
+			if err := checkJSON("social", in.social, social); err != nil {
+				return err
+			}
+		}
+		if want["circles"] {
+			circles, err := readCircles(q)
+			if err != nil {
+				return err
+			}
+			if err := checkJSON("circles", in.circles, circles); err != nil {
+				return err
+			}
+		}
+		if want["treasure"] {
+			treasure, err := readTreasure(q)
+			if err != nil {
+				return err
+			}
+			if err := checkJSON("treasure", in.treasure, treasure); err != nil {
+				return err
+			}
+		}
+		if want["chat"] {
+			chat, err := readChatRooms(q)
+			if err != nil {
+				return err
+			}
+			return checkJSON("chat rooms", in.chat, chat)
+		}
+		return nil
+	})
+}
+
+// CheckImported is the startup guard of the stores that still have JSON files: when the attached database holds no rows of
+// a store but that store's file in dir holds rows, the server refuses to start rather than run with the store empty. The
+// error names the cherry-import command that loads it. A directory without those files starts empty. Call it after OpenStore.
+func CheckImported(dir string) error {
+	d := attachedDB()
+	if d == nil {
+		return nil
+	}
+	var names []string
+	for _, name := range StoreNames {
+		empty := true
+		if err := d.View(func(q Querier) error {
+			for _, table := range storeTables[name] {
+				var n int
+				if err := q.QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&n); err != nil {
+					return err
+				}
+				if n > 0 {
+					empty = false
+				}
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+		if !empty {
+			continue
+		}
+		var in loadedDir
+		if err := in.loadStores(dir, []string{name}); err != nil {
+			return err
+		}
+		if in.storeRows(name) > 0 {
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	return fmt.Errorf("the database has no rows for %s but %s holds them: run cherry-import -data-dir %s -stores %s",
+		strings.Join(names, ", "), dir, dir, strings.Join(names, ","))
+}
+
+// storeRows is how many rows a parsed store holds.
+func (in loadedDir) storeRows(name string) int {
+	switch name {
+	case "social":
+		return in.social.rows()
+	case "circles":
+		return len(in.circles.Circles) + len(in.circles.Leaves)
+	case "treasure":
+		return len(in.treasure)
+	}
+	return len(in.chat.Rooms)
 }
 
 // loadError names the file that failed to load. JSON syntax and type errors quote the offending byte, so they give only
@@ -140,60 +339,11 @@ func loadError(file string, err error) error {
 	return fmt.Errorf("%s: %w", file, err)
 }
 
-// resetStores puts back the process-wide stores that the loaders set.
-func resetStores() {
-	AccountsMu.Lock()
-	accountsByHash, accountList, accountRows, pendingTokens = map[string]*Account{}, nil, map[*Account]*rowState{}, nil
-	LatestAcc, NextAvatarID, database, savedLatest, savedNext = nil, 0, nil, nil, 0
-	AccountsMu.Unlock()
-	ResetSocial()
-	ResetCircles()
-	ResetTreasure()
-	ResetChatRooms()
-}
-
-// socialSnapshot is social.json's content as SaveSocialLocked would write it.
-func socialSnapshot() savedSocial {
-	SocialMu.Lock()
-	defer SocialMu.Unlock()
-	return savedSocial{
-		Version: 1, FriendRemoved: FriendRemoved, FriendBookmarked: FriendBookmarked,
-		NextDiaryNo: NextDiaryNo, Posts: nonNilList(DiaryPosts), NextGuestHistNo: NextGuestHistNo,
-		Guestbook: nonNilList(GuestbookEntries), Friendships: Friendships,
-		Comments: nonNilList(DiaryComments), NextCommentNo: NextCommentNo,
-		Likes: nonNilList(DiaryLikes), NextLikeNo: NextLikeNo, NextReplyHistNo: NextReplyHistNo,
-		GuestbookRead: nonNilMap(GuestbookRead),
-	}
-}
-
-func circlesSnapshot() CircleBook {
-	CirclesMu.Lock()
-	defer CirclesMu.Unlock()
-	b := CircleState
-	b.Circles = nonNilList(b.Circles)
-	return b
-}
-
-func treasureSnapshot() map[string]TreasureRecord {
-	TreasureMu.Lock()
-	defer TreasureMu.Unlock()
-	m := make(map[string]TreasureRecord, len(TreasureAccounts))
-	maps.Copy(m, TreasureAccounts)
-	return m
-}
-
 func nonNilList[T any](s []T) []T {
 	if s == nil {
 		return []T{}
 	}
 	return s
-}
-
-func nonNilMap[K comparable, V any](m map[K]V) map[K]V {
-	if m == nil {
-		return map[K]V{}
-	}
-	return m
 }
 
 // readLedgerFile parses ledger.jsonl: one ledger line per non-empty line. A missing file has no lines.

@@ -7,13 +7,10 @@ import (
 	"testing"
 )
 
-// TestTreasureStoreRoundTrip: a saved board state, its exchange counters, sets and claims come back from disk, and a store
-// of another version is refused without changing the book in use.
+// TestTreasureStoreRoundTrip: a saved board state, its exchange counters, sets and claims come back from the database after
+// a restart.
 func TestTreasureStoreRoundTrip(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "treasure.json")
-	if err := LoadTreasureFrom(path); err != nil {
-		t.Fatal(err)
-	}
+	path := swapStore(t)
 	t.Cleanup(ResetTreasure)
 	want, err := UpdateTreasure("1001", func(r *TreasureRecord) {
 		r.Season, r.Position, r.Tickets, r.Charged, r.Jewels, r.Tutorial = 9, 4, 7, 1234, 3, true
@@ -26,20 +23,29 @@ func TestTreasureStoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := LoadTreasureFrom(path); err != nil {
+	if err := CloseStore(); err != nil {
 		t.Fatal(err)
 	}
+	if err := OpenStore(path); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { CloseStore() })
 	if got, ok := TreasureRecordOf("1001"); !ok || !reflect.DeepEqual(got, want) {
 		t.Fatalf("reloaded = %+v (%v), want %+v", got, ok, want)
+	}
+}
+
+// TestTreasureFileParser: the importer's reader of treasure.json: a store of another version is refused.
+func TestTreasureFileParser(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "treasure.json")
+	if accounts, err := parseTreasureFile(path); err != nil || len(accounts) != 0 {
+		t.Fatalf("absent file: accounts %+v err %v", accounts, err)
 	}
 	if err := os.WriteFile(path, []byte(`{"version":2,"accounts":{}}`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := LoadTreasureFrom(path); err == nil {
+	if _, err := parseTreasureFile(path); err == nil {
 		t.Fatal("store version 2 accepted")
-	}
-	if got, _ := TreasureRecordOf("1001"); !reflect.DeepEqual(got, want) {
-		t.Fatalf("book changed by a refused load: %+v", got)
 	}
 }
 

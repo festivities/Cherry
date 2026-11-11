@@ -339,6 +339,7 @@ func TestTreasureRankingRules(t *testing.T) {
 	})
 	store.ResetTreasure()
 	t.Cleanup(store.ResetTreasure)
+	testutil.UseDatabase(t)
 	season := treasureSeasonID()
 	for aid, pts := range map[string]int64{"1001": 30, "1002": 50, "1003": 50} {
 		if _, err := store.UpdateTreasure(aid, func(r *store.TreasureRecord) { r.Season, r.Points = season, pts }); err != nil {

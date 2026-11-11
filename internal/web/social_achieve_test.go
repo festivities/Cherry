@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"cherry/internal/store"
+	"cherry/internal/testutil"
 )
 
 func TestAchieveShareToDiary(t *testing.T) {
@@ -18,9 +18,7 @@ func TestAchieveShareToDiary(t *testing.T) {
 	})
 	store.ResetSocial()
 	t.Cleanup(store.ResetSocial)
-	store.SocialMu.Lock()
-	store.SocialStorePath = filepath.Join(t.TempDir(), "social.json")
-	store.SocialMu.Unlock()
+	testutil.UseDatabase(t)
 
 	const share = `{"avatarId":"1","achieveType":"spin","achieveTypeLevel":"R","achieveDataType":"gem","achieveData":"","achieveLinkValue":"3","achieveDataDetail":"Lucky Spin"}`
 	wrote := socialTestRequest(t, http.MethodPost, "/v4/achieve/write", share)
@@ -58,13 +56,13 @@ func TestAchieveShareToDiary(t *testing.T) {
 		t.Fatalf("unknown achieveType = %d %s, want 400", bad.Code, bad.Body.String())
 	}
 	store.SocialMu.Lock()
-	count, path := len(store.DiaryPosts), store.SocialStorePath
+	count := len(store.DiaryPosts)
 	store.SocialMu.Unlock()
 	if count != 1 {
 		t.Fatalf("rejected shares stored posts: %d posts, want 1", count)
 	}
 
-	if err := store.LoadSocialFrom(path); err != nil {
+	if err := store.ReloadSocial(); err != nil {
 		t.Fatal(err)
 	}
 	store.SocialMu.Lock()

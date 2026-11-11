@@ -3,6 +3,7 @@ package web
 import (
 	"log"
 	"net/http"
+	"slices"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -63,25 +64,30 @@ func validNickname(s string) bool {
 
 // renameSocialCopies rewrites the nickname copied into aid's diary posts and guestbook rows at write time, so an
 // edited nickname shows there too. Callers hold AccountsMu (lock order AccountsMu → SocialMu). A failed social save
-// only logs: the account rename already stands and the copies are cosmetic.
+// only logs: the account rename already stands and the copies are cosmetic; memory goes back to what the database holds.
 func renameSocialCopies(aid, name string) {
 	store.SocialMu.Lock()
 	defer store.SocialMu.Unlock()
-	changed := false
+	var change store.SocialChange
+	prevPosts, prevEntries := slices.Clone(store.DiaryPosts), slices.Clone(store.GuestbookEntries)
 	for i := range store.DiaryPosts {
 		if store.DiaryPosts[i].AvatarID == aid && store.DiaryPosts[i].Nickname != name {
-			store.DiaryPosts[i].Nickname, changed = name, true
+			store.DiaryPosts[i].Nickname = name
+			change.Posts = append(change.Posts, store.DiaryPosts[i].DiaryNo)
 		}
 	}
 	for i := range store.GuestbookEntries {
 		if store.GuestbookEntries[i].GuestAvtNo == aid && store.GuestbookEntries[i].GuestNickname != name {
-			store.GuestbookEntries[i].GuestNickname, changed = name, true
+			store.GuestbookEntries[i].GuestNickname = name
+			change.Entries = append(change.Entries, store.GuestbookEntries[i].GuestHistNo)
 		}
 	}
-	if changed {
-		if err := store.SaveSocialLocked(); err != nil {
-			log.Printf("cherry: nickname copies not saved aid=%s: %v", aid, err)
-		}
+	if len(change.Posts)+len(change.Entries) == 0 {
+		return
+	}
+	if err := store.SaveSocialLocked(change); err != nil {
+		store.DiaryPosts, store.GuestbookEntries = prevPosts, prevEntries
+		log.Printf("cherry: nickname copies not saved aid=%s: %v", aid, err)
 	}
 }
 

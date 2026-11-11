@@ -1,21 +1,22 @@
 package store
 
 import (
+	"bytes"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"os"
-	"path/filepath"
 	"slices"
+	"strconv"
 	"sync"
-
-	"cherry/internal/config"
+	"testing"
 )
 
-// Circles (player clubs, economy/circle.go): the circles, their members and their pending applications and invites,
-// in %LOCALAPPDATA%\Cherry\circles.json beside cherry.db. Absence means no circles. The rules live in economy;
-// this file only holds the book and saves it.
+// Circles (player clubs, economy/circle.go): the circles, their members and their pending applications and invites. The
+// book lives in the cherry.db tables circles, circle_leaves and meta (circles.nextId); circles.json is read only by
+// cmd/cherry-import. The rules live in economy; this file only holds the book and saves it.
 
 // CircleMember is one member of a circle. Role is "leader", "vice" or "member": memberLevel MASTER, MANAGER and
 // MEMBER over HTTP, and PlayerType 2, 1 and 0 over LPN (economy.CirclePlayerType, decoded 2026-11-01).
@@ -93,35 +94,43 @@ type savedCircles struct {
 var (
 	// CirclesMu guards CircleState. Lock order: AccountsMu before CirclesMu before SocialMu.
 	CirclesMu sync.Mutex
-	// CirclesStorePath is circles.json ("" in tests: nothing is written).
-	CirclesStorePath string
 	// CircleState is the book in use. Writers copy it (Clone), change the copy and swap it in after the save.
 	CircleState CircleBook
 )
 
-// LoadCircles reads %LOCALAPPDATA%\Cherry\circles.json (none is not an error).
-func LoadCircles() error {
-	dir, err := config.DataDir()
-	if err != nil {
-		return err
+// loadCirclesFromDB reads the circle book of d into memory (OpenStore, ReloadStores). A nil d empties the book.
+func loadCirclesFromDB(d *DB) error {
+	var b CircleBook
+	if d != nil {
+		if err := d.View(func(q Querier) error {
+			var err error
+			b, err = readCircles(q)
+			return err
+		}); err != nil {
+			return err
+		}
 	}
-	return LoadCirclesFrom(filepath.Join(dir, "circles.json"))
+	CirclesMu.Lock()
+	defer CirclesMu.Unlock()
+	CircleState = b
+	return nil
 }
 
-// LoadCirclesFrom loads the book at path; a missing file is an empty book.
-func LoadCirclesFrom(path string) error {
+// parseCirclesFile reads a circles.json the way the server used to load it, for cmd/cherry-import and the startup guard.
+// A missing file is an empty book.
+func parseCirclesFile(path string) (CircleBook, error) {
 	data, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+		return CircleBook{}, err
 	}
 	book := CircleBook{NextID: 0, Circles: []Circle{}}
 	if err == nil {
 		var saved savedCircles
 		if err := json.Unmarshal(data, &saved); err != nil {
-			return fmt.Errorf("invalid circle store: %w", err)
+			return book, fmt.Errorf("invalid circle store: %w", err)
 		}
 		if saved.Version != 1 {
-			return errors.New("invalid circle store version")
+			return book, errors.New("invalid circle store version")
 		}
 		book = saved.CircleBook
 	}
@@ -132,27 +141,22 @@ func LoadCirclesFrom(path string) error {
 	members := map[string]bool{}
 	for _, c := range book.Circles {
 		if c.ID <= 0 || seen[c.ID] || c.ID > book.NextID || (c.JoinType != "OPEN" && c.JoinType != "INVITE") || len(c.Members) == 0 {
-			return fmt.Errorf("invalid circle record %d", c.ID)
+			return book, fmt.Errorf("invalid circle record %d", c.ID)
 		}
 		seen[c.ID] = true
 		for _, m := range c.Members {
 			if members[m.Aid] {
-				return fmt.Errorf("circle %d: avatar %s is a member twice", c.ID, m.Aid)
+				return book, fmt.Errorf("circle %d: avatar %s is a member twice", c.ID, m.Aid)
 			}
 			members[m.Aid] = true
 		}
 	}
-	CirclesMu.Lock()
-	CirclesStorePath = path
-	CircleState = book
-	CirclesMu.Unlock()
-	return nil
+	return book, nil
 }
 
-// ResetCircles empties the book and forgets its path (tests).
+// ResetCircles empties the book in memory (tests). It does not touch an attached database.
 func ResetCircles() {
 	CirclesMu.Lock()
-	CirclesStorePath = ""
 	CircleState = CircleBook{}
 	CirclesMu.Unlock()
 }
@@ -196,37 +200,76 @@ func cloneCircleSeasons(in []CircleSeason) []CircleSeason {
 	return out
 }
 
-// SaveCirclesLocked writes b to circles.json (temp file, then rename). Caller holds CirclesMu. Nothing is written when
-// CirclesStorePath is "".
-func SaveCirclesLocked(b CircleBook) error {
-	if CirclesStorePath == "" {
+// SaveCirclesLocked writes the change from prev, the book the database holds, to next, in ONE transaction: the circle rows
+// whose value differs, the circles that are gone, the leaves that changed and the next id. The rows are found by comparing
+// the two books, not named by each operation: a circle operation changes the copy it is given (economy/circle.go), so the
+// comparison is what names the change, and the safety net checks the rows written. The new circle at the end of the list
+// goes to the end of the table. Without an attached database nothing is written. Caller holds CirclesMu.
+func SaveCirclesLocked(prev, next CircleBook) error {
+	d := attachedDB()
+	if d == nil {
 		return nil
 	}
-	data, err := json.Marshal(savedCircles{Version: 1, CircleBook: b})
-	if err != nil {
+	site := callerSite()
+	if err := d.Update(func(tx *sql.Tx) error { return saveCirclesRowsTx(tx, prev, next) }); err != nil {
 		return err
 	}
-	dir := filepath.Dir(CirclesStorePath)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return err
+	if testing.Testing() {
+		netCheckCircles(d, next, site)
 	}
-	tmp, err := os.CreateTemp(dir, ".circles-*.tmp")
-	if err != nil {
-		return err
+	return nil
+}
+
+// saveCirclesRowsTx writes the difference between prev and next (see SaveCirclesLocked).
+func saveCirclesRowsTx(tx *sql.Tx, prev, next CircleBook) error {
+	before := make(map[int64][]byte, len(prev.Circles))
+	for _, c := range prev.Circles {
+		b, err := json.Marshal(c)
+		if err != nil {
+			return err
+		}
+		before[c.ID] = b
 	}
-	defer os.Remove(tmp.Name())
-	if _, err = tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
+	present := make(map[int64]bool, len(next.Circles))
+	for _, c := range next.Circles {
+		present[c.ID] = true
 	}
-	if err = tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
+	for _, c := range prev.Circles {
+		if !present[c.ID] {
+			if err := deleteRow(tx, "circles", "circle_id = ?", c.ID); err != nil {
+				return err
+			}
+		}
 	}
-	if err = tmp.Close(); err != nil {
-		return err
+	for i, c := range next.Circles {
+		data, err := json.Marshal(c)
+		if err != nil {
+			return err
+		}
+		if old, ok := before[c.ID]; ok && bytes.Equal(old, data) {
+			continue
+		}
+		if err := upsertRow(tx, "circles", slotOf(i, len(next.Circles)), []string{"circle_id", "data"},
+			[]any{c.ID, string(data)}, "circle_id = ?", c.ID); err != nil {
+			return err
+		}
 	}
-	return os.Rename(tmp.Name(), CirclesStorePath)
+	for aid := range prev.Leaves {
+		if _, ok := next.Leaves[aid]; !ok {
+			if err := deleteRow(tx, "circle_leaves", "aid = ?", aid); err != nil {
+				return err
+			}
+		}
+	}
+	for aid, v := range next.Leaves {
+		if old, ok := prev.Leaves[aid]; ok && old == v {
+			continue
+		}
+		if err := upsertRow(tx, "circle_leaves", slotBack, []string{"aid", "value"}, []any{aid, v}, "aid = ?", aid); err != nil {
+			return err
+		}
+	}
+	return setMetaTx(tx, "circles.nextId", strconv.FormatInt(next.NextID, 10))
 }
 
 // AcceptedFriends reports whether a and b are accepted friends. It takes SocialMu alone, so a caller may hold

@@ -98,6 +98,23 @@ func diaryPathParts(path, prefix string, n int) ([]string, bool) {
 	return parts, true
 }
 
+// commentNos and likeNos are the numbers of the rows, for the names of a social save.
+func commentNos(items []store.DiaryComment) []string {
+	out := make([]string, 0, len(items))
+	for _, c := range items {
+		out = append(out, c.CommentNo)
+	}
+	return out
+}
+
+func likeNos(items []store.DiaryLike) []string {
+	out := make([]string, 0, len(items))
+	for _, l := range items {
+		out = append(out, l.LikeNo)
+	}
+	return out
+}
+
 // splitIf returns the items drop does not reject, then the rejected ones. Both are non-nil.
 func splitIf[T any](list []T, drop func(T) bool) (kept, dropped []T) {
 	kept, dropped = []T{}, []T{}
@@ -241,7 +258,7 @@ func handleDiaryCommentWrite(w http.ResponseWriter, r *http.Request) {
 	}
 	prev := store.DiaryComments
 	store.DiaryComments = append(prev, comment)
-	err = store.SaveSocialLocked()
+	err = store.SaveSocialLocked(store.SocialChange{Comments: []string{comment.CommentNo}, Scalars: true})
 	if err != nil {
 		store.DiaryComments = prev
 		store.NextCommentNo--
@@ -336,7 +353,7 @@ func handleDiaryCommentErase(w http.ResponseWriter, r *http.Request) {
 	if index >= 0 {
 		prev := store.DiaryComments
 		store.DiaryComments = slices.Delete(slices.Clone(prev), index, index+1)
-		err = store.SaveSocialLocked()
+		err = store.SaveSocialLocked(store.SocialChange{Comments: []string{commentNo}})
 		if err != nil {
 			store.DiaryComments = prev
 		}
@@ -417,7 +434,14 @@ func handleDiaryLikeSave(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	store.DiaryLikes = next
-	err = store.SaveSocialLocked()
+	change := store.SocialChange{Scalars: store.NextLikeNo != prevNo}
+	switch {
+	case index >= 0:
+		change.Likes = []string{prev[index].LikeNo}
+	case kind > 0:
+		change.Likes = []string{next[len(next)-1].LikeNo}
+	}
+	err = store.SaveSocialLocked(change)
 	if err != nil {
 		store.DiaryLikes, store.NextLikeNo = prev, prevNo
 	}

@@ -8,8 +8,9 @@ import (
 	_ "modernc.org/sqlite" // pure-Go SQLite driver (the one approved module; builds with CGO_ENABLED=0)
 )
 
-// cherry.db is the SQLite record of the stores (PLAN Roadmap 8, P1 and P2). Slice 8.3b part A: only cmd/cherry-import
-// and the tests open it. The server still reads and writes its JSON files until part B.
+// cherry.db is the SQLite record of the stores (PLAN Roadmap 8, P1 and P2). The server reads it at start and writes every
+// store through it (accounts since part B1; social, circles, Treasure World and chat since part B2). The JSON files are
+// read only by cmd/cherry-import.
 
 // DBFileName is the database file inside the data directory.
 const DBFileName = "cherry.db"
@@ -104,10 +105,13 @@ type Querier interface {
 }
 
 // migrations[i] takes the database from schema version i to i+1. Append only: a shipped step is never edited.
-var migrations = []string{schemaV1}
+var migrations = []string{schemaV1, schemaV2}
 
 // migrate applies the missing steps, each in its own transaction together with its user_version bump.
-func migrate(db *sql.DB) error {
+func migrate(db *sql.DB) error { return migrateTo(db, len(migrations)) }
+
+// migrateTo applies the missing steps up to schema version target (migrate passes the newest; a test stops at an older one).
+func migrateTo(db *sql.DB, target int) error {
 	var have int
 	if err := db.QueryRow("PRAGMA user_version").Scan(&have); err != nil {
 		return err
@@ -115,7 +119,7 @@ func migrate(db *sql.DB) error {
 	if have > len(migrations) {
 		return fmt.Errorf("database schema version %d is newer than this build (%d)", have, len(migrations))
 	}
-	for v := have; v < len(migrations); v++ {
+	for v := have; v < target; v++ {
 		tx, err := db.Begin()
 		if err != nil {
 			return err
@@ -269,6 +273,25 @@ CREATE TABLE chat_messages (
 	text    TEXT NOT NULL
 ) STRICT;
 CREATE INDEX chat_messages_room ON chat_messages(room_id, id);
+`
+
+// schemaV2 gives the store tables the unique keys the code names rows by: a diary post number, a comment number, a like
+// number and one like per post and liker, a guestbook entry number, a reply history number, one friendship per unordered
+// pair, and a chat message per room and serial. Only indexes change, so every v1 row carries over. A v1 table whose rows
+// repeat a key fails this step: the migration rolls back and the server does not start; nothing is dropped or merged.
+// The row ids of the list tables stay the order of the list (dbstores.go).
+const schemaV2 = `
+DROP INDEX diary_posts_no;
+CREATE UNIQUE INDEX diary_posts_no ON diary_posts(diary_no);
+CREATE UNIQUE INDEX diary_comments_no ON diary_comments(comment_no);
+DROP INDEX diary_likes_diary;
+CREATE UNIQUE INDEX diary_likes_diary ON diary_likes(diary_no, like_avatar_id);
+CREATE UNIQUE INDEX diary_likes_no ON diary_likes(like_no);
+CREATE UNIQUE INDEX guestbook_entries_hist ON guestbook_entries(guest_hist_no);
+CREATE UNIQUE INDEX guestbook_replies_hist ON guestbook_replies(reply_hist_no);
+DROP INDEX friendships_pair;
+CREATE UNIQUE INDEX friendships_pair ON friendships(min(a, b), max(a, b));
+CREATE UNIQUE INDEX chat_messages_sn ON chat_messages(room_id, sn);
 `
 
 // Path is the file the database was opened from.

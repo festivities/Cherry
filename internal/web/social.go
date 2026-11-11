@@ -266,7 +266,7 @@ func handleFriendBookmark(w http.ResponseWriter, r *http.Request) {
 	store.SocialMu.Lock()
 	prev := store.FriendBookmarked
 	store.FriendBookmarked = !remove && !store.FriendRemoved
-	err := store.SaveSocialLocked()
+	err := store.SaveSocialLocked(store.SocialChange{Scalars: true})
 	if err != nil {
 		store.FriendBookmarked = prev
 	}
@@ -308,10 +308,12 @@ func handleFriendRemove(w http.ResponseWriter, r *http.Request) {
 	store.SocialMu.Lock()
 	prevRemoved, prevMarked := store.FriendRemoved, store.FriendBookmarked
 	prevFriendships := append([]store.Friendship(nil), store.Friendships...)
+	var changed [][2]string
 	for _, aid := range aids {
 		if i := store.FriendshipIndex(actor.Aid, aid, ""); i >= 0 && store.Friendships[i].State != "removed" {
 			store.Friendships[i].State = "removed"
 			removed = append(removed, aid)
+			changed = append(changed, [2]string{actor.Aid, aid})
 		}
 		if aid == store.FriendAID && !store.FriendRemoved {
 			store.FriendRemoved = true
@@ -319,7 +321,7 @@ func handleFriendRemove(w http.ResponseWriter, r *http.Request) {
 			removed = append(removed, store.FriendAID)
 		}
 	}
-	err = store.SaveSocialLocked()
+	err = store.SaveSocialLocked(store.SocialChange{Friends: changed, Scalars: true})
 	if err != nil {
 		store.FriendRemoved, store.FriendBookmarked = prevRemoved, prevMarked
 		store.Friendships = prevFriendships
@@ -652,7 +654,7 @@ func insertDiaryPostLocked(post *store.DiaryPost) bool {
 	store.NextDiaryNo++
 	post.DiaryNo = strconv.FormatUint(store.NextDiaryNo, 10)
 	store.DiaryPosts = append([]store.DiaryPost{*post}, store.DiaryPosts...)
-	if err := store.SaveSocialLocked(); err != nil {
+	if err := store.SaveSocialLocked(store.SocialChange{Posts: []string{post.DiaryNo}, Scalars: true}); err != nil {
 		store.DiaryPosts = store.DiaryPosts[1:]
 		store.NextDiaryNo--
 		return false
@@ -781,14 +783,16 @@ func handleDiaryErase(w http.ResponseWriter, r *http.Request) {
 	var err error
 	if len(dropped) > 0 {
 		// The post's comments and likes go with it.
+		var droppedComments []store.DiaryComment
+		var droppedLikes []store.DiaryLike
 		store.DiaryPosts = kept
-		store.DiaryComments, _ = splitIf(prevComments, func(c store.DiaryComment) bool {
+		store.DiaryComments, droppedComments = splitIf(prevComments, func(c store.DiaryComment) bool {
 			return c.OwnerAvatarID == actor.Aid && c.DiaryNo == diaryNo
 		})
-		store.DiaryLikes, _ = splitIf(prevLikes, func(l store.DiaryLike) bool {
+		store.DiaryLikes, droppedLikes = splitIf(prevLikes, func(l store.DiaryLike) bool {
 			return l.OwnerAvatarID == actor.Aid && l.DiaryNo == diaryNo
 		})
-		err = store.SaveSocialLocked()
+		err = store.SaveSocialLocked(store.SocialChange{Posts: []string{diaryNo}, Comments: commentNos(droppedComments), Likes: likeNos(droppedLikes)})
 	}
 	if err != nil {
 		store.DiaryPosts, store.DiaryComments, store.DiaryLikes = prev, prevComments, prevLikes
@@ -1056,7 +1060,7 @@ func setFriendship(w http.ResponseWriter, actor, other string, accept bool) {
 	case store.Friendships[i].State == "pending" && store.Friendships[i].A == other:
 		store.Friendships[i].State = "accepted"
 	}
-	err := store.SaveSocialLocked()
+	err := store.SaveSocialLocked(store.SocialChange{Friends: [][2]string{{actor, other}}})
 	if err != nil {
 		store.Friendships = prev
 	}
@@ -1072,7 +1076,7 @@ func restoreFriend(w http.ResponseWriter) {
 	store.SocialMu.Lock()
 	prevRemoved, prevBookmarked := store.FriendRemoved, store.FriendBookmarked
 	store.FriendRemoved = false
-	err := store.SaveSocialLocked()
+	err := store.SaveSocialLocked(store.SocialChange{Scalars: true})
 	if err != nil {
 		store.FriendRemoved, store.FriendBookmarked = prevRemoved, prevBookmarked
 	}

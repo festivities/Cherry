@@ -36,6 +36,7 @@ func treasureState(t *testing.T, aid string, rec store.TreasureRecord) {
 	t.Helper()
 	store.ResetTreasure()
 	t.Cleanup(store.ResetTreasure)
+	testutil.UseDatabase(t)
 	if _, err := store.UpdateTreasure(aid, func(r *store.TreasureRecord) { *r = rec }); err != nil {
 		t.Fatal(err)
 	}

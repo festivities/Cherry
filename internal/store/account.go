@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"cherry/internal/httpx"
@@ -193,9 +194,9 @@ var (
 	accountsByHash = map[string]*Account{} // CodeHash of the own access token and of every alias -> its account
 	accountList    []*Account              // every account once, in creation order
 	accountRows    = map[*Account]*rowState{}
-	pendingTokens  []pendingToken // token rows the database does not have yet
-	database       *DB            // nil: memory only (the tests' default; see OpenStore)
-	savedLatest    *Account       // the latest account and next avatar id as the database last had them
+	pendingTokens  []pendingToken     // token rows the database does not have yet
+	database       atomic.Pointer[DB] // nil: memory only (the tests' default; see OpenStore)
+	savedLatest    *Account           // the latest account and next avatar id as the database last had them
 	savedNext      uint64
 )
 

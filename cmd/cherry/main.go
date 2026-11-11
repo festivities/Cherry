@@ -71,15 +71,7 @@ func main() {
 	if err := openAccounts(cfg.DataDir); err != nil {
 		logger.Fatalf("cherry: load accounts: %v", err)
 	}
-	if err := store.LoadSocial(); err != nil {
-		logger.Fatalf("cherry: load social: %v", err)
-	}
-	if err := store.LoadCircles(); err != nil {
-		logger.Fatalf("cherry: load circles: %v", err)
-	}
-	if err := store.LoadTreasure(); err != nil {
-		logger.Fatalf("cherry: load treasure: %v", err)
-	}
+	// openAccounts loaded the social, circle and Treasure World rows; the chat registry is lpn's and loads here.
 	if err := lpn.LoadAvatarChat(); err != nil {
 		logger.Fatalf("cherry: load chat rooms: %v", err)
 	}

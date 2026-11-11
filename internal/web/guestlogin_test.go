@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -125,9 +124,7 @@ func TestGuestGenerateSkipsDeletedAccount(t *testing.T) {
 	guestAccountTest(t)
 	store.ResetSocial()
 	t.Cleanup(store.ResetSocial)
-	if err := store.LoadSocialFrom(filepath.Join(t.TempDir(), "social.json")); err != nil {
-		t.Fatal(err)
-	}
+	testutil.UseDatabase(t)
 	old := guestGenerateCode(t, deviceA)
 	created := createAvatar(t, avAuthValue(t, createSession(t, old)), []byte(`{"name":"Gone","avatarType":"FEMALE","nationCode":"JP","skinColor":"1","itemCodes":["CUON00164"]}`), "")
 	if created.Code != http.StatusOK {

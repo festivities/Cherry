@@ -3,23 +3,16 @@ package store
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
-// TestCircleStoreBackCompatAndRoundTrip: a missing circles.json is an empty book; a saved book loads back unchanged; a
-// file with another version is refused.
-func TestCircleStoreBackCompatAndRoundTrip(t *testing.T) {
+// TestCircleRowsRoundTrip: a circle created and a circle closed in two saves (with a leaf changed and one added) come back
+// from the database after a restart as the book the saves installed.
+func TestCircleRowsRoundTrip(t *testing.T) {
+	path := swapStore(t)
 	t.Cleanup(ResetCircles)
-	dir := t.TempDir()
-	path := filepath.Join(dir, "circles.json")
-	if err := LoadCirclesFrom(path); err != nil {
-		t.Fatalf("absent file: %v", err)
-	}
-	if len(CircleState.Circles) != 0 || CirclesStorePath != path {
-		t.Fatalf("absent file: state = %+v path = %q", CircleState, CirclesStorePath)
-	}
-
-	book := CircleBook{
+	first := CircleBook{
 		NextID: 1940000002,
 		Circles: []Circle{{
 			ID: 1940000002, Code: "000002", Name: "Sushi", Intro: "hi", JoinType: "OPEN", LogoID: 1940001001, LogoBgID: 1940001101,
@@ -28,23 +21,50 @@ func TestCircleStoreBackCompatAndRoundTrip(t *testing.T) {
 		}},
 		Leaves: map[string]int64{"1102": 5},
 	}
+	second := CircleBook{
+		NextID: 1940000003,
+		Circles: []Circle{{
+			ID: 1940000003, Code: "000003", Name: "Ramen", JoinType: "INVITE", Created: 2, Modified: 3,
+			Members: []CircleMember{{Aid: "1103", Role: "leader", Joined: 2}},
+		}},
+		Leaves: map[string]int64{"1102": 6, "1104": 7},
+	}
 	CirclesMu.Lock()
-	if err := SaveCirclesLocked(book); err != nil {
-		CirclesMu.Unlock()
-		t.Fatalf("save: %v", err)
+	for _, next := range []CircleBook{first, second} {
+		if err := SaveCirclesLocked(CircleState, next); err != nil {
+			CirclesMu.Unlock()
+			t.Fatalf("save: %v", err)
+		}
+		CircleState = next
 	}
 	CirclesMu.Unlock()
-	if err := LoadCirclesFrom(path); err != nil {
-		t.Fatalf("reload: %v", err)
-	}
-	if CircleState.NextID != 1940000002 || len(CircleState.Circles) != 1 || CircleState.Circles[0].Members[0].Aid != "1101" || CircleState.Leaves["1102"] != 5 {
-		t.Fatalf("reloaded = %+v", CircleState)
-	}
 
+	if err := CloseStore(); err != nil {
+		t.Fatal(err)
+	}
+	if err := OpenStore(path); err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	t.Cleanup(func() { CloseStore() })
+	CirclesMu.Lock()
+	defer CirclesMu.Unlock()
+	if !reflect.DeepEqual(CircleState, second) {
+		t.Fatalf("reloaded = %+v, want %+v", CircleState, second)
+	}
+}
+
+// TestCircleFileParser: the importer's reader of circles.json: a missing file is an empty book, and a file with another
+// version is refused.
+func TestCircleFileParser(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "circles.json")
+	book, err := parseCirclesFile(path)
+	if err != nil || len(book.Circles) != 0 {
+		t.Fatalf("absent file: book %+v err %v", book, err)
+	}
 	if err := os.WriteFile(path, []byte(`{"version":2,"nextId":0,"circles":[]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := LoadCirclesFrom(path); err == nil {
+	if _, err := parseCirclesFile(path); err == nil {
 		t.Fatal("version 2 accepted")
 	}
 }

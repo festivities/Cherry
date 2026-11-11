@@ -1,19 +1,19 @@
 package lpn
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 
 	"cherry/internal/store"
+	"cherry/internal/testutil"
 )
 
 // setAvatarFriends makes each pair accepted friends until the test ends (the record the friend list keeps).
@@ -32,7 +32,8 @@ func setAvatarFriends(t *testing.T, pairs ...[2]string) {
 	})
 }
 
-// resetAvatarChat empties the 1:1 registry: no rooms, the first room id next, and no save target (memory only).
+// resetAvatarChat empties the 1:1 registry in memory: no rooms and the first room id next. Call it before a database is
+// attached (avSetup does), so the attached database starts with the same empty registry.
 func resetAvatarChat(t *testing.T) {
 	t.Helper()
 	avatarChatMu.Lock()
@@ -41,7 +42,7 @@ func resetAvatarChat(t *testing.T) {
 	avatarChatPairs = map[[2]uint64]int64{}
 	avatarChatNext = CherryChatRoomFirst
 	avatarChatHere = map[uint64]avatarChatSeenAt{}
-	store.ResetChatRooms()
+	avatarChatUnsaved = map[int64]int64{}
 }
 
 // avMembers is the 1001 payload naming the ids, in the order given.
@@ -63,6 +64,8 @@ func avSetup(t *testing.T) (ann, ben, cy net.Conn) {
 	})
 	setAvatarFriends(t, [2]string{"9981", "9982"})
 	resetAvatarChat(t)
+	// The chat tests run with a database attached: every registry save is written and read back by the safety net.
+	testutil.UseDatabase(t)
 	return inviteeSession(t, "sk-av-9981"), inviteeSession(t, "sk-av-9982"), inviteeSession(t, "sk-av-9983")
 }
 
@@ -456,13 +459,13 @@ func TestAvatarChatRoomListForMembers(t *testing.T) {
 	}
 }
 
-// avRestart simulates a restart: the registry is replaced by the file at path, which is the save target from now on. A
-// missing file is an empty registry.
-func avRestart(t *testing.T, path string) {
+// avRestart simulates a restart: the registry is replaced by the rows the attached database holds (the startup read). With
+// no rows it is an empty registry.
+func avRestart(t *testing.T) {
 	t.Helper()
-	book, err := store.LoadChatRoomsFrom(path)
+	book, err := store.LoadChatRooms()
 	if err != nil {
-		t.Fatalf("load %s: %v", path, err)
+		t.Fatalf("load: %v", err)
 	}
 	if err := avatarChatRestore(book); err != nil {
 		t.Fatalf("restore: %v", err)
@@ -503,9 +506,7 @@ func avSend(t *testing.T, aid, room, text string) int64 {
 func TestAvatarChatRestartKeepsHistoryAndSerials(t *testing.T) {
 	avSetup(t)
 	setAvatarFriends(t, [2]string{"9981", "9983"})
-	t.Cleanup(store.ResetChatRooms)
-	path := filepath.Join(t.TempDir(), "chatrooms.json")
-	avRestart(t, path)
+	avRestart(t)
 
 	room := avOpen(t, "9981", "9982")
 	if room != "1960000000" {
@@ -528,7 +529,7 @@ func TestAvatarChatRestartKeepsHistoryAndSerials(t *testing.T) {
 		t.Fatalf("history before restart has %d rows, want 3", len(want))
 	}
 
-	avRestart(t, path)
+	avRestart(t)
 	rep, _ := avatarChatRoomInfo(room, 9981)
 	info := rep.result.(map[string]any)
 	if info["lastMsgSn"] != int64(3) || info["offsetMsgSn"] != int64(0) {
@@ -547,14 +548,8 @@ func TestAvatarChatRestartKeepsHistoryAndSerials(t *testing.T) {
 		t.Fatalf("first send after restart msgSn = %d, want 4 (no gap)", sn)
 	}
 
-	bad := filepath.Join(t.TempDir(), "bad.json")
-	if err := os.WriteFile(bad, []byte(`{"version":1,"nextId":1960000005,"rooms":[{"id":1959999999,"aids":["9981","9982"],"ceil":0}]}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	badBook, err := store.LoadChatRoomsFrom(bad)
-	if err != nil {
-		t.Fatalf("load bad file: %v", err)
-	}
+	// A registry whose room is outside the id block is refused at load (the rows are read by the same check).
+	badBook := store.ChatRoomBook{NextID: 1960000005, Rooms: []store.ChatRoom{{ID: 1959999999, Aids: [2]string{"9981", "9982"}}}}
 	if err := avatarChatRestore(badBook); err == nil {
 		t.Fatal("a room outside the id block was accepted")
 	}
@@ -564,9 +559,7 @@ func TestAvatarChatRestartKeepsHistoryAndSerials(t *testing.T) {
 // file holds the 150 messages with the newest serial as the room's Ceil.
 func TestAvatarChatSendSavesEachMessage(t *testing.T) {
 	avSetup(t)
-	t.Cleanup(store.ResetChatRooms)
-	path := filepath.Join(t.TempDir(), "chatrooms.json")
-	avRestart(t, path)
+	avRestart(t)
 	room := avOpen(t, "9981", "9982")
 	before := store.ChatRoomWrites()
 	for i := int64(1); i <= 150; i++ {
@@ -577,24 +570,25 @@ func TestAvatarChatSendSavesEachMessage(t *testing.T) {
 	if n := store.ChatRoomWrites() - before; n != 150 {
 		t.Fatalf("%d registry writes for 150 sends, want 150", n)
 	}
-	book, err := store.LoadChatRoomsFrom(path)
+	book, err := store.LoadChatRooms()
 	if err != nil || len(book.Rooms) != 1 || book.Rooms[0].Ceil != 150 || len(book.Rooms[0].Msgs) != 150 {
 		t.Fatalf("saved registry = %+v (err %v), want one room with newest serial 150 and 150 messages", book, err)
 	}
 }
 
-// TestAvatarChatLoadOldAndBadFiles: a chatrooms.json from the chunked registry (no messages; the reserved ceiling in ceil)
-// loads: the room resumes at the ceiling, its acks are clamped, and its history is empty. A message that is out of order,
-// above the newest serial or from a non-member is refused at load.
+// TestAvatarChatLoadOldAndBadFiles: a registry from the chunked file (no messages; the reserved ceiling in ceil) loads: the
+// room resumes at the ceiling, its acks are clamped, and its history is empty. A message that is out of order, above the
+// newest serial or from a non-member is refused at load. The registries are the books the startup read would get from
+// the rows of the old and bad files; the test runs memory-only, so no save is checked against them.
 func TestAvatarChatLoadOldAndBadFiles(t *testing.T) {
 	avSetup(t)
-	t.Cleanup(store.ResetChatRooms)
-	dir := t.TempDir()
-	old := filepath.Join(dir, "old.json")
-	if err := os.WriteFile(old, []byte(`{"version":1,"nextId":1960000001,"rooms":[{"id":1960000000,"aids":["9981","9982"],"ceil":100,"acks":{"9982":500}}]}`), 0o600); err != nil {
-		t.Fatal(err)
+	store.DetachDB()
+	old := store.ChatRoomBook{NextID: 1960000001, Rooms: []store.ChatRoom{{
+		ID: 1960000000, Aids: [2]string{"9981", "9982"}, Ceil: 100, Acks: map[string]int64{"9982": 500},
+	}}}
+	if err := avatarChatRestore(old); err != nil {
+		t.Fatalf("restore old registry: %v", err)
 	}
-	avRestart(t, old)
 	rep, _ := avatarChatRoomInfo("1960000000", 9981)
 	if info := rep.result.(map[string]any); info["lastMsgSn"] != int64(100) || info["peerAckMsgSn"] != int64(100) {
 		t.Fatalf("old room: lastMsgSn %v peerAckMsgSn %v, want 100 and 100 (the ack clamped)", info["lastMsgSn"], info["peerAckMsgSn"])
@@ -603,21 +597,15 @@ func TestAvatarChatLoadOldAndBadFiles(t *testing.T) {
 		t.Fatalf("first send in an old room = msgSn %d, want 101", sn)
 	}
 
-	for name, msgs := range map[string]string{
-		"out of order": `{"sn":2,"sec":1,"sender":"9981","text":"b"},{"sn":1,"sec":1,"sender":"9981","text":"a"}`,
-		"above ceil":   `{"sn":3,"sec":1,"sender":"9981","text":"c"}`,
-		"non-member":   `{"sn":1,"sec":1,"sender":"9983","text":"x"}`,
+	for name, msgs := range map[string][]store.ChatMsg{
+		"out of order": {{Sn: 2, Sec: 1, Sender: "9981", Text: "b"}, {Sn: 1, Sec: 1, Sender: "9981", Text: "a"}},
+		"above ceil":   {{Sn: 3, Sec: 1, Sender: "9981", Text: "c"}},
+		"non-member":   {{Sn: 1, Sec: 1, Sender: "9983", Text: "x"}},
 	} {
-		bad := filepath.Join(dir, "bad.json")
-		body := fmt.Sprintf(`{"version":1,"nextId":1960000001,"rooms":[{"id":1960000000,"aids":["9981","9982"],"ceil":2,"msgs":[%s]}]}`, msgs)
-		if err := os.WriteFile(bad, []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		book, err := store.LoadChatRoomsFrom(bad)
-		if err != nil {
-			t.Fatalf("%s: load: %v", name, err)
-		}
-		if err := avatarChatRestore(book); err == nil {
+		bad := store.ChatRoomBook{NextID: 1960000001, Rooms: []store.ChatRoom{{
+			ID: 1960000000, Aids: [2]string{"9981", "9982"}, Ceil: 2, Msgs: msgs,
+		}}}
+		if err := avatarChatRestore(bad); err == nil {
 			t.Errorf("%s: message accepted at load", name)
 		}
 	}
@@ -627,9 +615,7 @@ func TestAvatarChatLoadOldAndBadFiles(t *testing.T) {
 // save writes it, and after a restart it is still there.
 func TestAvatarChatAckClampAndSaves(t *testing.T) {
 	avSetup(t)
-	t.Cleanup(store.ResetChatRooms)
-	path := filepath.Join(t.TempDir(), "chatrooms.json")
-	avRestart(t, path)
+	avRestart(t)
 	room := avOpen(t, "9981", "9982")
 	avSend(t, "9981", room, "hi")
 	before := store.ChatRoomWrites()
@@ -662,7 +648,7 @@ func TestAvatarChatAckClampAndSaves(t *testing.T) {
 	if store.ChatRoomWrites() != before+100 {
 		t.Fatalf("writes after 100 sends = %d, want %d", store.ChatRoomWrites(), before+100)
 	}
-	avRestart(t, path)
+	avRestart(t)
 	rep, _ = avatarChatRoomInfo(room, 9982)
 	if info := rep.result.(map[string]any); info["lastAckSn"] != int64(1) || info["lastMsgSn"] != int64(101) {
 		t.Fatalf("after restart Ben's 1006 lastAckSn %v lastMsgSn %v, want 1 and 101", info["lastAckSn"], info["lastMsgSn"])
@@ -671,21 +657,28 @@ func TestAvatarChatAckClampAndSaves(t *testing.T) {
 
 // TestAvatarChatSaveFailureRefuses: when the registry cannot be written, the open is refused with no room and no id used,
 // and a send is refused with its message dropped (its serial stays taken, so it is never handed out again); once the write
-// works, the same requests succeed.
+// works, the same requests succeed. The failure is a trigger on the attached database that aborts the chat inserts; it is
+// dropped for the recovery, so the database and the registry in memory stay the same database throughout.
 func TestAvatarChatSaveFailureRefuses(t *testing.T) {
 	avSetup(t)
-	t.Cleanup(store.ResetChatRooms)
-	dir := filepath.Join(t.TempDir(), "sub")
-	if err := os.Mkdir(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	avRestart(t, filepath.Join(dir, "chatrooms.json"))
-	// A file where the folder should be: the save cannot create the folder.
-	blocked := func() {
-		if err := os.RemoveAll(dir); err != nil {
-			t.Fatal(err)
+	avRestart(t)
+	failWrites := func(on bool) {
+		t.Helper()
+		stmts := []string{
+			`CREATE TRIGGER chat_room_refused BEFORE INSERT ON chat_rooms BEGIN SELECT RAISE(ABORT, 'refused'); END`,
+			`CREATE TRIGGER chat_message_refused BEFORE INSERT ON chat_messages BEGIN SELECT RAISE(ABORT, 'refused'); END`,
 		}
-		if err := os.WriteFile(dir, []byte("x"), 0o600); err != nil {
+		if !on {
+			stmts = []string{`DROP TRIGGER IF EXISTS chat_room_refused`, `DROP TRIGGER IF EXISTS chat_message_refused`}
+		}
+		if err := store.AttachedDB().Update(func(tx *sql.Tx) error {
+			for _, s := range stmts {
+				if _, err := tx.Exec(s); err != nil {
+					return err
+				}
+			}
+			return nil
+		}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -694,7 +687,7 @@ func TestAvatarChatSaveFailureRefuses(t *testing.T) {
 		return rep
 	}
 
-	blocked()
+	failWrites(true)
 	if rep := open(); rep.code != acInternal {
 		t.Fatalf("open with a failing save: code %d, want %d", rep.code, acInternal)
 	}
@@ -704,18 +697,13 @@ func TestAvatarChatSaveFailureRefuses(t *testing.T) {
 	}
 	avatarChatMu.Unlock()
 
-	if err := os.RemoveAll(dir); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	failWrites(false)
 	room := avOpen(t, "9981", "9982")
 	if room != "1960000000" {
 		t.Fatalf("open after the write works: room %s, want 1960000000", room)
 	}
 
-	blocked()
+	failWrites(true)
 	rep, _ := avatarChatCall(acSend, json.RawMessage(`{"roomId":"1960000000","msgType":1,"msg":"x"}`), 9981, true)
 	if rep.code != acInternal {
 		t.Fatalf("send with a failing save: code %d, want %d", rep.code, acInternal)
@@ -724,22 +712,21 @@ func TestAvatarChatSaveFailureRefuses(t *testing.T) {
 	if r := avatarChatRooms[1960000000]; r.lastSn != 1 || len(r.msgs) != 0 {
 		t.Fatalf("failed send left lastSn %d and %d messages, want 1 (serial kept taken) and 0", r.lastSn, len(r.msgs))
 	}
+	if _, ok := avatarChatUnsaved[1960000000]; !ok {
+		t.Fatal("the room of a failed send is not marked unsaved")
+	}
 	avatarChatMu.Unlock()
 
-	if err := os.RemoveAll(dir); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	failWrites(false)
 	if sn := avSend(t, "9981", room, "x"); sn != 2 {
 		t.Fatalf("send after the write works: msgSn %d, want 2 (serial 1 was never sent)", sn)
 	}
 }
 
-// TestAvatarChatMemoryOnly: with no save target everything works (150 sends) and nothing is written.
+// TestAvatarChatMemoryOnly: with no database everything works (150 sends) and nothing is written.
 func TestAvatarChatMemoryOnly(t *testing.T) {
 	avSetup(t)
+	store.DetachDB()
 	room := avOpen(t, "9981", "9982")
 	before := store.ChatRoomWrites()
 	for i := 1; i <= 150; i++ {
@@ -821,9 +808,7 @@ func avRows(aid uint64) int { return len(avatarChatRoomList(aid)["roomList"].([]
 func TestAvatarChatTalkListShape(t *testing.T) {
 	avSetup(t)
 	setAvatarFriends(t, [2]string{"9981", "9983"})
-	path := filepath.Join(t.TempDir(), "chatrooms.json")
-	avRestart(t, path)
-	t.Cleanup(store.ResetChatRooms)
+	avRestart(t)
 	room := avOpen(t, "9981", "9982")
 	avSend(t, "9982", room, "one")
 	avSend(t, "9982", room, "two")
@@ -869,7 +854,7 @@ func TestAvatarChatTalkListShape(t *testing.T) {
 		t.Fatalf("CHAT after the ack = %d, want 0", n)
 	}
 	avSend(t, "9982", room, "three")
-	avRestart(t, path)
+	avRestart(t)
 	if n := AvatarChatUnread(9981); n != 1 {
 		t.Fatalf("CHAT after a restart = %d, want 1", n)
 	}
@@ -901,9 +886,7 @@ func TestAvatarChatTalkListShape(t *testing.T) {
 // delete is refused.
 func TestAvatarChatDeleteHidesUntilNewMessage(t *testing.T) {
 	avSetup(t)
-	path := filepath.Join(t.TempDir(), "chatrooms.json")
-	avRestart(t, path)
-	t.Cleanup(store.ResetChatRooms)
+	avRestart(t)
 	avOpen(t, "9981", "9982")
 	avSend(t, "9982", "1960000000", "one")
 
@@ -919,7 +902,7 @@ func TestAvatarChatDeleteHidesUntilNewMessage(t *testing.T) {
 	if rows := avRows(9982); rows != 1 {
 		t.Fatalf("the other member's rows = %d, want 1", rows)
 	}
-	avRestart(t, path)
+	avRestart(t)
 	if rows := avRows(9981); rows != 0 {
 		t.Fatalf("after a restart the deleted room is back: %d rows", rows)
 	}

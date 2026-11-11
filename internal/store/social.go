@@ -1,14 +1,16 @@
 package store
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
-	"path/filepath"
+	"slices"
 	"strconv"
 	"sync"
+	"testing"
 
-	"cherry/internal/config"
 	"cherry/internal/httpx"
 )
 
@@ -168,8 +170,8 @@ type Friendship struct {
 }
 
 var (
+	// SocialMu guards the social store below. Lock order: AccountsMu, then CirclesMu, then SocialMu.
 	SocialMu         sync.Mutex
-	SocialStorePath  string
 	FriendRemoved    bool
 	FriendBookmarked bool
 	NextDiaryNo      uint64
@@ -185,28 +187,99 @@ var (
 	NextReplyHistNo  uint64
 )
 
-func LoadSocial() error {
-	dir, err := config.DataDir()
-	if err != nil {
-		return err
-	}
-	return LoadSocialFrom(filepath.Join(dir, "social.json"))
+// SocialChange names what one social save changed. A named key is written from memory when memory holds its row, and the
+// row is removed when memory does not, so a removed row is named by the key it had. Scalars writes the friend flags and
+// the number counters, which every new row moves. A guestbook reply is named by its reply history number, a friendship by
+// its pair (either order), a read marker by its host aid.
+type SocialChange struct {
+	Posts    []string    // diary numbers
+	Comments []string    // comment numbers
+	Likes    []string    // like numbers
+	Entries  []string    // guestbook entries, by GuestHistNo
+	Replies  []string    // reply history numbers
+	Friends  [][2]string // friendship pairs
+	Reads    []string    // host aids whose read marker changed
+	Scalars  bool
 }
 
-// LoadSocialFrom reads social.json. Files written before comments, likes and guestbook replies existed load
-// with empty lists; the counters are raised to the highest number already in use.
-func LoadSocialFrom(path string) error {
+// LoadSocialLocked reads the social store of the attached database into memory (OpenStore, ReloadStores). Without a
+// database the store is emptied.
+func loadSocialLocked(d *DB) error {
+	var s savedSocial
+	if d != nil {
+		if err := d.View(func(q Querier) error {
+			var err error
+			s, err = readSocial(q)
+			return err
+		}); err != nil {
+			return err
+		}
+	} else {
+		s = savedSocial{}
+	}
+	SocialMu.Lock()
+	defer SocialMu.Unlock()
+	installSocialLocked(s)
+	return nil
+}
+
+// ResetSocial empties the social store in memory (tests). It does not touch an attached database: a test that resets
+// while one is attached must reload from it or detach first.
+func ResetSocial() {
+	SocialMu.Lock()
+	defer SocialMu.Unlock()
+	installSocialLocked(savedSocial{})
+}
+
+// ReloadSocial replaces the social store in memory with the attached database's rows: the restart check of a test, the
+// social half of ReloadStores.
+func ReloadSocial() error {
+	d := attachedDB()
+	if d == nil {
+		return errors.New("no database attached")
+	}
+	return loadSocialLocked(d)
+}
+
+// installSocialLocked makes s the social store in memory. Caller holds SocialMu.
+func installSocialLocked(s savedSocial) {
+	FriendRemoved, FriendBookmarked = s.FriendRemoved, s.FriendBookmarked
+	NextDiaryNo, NextGuestHistNo, NextCommentNo = s.NextDiaryNo, s.NextGuestHistNo, s.NextCommentNo
+	NextLikeNo, NextReplyHistNo = s.NextLikeNo, s.NextReplyHistNo
+	DiaryPosts, GuestbookEntries, GuestbookRead = s.Posts, s.Guestbook, s.GuestbookRead
+	Friendships, DiaryComments, DiaryLikes = s.Friendships, s.Comments, s.Likes
+}
+
+// socialSnapshotLocked is the social store as savedSocial holds it, for the safety net (no copy). Caller holds SocialMu.
+func socialSnapshotLocked() savedSocial {
+	return savedSocial{
+		Version: 1, FriendRemoved: FriendRemoved, FriendBookmarked: FriendBookmarked,
+		NextDiaryNo: NextDiaryNo, Posts: DiaryPosts, NextGuestHistNo: NextGuestHistNo, Guestbook: GuestbookEntries,
+		Friendships: Friendships, Comments: DiaryComments, NextCommentNo: NextCommentNo, Likes: DiaryLikes,
+		NextLikeNo: NextLikeNo, NextReplyHistNo: NextReplyHistNo, GuestbookRead: GuestbookRead,
+	}
+}
+
+// rows is how many rows the store holds (the startup guard asks whether a file is worth importing).
+func (s savedSocial) rows() int {
+	return len(s.Posts) + len(s.Comments) + len(s.Likes) + len(s.Guestbook) + len(s.Friendships) + len(s.GuestbookRead)
+}
+
+// parseSocialFile reads a social.json the way the server used to load it, for cmd/cherry-import and the startup guard.
+// Files written before comments, likes and guestbook replies existed load with empty lists, and the counters are raised
+// to the highest number already in use. A missing file is an empty store.
+func parseSocialFile(path string) (savedSocial, error) {
 	data, err := os.ReadFile(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+		return savedSocial{}, err
 	}
 	state := savedSocial{Version: 1, Posts: []DiaryPost{}, Guestbook: []SavedGuestbookEntry{}}
 	if err == nil {
 		if err := json.Unmarshal(data, &state); err != nil {
-			return err
+			return state, err
 		}
 		if state.Version != 1 {
-			return errors.New("invalid social store version")
+			return state, errors.New("invalid social store version")
 		}
 	}
 	if state.Posts == nil {
@@ -227,7 +300,7 @@ func LoadSocialFrom(path string) error {
 		entry := &state.Guestbook[i]
 		seq, err := strconv.ParseUint(entry.GuestHistNo, 10, 64)
 		if err != nil || seq == 0 || !ValidAvatarID(entry.HostAvtNo) || !ValidAvatarID(entry.GuestAvtNo) {
-			return errors.New("invalid guestbook entry")
+			return state, errors.New("invalid guestbook entry")
 		}
 		if seq > state.NextGuestHistNo {
 			state.NextGuestHistNo = seq
@@ -267,101 +340,177 @@ func LoadSocialFrom(path string) error {
 	}
 	for _, f := range state.Friendships {
 		if !ValidAvatarID(f.A) || !ValidAvatarID(f.B) || f.A == f.B || (f.State != "pending" && f.State != "accepted" && f.State != "removed") {
-			return errors.New("invalid friendship")
+			return state, errors.New("invalid friendship")
 		}
 	}
-	SocialMu.Lock()
-	SocialStorePath = path
-	Friendships = state.Friendships
-	FriendRemoved = state.FriendRemoved
-	FriendBookmarked = state.FriendBookmarked
-	NextDiaryNo = state.NextDiaryNo
-	DiaryPosts = state.Posts
-	NextGuestHistNo = state.NextGuestHistNo
-	GuestbookEntries = state.Guestbook
-	GuestbookRead = state.GuestbookRead
-	DiaryComments = state.Comments
-	NextCommentNo = state.NextCommentNo
-	DiaryLikes = state.Likes
-	NextLikeNo = state.NextLikeNo
-	NextReplyHistNo = state.NextReplyHistNo
-	SocialMu.Unlock()
+	return state, nil
+}
+
+// SaveSocialLocked writes the rows c names in ONE transaction. Without an attached database it writes nothing. The caller
+// holds SocialMu and has already changed memory; on error the caller restores what it changed. A row that is new must sit
+// at an end of its list in memory (a diary post or guestbook entry at the front, the others at the back, and a reply at the
+// end of its entry); any other place is refused, so the saved order never differs from memory. In test builds the database
+// is read back and compared with memory after the write (dbnet.go).
+func SaveSocialLocked(c SocialChange) error {
+	d := attachedDB()
+	if d == nil {
+		return nil
+	}
+	site := callerSite()
+	if err := d.Update(func(tx *sql.Tx) error { return saveSocialRowsTx(tx, c) }); err != nil {
+		return err
+	}
+	if testing.Testing() {
+		netCheckSocial(d, site)
+	}
 	return nil
 }
 
-func ResetSocial() {
-	SocialMu.Lock()
-	SocialStorePath = ""
-	FriendRemoved = false
-	FriendBookmarked = false
-	NextDiaryNo = 0
-	DiaryPosts = nil
-	NextGuestHistNo = 0
-	GuestbookEntries = nil
-	GuestbookRead = nil
-	Friendships = nil
-	DiaryComments = nil
-	NextCommentNo = 0
-	DiaryLikes = nil
-	NextLikeNo = 0
-	NextReplyHistNo = 0
-	SocialMu.Unlock()
+// saveSocialRowsTx writes the rows c names from memory, inside the caller's transaction. Caller holds SocialMu.
+func saveSocialRowsTx(tx *sql.Tx, c SocialChange) error {
+	for _, no := range c.Posts {
+		i := slices.IndexFunc(DiaryPosts, func(p DiaryPost) bool { return p.DiaryNo == no })
+		if i < 0 {
+			if err := deleteRow(tx, "diary_posts", "diary_no = ?", no); err != nil {
+				return err
+			}
+			continue
+		}
+		data, err := rowJSON(DiaryPosts[i])
+		if err != nil {
+			return err
+		}
+		if err := upsertRow(tx, "diary_posts", slotOf(i, len(DiaryPosts)), []string{"diary_no", "avatar_id", "data"},
+			[]any{no, DiaryPosts[i].AvatarID, data}, "diary_no = ?", no); err != nil {
+			return err
+		}
+	}
+	for _, no := range c.Comments {
+		i := slices.IndexFunc(DiaryComments, func(x DiaryComment) bool { return x.CommentNo == no })
+		if i < 0 {
+			if err := deleteRow(tx, "diary_comments", "comment_no = ?", no); err != nil {
+				return err
+			}
+			continue
+		}
+		data, err := rowJSON(DiaryComments[i])
+		if err != nil {
+			return err
+		}
+		if err := upsertRow(tx, "diary_comments", slotOf(i, len(DiaryComments)), []string{"comment_no", "diary_no", "data"},
+			[]any{no, DiaryComments[i].DiaryNo, data}, "comment_no = ?", no); err != nil {
+			return err
+		}
+	}
+	for _, no := range c.Likes {
+		i := slices.IndexFunc(DiaryLikes, func(l DiaryLike) bool { return l.LikeNo == no })
+		if i < 0 {
+			if err := deleteRow(tx, "diary_likes", "like_no = ?", no); err != nil {
+				return err
+			}
+			continue
+		}
+		data, err := rowJSON(DiaryLikes[i])
+		if err != nil {
+			return err
+		}
+		if err := upsertRow(tx, "diary_likes", slotOf(i, len(DiaryLikes)), []string{"like_no", "diary_no", "like_avatar_id", "data"},
+			[]any{no, DiaryLikes[i].DiaryNo, DiaryLikes[i].LikeAvatarID, data}, "like_no = ?", no); err != nil {
+			return err
+		}
+	}
+	for _, no := range c.Entries {
+		i := slices.IndexFunc(GuestbookEntries, func(e SavedGuestbookEntry) bool { return e.GuestHistNo == no })
+		if i < 0 {
+			// The entry's replies go with it (ON DELETE CASCADE).
+			if err := deleteRow(tx, "guestbook_entries", "guest_hist_no = ?", no); err != nil {
+				return err
+			}
+			continue
+		}
+		e := GuestbookEntries[i]
+		e.Reply = nil // the replies are rows of their own
+		data, err := rowJSON(e)
+		if err != nil {
+			return err
+		}
+		if err := upsertRow(tx, "guestbook_entries", slotOf(i, len(GuestbookEntries)), []string{"guest_hist_no", "host_avt_no", "data"},
+			[]any{no, e.HostAvtNo, data}, "guest_hist_no = ?", no); err != nil {
+			return err
+		}
+	}
+	for _, no := range c.Replies {
+		entry, j := findReplyLocked(no)
+		if entry < 0 {
+			if err := deleteRow(tx, "guestbook_replies", "reply_hist_no = ?", no); err != nil {
+				return err
+			}
+			continue
+		}
+		// Replies are appended, and their row ids are one global order: a new reply must be the last of its entry.
+		slot := slotBack
+		if j != len(GuestbookEntries[entry].Reply)-1 {
+			slot = slotNone
+		}
+		var entryID int64
+		parent := GuestbookEntries[entry].GuestHistNo
+		if err := tx.QueryRow(`SELECT id FROM guestbook_entries WHERE guest_hist_no = ?`, parent).Scan(&entryID); err != nil {
+			return fmt.Errorf("guestbook reply %s: its entry is not in the database", no)
+		}
+		data, err := rowJSON(GuestbookEntries[entry].Reply[j])
+		if err != nil {
+			return err
+		}
+		if err := upsertRow(tx, "guestbook_replies", slot, []string{"reply_hist_no", "entry_id", "data"},
+			[]any{no, entryID, data}, "reply_hist_no = ?", no); err != nil {
+			return err
+		}
+	}
+	for _, host := range c.Reads {
+		hist, ok := GuestbookRead[host]
+		if !ok {
+			if err := deleteRow(tx, "guestbook_read", "host_aid = ?", host); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := upsertRow(tx, "guestbook_read", slotBack, []string{"host_aid", "hist_no"},
+			[]any{host, int64(hist)}, "host_aid = ?", host); err != nil {
+			return err
+		}
+	}
+	for _, pair := range c.Friends {
+		lo, hi := min(pair[0], pair[1]), max(pair[0], pair[1])
+		i := FriendshipIndex(pair[0], pair[1], "")
+		if i < 0 {
+			if err := deleteRow(tx, "friendships", "min(a, b) = ? AND max(a, b) = ?", lo, hi); err != nil {
+				return err
+			}
+			continue
+		}
+		f := Friendships[i]
+		if err := upsertRow(tx, "friendships", slotOf(i, len(Friendships)), []string{"a", "b", "state"},
+			[]any{f.A, f.B, f.State}, "min(a, b) = ? AND max(a, b) = ?", lo, hi); err != nil {
+			return err
+		}
+	}
+	if c.Scalars {
+		return setSocialScalarsTx(tx, FriendRemoved, FriendBookmarked, NextDiaryNo, NextGuestHistNo, NextCommentNo, NextLikeNo, NextReplyHistNo)
+	}
+	return nil
 }
 
-func SaveSocialLocked() error {
-	if SocialStorePath == "" {
-		return nil
+// findReplyLocked finds a guestbook reply by its history number: the entry index and the reply index, -1 and -1 when none.
+// Caller holds SocialMu.
+func findReplyLocked(replyHistNo string) (entry, reply int) {
+	for i, e := range GuestbookEntries {
+		for j, rep := range e.Reply {
+			if rep.ReplyHistNo == replyHistNo {
+				return i, j
+			}
+		}
 	}
-	posts := DiaryPosts
-	if posts == nil {
-		posts = []DiaryPost{}
-	}
-	guestbook := GuestbookEntries
-	if guestbook == nil {
-		guestbook = []SavedGuestbookEntry{}
-	}
-	comments := DiaryComments
-	if comments == nil {
-		comments = []DiaryComment{}
-	}
-	likes := DiaryLikes
-	if likes == nil {
-		likes = []DiaryLike{}
-	}
-	read := GuestbookRead
-	if read == nil {
-		read = map[string]uint64{}
-	}
-	data, err := json.Marshal(savedSocial{
-		Version: 1, FriendRemoved: FriendRemoved, FriendBookmarked: FriendBookmarked,
-		NextDiaryNo: NextDiaryNo, Posts: posts, NextGuestHistNo: NextGuestHistNo, Guestbook: guestbook,
-		Friendships: Friendships, Comments: comments, NextCommentNo: NextCommentNo,
-		Likes: likes, NextLikeNo: NextLikeNo, NextReplyHistNo: NextReplyHistNo, GuestbookRead: read,
-	})
-	if err != nil {
-		return err
-	}
-	dir := filepath.Dir(SocialStorePath)
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, ".social-*.tmp")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err = tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err = tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err = tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), SocialStorePath)
+	return -1, -1
 }
 
 func KnownFriendTarget(aid string) bool {

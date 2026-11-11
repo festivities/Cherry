@@ -110,6 +110,7 @@ func treScene(t *testing.T) {
 	})
 	store.ResetTreasure()
 	t.Cleanup(store.ResetTreasure)
+	testutil.UseDatabase(t)
 	treAt(t, treTime)
 }
 

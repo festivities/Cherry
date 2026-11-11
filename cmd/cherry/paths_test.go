@@ -26,9 +26,6 @@ func TestPathsFollowTwoFolders(t *testing.T) {
 
 	for name, load := range map[string]func() error{
 		"accounts":  func() error { return openAccounts(data) },
-		"social":    store.LoadSocial,
-		"circles":   store.LoadCircles,
-		"treasure":  store.LoadTreasure,
 		"chatrooms": func() error { _, err := store.LoadChatRooms(); return err },
 	} {
 		if err := load(); err != nil {
@@ -41,10 +38,6 @@ func TestPathsFollowTwoFolders(t *testing.T) {
 	store.AccountsMu.Unlock()
 	state := map[string]string{
 		"cherry.db":      filepath.Join(dbDir, store.DBFileName),
-		"social.json":    store.SocialStorePath,
-		"circles.json":   store.CirclesStorePath,
-		"treasure.json":  store.TreasureStorePath,
-		"chatrooms.json": store.ChatRoomsStorePath,
 		"config":         opdata.Dir(),
 		"generated/item": assets.GeneratedItemRoot,
 	}

@@ -140,8 +140,9 @@ func readAccountFile(path string) (accountFile, error) {
 	return f, nil
 }
 
-// OpenStore opens (creating and migrating) the database at path, loads its accounts into memory and makes it the record
-// of every save. Production calls it once at start; without it the store runs memory-only (the tests' default).
+// OpenStore opens (creating and migrating) the database at path, loads its accounts, social, circle and Treasure World
+// rows into memory and makes it the record of every save. Production calls it once at start (chat rooms are loaded by lpn
+// from the same database); without it the store runs memory-only (the tests' default).
 func OpenStore(path string) error {
 	d, err := OpenDB(path)
 	if err != nil {
@@ -153,15 +154,54 @@ func OpenStore(path string) error {
 		d.Close()
 		return err
 	}
-	database = d
+	if err := reloadOtherStoresLocked(d); err != nil {
+		d.Close()
+		return err
+	}
+	database.Store(d)
 	return nil
+}
+
+// attachedDB is the database the store saves to, nil when memory-only. Every store reads it with this, so a save never
+// needs AccountsMu (the social, circle and Treasure World saves run under their own locks).
+func attachedDB() *DB { return database.Load() }
+
+// reloadOtherStoresLocked reads the social, circle and Treasure World rows of d into memory. Caller holds AccountsMu.
+func reloadOtherStoresLocked(d *DB) error {
+	if err := loadSocialLocked(d); err != nil {
+		return err
+	}
+	if err := loadCirclesFromDB(d); err != nil {
+		return err
+	}
+	return loadTreasureFromDB(d)
+}
+
+// attachStoresLocked writes the social, circle and Treasure World memory into d, which must hold none of their rows (the
+// tests attach a fresh database). Caller holds AccountsMu.
+func attachStoresLocked(d *DB) error {
+	CirclesMu.Lock()
+	defer CirclesMu.Unlock()
+	SocialMu.Lock()
+	defer SocialMu.Unlock()
+	TreasureMu.Lock()
+	defer TreasureMu.Unlock()
+	return d.Update(func(tx *sql.Tx) error {
+		if err := writeSocialTx(tx, socialSnapshotLocked()); err != nil {
+			return err
+		}
+		if err := writeCirclesTx(tx, CircleState); err != nil {
+			return err
+		}
+		return writeTreasureTx(tx, TreasureAccounts)
+	})
 }
 
 // CloseStore detaches the database and closes it; saves after it run memory-only.
 func CloseStore() error {
 	AccountsMu.Lock()
-	d := database
-	database = nil
+	d := database.Load()
+	database.Store(nil)
 	AccountsMu.Unlock()
 	if d == nil {
 		return nil
@@ -173,10 +213,25 @@ func CloseStore() error {
 func ReloadAccounts() error {
 	AccountsMu.Lock()
 	defer AccountsMu.Unlock()
-	if database == nil {
+	if database.Load() == nil {
 		return errors.New("no database attached")
 	}
-	return reloadLocked(database)
+	return reloadLocked(database.Load())
+}
+
+// ReloadStores replaces the in-memory accounts, social, circle and Treasure World stores with the attached database's rows
+// (a restart, in tests). Chat rooms are reloaded by lpn.
+func ReloadStores() error {
+	AccountsMu.Lock()
+	defer AccountsMu.Unlock()
+	d := database.Load()
+	if d == nil {
+		return errors.New("no database attached")
+	}
+	if err := reloadLocked(d); err != nil {
+		return err
+	}
+	return reloadOtherStoresLocked(d)
 }
 
 // reloadLocked makes d's accounts the in-memory state; every loaded row counts as saved.
@@ -209,7 +264,7 @@ func reloadLocked(d *DB) error {
 func AttachDB(d *DB) error {
 	AccountsMu.Lock()
 	defer AccountsMu.Unlock()
-	database = d
+	database.Store(d)
 	pendingTokens = nil
 	for _, acc := range accountList {
 		accountRows[acc] = &rowState{}
@@ -219,7 +274,11 @@ func AttachDB(d *DB) error {
 	}
 	savedLatest, savedNext = nil, 0
 	if err := commitLocked(nil, accountList, 0, callerSite()); err != nil {
-		database = nil
+		database.Store(nil)
+		return err
+	}
+	if err := attachStoresLocked(d); err != nil {
+		database.Store(nil)
 		return err
 	}
 	return nil
@@ -228,7 +287,7 @@ func AttachDB(d *DB) error {
 // DetachDB stops the record without closing the database (the caller closes it).
 func DetachDB() {
 	AccountsMu.Lock()
-	database = nil
+	database.Store(nil)
 	AccountsMu.Unlock()
 }
 
@@ -254,13 +313,13 @@ func commitLocked(lines []LedgerLine, named []*Account, removeID int64, site str
 			rows = append(rows, acc)
 		}
 	}
-	if database != nil && LatestAcc != nil && accountRows[LatestAcc] != nil && accountRows[LatestAcc].id == 0 && !slices.Contains(rows, LatestAcc) {
+	if database.Load() != nil && LatestAcc != nil && accountRows[LatestAcc] != nil && accountRows[LatestAcc].id == 0 && !slices.Contains(rows, LatestAcc) {
 		rows = append(rows, LatestAcc) // the scalars name the latest account by its row
 	}
 	sums := make([]string, len(rows))
-	if database != nil {
+	if database.Load() != nil {
 		var inserted []*rowState
-		err := database.Update(func(tx *sql.Tx) error {
+		err := database.Load().Update(func(tx *sql.Tx) error {
 			for i, acc := range rows {
 				rs := accountRows[acc]
 				var err error
@@ -417,10 +476,10 @@ func derefProfile(p *ProfileImage) ProfileImage {
 // StoreDirLocked is the folder of the attached database, where the store's files sit beside it ("" when memory-only).
 // Caller holds AccountsMu.
 func StoreDirLocked() string {
-	if database == nil {
+	if database.Load() == nil {
 		return ""
 	}
-	return filepath.Dir(database.path)
+	return filepath.Dir(database.Load().path)
 }
 
 // AccountCountLocked is the number of accounts in memory. Caller holds AccountsMu.
@@ -440,12 +499,13 @@ type accountsState struct {
 }
 
 func captureLocked() accountsState {
-	return accountsState{accountsByHash, accountList, accountRows, pendingTokens, LatestAcc, NextAvatarID, database, savedLatest, savedNext}
+	return accountsState{accountsByHash, accountList, accountRows, pendingTokens, LatestAcc, NextAvatarID, database.Load(), savedLatest, savedNext}
 }
 
 func (s accountsState) restoreLocked() {
 	accountsByHash, accountList, accountRows, pendingTokens = s.byHash, s.list, s.rows, s.pending
-	LatestAcc, NextAvatarID, database, savedLatest, savedNext = s.latest, s.next, s.db, s.savedL, s.savedN
+	LatestAcc, NextAvatarID, savedLatest, savedNext = s.latest, s.next, s.savedL, s.savedN
+	database.Store(s.db)
 }
 
 // SwapAccountsForTest replaces the in-memory accounts with entries (access token or alias -> account; aliases share their
@@ -466,8 +526,8 @@ func SwapAccountsForTest(entries map[string]*Account) (restore func(), err error
 	}
 	LatestAcc = highestAidLocked()
 	savedLatest, savedNext = nil, 0
-	if database != nil { // the table is replaced, so its rows go too
-		if err := database.Update(func(tx *sql.Tx) error { _, err := tx.Exec(`DELETE FROM accounts`); return err }); err != nil {
+	if database.Load() != nil { // the table is replaced, so its rows go too
+		if err := database.Load().Update(func(tx *sql.Tx) error { _, err := tx.Exec(`DELETE FROM accounts`); return err }); err != nil {
 			prev.restoreLocked()
 			return nil, err
 		}

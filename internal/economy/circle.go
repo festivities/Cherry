@@ -432,7 +432,7 @@ func circleTxLocked(acc *store.Account, write bool, op func(acc *store.Account, 
 		return err
 	}
 	prevBook := store.CircleState
-	if err := store.SaveCirclesLocked(next); err != nil {
+	if err := store.SaveCirclesLocked(store.CircleState, next); err != nil {
 		*acc = prevAcc
 		return err
 	}
@@ -441,7 +441,7 @@ func circleTxLocked(acc *store.Account, write bool, op func(acc *store.Account, 
 		if err := store.SaveLocked(lines, acc); err != nil {
 			*acc = prevAcc
 			store.CircleState = prevBook
-			_ = store.SaveCirclesLocked(prevBook)
+			_ = store.SaveCirclesLocked(next, prevBook)
 			return err
 		}
 	}
@@ -1007,7 +1007,7 @@ func circleBookTx(write bool, op func(b *store.CircleBook) error) error {
 	if err := op(&next); err != nil {
 		return err
 	}
-	if err := store.SaveCirclesLocked(next); err != nil {
+	if err := store.SaveCirclesLocked(store.CircleState, next); err != nil {
 		return err
 	}
 	store.CircleState = next

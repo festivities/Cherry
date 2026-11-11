@@ -5,12 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
+	"strings"
 )
 
 // Rows of the social, circle, Treasure World and chat stores (social.json, circles.json, treasure.json, chatrooms.json).
-// Each write replaces the whole store inside the caller's transaction; the rows keep the slice order in their ordinal id,
-// and each row's data is the exact JSON of its Go value. Scalars are meta keys.
+// The server writes each change as the rows it names (SaveSocialLocked, SaveCirclesLocked, UpdateTreasure and
+// SaveChatRoomLocked, in their store files); the replace writers below write a store's whole value (AttachDB and the
+// importer). A row's data column is the exact JSON of its Go value, and a list's order is the row id: a row added at the
+// front of a list takes the lowest id, a row added at the end takes SQLite's next rowid (see slotOf).
 
 // rowJSON is the data column of one row: the marshal of its value.
 func rowJSON(v any) (string, error) {
@@ -44,7 +48,72 @@ func setMetaUintTx(tx *sql.Tx, key string, v uint64) error {
 	return setMetaTx(tx, key, strconv.FormatUint(v, 10))
 }
 
-// writeSocialTx replaces the social rows and scalars with s.
+// Where a new row of an ordered list goes. The list in memory is changed at one of its ends by every save that adds a row
+// (a diary post and a guestbook entry at the front, the others at the back); a row added anywhere else is refused rather
+// than saved out of order.
+const (
+	slotFront = iota // the lowest id: before every row
+	slotBack         // SQLite's next rowid: after every row
+	slotNone         // not at an end: refused
+)
+
+// slotOf is the slot of the row at memory index i of n, for a row that is new.
+func slotOf(i, n int) int {
+	switch i {
+	case 0:
+		return slotFront
+	case n - 1:
+		return slotBack
+	}
+	return slotNone
+}
+
+// frontID is an id below every row of table.
+func frontID(tx *sql.Tx, table string) (int64, error) {
+	var id int64
+	err := tx.QueryRow(`SELECT COALESCE(MIN(id), 1) - 1 FROM ` + table).Scan(&id)
+	return id, err
+}
+
+// upsertRow writes the row of table that where selects, with cols set to vals (cols include the key columns). An existing
+// row is updated in place, so its id and its place in the list stay. A new row goes to slot, which must be slotFront or
+// slotBack (a table without an id column takes slotBack).
+func upsertRow(tx *sql.Tx, table string, slot int, cols []string, vals []any, where string, whereArgs ...any) error {
+	set := make([]string, len(cols))
+	for i, c := range cols {
+		set[i] = c + " = ?"
+	}
+	res, err := tx.Exec(`UPDATE `+table+` SET `+strings.Join(set, ", ")+` WHERE `+where, append(slices.Clone(vals), whereArgs...)...)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil || n > 0 {
+		return err
+	}
+	if slot == slotNone {
+		return fmt.Errorf("%s: a new row is not at the end of its list", table)
+	}
+	names, args := cols, vals
+	if slot == slotFront {
+		id, err := frontID(tx, table)
+		if err != nil {
+			return err
+		}
+		names = append([]string{"id"}, cols...)
+		args = append([]any{id}, vals...)
+	}
+	marks := strings.TrimSuffix(strings.Repeat("?, ", len(args)), ", ")
+	_, err = tx.Exec(`INSERT INTO `+table+` (`+strings.Join(names, ", ")+`) VALUES (`+marks+`)`, args...)
+	return err
+}
+
+// deleteRow removes the rows of table that where selects; a row that is not there is not an error.
+func deleteRow(tx *sql.Tx, table, where string, whereArgs ...any) error {
+	_, err := tx.Exec(`DELETE FROM `+table+` WHERE `+where, whereArgs...)
+	return err
+}
+
+// writeSocialTx replaces the social rows and scalars with s (the attach and the importer; a save names its rows instead).
 func writeSocialTx(tx *sql.Tx, s savedSocial) error {
 	for _, stmt := range []string{
 		`DELETE FROM guestbook_replies`, `DELETE FROM guestbook_entries`, `DELETE FROM guestbook_read`,
@@ -116,15 +185,23 @@ func writeSocialTx(tx *sql.Tx, s savedSocial) error {
 			return err
 		}
 	}
-	if err := setMetaBoolTx(tx, "social.friendRemoved", s.FriendRemoved); err != nil {
+	if err := setSocialScalarsTx(tx, s.FriendRemoved, s.FriendBookmarked, s.NextDiaryNo, s.NextGuestHistNo, s.NextCommentNo, s.NextLikeNo, s.NextReplyHistNo); err != nil {
 		return err
 	}
-	if err := setMetaBoolTx(tx, "social.friendBookmarked", s.FriendBookmarked); err != nil {
+	return nil
+}
+
+// setSocialScalarsTx writes the friend flags and the number counters of the social store.
+func setSocialScalarsTx(tx *sql.Tx, friendRemoved, friendBookmarked bool, diary, guestHist, comment, like, reply uint64) error {
+	if err := setMetaBoolTx(tx, "social.friendRemoved", friendRemoved); err != nil {
+		return err
+	}
+	if err := setMetaBoolTx(tx, "social.friendBookmarked", friendBookmarked); err != nil {
 		return err
 	}
 	for key, v := range map[string]uint64{
-		"social.nextDiaryNo": s.NextDiaryNo, "social.nextGuestHistNo": s.NextGuestHistNo,
-		"social.nextCommentNo": s.NextCommentNo, "social.nextLikeNo": s.NextLikeNo, "social.nextReplyHistNo": s.NextReplyHistNo,
+		"social.nextDiaryNo": diary, "social.nextGuestHistNo": guestHist,
+		"social.nextCommentNo": comment, "social.nextLikeNo": like, "social.nextReplyHistNo": reply,
 	} {
 		if err := setMetaUintTx(tx, key, v); err != nil {
 			return err
@@ -224,7 +301,7 @@ func readGuestbook(q Querier, s *savedSocial) error {
 		}
 		i, ok := index[entryID]
 		if !ok {
-			return fmt.Errorf("guestbook reply without its entry")
+			return errors.New("guestbook reply without its entry")
 		}
 		var r GuestbookReply
 		if err := json.Unmarshal([]byte(data), &r); err != nil {

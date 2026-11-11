@@ -134,8 +134,8 @@ func TestImportDirEndToEnd(t *testing.T) {
 	if !reflect.DeepEqual(before, hashDir(t, dir)) {
 		t.Fatal("the import changed the data directory")
 	}
-	if len(accountList) != 0 || LatestAcc != nil || database != nil || DiaryPosts != nil {
-		t.Fatal("the loaders' process-wide state was not put back")
+	if len(accountList) != 0 || LatestAcc != nil || database.Load() != nil || len(DiaryPosts) != 0 {
+		t.Fatal("the importer changed the process-wide state")
 	}
 }
 
@@ -190,7 +190,6 @@ func TestVerifyCatchesDifference(t *testing.T) {
 		t.Fatal(err)
 	}
 	in, err := loadDataDir(dir)
-	defer resetStores()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +223,6 @@ func TestLoadErrorShowsNoContent(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := loadDataDir(dir)
-	defer resetStores()
 	if err == nil || !strings.Contains(err.Error(), "accounts.json: invalid JSON at byte") || strings.Contains(err.Error(), "secret") {
 		t.Fatalf("error = %v", err)
 	}

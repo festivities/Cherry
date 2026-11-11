@@ -40,6 +40,7 @@ func treBuffScene(t *testing.T, owned ...string) {
 	testutil.SetLab(t, "1003", false)
 	store.ResetTreasure()
 	t.Cleanup(store.ResetTreasure)
+	testutil.UseDatabase(t)
 	treAt(t, treTime)
 }
 

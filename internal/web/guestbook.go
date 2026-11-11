@@ -69,7 +69,7 @@ func handleGuestbookWrite(w http.ResponseWriter, r *http.Request) {
 		Blind: false, IsPenalty: false, GuestIsExist: true, Reply: []store.GuestbookReply{},
 	}
 	store.GuestbookEntries = append([]store.SavedGuestbookEntry{entry}, store.GuestbookEntries...)
-	err = store.SaveSocialLocked()
+	err = store.SaveSocialLocked(store.SocialChange{Entries: []string{entry.GuestHistNo}, Scalars: true})
 	if err != nil {
 		store.GuestbookEntries = store.GuestbookEntries[1:]
 		store.NextGuestHistNo = previousSeq
@@ -176,7 +176,7 @@ func handleGuestbookCountClear(w http.ResponseWriter, r *http.Request) {
 	}
 	prev, marked := store.GuestbookRead[host]
 	store.GuestbookRead[host] = highestLocked(host)
-	err := store.SaveSocialLocked()
+	err := store.SaveSocialLocked(store.SocialChange{Reads: []string{host}})
 	if err != nil {
 		if marked {
 			store.GuestbookRead[host] = prev
@@ -263,7 +263,7 @@ func handleGuestbookErase(w http.ResponseWriter, r *http.Request) {
 	if index >= 0 {
 		previous := append([]store.SavedGuestbookEntry(nil), store.GuestbookEntries...)
 		store.GuestbookEntries = append(store.GuestbookEntries[:index], store.GuestbookEntries[index+1:]...)
-		err = store.SaveSocialLocked()
+		err = store.SaveSocialLocked(store.SocialChange{Entries: []string{parts[1]}})
 		if err != nil {
 			store.GuestbookEntries = previous
 		}
@@ -339,7 +339,7 @@ func handleGuestbookReplyWrite(w http.ResponseWriter, r *http.Request) {
 	}
 	prev := store.GuestbookEntries[index].Reply
 	store.GuestbookEntries[index].Reply = append(slices.Clone(prev), reply)
-	err = store.SaveSocialLocked()
+	err = store.SaveSocialLocked(store.SocialChange{Replies: []string{reply.ReplyHistNo}, Scalars: true})
 	if err != nil {
 		store.GuestbookEntries[index].Reply = prev
 		store.NextReplyHistNo--
@@ -399,7 +399,7 @@ func handleGuestbookReplyErase(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		store.GuestbookEntries[entry].Reply = slices.Delete(slices.Clone(prev), reply, reply+1)
-		err = store.SaveSocialLocked()
+		err = store.SaveSocialLocked(store.SocialChange{Replies: []string{prev[reply].ReplyHistNo}})
 		if err != nil {
 			store.GuestbookEntries[entry].Reply = prev
 		}

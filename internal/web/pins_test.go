@@ -19,7 +19,6 @@ func pinFixture(t *testing.T) {
 		ProfileImage: store.ProfileImage{Image: "/lineplay/pr/1102_1700000000", Bg: "profilebg/3.jpg"}}
 	gone := &store.Account{AccessToken: "pin-gone", SessionKey: "sk", Aid: "1103", Name: "Gone"}
 	installSocialTestAccounts(t, map[string]*store.Account{"pin-me": me, "pin-fr": fr, "pin-gone": gone})
-	testutil.UseDatabase(t)
 	store.AccountsMu.Lock()
 	store.NextAvatarID, store.LatestAcc = 1103, me
 	store.AccountsMu.Unlock()
@@ -28,6 +27,7 @@ func pinFixture(t *testing.T) {
 	store.SocialMu.Lock()
 	store.Friendships = []store.Friendship{{A: "1101", B: "1102", State: "accepted"}}
 	store.SocialMu.Unlock()
+	testutil.UseDatabase(t)
 }
 
 func pinList(t *testing.T, token string) []pinRow {

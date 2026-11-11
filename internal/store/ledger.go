@@ -92,7 +92,7 @@ func AccountByAidLocked(aid string) *Account {
 // It takes AccountsMu itself: callers must not hold it.
 func LedgerLines() ([]LedgerLine, error) {
 	AccountsMu.Lock()
-	d := database
+	d := database.Load()
 	AccountsMu.Unlock()
 	if d == nil {
 		return nil, nil
@@ -110,5 +110,5 @@ func LedgerLines() ([]LedgerLine, error) {
 func AttachedDB() *DB {
 	AccountsMu.Lock()
 	defer AccountsMu.Unlock()
-	return database
+	return database.Load()
 }

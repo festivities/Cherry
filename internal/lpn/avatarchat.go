@@ -22,14 +22,11 @@ import (
 // session channel, like Lounge Chat, and get the same 0x1A reply and 0x1B push frames. The layouts and reply rules are the
 // slice-1 minimum in avatarchat-spec.md, section 7.
 //
-// The room registry and its messages survive a restart (chatrooms.json, store/chatrooms.go): each room's id, members, newest
-// serial, each member's last ack and delete mark and its newest messages, and the next room id. A send, a room creation, an
-// ack that moves and a delete are saved before their reply and push, so a restart resumes at the last serial, keeps the
-// unread counts and never hands out a room id or a serial again.
-//
-// ponytail: whole-file rewrite per message, ack and delete. Every such change rewrites chatrooms.json with all rooms' history
-// (up to avatarChatHistoryMax messages each), so the write cost grows with the total. Becomes rows in the DB with Roadmap 8
-// storage (8.3b).
+// The room registry and its messages survive a restart (the cherry.db chat tables, store/chatrooms.go): each room's id,
+// members, newest serial, each member's last ack and delete mark and its newest messages, and the next room id. A send, a
+// room creation, an ack that moves and a delete are saved before their reply and push, so a restart resumes at the last
+// serial, keeps the unread counts and never hands out a room id or a serial again. Each save writes its room's row, at most
+// one message row and the trimmed rows (since part B2; before, the whole registry was rewritten per change).
 
 // CherryChatRoomFirst and CherryChatRoomLast bound the room ids Cherry makes. The client takes a room id as a JSON string
 // (spec 1.1), so the ids go out as decimal strings.
@@ -130,13 +127,16 @@ func (r *avatarChatRoom) offset() int64 {
 
 // avatarChatMu guards every room, the pair index and the next id. Pushes are built under the lock and written after it
 // is released (sendLoungePushes), and no account or friend lookup runs under it. A registry save runs under it
-// (avatarChatSaveLocked); store.SaveChatRooms takes only its own leaf lock, so the order is avatarChatMu, then that one.
+// (avatarChatSaveLocked); store.SaveChatRoomLocked takes only its own leaf lock, so the order is avatarChatMu, then that one.
 var (
 	avatarChatMu    sync.Mutex
 	avatarChatRooms = map[int64]*avatarChatRoom{}
 	avatarChatPairs = map[[2]uint64]int64{} // members (low, high) -> room id
 	avatarChatNext  = CherryChatRoomFirst
 	avatarChatHere  = map[uint64]avatarChatSeenAt{} // member -> where they were last seen (memory only)
+	// avatarChatUnsaved maps a room whose serial a failed send advanced to the newest serial the database still holds. The
+	// serial stays taken in memory; the next save of the room clears the entry. The safety net reads it (avatarChatBookLocked).
+	avatarChatUnsaved = map[int64]int64{}
 )
 
 // avatarChatUser is one entry of a memberList or of a talk-list memberList: a userId string.
@@ -353,7 +353,7 @@ func avatarChatOpen(members []avatarChatUser, aid uint64) (tcReply, int64) {
 		avatarChatNext++
 		avatarChatRooms[id] = &avatarChatRoom{a: pair[0], b: pair[1]}
 		avatarChatPairs[pair] = id
-		if err := avatarChatSaveLocked(); err != nil {
+		if err := avatarChatSaveLocked(id, nil, 0); err != nil {
 			// Not persisted, so the id must not be handed out: take the room back and refuse the open.
 			avatarChatNext--
 			delete(avatarChatRooms, id)
@@ -364,26 +364,54 @@ func avatarChatOpen(members []avatarChatUser, aid uint64) (tcReply, int64) {
 	return tcReply{result: map[string]any{"roomId": strconv.FormatInt(id, 10)}}, id
 }
 
-// avatarChatSaveLocked writes the registry: every room's id, members, newest serial, acks and messages, and the next room
-// id. Caller holds avatarChatMu.
-func avatarChatSaveLocked() error {
+// avatarChatSaveLocked writes the change of room id in one transaction: its row (members, newest serial, acks, delete
+// marks), the message msg added at its end (nil: none), the messages below serial trim dropped (0: none), and the next
+// room id. A saved room leaves avatarChatUnsaved. Caller holds avatarChatMu.
+func avatarChatSaveLocked(id int64, msg *store.ChatMsg, trim int64) error {
+	// The mark goes before the save, so the safety net reads the room as the save leaves it; a refused save puts it back.
+	prevSn, unsaved := avatarChatUnsaved[id]
+	delete(avatarChatUnsaved, id)
+	ch := store.ChatChange{Room: avatarChatRowLocked(id, avatarChatRooms[id]), Msg: msg, TrimBelow: trim, NextID: avatarChatNext}
+	if err := store.SaveChatRoomLocked(ch, avatarChatBookLocked); err != nil {
+		if unsaved {
+			avatarChatUnsaved[id] = prevSn
+		}
+		return err
+	}
+	return nil
+}
+
+// avatarChatRowLocked is the registry row of room id: its members, newest serial, acks and delete marks (not its messages).
+// Caller holds avatarChatMu.
+func avatarChatRowLocked(id int64, r *avatarChatRoom) store.ChatRoom {
+	a, b := strconv.FormatUint(r.a, 10), strconv.FormatUint(r.b, 10)
+	cr := store.ChatRoom{ID: id, Aids: [2]string{a, b}, Ceil: r.lastSn, Acks: map[string]int64{a: r.ackA, b: r.ackB}}
+	if len(r.hid) > 0 {
+		cr.Hid = map[string]int64{}
+		for aid, sn := range r.hid {
+			cr.Hid[strconv.FormatUint(aid, 10)] = sn
+		}
+	}
+	return cr
+}
+
+// avatarChatBookLocked is the whole registry as the database should hold it after a change. Only the test-build safety
+// net reads it (store.SaveChatRoomLocked); production never builds the whole registry. A room a failed send left unsaved
+// is read with the newest serial the database holds. Caller holds avatarChatMu.
+func avatarChatBookLocked() store.ChatRoomBook {
 	book := store.ChatRoomBook{NextID: avatarChatNext}
 	for _, id := range slices.Sorted(maps.Keys(avatarChatRooms)) {
 		r := avatarChatRooms[id]
-		a, b := strconv.FormatUint(r.a, 10), strconv.FormatUint(r.b, 10)
-		cr := store.ChatRoom{ID: id, Aids: [2]string{a, b}, Ceil: r.lastSn, Acks: map[string]int64{a: r.ackA, b: r.ackB}}
-		if len(r.hid) > 0 {
-			cr.Hid = map[string]int64{}
-			for aid, sn := range r.hid {
-				cr.Hid[strconv.FormatUint(aid, 10)] = sn
-			}
+		cr := avatarChatRowLocked(id, r)
+		if sn, ok := avatarChatUnsaved[id]; ok {
+			cr.Ceil = sn
 		}
 		for _, m := range r.msgs {
 			cr.Msgs = append(cr.Msgs, store.ChatMsg{Sn: m.sn, Sec: m.sec, Sender: strconv.FormatUint(m.sender, 10), Text: m.text})
 		}
 		book.Rooms = append(book.Rooms, cr)
 	}
-	return store.SaveChatRooms(book)
+	return book
 }
 
 // LoadAvatarChat loads the room registry at startup (chatrooms.json; none is an empty registry). A corrupt file, or a record
@@ -456,6 +484,7 @@ func avatarChatRestore(book store.ChatRoomBook) error {
 	avatarChatMu.Lock()
 	defer avatarChatMu.Unlock()
 	avatarChatRooms, avatarChatPairs, avatarChatNext = rooms, pairs, next
+	avatarChatUnsaved = map[int64]int64{} // the book is the database's: nothing is unsaved
 	return nil
 }
 
@@ -562,14 +591,20 @@ func avatarChatSend(roomID string, msgType int64, msg string, aid uint64) (tcRep
 	}
 	m := avatarChatMsg{sn: r.lastSn + 1, sec: economy.NowFunc().Unix(), sender: aid, text: text}
 	// The message is saved before its serial is returned. A failed save keeps the serial taken (memory never goes back, and
-	// nothing was sent with it, so the next message skips it) and drops the message again. Its text is never logged.
-	kept := r.msgs
+	// nothing was sent with it, so the next message skips it; the room stays unsaved until a save of it succeeds) and
+	// drops the message again. Its text is never logged.
+	kept, prevSn := r.msgs, r.lastSn
 	r.lastSn = m.sn
 	r.msgs = append(r.msgs, m)
+	var trim int64
 	if over := len(r.msgs) - avatarChatHistoryMax; over > 0 {
 		r.msgs = r.msgs[over:]
+		trim = r.msgs[0].sn
 	}
-	if err := avatarChatSaveLocked(); err != nil {
+	if err := avatarChatSaveLocked(id, &store.ChatMsg{Sn: m.sn, Sec: m.sec, Sender: strconv.FormatUint(aid, 10), Text: text}, trim); err != nil {
+		if _, ok := avatarChatUnsaved[id]; !ok {
+			avatarChatUnsaved[id] = prevSn
+		}
 		r.msgs = kept
 		return avatarChatErr(acInternal), id
 	}
@@ -621,7 +656,7 @@ func avatarChatAck(roomID string, msgSn int64, aid uint64) (tcReply, int64) {
 	old := *p
 	*p = max(old, min(msgSn, r.lastSn))
 	if *p != old {
-		if err := avatarChatSaveLocked(); err != nil {
+		if err := avatarChatSaveLocked(id, nil, 0); err != nil {
 			*p = old
 			return avatarChatErr(acInternal), id
 		}
@@ -643,7 +678,7 @@ func avatarChatDelete(roomID string, aid uint64) (tcReply, int64) {
 	}
 	old, had := r.hid[aid]
 	r.hid[aid] = r.lastSn
-	if err := avatarChatSaveLocked(); err != nil {
+	if err := avatarChatSaveLocked(id, nil, 0); err != nil {
 		if had {
 			r.hid[aid] = old
 		} else {

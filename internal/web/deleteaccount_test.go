@@ -2,6 +2,7 @@ package web
 
 import (
 	"cherry/internal/testutil"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -29,16 +30,12 @@ func delSetup(t *testing.T) *delFixture {
 	other := &store.Account{AccessToken: "otok", SessionKey: "sk2", Aid: "9502", Name: "Other", Gender: "MALE"}
 	installSocialTestAccounts(t, map[string]*store.Account{"dtok": acc, "dtok2": acc, "otok": other})
 	dir := t.TempDir()
-	testutil.UseDatabaseAt(t, dir)
 	store.AccountsMu.Lock()
 	store.NextAvatarID = 9502
 	store.LatestAcc = acc
 	store.AccountsMu.Unlock()
 	store.ResetSocial()
 	t.Cleanup(store.ResetSocial)
-	if err := store.LoadSocialFrom(filepath.Join(dir, "social.json")); err != nil {
-		t.Fatal(err)
-	}
 	store.SocialMu.Lock()
 	store.Friendships = []store.Friendship{{A: "9501", B: "9502", State: "accepted"}}
 	store.DiaryPosts = []store.DiaryPost{{DiaryNo: "1", AvatarID: "9501", Images: []store.DiaryImage{}}, {DiaryNo: "2", AvatarID: "9502", Images: []store.DiaryImage{}}}
@@ -49,6 +46,8 @@ func delSetup(t *testing.T) *delFixture {
 	}
 	store.GuestbookRead = map[string]uint64{"9501": 2, "9502": 3}
 	store.SocialMu.Unlock()
+	// The accounts and the social fixture above are in memory; attaching the database writes them.
+	testutil.UseDatabaseAt(t, dir)
 	f := &delFixture{dir: dir, acc: acc}
 	rec := socialTestRequestAs(t, "dtok", http.MethodGet, "/v4/avatar/9501/removeCode", "")
 	if rec.Code != http.StatusOK {
@@ -182,9 +181,7 @@ func TestDeleteAccountSaveFailureRollsBack(t *testing.T) {
 	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	store.SocialMu.Lock()
-	store.SocialStorePath = filepath.Join(blocker, "social.json") // MkdirAll fails: parent is a file
-	store.SocialMu.Unlock()
+	refuseSocialDeletes(t)
 	if rec := f.del(t, "dtok"); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("delete = %d %s", rec.Code, rec.Body.String())
 	}
@@ -209,5 +206,17 @@ func TestDeleteAccountSaveFailureRollsBack(t *testing.T) {
 	store.AccountsMu.Unlock()
 	if !kept {
 		t.Fatal("the database lost the account after a failed delete")
+	}
+}
+
+// refuseSocialDeletes makes the database refuse the delete of a read marker, so the social save of a delete fails while the
+// account rows (the same operation writes them first, and the undo writes them back) stay writable.
+func refuseSocialDeletes(t *testing.T) {
+	t.Helper()
+	if err := store.AttachedDB().Update(func(tx *sql.Tx) error {
+		_, err := tx.Exec(`CREATE TRIGGER social_refused BEFORE DELETE ON guestbook_read BEGIN SELECT RAISE(ABORT, 'refused'); END`)
+		return err
+	}); err != nil {
+		t.Fatal(err)
 	}
 }

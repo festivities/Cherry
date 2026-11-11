@@ -202,7 +202,28 @@ func deleteAccount(acc *store.Account) error {
 	store.DiaryPosts, store.GuestbookEntries, store.Friendships = keepPosts, keepBook, newFriends
 	store.DiaryComments, store.DiaryLikes = keepComments, keepLikes
 	store.GuestbookRead = keepRead
-	if err := store.SaveSocialLocked(); err != nil {
+	// The social rows go with the account: the posts, comments, likes and entries it owns or wrote, the replies it wrote,
+	// the friendships it was in (marked removed) and its read marker.
+	change := store.SocialChange{Reads: []string{aid}}
+	for _, p := range posts {
+		change.Posts = append(change.Posts, p.DiaryNo)
+	}
+	for _, c := range comments {
+		change.Comments = append(change.Comments, c.CommentNo)
+	}
+	for _, l := range likes {
+		change.Likes = append(change.Likes, l.LikeNo)
+	}
+	for _, e := range book {
+		change.Entries = append(change.Entries, e.GuestHistNo)
+	}
+	for _, r := range replies {
+		change.Replies = append(change.Replies, r.ReplyHistNo)
+	}
+	for _, f := range rels {
+		change.Friends = append(change.Friends, [2]string{f.A, f.B})
+	}
+	if err := store.SaveSocialLocked(change); err != nil {
 		store.DiaryPosts, store.GuestbookEntries, store.Friendships = prevPosts, prevBook, prevFriends
 		store.DiaryComments, store.DiaryLikes = prevComments, prevLikes
 		store.GuestbookRead = prevRead
