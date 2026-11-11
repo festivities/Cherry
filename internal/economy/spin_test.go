@@ -20,6 +20,7 @@ import (
 	"cherry/data"
 	"cherry/internal/opdata"
 	"cherry/internal/store"
+	"cherry/internal/testutil"
 )
 
 // spinItems points the catalog at a root holding the prize items (a real PNG as each dp.png, animated where the spin
@@ -151,6 +152,7 @@ func TestSpinDefaultsAreValidAndPayLessThanPrice(t *testing.T) {
 }
 
 func TestSpinVerifyRefusesAPayoutAbovePrice(t *testing.T) {
+	testutil.RequireArchive(t)
 	s := spinDefault(t)
 	s.Lucky.Tiers[0].Slots[4].Weight = 90 // the 200-Gem slot dominates: expected payout far above 100
 	if err := verifySpin(s); err == nil || !strings.Contains(err.Error(), "not below the 100-Gem price") {
@@ -485,6 +487,7 @@ func TestSpinItemPrizeGrantsThenSellsBack(t *testing.T) {
 
 // TestSpinPicturesAreServed: every picture a list names is a PNG of the right size, and only Cherry's names are served.
 func TestSpinPicturesAreServed(t *testing.T) {
+	testutil.RequireArchive(t)
 	spinSetup(t, 500, 0)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/cherry/spin/", HandleSpinImage)

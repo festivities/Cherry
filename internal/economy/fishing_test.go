@@ -136,6 +136,7 @@ func TestFishCatchLedgerReason(t *testing.T) {
 // TestFishCardNameAndImage: the card line carries the payout (stock fish card has no Gem line),
 // and every catalogue fish has a tinted picture; unknown ids 404.
 func TestFishCardNameAndImage(t *testing.T) {
+	testutil.RequireArchive(t)
 	if got := FishCardName(ActiveFishing().normal[0], 5); got != "Square Carp +5 Gems" {
 		t.Fatalf("name = %q", got)
 	}

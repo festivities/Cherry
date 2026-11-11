@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"cherry/internal/httpx"
+	"cherry/internal/testutil"
 )
 
 // skinGet mirrors the web mux's attendance-skin branch (GET path, 404 otherwise).
@@ -24,6 +25,7 @@ func skinGet(p string) *httptest.ResponseRecorder {
 }
 
 func TestAttendanceSkinServed(t *testing.T) {
+	testutil.RequireArchive(t)
 	v := "/arts_attendance_en_00134_1/"
 	if rec := skinGet(v + "DailybonusMainPopupNew.plist"); rec.Code != 200 || !bytes.HasPrefix(rec.Body.Bytes(), []byte("<?xml")) {
 		t.Fatalf("plist %d", rec.Code)
@@ -47,6 +49,7 @@ func TestAttendanceSkinServed(t *testing.T) {
 }
 
 func TestAttendancePlistRepointed(t *testing.T) {
+	testutil.RequireArchive(t)
 	b, err := attendPlist()
 	if err != nil {
 		t.Fatal(err)
@@ -77,6 +80,7 @@ func TestAttendancePlistRepointed(t *testing.T) {
 }
 
 func TestAttendanceImages(t *testing.T) {
+	testutil.RequireArchive(t)
 	for d := 1; d <= len(normalSchedule().Cycle); d++ {
 		b, err := attendFile(attendTileName(d))
 		if err != nil {

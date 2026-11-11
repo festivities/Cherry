@@ -451,6 +451,7 @@ func TestSeasonOwnedItemPaysAtAttend(t *testing.T) {
 // (RUCH004RC, furniture). The grant lands in the room items, the calendar then shows the day's Gems
 // plus the furniture's sell-back, and the skin serves the day.
 func TestSeasonRoomItemDay(t *testing.T) {
+	testutil.RequireArchive(t)
 	phaseEFixture(t)
 	acc, dir := phaseEAccount(t, 0, nil)
 	const room7 = "RUCH004RC"
@@ -532,6 +533,7 @@ func captureLog(t *testing.T) *bytes.Buffer {
 // TestSeasonSkinServed: a season's skin is served under its own scheduleId and draws its item day;
 // an unknown scheduleId gets the normal skin.
 func TestSeasonSkinServed(t *testing.T) {
+	testutil.RequireArchive(t)
 	phaseEFixture(t)
 	id := strconv.Itoa(scheduleAt(time.Date(2026, time.October, 25, 6, 0, 0, 0, jst)).withID().ID)
 	base := "/arts_attendance_en_00134_" + id + "/"

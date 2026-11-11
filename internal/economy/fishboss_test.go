@@ -110,6 +110,7 @@ func TestFishBossResetOffWhenDataSaysNo(t *testing.T) {
 // TestFishBossPictureIsServed: the boss picture comes from the fish picture route, and the boss id is
 // not a fish id (checked at startup, verifyFishBoss).
 func TestFishBossPictureIsServed(t *testing.T) {
+	testutil.RequireArchive(t)
 	id := ActiveFishBoss().Boss.ID
 	for _, f := range ActiveFishing().Fish {
 		if f.ID == id {

@@ -190,6 +190,7 @@ func TestTreasureProbeCellsValidation(t *testing.T) {
 
 // TestTreasureBuffItemNeedsArt: the buff item is checked against the item archive when the file loads (verifyTreasure).
 func TestTreasureBuffItemNeedsArt(t *testing.T) {
+	testutil.RequireArchive(t)
 	d, err := opdata.Decode[TreasureData](data.TreasureJSON, nil)
 	if err != nil {
 		t.Fatal(err)

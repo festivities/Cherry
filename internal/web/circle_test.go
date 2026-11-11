@@ -187,6 +187,7 @@ func gemsFor(t *testing.T, aid string) int64 {
 
 // TestCircleArtServesOnlyTheListedPictures: the two original logo pictures are served as PNG; any other name is not.
 func TestCircleArtServesOnlyTheListedPictures(t *testing.T) {
+	testutil.RequireArchive(t)
 	for _, name := range []string{"circle_logo_sd_dp.png", "circle_logo_bg_dp.png"} {
 		rec := circleCall(t, http.MethodGet, "/cherry/circle/"+name, "", "")
 		if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" || !strings.HasPrefix(rec.Body.String(), "\x89PNG") {

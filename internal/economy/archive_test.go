@@ -1,6 +1,6 @@
 package economy
 
-import "path/filepath"
+import "cherry/internal/testutil"
 
 // testutilSanti is the santi device backup's files/ tree, for the tests that read a known archive file.
-var testutilSanti = filepath.FromSlash(`D:/Dev/projects/Cherry/.opencode/line-play-artifacts/santi-backup-20260921/jp.naver.lineplay.android/files`)
+var testutilSanti = testutil.SantiFiles()

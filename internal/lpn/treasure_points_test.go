@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"cherry/internal/store"
+	"cherry/internal/testutil"
 )
 
 // Strict shapes of the replies of treasure_points.go and treasure_tasks.go (lpCheck). Field numbers are the wire tables of
@@ -148,6 +149,7 @@ func TestTreasureExchangeAndResetOverTheGateway(t *testing.T) {
 // TestTreasureRewardsAndQuestsOverTheGateway: the point rewards (Gems by Mailbox, the item with them), the rank rewards
 // inside the season (none), the quest and mission lists with their timers, and every claim or refresh that is not due.
 func TestTreasureRewardsAndQuestsOverTheGateway(t *testing.T) {
+	testutil.RequireArchive(t)
 	treScene(t)
 	treSeed(t, store.TreasureRecord{Season: 1950000001, Tickets: 10, Charged: treTime.UnixMilli(), Points: 300})
 	g := treOpenBoard(t)

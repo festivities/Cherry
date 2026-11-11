@@ -71,12 +71,24 @@ func SetArchive(t *testing.T, mounts map[string][]string) {
 	t.Cleanup(func() { assets.Archive = old })
 }
 
-// The device backups and the APK avatar tree, the folders the uploader reads.
+// The device backups and the APK avatar tree, the folders the uploader reads. CHERRY_TEST_NO_ARCHIVE=1 moves them to a
+// folder that does not exist: the view of the CI runner (no archive), with the real folder left as it is.
 var (
-	santiFiles   = filepath.FromSlash(`D:/Dev/projects/Cherry/.opencode/line-play-artifacts/santi-backup-20260921/jp.naver.lineplay.android/files`)
-	lpFiles      = filepath.FromSlash(`D:/Dev/projects/Cherry/.opencode/line-play-artifacts/lpbackup/jp.naver.lineplay.android/files`)
-	originalsAPK = filepath.FromSlash(`D:/Dev/projects/Cherry/.opencode/line-play-artifacts/lineplay-original-assets`)
+	archiveRoot  = archiveFolder()
+	santiFiles   = filepath.Join(archiveRoot, "santi-backup-20260921", "jp.naver.lineplay.android", "files")
+	lpFiles      = filepath.Join(archiveRoot, "lpbackup", "jp.naver.lineplay.android", "files")
+	originalsAPK = filepath.Join(archiveRoot, "lineplay-original-assets")
 )
+
+func archiveFolder() string {
+	if os.Getenv("CHERRY_TEST_NO_ARCHIVE") == "1" {
+		return filepath.Join(os.TempDir(), "cherry-no-archive-absent")
+	}
+	return filepath.FromSlash(`D:/Dev/projects/Cherry/.opencode/line-play-artifacts`)
+}
+
+// SantiFiles is the santi device backup's files/ tree (absent without the archive), for the tests that read its files.
+func SantiFiles() string { return santiFiles }
 
 // ArchiveFound reports whether the santi device backup is on this machine (the archive tests skip without it).
 func ArchiveFound() bool {
@@ -129,10 +141,17 @@ func InstallArchive() {
 // UseArchive makes the device backups the archive for the test and skips the test without them.
 func UseArchive(t *testing.T) {
 	t.Helper()
+	RequireArchive(t)
+	SetArchive(t, ArchiveMounts())
+}
+
+// RequireArchive skips the test without the device backups and otherwise leaves the archive the package set alone (a
+// fresh store per test would rebuild the item index on its first read, which is slow under -race).
+func RequireArchive(t *testing.T) {
+	t.Helper()
 	if !ArchiveFound() {
 		t.Skipf("device archive absent at %s", santiFiles)
 	}
-	SetArchive(t, ArchiveMounts())
 }
 
 // FailSaves makes every save from now on fail: the test's database is closed under the store, so its transaction cannot

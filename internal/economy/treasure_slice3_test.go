@@ -518,6 +518,7 @@ func TestTreasureSecretCountsGachaPulls(t *testing.T) {
 // TestTreasureBuffItemsAreGachaPulls: the buff items are clothing with art, so Cherry's gacha pool already holds them and a pull
 // can grant them (no change to gacha.json).
 func TestTreasureBuffItemsAreGachaPulls(t *testing.T) {
+	testutil.RequireArchive(t)
 	p := gachaPoolNow()
 	pool := append(gachaCodes(p.normal), gachaCodes(p.rare)...)
 	for _, it := range ActiveTreasureData().Buff.Items {

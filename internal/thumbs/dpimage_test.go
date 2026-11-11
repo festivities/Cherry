@@ -439,6 +439,7 @@ func TestDpCategoryOf(t *testing.T) {
 }
 
 func TestDpRigPlacementMath(t *testing.T) {
+	testutil.RequireArchive(t)
 	rig := dpLoadRig("h")
 	if rig == nil {
 		t.Fatal("no rig")
@@ -483,6 +484,7 @@ func TestDpRasterizeZOrderAndFlip(t *testing.T) {
 }
 
 func TestDpMultiAnchorPartsAllDrawn(t *testing.T) {
+	testutil.RequireArchive(t)
 	itemRoot, _ := setDpFixture(t)
 	writeItemFile(t, itemRoot, "dress", "225303000", "0_0.png", solidPNG(t, 10, 10, color.RGBA{R: 255, A: 255}))
 	writeItemFile(t, itemRoot, "dress", "225303000", "0_1.png", solidPNG(t, 10, 10, color.RGBA{B: 255, A: 255}))

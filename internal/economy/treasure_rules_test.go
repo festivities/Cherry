@@ -42,6 +42,7 @@ func treasureDayNumber(t time.Time) int64 { return (t.Unix() + 3*3600) / 86400 }
 // store index each has dress art (thumbs.HasArt) and is grantable, and every item the data pays is one of them. This test
 // fails when a code loses its art, so the reward table is reviewed then.
 func TestTreasureItemCodes(t *testing.T) {
+	testutil.RequireArchive(t)
 	want := map[int64]string{225408332: "CUAH006FG", 225304426: "CUSH003EY", 225410737: "CUAH008A9"}
 	for id, code := range want {
 		if got, ok := itemcode.Code(id); !ok || got != code {
@@ -374,6 +375,7 @@ func TestTreasureRankingRules(t *testing.T) {
 // are both mail; a full Mailbox refuses it without changing the points, the claims or the Mailbox; a Mailbox Gem pays the
 // ledger ("mail receive" reason) when received.
 func TestTreasurePointRewardRules(t *testing.T) {
+	testutil.RequireArchive(t)
 	butlerAccount(t, "1001", 0, 0)
 	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Tickets: 10, Charged: treasureNow.UnixMilli(), Points: 100})
 	if rows := TreasurePointRows("1001", treasureNow); len(rows) != 4 || rows[0].Claimed || rows[3].Points != 1000 {

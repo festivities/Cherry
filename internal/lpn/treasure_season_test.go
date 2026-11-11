@@ -12,6 +12,7 @@ import (
 	"cherry/data"
 	"cherry/internal/economy"
 	"cherry/internal/store"
+	"cherry/internal/testutil"
 )
 
 // Season cycle over the gateway (season-end-spec 12). The default season 1950000001 plays from 2026-11-01 06:00 JST for 28
@@ -103,6 +104,7 @@ func treEnterFor(t *testing.T, g *treGateway, shape lpMsg) []byte {
 // relay with the tickets, the rank reward once (Result 0, paid to the Mailbox), then 786435 for the reward popup, whose point and
 // rank lists and point claim answer, a roll is refused, and the back key of the popup answers 0.
 func TestTreasureRewardPeriodOverTheGateway(t *testing.T) {
+	testutil.RequireArchive(t)
 	treScene(t)
 	treAt(t, treRewardTime)
 	treSeed(t, store.TreasureRecord{Season: 1950000001, Tickets: 10, Charged: treRewardTime.UnixMilli(), Points: 300})

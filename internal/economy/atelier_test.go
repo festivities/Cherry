@@ -103,6 +103,7 @@ func TestAtelierLoaderRejectsUnknownKeys(t *testing.T) {
 
 // TestAtelierClothingProductNeedsArt: a clothing code without art (or not clothing) fails the startup check.
 func TestAtelierClothingProductNeedsArt(t *testing.T) {
+	requireArchive(t)
 	a := defaultAtelier(t)
 	a.Designs[6].ProductClothes = "CUAH0000X" // a hat code with no item folder
 	if err := checkAtelierProducts(a); err == nil || !strings.Contains(err.Error(), "design 101301: product CUAH0000X has no art") {
