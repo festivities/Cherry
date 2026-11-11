@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"cherry/internal/economy"
+	"cherry/internal/store"
+	"cherry/internal/testutil"
 )
 
 const (
@@ -244,6 +246,8 @@ func TestSessionBadHelloKeepsReading(t *testing.T) {
 }
 
 func TestGatewayObserverBannerHello(t *testing.T) {
+	// The Garden login below presents key "K" for aid 1: that account must exist for the login to be accepted.
+	testutil.InstallAccounts(t, map[string]*store.Account{"banner-1": {AccessToken: "banner-1", SessionKey: "K", Aid: "1", Name: "Banner"}})
 	server, client := net.Pipe()
 	cleared := make(chan struct{}, 1)
 	var output bytes.Buffer
@@ -402,6 +406,9 @@ func TestGatewayObserverBannerHello(t *testing.T) {
 	if relayVars[1] != 0 || len(relayMsgs[2]) != 0 || len(relayMsgs[3]) != 1 || len(relayMsgs[4]) != 3 {
 		t.Fatalf("garden relay body = %x", relayReply[16:])
 	}
+	// The account exists now, so its visit-quest push (50) and call-npc sync (28) follow the relay start.
+	readSessionFrame(t, client)
+	readSessionFrame(t, client)
 	otherTunnelQuest := append([]byte(nil), questListReq...)
 	otherTunnelQuest[6]++
 	if _, err := client.Write(otherTunnelQuest); err != nil {

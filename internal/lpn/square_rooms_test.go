@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"cherry/internal/testutil"
 )
 
 // rosterAids returns the aids of a relaystart roster (PlayerInfo entries, field 2), self first.
@@ -21,6 +23,7 @@ func rosterAids(body []byte) []uint64 {
 
 // Each listed Square enters its own map with its own spawn (the iso conversion of data/squares.json).
 func TestSquareEnterEachThemeSpawnsOnItsMap(t *testing.T) {
+	testutil.InstallAccounts(t, withLoginAccounts(nil, 11))
 	spawn := map[uint64][2]uint64{6: {6920, 2920}, 32: {6480, 2940}, 33: {7360, 3860}, 34: {6080, 2660}}
 	for theme, px := range spawn {
 		c := newSqClientIn(t, &squareRooms{}, 1)
@@ -32,6 +35,7 @@ func TestSquareEnterEachThemeSpawnsOnItsMap(t *testing.T) {
 }
 
 func TestSquareRoomsAreSeparate(t *testing.T) {
+	testutil.InstallAccounts(t, withLoginAccounts(nil, 11, 22, 33))
 	rooms := &squareRooms{}
 	a := newSqClientIn(t, rooms, 1) // LINE City
 	b := newSqClientIn(t, rooms, 2) // LINE Café
@@ -66,6 +70,7 @@ func TestSquareRoomsAreSeparate(t *testing.T) {
 // Going to another Square leaves the current one for its players, and the new roster holds only the
 // newcomer; a move after that reaches nobody in the old Square.
 func TestSquareSwitchLeavesOldRoom(t *testing.T) {
+	testutil.InstallAccounts(t, withLoginAccounts(nil, 11, 22))
 	rooms := &squareRooms{}
 	a := newSqClientIn(t, rooms, 1)
 	b := newSqClientIn(t, rooms, 2)
@@ -95,6 +100,7 @@ func TestSquareSwitchLeavesOldRoom(t *testing.T) {
 
 // Themes that are not listed, including the boss world (28) and the race (31), return to LINE City.
 func TestSquareUnlistedThemeReturnsToCity(t *testing.T) {
+	testutil.InstallAccounts(t, withLoginAccounts(nil, 11))
 	for _, theme := range []uint64{0, 2, 28, 31, 99} {
 		c := newSqClientIn(t, &squareRooms{}, 1)
 		c.send(0, loginBody(11))
@@ -109,6 +115,7 @@ func TestSquareUnlistedThemeReturnsToCity(t *testing.T) {
 
 // An operator file can hide a Square: it is not listed and a request for it goes to LINE City.
 func TestSquareOperatorFileHidesSquare(t *testing.T) {
+	testutil.InstallAccounts(t, withLoginAccounts(nil, 11))
 	path := filepath.Join(t.TempDir(), "squares.json")
 	doc := `{"origin":"mixed","note":"test","squares":[
 	  {"theme":6,"name":"LINE City","list_name":"LINE City","map":"2401039000","map_size":160,"spawn":{"x":93,"y":80},"index":0,"visible":true},

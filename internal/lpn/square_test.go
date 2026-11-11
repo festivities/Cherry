@@ -104,7 +104,7 @@ func (c *sqClient) none() {
 	}
 }
 
-func loginBody(aid uint64) []byte { return pbVar(pbLen(nil, 1, []byte("sk")), 2, aid) }
+func loginBody(aid uint64) []byte { return loginFor(aid) } // presents the key the installed account holds
 
 // squareTestMaps is the map each listed Square loads (data/squares.json).
 var squareTestMaps = map[uint64]string{6: "2401039000", 32: "2202250100", 33: "2310272600", 34: "2201202900"}
@@ -233,6 +233,7 @@ func themeList(t *testing.T, body []byte) ([]themeInfo, uint64) {
 }
 
 func TestSquareThemeList(t *testing.T) {
+	testutil.InstallAccounts(t, withLoginAccounts(nil, 11))
 	a := newSqClient(t, &squareRoom{}, 1)
 	a.send(0, loginBody(11))
 	a.read()
@@ -256,6 +257,7 @@ func TestSquareThemeList(t *testing.T) {
 }
 
 func TestSquareRosterAndBroadcasts(t *testing.T) {
+	testutil.InstallAccounts(t, withLoginAccounts(nil, 11, 22, 33))
 	room := &squareRoom{}
 	a, b := newSqClient(t, room, 1), newSqClient(t, room, 2)
 
@@ -415,6 +417,7 @@ func TestPBSummaryHidesContents(t *testing.T) {
 }
 
 func TestSquarePlayerListAndSpawn(t *testing.T) {
+	testutil.InstallAccounts(t, withLoginAccounts(nil, 11, 22))
 	room := &squareRoom{}
 	a, b := newSqClient(t, room, 1), newSqClient(t, room, 2)
 	a.join(11)
@@ -436,6 +439,7 @@ func TestSquarePlayerListAndSpawn(t *testing.T) {
 }
 
 func TestSquareReenterKeepsAvatarForOthers(t *testing.T) {
+	testutil.InstallAccounts(t, withLoginAccounts(nil, 11, 22))
 	room := &squareRoom{}
 	a, b := newSqClient(t, room, 1), newSqClient(t, room, 2)
 	a.join(11)
@@ -474,6 +478,7 @@ func sitInfo() []byte {
 // Sit: the request is relayed to the others as rc_player_interaction_all{Aid, Info}, never echoed.
 // A late joiner sees the seat in PlayerInfo.Interaction; walking stands the sitter up for everyone.
 func TestSquareSitRelayAndStandUp(t *testing.T) {
+	testutil.InstallAccounts(t, withLoginAccounts(nil, 11, 22, 33, 44, 55))
 	room := &squareRoom{}
 	a, b := newSqClient(t, room, 1), newSqClient(t, room, 2)
 	a.join(11)
@@ -525,6 +530,7 @@ func TestSquareSitRelayAndStandUp(t *testing.T) {
 // Re-entry while seated (Back -> GO on the same Square): the client starts standing, so the others
 // get a move to its stored position (not a deluser/adduser) and the roster carries no seat for it.
 func TestSquareReenterStandsUpSeat(t *testing.T) {
+	testutil.InstallAccounts(t, withLoginAccounts(nil, 11, 22))
 	room := &squareRoom{}
 	a, b := newSqClient(t, room, 1), newSqClient(t, room, 2)
 	a.join(11)

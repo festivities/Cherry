@@ -25,6 +25,10 @@ const (
 	observerMax        = 512
 	observerIdle       = time.Second
 	maxGatewayFrameLen = 1 << 20
+	// maxGatewayPreLoginFrameLen bounds a frame on a connection where no agent has logged in. The largest legitimate frame
+	// there is a login or a numbered TLUP request (a few hundred bytes). ponytail: 64 KiB is over 100x that; measure the
+	// stock client's pre-login frames before shrinking it.
+	maxGatewayPreLoginFrameLen = 64 << 10
 )
 
 func ListenObserver(addr string, logger *log.Logger) (net.Listener, error) {
@@ -43,7 +47,16 @@ func ListenObserver(addr string, logger *log.Logger) (net.Listener, error) {
 				logger.Printf("OBS %s accept: %v", addr, err)
 				continue
 			}
-			go observeConn(conn, addr, logger)
+			remote := conn.RemoteAddr().String()
+			if !admitRemote(remote) {
+				logger.Printf("OBS %s refused remote=%s: too many connections from this address", addr, remote)
+				conn.Close()
+				continue
+			}
+			go func() {
+				defer releaseRemote(remote)
+				observeConn(conn, addr, logger)
+			}()
 		}
 	}()
 	return ln, nil
@@ -137,8 +150,12 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 			logger.Printf("OBS %s hello remote=%s hex=%s", addr, remote, hex.EncodeToString(hello))
 			continue
 		}
-		if length < 2 || length > maxGatewayFrameLen {
-			logger.Printf("OBS %s frame remote=%s invalid len=%d", addr, remote, length)
+		limit := uint32(maxGatewayFrameLen)
+		if gatewayLoginAid(rp, sq, gardenLoginAid) == 0 && !circle.loggedIn && !treasure.loggedIn {
+			limit = maxGatewayPreLoginFrameLen // no agent has logged in on this connection yet
+		}
+		if length < 2 || length > limit {
+			logger.Printf("OBS %s frame remote=%s invalid len=%d limit=%d", addr, remote, length, limit)
 			return
 		}
 		frame := make([]byte, length)
@@ -167,7 +184,7 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 					logger.Printf("OBS %s direct remote=%s client-event invalid request", addr, remote)
 					continue
 				}
-				sender, hearted = recordTLUPEvents(logger, frame[18:])
+				sender, hearted = recordTLUPEvents(logger, frame[18:], gatewayLoginAid(rp, sq, gardenLoginAid))
 				body = binary.AppendUvarint([]byte{0x08}, packetNo)
 			}
 			reply := make([]byte, 22+len(body))
@@ -316,14 +333,12 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 				continue
 			}
 			if agent == 10 && msgid == 0 {
-				if !gardenLoginValid(frame[12:]) {
-					logger.Printf("OBS %s garden-login remote=%s invalid request", addr, remote)
+				aid, ok := verifiedLogin(frame[12:])
+				if !ok {
+					logger.Printf("OBS %s garden-login remote=%s refused: no verified login", addr, remote)
 					continue
 				}
-				if aid, ok := protobufUintField(frame[12:], 2); ok {
-					gardenLoginAid = aid
-				}
-				// ponytail: validate wire fields, accept local session until accounts persist across restarts.
+				gardenLoginAid = aid
 				reply := make([]byte, 20)
 				binary.BigEndian.PutUint32(reply, 16)
 				reply[4], reply[5] = 'G', frame[1]
@@ -507,11 +522,16 @@ func (ev tlupEvent) isHeart() bool {
 
 // recordTLUPEvents logs one credential-free line per event of a numbered TLUP request (sender aid,
 // ids and ParamData names) and counts its hearts. It returns the sender and the targets of the
-// counted hearts. The packetNo reply is the caller's job and goes out either way.
-func recordTLUPEvents(logger *log.Logger, data []byte) (uint64, []uint64) {
+// counted hearts. The packetNo reply is the caller's job and goes out either way. bound is the aid the connection
+// logged in as (0 before any login): an event whose verified sender is another aid is refused.
+func recordTLUPEvents(logger *log.Logger, data []byte, bound uint64) (uint64, []uint64) {
 	sender, events, ok := tlupClientEvents(data)
 	if !ok {
-		logger.Printf("cherry: tlup event invalid request")
+		logger.Printf("cherry: tlup event invalid or unverified request")
+		return 0, nil
+	}
+	if bound != 0 && sender != bound {
+		logger.Printf("cherry: tlup event refused aid=%d: the connection is logged in as aid=%d", sender, bound)
 		return 0, nil
 	}
 	var hearted []uint64
@@ -541,14 +561,15 @@ func gatewayLoginAid(rp *roomPartySession, sq *squareSession, gardenAid uint64) 
 // tlupClientEvents reads one numbered TLUP request: #1 ClientSession (sessionKey #1, aid #2 varint),
 // #2 packetNo, #3 EventRequestData. ParamData is #1 Name, #2 Intvalue int64 (youraid is always an
 // Intvalue, the atoll of the target aid in ReqSendHeart) and #4 Strvalue (not read). ok is false for
-// a missing sender or any malformed message, so a bad request counts nothing.
+// a missing sender, a sender whose session key is not that account's, or any malformed message, so a bad request counts
+// nothing.
 func tlupClientEvents(data []byte) (sender uint64, events []tlupEvent, ok bool) {
 	sess, found, ok := pbBytesField(data, 1)
 	if !ok || !found {
 		return 0, nil, false
 	}
-	sender, ok = protobufUintField(sess, 2)
-	if !ok || sender == 0 || sender > (1<<63)-1 {
+	sender, ok = verifiedLogin(sess)
+	if !ok {
 		return 0, nil, false
 	}
 	bad := false

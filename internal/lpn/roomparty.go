@@ -476,9 +476,9 @@ func (s *roomPartySession) handleData(frame []byte) error {
 	msgid := binary.BigEndian.Uint16(frame[10:12])
 	data := frame[12:]
 	if msgid == 0 {
-		aid, _ := protobufUintField(data, 2)
-		if !gardenLoginValid(data) || aid == 0 || aid > (1<<63)-1 {
-			s.logger.Printf("ROOMPARTY login invalid request")
+		aid, ok := verifiedLogin(data)
+		if !ok {
+			s.logger.Printf("ROOMPARTY login refused: no verified login")
 			return nil
 		}
 		s.close()

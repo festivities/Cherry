@@ -464,9 +464,9 @@ func (s *squareSession) handleData(frame []byte) error {
 	msgid := binary.BigEndian.Uint16(frame[10:12])
 	data := frame[12:]
 	if msgid == 0 { // cr_login_req -> rc_login_res
-		aid, _ := protobufUintField(data, 2)
-		if !gardenLoginValid(data) || aid == 0 || aid > (1<<63)-1 {
-			s.logger.Printf("SQUARE login invalid request")
+		aid, ok := verifiedLogin(data)
+		if !ok {
+			s.logger.Printf("SQUARE login refused: no verified login")
 			return nil
 		}
 		s.aid, s.loggedIn = aid, true

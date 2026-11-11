@@ -228,16 +228,16 @@ func (s *treasureSession) handleData(frame []byte) error {
 }
 
 // login answers cs_login_req (msgid 0) with Result 0, the client's success path, for every request, as Circle does. The
-// account is known only when the session names an existing aid; enter refuses a board for anyone else.
+// account must hold the session key (verifiedLogin); a refused login leaves the connection as it was, and enter refuses
+// a board for anyone not logged in.
 func (s *treasureSession) login(frame, data []byte) error {
-	aid, _ := protobufUintField(data, 2)
-	s.loggedIn, s.entered, s.aid = false, false, 0
-	if gardenLoginValid(data) && aid > 0 && aid <= (1<<63)-1 {
-		if _, ok := store.AccountByAvatarID(strconv.FormatUint(aid, 10)); ok {
-			s.aid, s.loggedIn = aid, true
-		}
+	aid, ok := verifiedLogin(data)
+	if !ok {
+		s.logger.Printf("TREASURE msgid=0 login refused: no verified login")
+		return s.reply(frame, treasureRcLogin, treasureOK)
 	}
-	s.logger.Printf("TREASURE msgid=0 login aid=%d known=%v result=0", aid, s.loggedIn)
+	s.loggedIn, s.entered, s.aid = true, false, aid
+	s.logger.Printf("TREASURE msgid=0 login aid=%d result=0", aid)
 	return s.reply(frame, treasureRcLogin, treasureOK)
 }
 

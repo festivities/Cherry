@@ -32,7 +32,12 @@ func tlupEventData(serviceID, eventID uint64, params ...[]byte) []byte {
 // tlupClientEvent is a numbered ct_clientevent_req: ClientSession #1 (sessionKey #1, aid #2),
 // packetNo #2, then the events (#3).
 func tlupClientEvent(aid, packetNo uint64, events ...[]byte) []byte {
-	session := pbVar(pbLen(nil, 1, []byte("K")), 2, aid)
+	return tlupClientEventKey(testSessionKey, aid, packetNo, events...)
+}
+
+// tlupClientEventKey is tlupClientEvent with the session key the ClientSession presents.
+func tlupClientEventKey(key string, aid, packetNo uint64, events ...[]byte) []byte {
+	session := pbVar(pbLen(nil, 1, []byte(key)), 2, aid)
 	b := pbVar(pbLen(nil, 1, session), 2, packetNo)
 	for _, e := range events {
 		b = pbLen(b, 3, e)
@@ -58,6 +63,7 @@ func TestTLUPWireLayout(t *testing.T) {
 // TestTLUPClientEvents: the sender is the ClientSession aid, and only ServiceId 102 with Eventid
 // 12 (avatar) or 13 (pet) and a youraid target counts as a heart.
 func TestTLUPClientEvents(t *testing.T) {
+	testutil.InstallAccounts(t, withLoginAccounts(nil, 9701))
 	petHeart := func(target uint64) []byte { return tlupEventData(102, 13, tlupParamData("youraid", target)) }
 	for _, c := range []struct {
 		name       string
@@ -66,6 +72,9 @@ func TestTLUPClientEvents(t *testing.T) {
 		wantHearts []uint64
 	}{
 		{"avatar heart", tlupClientEvent(9701, 7, heartEvent(9702)), 9701, []uint64{9702}},
+		{"wrong session key", tlupClientEventKey("nope", 9701, 7, heartEvent(9702)), 0, nil},
+		{"unknown sender", tlupClientEvent(9799, 7, heartEvent(9702)), 0, nil},
+		{"empty session key", tlupClientEventKey("", 9701, 7, heartEvent(9702)), 0, nil},
 		{"pet heart", tlupClientEvent(9701, 7, petHeart(9702)), 9701, []uint64{9702}},
 		{"two hearts", tlupClientEvent(9701, 7, heartEvent(9702), petHeart(9703)), 9701, []uint64{9702, 9703}},
 		{"other eventid", tlupClientEvent(9701, 7, tlupEventData(102, 14, tlupParamData("youraid", 9702))), 9701, nil},
@@ -112,9 +121,9 @@ func TestRecordTLUPEvents(t *testing.T) {
 	logger := log.New(&logs, "", 0)
 
 	for range economy.HeartBase() {
-		recordTLUPEvents(logger, tlupClientEvent(9711, 3, heartEvent(9712)))
+		recordTLUPEvents(logger, tlupClientEvent(9711, 3, heartEvent(9712)), 0)
 	}
-	recordTLUPEvents(logger, tlupClientEvent(9711, 4, heartEvent(9712))) // refused: cap
+	recordTLUPEvents(logger, tlupClientEvent(9711, 4, heartEvent(9712)), 0) // refused: cap
 	if got := economy.HeartsReceived("9712"); got != economy.HeartBase() {
 		t.Fatalf("received = %d, want %d", got, economy.HeartBase())
 	}

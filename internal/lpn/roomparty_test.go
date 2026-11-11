@@ -52,6 +52,7 @@ func TestRoomPartyOpenControlNoAck(t *testing.T) {
 }
 
 func TestRoomPartyLogin(t *testing.T) {
+	testutil.InstallAccounts(t, withLoginAccounts(nil, 7))
 	s, c := newRPClient(t)
 	if err := s.handleData(c.req(0, pbVar(nil, 2, 5))); err != nil { // no session key
 		t.Fatal(err)
@@ -133,9 +134,10 @@ type pc struct {
 func partySetup(t *testing.T) *partyHub {
 	t.Helper()
 	testutil.InstallAccounts(t, map[string]*store.Account{
-		"a": {Aid: "11", Name: "Ann", Gender: "MALE", ItemCodes: []string{"CUON004TV"}},
-		"b": {Aid: "12", Name: "Bo"},
-		"c": {Aid: "13", Name: "Cy"},
+		"a": {Aid: "11", Name: "Ann", Gender: "MALE", ItemCodes: []string{"CUON004TV"}, SessionKey: testSessionKey},
+		"b": {Aid: "12", Name: "Bo", SessionKey: testSessionKey},
+		"c": {Aid: "13", Name: "Cy", SessionKey: testSessionKey},
+		"d": {Aid: "14", Name: "Di", SessionKey: testSessionKey},
 	})
 	store.SocialMu.Lock()
 	old := store.Friendships

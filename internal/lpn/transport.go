@@ -5,6 +5,7 @@ package lpn
 
 import (
 	"bytes"
+	"crypto/subtle"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -20,11 +21,16 @@ import (
 )
 
 const (
-	loMagic            = 0x10
-	loOpSendInit       = 0x00
-	loOpConfigure      = 0x10
-	loOpPush           = 0x1B // a server push (type 27): the client's processPacket case 11 (boss-mp-addendum 1d)
-	maxSessionFrameLen = 64 << 20
+	loMagic       = 0x10
+	loOpSendInit  = 0x00
+	loOpConfigure = 0x10
+	loOpPush      = 0x1B // a server push (type 27): the client's processPacket case 11 (boss-mp-addendum 1d)
+	// maxSessionPreAuthFrameLen bounds a frame until the connection has bound an account. The largest legitimate one is
+	// sendInit's JSON (well under 1 KiB). ponytail: 64 KiB is over 60x that; measure before shrinking.
+	maxSessionPreAuthFrameLen = 64 << 10
+	// maxSessionFrameLen bounds a frame after binding. The largest legitimate one is a Lounge or 1:1 chat request: text is
+	// at most 500 characters (under 12 KiB of JSON even with every character escaped as a surrogate pair).
+	maxSessionFrameLen = 256 << 10
 )
 
 var (
@@ -51,8 +57,61 @@ func ServeSession(ln net.Listener, logger *log.Logger) {
 			logger.Printf("SESSION accept: %v", err)
 			continue
 		}
-		go serveSessionConn(conn, logger)
+		remote := conn.RemoteAddr().String()
+		if !admitRemote(remote) {
+			logger.Printf("SESSION refused remote=%s: too many connections from this address", remote)
+			conn.Close()
+			continue
+		}
+		go func() {
+			defer releaseRemote(remote)
+			serveSessionConn(conn, logger)
+		}()
 	}
+}
+
+// maxConnsPerRemote caps the open gateway and session connections of one remote host. ponytail: the lab's emulators and
+// phone share one or two addresses and cmd/cherry-load runs its whole population from one (up to 600 players, 900
+// connections), so the cap is generous. Carrier NAT can put many players behind one address: raise it, or make it
+// configurable, before any public deploy.
+const maxConnsPerRemote = 1024
+
+var (
+	remoteConnsMu sync.Mutex
+	remoteConns   = map[string]int{}
+)
+
+// remoteHost is the host part of a remote address ("ip:port"); the whole string when it has no port.
+func remoteHost(remote string) string {
+	if host, _, err := net.SplitHostPort(remote); err == nil {
+		return host
+	}
+	return remote
+}
+
+// admitRemote counts one more open connection from remote's host and reports false, counting nothing, when that host is
+// at maxConnsPerRemote. Every true result is paired with releaseRemote(remote).
+func admitRemote(remote string) bool {
+	host := remoteHost(remote)
+	remoteConnsMu.Lock()
+	defer remoteConnsMu.Unlock()
+	if remoteConns[host] >= maxConnsPerRemote {
+		return false
+	}
+	remoteConns[host]++
+	return true
+}
+
+// releaseRemote undoes one admitRemote for remote.
+func releaseRemote(remote string) {
+	host := remoteHost(remote)
+	remoteConnsMu.Lock()
+	defer remoteConnsMu.Unlock()
+	if remoteConns[host] <= 1 {
+		delete(remoteConns, host)
+		return
+	}
+	remoteConns[host]--
 }
 
 func serveSessionConn(conn net.Conn, logger *log.Logger) {
@@ -84,6 +143,7 @@ func serveSessionConn(conn net.Conn, logger *log.Logger) {
 		logger.Printf("SESSION hello remote=%s protocol error hex=%s want=%s", remote, hex.EncodeToString(hello), hex.EncodeToString(sessionHello))
 	}
 
+	authed := false // the connection has an account bound; until then only sendInit-sized frames are read
 	for {
 		var prefix [4]byte
 		if _, err := io.ReadFull(conn, prefix[:]); err != nil {
@@ -93,8 +153,12 @@ func serveSessionConn(conn net.Conn, logger *log.Logger) {
 			return
 		}
 		length := binary.BigEndian.Uint32(prefix[:])
-		if length > maxSessionFrameLen {
-			logger.Printf("SESSION frame remote=%s protocol error len=%d", remote, length)
+		limit := uint32(maxSessionPreAuthFrameLen)
+		if authed {
+			limit = maxSessionFrameLen
+		}
+		if length > limit {
+			logger.Printf("SESSION frame remote=%s protocol error len=%d limit=%d", remote, length, limit)
 			return
 		}
 		payload := make([]byte, length)
@@ -104,6 +168,9 @@ func serveSessionConn(conn net.Conn, logger *log.Logger) {
 		}
 		if !handleSessionFrame(c, remote, payload, logger) {
 			return
+		}
+		if !authed {
+			_, authed = sessionAidOf(c)
 		}
 	}
 }
@@ -132,7 +199,13 @@ func handleSessionFrame(conn *lockedConn, remote string, payload []byte, logger 
 		if op != loOpSendInit {
 			return true
 		}
-		if aid := sessionAccount(body); aid != 0 { // bound before the reply, so a push right after the reply finds it
+		// Bound before the reply, so a push right after the reply finds it. Newest wins twice over: an account bound by
+		// another connection moves here (a reconnecting client takes its pushes back), and a connection holds one account,
+		// so a sendInit naming another account replaces the one it held (its chat membership goes, as on disconnect).
+		if aid := sessionAccount(body); aid != 0 {
+			if bound, ok := sessionAidOf(conn); ok && bound != aid {
+				themeChatUnbound(unbindSession(conn), logger)
+			}
 			bindSession(aid, conn)
 			logger.Printf("SESSION bind remote=%s aid=%d", remote, aid)
 		}
@@ -159,7 +232,7 @@ func sessionAccount(body []byte) uint64 {
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
 	for _, acc := range store.AllAccountsLocked() {
-		if acc.SessionKey == req.SessionKey {
+		if subtle.ConstantTimeCompare([]byte(acc.SessionKey), []byte(req.SessionKey)) == 1 {
 			aid, err := strconv.ParseUint(acc.Aid, 10, 64)
 			if err != nil {
 				return 0

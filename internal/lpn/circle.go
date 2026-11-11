@@ -477,16 +477,12 @@ func (s *circleSession) handleData(frame []byte) error {
 	return nil
 }
 
-// login answers cs_login_req (msgid 0). The request must carry a session key and a positive aid (Square's check) and
-// the aid must have an account; anything else gets result 0, which is the client's error path (12698), not a spinner.
+// login answers cs_login_req (msgid 0). The account with the request's aid must hold its session key (verifiedLogin);
+// a refused login gets result 0, which is the client's error path (12698), not a spinner.
 func (s *circleSession) login(frame, data []byte) error {
-	aid, _ := protobufUintField(data, 2)
-	if !gardenLoginValid(data) || aid == 0 || aid > (1<<63)-1 {
-		s.logger.Printf("CIRCLE login invalid request")
-		return s.reply(frame, circleRcLogin, pbVar(nil, 1, 0))
-	}
-	if _, ok := store.AccountByAvatarID(strconv.FormatUint(aid, 10)); !ok {
-		s.logger.Printf("CIRCLE login unknown aid=%d", aid)
+	aid, ok := verifiedLogin(data)
+	if !ok {
+		s.logger.Printf("CIRCLE login refused: no verified login")
 		return s.reply(frame, circleRcLogin, pbVar(nil, 1, 0))
 	}
 	s.aid, s.loggedIn = aid, true
