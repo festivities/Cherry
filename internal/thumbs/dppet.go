@@ -17,15 +17,17 @@ import (
 // of them, so the first frame of the pet's own "idle" animation is composed instead. The
 // skeleton.xml / texture.xml files are DragonBones 2.3 data. Bone `transform` values are
 // GLOBAL (armature space, y down) in this export and children do not inherit them: a slot is
-// placed with its bone's idle frame-0 transform and its display transform. The origin and
-// the 1:1 scale were fitted against authentic dp.png files of four pets (bounding boxes
-// within about 2 px). A pet too large for the canvas at that scale (ride pets) is scaled down
-// and centred instead (petFit).
+// placed with its bone's idle frame-0 transform and its display transform. A slot whose display
+// is a child armature (a body, tail or wheel of a ride pet) is expanded in place with that
+// armature's own idle pose. The origin and the 1:1 scale were fitted against authentic dp.png
+// files of four pets (bounding boxes within about 2 px). A pet too large for the canvas at that
+// scale (ride pets) is scaled down and centred instead (petFit).
 
 const (
 	dpPetW, dpPetH   = 260, 200
 	dpPetOX, dpPetOY = 138.0, 151.0 // armature origin on the canvas
 	dpPetMargin      = 6.0          // clearance kept between a scaled pet and the canvas edges
+	dpPetMaxDepth    = 8            // child armatures nested deeper than this are not drawn
 )
 
 type pkTransform struct {
@@ -61,34 +63,37 @@ func (p affine) mul(c affine) affine { // apply c, then p
 }
 
 type pkSkeleton struct {
-	Armatures []struct {
-		Skins []struct {
-			Slots []struct {
-				Name     string `xml:"name,attr"`
-				Parent   string `xml:"parent,attr"`
-				Z        string `xml:"z,attr"`
-				Displays []struct {
-					Name      string       `xml:"name,attr"`
-					Type      string       `xml:"type,attr"`
-					Transform *pkTransform `xml:"transform"`
-				} `xml:"display"`
-			} `xml:"slot"`
-		} `xml:"skin"`
-		Animations []struct {
-			Name      string `xml:"name,attr"`
-			Timelines []struct {
-				Name   string `xml:"name,attr"`
-				Frames []struct {
-					Z            string       `xml:"z,attr"`
-					DisplayIndex string       `xml:"displayIndex,attr"`
-					Transform    *pkTransform `xml:"transform"`
-					Color        *struct {
-						AM string `xml:"aM,attr"`
-					} `xml:"colorTransform"`
-				} `xml:"frame"`
-			} `xml:"timeline"`
-		} `xml:"animation"`
-	} `xml:"armature"`
+	Armatures []pkArmature `xml:"armature"`
+}
+
+type pkArmature struct {
+	Name  string `xml:"name,attr"`
+	Skins []struct {
+		Slots []struct {
+			Name     string `xml:"name,attr"`
+			Parent   string `xml:"parent,attr"`
+			Z        string `xml:"z,attr"`
+			Displays []struct {
+				Name      string       `xml:"name,attr"`
+				Type      string       `xml:"type,attr"`
+				Transform *pkTransform `xml:"transform"`
+			} `xml:"display"`
+		} `xml:"slot"`
+	} `xml:"skin"`
+	Animations []struct {
+		Name      string `xml:"name,attr"`
+		Timelines []struct {
+			Name   string `xml:"name,attr"`
+			Frames []struct {
+				Z            string       `xml:"z,attr"`
+				DisplayIndex string       `xml:"displayIndex,attr"`
+				Transform    *pkTransform `xml:"transform"`
+				Color        *struct {
+					AM string `xml:"aM,attr"`
+				} `xml:"colorTransform"`
+			} `xml:"frame"`
+		} `xml:"timeline"`
+	} `xml:"animation"`
 }
 
 type pkAtlas struct {
@@ -107,6 +112,13 @@ type petLayer struct {
 	m      affine
 	px, py float64
 	alpha  float64
+}
+
+// petSource is one pet folder's skeleton: its armatures, the atlas picture and the sub-texture rectangles.
+type petSource struct {
+	arms []pkArmature
+	tex  image.Image
+	rect map[string]image.Rectangle
 }
 
 func readXML(path string, v any) bool {
@@ -142,9 +154,27 @@ func composePetDP(dir string) (*image.RGBA, bool) {
 			rect[s.Name] = r
 		}
 	}
-	arm := sk.Armatures[0]
-	if len(arm.Skins) == 0 {
+	src := petSource{arms: sk.Armatures, tex: tex, rect: rect}
+	layers := src.pose(sk.Armatures[0], 0)
+	if len(layers) == 0 {
 		return nil, false
+	}
+	sort.SliceStable(layers, func(i, j int) bool { return layers[i].z < layers[j].z })
+	view := petFit(layers)
+	out := image.NewRGBA(image.Rect(0, 0, dpPetW, dpPetH))
+	for _, l := range layers {
+		petBlit(out, l, view)
+	}
+	return out, true
+}
+
+// pose returns the layers of arm's idle pose: frame 0 of its "idle" animation, or of its first
+// animation when it has none (a child armature has one animation). Only the first skin is drawn.
+// A slot whose display is a child armature is expanded in place: the child's layers take the
+// slot's z, its matrix and its alpha, so the child is drawn as one part of the parent.
+func (src petSource) pose(arm pkArmature, depth int) []petLayer {
+	if len(arm.Skins) == 0 || depth > dpPetMaxDepth {
+		return nil
 	}
 	type frame0 struct {
 		tr    *pkTransform
@@ -152,12 +182,19 @@ func composePetDP(dir string) (*image.RGBA, bool) {
 		disp  string
 		alpha float64
 	}
-	idle := map[string]frame0{}
-	for _, a := range arm.Animations {
-		if a.Name != "idle" {
-			continue
+	anim := -1
+	for i, a := range arm.Animations {
+		if a.Name == "idle" {
+			anim = i
+			break
 		}
-		for _, t := range a.Timelines {
+	}
+	if anim < 0 && len(arm.Animations) > 0 {
+		anim = 0
+	}
+	idle := map[string]frame0{}
+	if anim >= 0 {
+		for _, t := range arm.Animations[anim].Timelines {
 			if len(t.Frames) == 0 {
 				continue
 			}
@@ -167,7 +204,6 @@ func composePetDP(dir string) (*image.RGBA, bool) {
 			}
 			idle[t.Name] = frame0{fr.Transform, fr.Z, fr.DisplayIndex, al}
 		}
-		break
 	}
 	var layers []petLayer
 	for _, s := range arm.Skins[0].Slots {
@@ -180,29 +216,37 @@ func composePetDP(dir string) (*image.RGBA, bool) {
 			continue
 		}
 		d := s.Displays[di]
-		r, ok := rect[d.Name]
-		if !ok || d.Type == "armature" || d.Transform == nil {
+		if d.Transform == nil {
+			continue
+		}
+		z := int(pkNum(fr.z, pkNum(s.Z, 0)))
+		m := fr.tr.matrix().mul(d.Transform.matrix())
+		if d.Type == "armature" {
+			for _, c := range src.arms {
+				if c.Name == d.Name {
+					for _, l := range src.pose(c, depth+1) {
+						l.z, l.m, l.alpha = z, m.mul(l.m), l.alpha*fr.alpha
+						layers = append(layers, l)
+					}
+					break
+				}
+			}
+			continue
+		}
+		r, ok := src.rect[d.Name]
+		if !ok {
 			continue
 		}
 		img := image.NewNRGBA(image.Rect(0, 0, r.Dx(), r.Dy()))
 		for y := 0; y < r.Dy(); y++ {
 			for x := 0; x < r.Dx(); x++ {
-				img.Set(x, y, color.NRGBAModel.Convert(tex.At(r.Min.X+x, r.Min.Y+y)))
+				img.Set(x, y, color.NRGBAModel.Convert(src.tex.At(r.Min.X+x, r.Min.Y+y)))
 			}
 		}
-		layers = append(layers, petLayer{z: int(pkNum(fr.z, pkNum(s.Z, 0))), img: img,
-			m: fr.tr.matrix().mul(d.Transform.matrix()), px: pkNum(d.Transform.PX, float64(r.Dx())/2), py: pkNum(d.Transform.PY, float64(r.Dy())/2), alpha: fr.alpha})
+		layers = append(layers, petLayer{z: z, img: img, m: m,
+			px: pkNum(d.Transform.PX, float64(r.Dx())/2), py: pkNum(d.Transform.PY, float64(r.Dy())/2), alpha: fr.alpha})
 	}
-	if len(layers) == 0 {
-		return nil, false
-	}
-	sort.SliceStable(layers, func(i, j int) bool { return layers[i].z < layers[j].z })
-	view := petFit(layers)
-	out := image.NewRGBA(image.Rect(0, 0, dpPetW, dpPetH))
-	for _, l := range layers {
-		petBlit(out, l, view)
-	}
-	return out, true
+	return layers
 }
 
 // petFit returns the armature-to-canvas transform. When every layer's image corners fit inside

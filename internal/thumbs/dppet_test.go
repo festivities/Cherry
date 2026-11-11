@@ -120,6 +120,41 @@ func TestPetFitScalesOversizedPose(t *testing.T) {
 	}
 }
 
+// A slot whose display is a child armature (a body, tail or wheel of a ride pet) is drawn with that
+// armature's idle pose at the slot's place. The synthetic body sits 40 px right of the origin.
+const petChildSkeletonXML = `<dragonBones name="minipet" version="2.3"><armature name="minipet">
+<skin name="default"><slot name="kid" parent="kid" z="1"><display name="kid" type="armature"><transform x="0" y="0"/></display></slot></skin>
+<animation name="idle"><timeline name="kid"><frame z="1"><transform x="40" y="0"/></frame></timeline></animation>
+</armature>
+<armature name="kid">
+<skin name="default"><slot name="part" parent="part" z="0"><display name="image/body" type="image"><transform x="0" y="0" scX="1" scY="1" pX="5" pY="5"/></display></slot></skin>
+<animation name="unnamed"><timeline name="part"><frame z="0"><transform x="0" y="0"/></frame></timeline></animation>
+</armature></dragonBones>`
+
+func TestPetChildArmatureDrawn(t *testing.T) {
+	dir := t.TempDir()
+	for name, data := range map[string][]byte{
+		"texture.png":  solidPNG(t, 20, 10, color.RGBA{R: 0xff, A: 0xff}),
+		"texture.xml":  []byte(petTextureXML),
+		"skeleton.xml": []byte(petChildSkeletonXML),
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	img, ok := composePetDP(dir)
+	if !ok {
+		t.Fatal("pet whose only part is a child armature not composed")
+	}
+	at := func(x, y int) color.NRGBA { return color.NRGBAModel.Convert(img.At(x, y)).(color.NRGBA) }
+	if c := at(int(dpPetOX)+40, int(dpPetOY)); c.A < 250 || c.R < 250 {
+		t.Fatalf("child armature body missing at its slot place: %v", c)
+	}
+	if c := at(int(dpPetOX)-40, int(dpPetOY)); c.A != 0 {
+		t.Fatalf("child armature drawn away from its slot: %v", c)
+	}
+}
+
 // Ride pets (326400242 is PUPE0006Q) are far larger than the shop canvas at 1:1. Skipped when the archive is absent.
 func TestDpPetRideFitsCanvas(t *testing.T) {
 	useArchive(t)
