@@ -1,0 +1,29 @@
+name: gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l cmd internal data)"
+      - name: vet
+        run: go vet ./...
+      - name: build linux/arm64 without cgo
+        run: CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build ./...
+      - name: test
+        run: go test -race -count=1 -timeout 550s ./...
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
