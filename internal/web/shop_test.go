@@ -347,13 +347,12 @@ func TestRecycleCfgAndSellBack(t *testing.T) {
 		}
 	}
 
-	// An unpriced face is kept and reported back in invalidItems; the priced item still sells.
+	// An unpriced face sells for 0 beside the priced item; invalidItems stays empty (a row there loops the client).
 	acc.InventoryCodes = append(acc.InventoryCodes, "CUEY00002", "CUTO00001")
 	code, out = sell(row(4, "CUEY00002", "0") + "," + row(5, "CUTO00001", "150"))
 	res = out["result"].(map[string]any)
-	inv2 := res["invalidItems"].([]any)
-	if code != 200 || len(inv2) != 1 || inv2[0].(map[string]any)["itemCode"] != "CUEY00002" || acc.Gems != 1150 ||
-		!slices.Contains(acc.InventoryCodes, "CUEY00002") || slices.Contains(acc.InventoryCodes, "CUTO00001") {
+	if code != 200 || len(res["invalidItems"].([]any)) != 0 || acc.Gems != 1150 ||
+		slices.Contains(acc.InventoryCodes, "CUEY00002") || slices.Contains(acc.InventoryCodes, "CUTO00001") {
 		t.Fatalf("face sell = %d %v gems %d inv %v", code, out, acc.Gems, acc.InventoryCodes)
 	}
 

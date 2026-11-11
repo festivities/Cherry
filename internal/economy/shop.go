@@ -10,7 +10,6 @@ import (
 	"regexp"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -822,7 +821,6 @@ func handleRecycle(interior bool) http.HandlerFunc {
 		sellCodes, sellSeqs := map[string]bool{}, map[int64]bool{}
 		var total int64
 		var names []string
-		invalid := []map[string]any{}
 		for _, it := range req.RecycleItems {
 			seq, seqOK := lenientInt(it.InvenSeq)
 			count := int64(1)
@@ -858,14 +856,9 @@ func handleRecycle(interior bool) http.HandlerFunc {
 				return
 			}
 			price := soldPrice(it.ItemCode, paid)
-			// A player's gift (paid < 0) is sold for 0 Gems like any sale: reporting it in invalidItems made the
-			// client re-send the recycle without end (device 2026-11-11, ~14 requests a second).
-			if price == 0 && paid >= 0 { // faces/unpriced: kept, reported back so the client keeps them too
-				delete(sellCodes, it.ItemCode)
-				delete(sellSeqs, seq)
-				invalid = append(invalid, map[string]any{"invenSeq": strconv.FormatInt(seq, 10), "itemCode": it.ItemCode, "representPrice": 0, "purchasePrice": 0})
-				continue
-			}
+			// A 0-Gem item (a player's gift, a face part, an unpriced item) is sold for 0 like any sale: the
+			// client shows the 0 before it confirms, and reporting the item in invalidItems made it re-send
+			// the recycle without end (device 2026-11-11: gift ~14 requests a second, face part ~16).
 			total += price
 			names = append(names, it.ItemCode)
 		}
@@ -904,7 +897,7 @@ func handleRecycle(interior bool) http.HandlerFunc {
 			return
 		}
 		store.FlushLedgerLocked(lines)
-		body, _ := json.Marshal(map[string]any{"result": map[string]any{"balance": acc.Gems, "invalidItems": invalid}})
+		body, _ := json.Marshal(map[string]any{"result": map[string]any{"balance": acc.Gems, "invalidItems": []any{}}})
 		httpx.WriteJSON(w, http.StatusOK, string(body))
 	}
 }
