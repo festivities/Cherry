@@ -105,7 +105,7 @@ type Querier interface {
 }
 
 // migrations[i] takes the database from schema version i to i+1. Append only: a shipped step is never edited.
-var migrations = []string{schemaV1, schemaV2}
+var migrations = []string{schemaV1, schemaV2, schemaV3}
 
 // migrate applies the missing steps, each in its own transaction together with its user_version bump.
 func migrate(db *sql.DB) error { return migrateTo(db, len(migrations)) }
@@ -292,6 +292,36 @@ CREATE UNIQUE INDEX guestbook_replies_hist ON guestbook_replies(reply_hist_no);
 DROP INDEX friendships_pair;
 CREATE UNIQUE INDEX friendships_pair ON friendships(min(a, b), max(a, b));
 CREATE UNIQUE INDEX chat_messages_sn ON chat_messages(room_id, sn);
+`
+
+// schemaV3 holds the operator documents (documents.go): numbered versions of each operator data file, at most one
+// published per name, and the audit trail of staff changes. Only new tables: every v1 and v2 row carries over.
+const schemaV3 = `
+CREATE TABLE documents (
+	id        INTEGER PRIMARY KEY,
+	name      TEXT NOT NULL,
+	version   INTEGER NOT NULL,
+	state     TEXT NOT NULL CHECK (state IN ('draft', 'published', 'retired')),
+	body      TEXT NOT NULL,
+	sha256    TEXT NOT NULL,
+	author    TEXT NOT NULL,
+	note      TEXT NOT NULL,
+	created   TEXT NOT NULL,
+	published TEXT NOT NULL DEFAULT '',
+	replaces  INTEGER NOT NULL DEFAULT 0,
+	UNIQUE (name, version)
+) STRICT;
+CREATE UNIQUE INDEX documents_published ON documents(name) WHERE state = 'published';
+
+CREATE TABLE audit (
+	id     INTEGER PRIMARY KEY,
+	time   TEXT NOT NULL,
+	actor  TEXT NOT NULL,
+	action TEXT NOT NULL,
+	target TEXT NOT NULL,
+	detail TEXT NOT NULL DEFAULT ''
+) STRICT;
+CREATE INDEX audit_target ON audit(target, id);
 `
 
 // Path is the file the database was opened from.

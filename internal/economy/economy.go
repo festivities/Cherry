@@ -318,6 +318,13 @@ func NewAdminMux() *http.ServeMux {
 	mux.HandleFunc("/admin/season", handleAdminSeason)
 	mux.HandleFunc("/admin/garden", handleAdminGarden)
 	mux.HandleFunc("/admin/guestcode", handleAdminGuestCode)
+	mux.HandleFunc("GET /admin/docs", docsLoopback(handleDocsList))
+	mux.HandleFunc("GET /admin/docs/{name}", docsLoopback(handleDocsHistory))
+	mux.HandleFunc("GET /admin/docs/{name}/{version}", docsLoopback(handleDocsGet))
+	mux.HandleFunc("POST /admin/docs/{name}", docsLoopback(handleDocsDraft))
+	mux.HandleFunc("POST /admin/docs/{name}/{version}/validate", docsLoopback(handleDocsValidate))
+	mux.HandleFunc("POST /admin/docs/{name}/{version}/publish", docsLoopback(handleDocsPublish))
+	mux.HandleFunc("POST /admin/docs/{name}/rollback", docsLoopback(handleDocsRollback))
 	mux.Handle("/debug/vars", debugVars(expvar.Handler())) // the counters of metrics; this mux is the only one that serves them
 	return mux
 }

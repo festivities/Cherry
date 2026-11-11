@@ -38,6 +38,17 @@ func activate(c config.Config) {
 	lpn.GatewayAddr = c.Gateway
 }
 
+// loadOperatorData loads every operator document (opdata) in the order the packages need. A config file that fails its
+// checks is an error; a published database version that fails them falls back inside opdata.
+func loadOperatorData() error {
+	for _, load := range []func() error{store.LoadOperatorData, room.LoadOperatorData, economy.LoadOperatorData, lpn.LoadOperatorData, web.LoadOperatorData} {
+		if err := load(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func main() {
 	logger := log.New(os.Stdout, "", log.LstdFlags|log.Lmicroseconds)
 	cfg, err := config.Load(os.Args[1:], os.LookupEnv)
@@ -79,10 +90,13 @@ func main() {
 	if err := assets.LoadArchive(); err != nil {
 		logger.Fatalf("cherry: asset store: %v", err)
 	}
-	for _, load := range []func() error{store.LoadOperatorData, room.LoadOperatorData, economy.LoadOperatorData, lpn.LoadOperatorData, web.LoadOperatorData} {
-		if err := load(); err != nil {
-			logger.Fatalf("cherry: operator data: %v", err)
-		}
+	// Published database documents are offered first; each document then loads from its published version, the config
+	// file or the embedded default (opdata). A published version that fails its checks does not stop Cherry.
+	if err := store.OfferPublishedDocuments(); err != nil {
+		logger.Fatalf("cherry: published documents: %v", err)
+	}
+	if err := loadOperatorData(); err != nil {
+		logger.Fatalf("cherry: operator data: %v", err)
 	}
 	// The first-use reads of requests (the shop catalog, the string table) happen now, after every operator file is
 	// loaded: no request waits for them, and the catalog is built from the files requests will use.

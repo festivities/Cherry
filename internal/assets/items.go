@@ -174,7 +174,7 @@ type itemconvFlag struct {
 	Enabled bool `json:"enabled"`
 }
 
-var itemconvFile = opdata.New[itemconvFlag]("itemconv.json", data.ItemconvJSON, nil, nil)
+var itemconvFile = opdata.NewSwitch[itemconvFlag]("itemconv.json", data.ItemconvJSON)
 
 // LoadItemConv is the startup load of itemconv.json; cmd/cherry calls it with the other operator files.
 func LoadItemConv() error { return itemconvFile.Load() }

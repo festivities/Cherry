@@ -53,7 +53,7 @@ type streamingFlag struct {
 }
 
 // flagFile is streaming.json (embedded default off; %LOCALAPPDATA%\Cherry\config\streaming.json replaces it).
-var flagFile = opdata.New[streamingFlag]("streaming.json", data.StreamingJSON, nil, nil)
+var flagFile = opdata.NewSwitch[streamingFlag]("streaming.json", data.StreamingJSON)
 
 // Store reads Cherry's original assets: from R2 through the read-through cache (New, Open), or from local folders
 // (NewLocal, for tests and the upload tool). Its streamed routes answer only when streaming.json enables them

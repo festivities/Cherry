@@ -32,13 +32,13 @@ func TestDecodeIsStrict(t *testing.T) {
 }
 
 func TestFileOverrideReplacesDefault(t *testing.T) {
-	f := New("sample.json", []byte(`{"n":1,"name":"default"}`), checkSample, nil)
+	f := New("sample-override.json", []byte(`{"n":1,"name":"default"}`), checkSample, nil)
 	t.Cleanup(f.Reset)
 	if got := f.Get(); got.N != 1 || got.Name != "default" {
 		t.Fatalf("default = %+v", got)
 	}
 	dir := t.TempDir()
-	path := filepath.Join(dir, "sample.json")
+	path := filepath.Join(dir, "sample-override.json")
 	if err := os.WriteFile(path, []byte(`{"n":2,"name":"operator"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -86,12 +86,12 @@ func TestVerifyRunsOnlyOnLoad(t *testing.T) {
 		}
 		return nil
 	}
-	f := New("sample.json", []byte(`{"n":1,"name":"no art"}`), checkSample, refuse)
+	f := New("sample-verify.json", []byte(`{"n":1,"name":"no art"}`), checkSample, refuse)
 	t.Cleanup(f.Reset)
 	if f.Get().Name != "no art" {
 		t.Fatal("New must not run verify")
 	}
-	if err := f.LoadFrom(""); err == nil || !strings.Contains(err.Error(), "embedded data/sample.json") {
+	if err := f.LoadFrom(""); err == nil || !strings.Contains(err.Error(), "embedded data/sample-verify.json") {
 		t.Fatalf("LoadFrom(\"\") err = %v, want the embedded default refused by verify", err)
 	}
 }
