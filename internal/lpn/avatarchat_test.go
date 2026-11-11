@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -490,10 +491,10 @@ func avSend(t *testing.T, aid, room, text string) int64 {
 	return rep.result.(map[string]any)["msgSn"].(int64)
 }
 
-// TestAvatarChatRestartKeepsRoomsAndSerials: after a restart the pair keeps its room id, a new pair gets a new id, the next
-// serial is above every serial the old run issued, the old history is empty, and 1006 reports the saved serial. A room
-// outside the id block is refused at load.
-func TestAvatarChatRestartKeepsRoomsAndSerials(t *testing.T) {
+// TestAvatarChatRestartKeepsHistoryAndSerials: after a restart the pair keeps its room id, a new pair gets a new id, the
+// history is returned in full (the same rows as before), 1006 reports the newest serial, and the next serial is above every
+// serial the old run issued. Each send is one registry write. A room outside the id block is refused at load.
+func TestAvatarChatRestartKeepsHistoryAndSerials(t *testing.T) {
 	avSetup(t)
 	setAvatarFriends(t, [2]string{"9981", "9983"})
 	t.Cleanup(store.ResetChatRooms)
@@ -504,15 +505,31 @@ func TestAvatarChatRestartKeepsRoomsAndSerials(t *testing.T) {
 	if room != "1960000000" {
 		t.Fatalf("first room = %s", room)
 	}
+	before := store.ChatRoomWrites()
 	for _, text := range []string{"one", "two", "three"} {
 		avSend(t, "9981", room, text)
+	}
+	if n := store.ChatRoomWrites() - before; n != 3 {
+		t.Fatalf("%d registry writes for 3 sends, want 3", n)
+	}
+	history := func() []avatarChatRow {
+		t.Helper()
+		rep, _ := avatarChatCall(acGetMsgs, json.RawMessage(`{"roomId":"1960000000","startMsgSn":1,"endMsgSn":1000}`), 9981, true)
+		return rep.result.(map[string]any)["msgList"].([]avatarChatRow)
+	}
+	want := history()
+	if len(want) != 3 {
+		t.Fatalf("history before restart has %d rows, want 3", len(want))
 	}
 
 	avRestart(t, path)
 	rep, _ := avatarChatRoomInfo(room, 9981)
 	info := rep.result.(map[string]any)
-	if info["lastMsgSn"] != int64(100) || info["offsetMsgSn"] != int64(100) {
-		t.Fatalf("1006 after restart: lastMsgSn %v offsetMsgSn %v, want 100 and 100", info["lastMsgSn"], info["offsetMsgSn"])
+	if info["lastMsgSn"] != int64(3) || info["offsetMsgSn"] != int64(0) {
+		t.Fatalf("1006 after restart: lastMsgSn %v offsetMsgSn %v, want 3 and 0", info["lastMsgSn"], info["offsetMsgSn"])
+	}
+	if got := history(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("history after restart = %+v, want %+v", got, want)
 	}
 	if got := avOpen(t, "9981", "9982"); got != room {
 		t.Fatalf("same pair after restart got room %s, want %s", got, room)
@@ -520,12 +537,8 @@ func TestAvatarChatRestartKeepsRoomsAndSerials(t *testing.T) {
 	if other := avOpen(t, "9981", "9983"); other == room || other != "1960000001" {
 		t.Fatalf("new pair after restart got room %s", other)
 	}
-	rep, _ = avatarChatCall(acGetMsgs, json.RawMessage(`{"roomId":"1960000000","startMsgSn":1,"endMsgSn":3}`), 9981, true)
-	if rows := rep.result.(map[string]any)["msgList"].([]avatarChatRow); len(rows) != 0 {
-		t.Fatalf("old range after restart has %d rows, want 0", len(rows))
-	}
-	if sn := avSend(t, "9981", room, "four"); sn != 101 {
-		t.Fatalf("first send after restart msgSn = %d, want 101 (above 3 and the saved ceiling 100)", sn)
+	if sn := avSend(t, "9981", room, "four"); sn != 4 {
+		t.Fatalf("first send after restart msgSn = %d, want 4 (no gap)", sn)
 	}
 
 	bad := filepath.Join(t.TempDir(), "bad.json")
@@ -541,9 +554,9 @@ func TestAvatarChatRestartKeepsRoomsAndSerials(t *testing.T) {
 	}
 }
 
-// TestAvatarChatChunkSaves: 150 sends after the room is made cause exactly 2 registry writes (the first send reserves
-// serials 1-100, the 101st reserves 101-200), the serials are 1..150 with no gap, and the saved ceiling is 200.
-func TestAvatarChatChunkSaves(t *testing.T) {
+// TestAvatarChatSendSavesEachMessage: 150 sends cause 150 registry writes, the serials are 1..150 with no gap, and the saved
+// file holds the 150 messages with the newest serial as the room's Ceil.
+func TestAvatarChatSendSavesEachMessage(t *testing.T) {
 	avSetup(t)
 	t.Cleanup(store.ResetChatRooms)
 	path := filepath.Join(t.TempDir(), "chatrooms.json")
@@ -555,16 +568,56 @@ func TestAvatarChatChunkSaves(t *testing.T) {
 			t.Fatalf("send %d got msgSn %d", i, sn)
 		}
 	}
-	if n := store.ChatRoomWrites() - before; n != 2 {
-		t.Fatalf("%d registry writes for 150 sends, want 2", n)
+	if n := store.ChatRoomWrites() - before; n != 150 {
+		t.Fatalf("%d registry writes for 150 sends, want 150", n)
 	}
 	book, err := store.LoadChatRoomsFrom(path)
-	if err != nil || len(book.Rooms) != 1 || book.Rooms[0].Ceil != 200 {
-		t.Fatalf("saved registry = %+v (err %v), want one room with ceiling 200", book, err)
+	if err != nil || len(book.Rooms) != 1 || book.Rooms[0].Ceil != 150 || len(book.Rooms[0].Msgs) != 150 {
+		t.Fatalf("saved registry = %+v (err %v), want one room with newest serial 150 and 150 messages", book, err)
 	}
 }
 
-// TestAvatarChatAckClampAndSaves: an ack is clamped to the newest serial and kept in memory without a write; the next chunk
+// TestAvatarChatLoadOldAndBadFiles: a chatrooms.json from the chunked registry (no messages; the reserved ceiling in ceil)
+// loads: the room resumes at the ceiling, its acks are clamped, and its history is empty. A message that is out of order,
+// above the newest serial or from a non-member is refused at load.
+func TestAvatarChatLoadOldAndBadFiles(t *testing.T) {
+	avSetup(t)
+	t.Cleanup(store.ResetChatRooms)
+	dir := t.TempDir()
+	old := filepath.Join(dir, "old.json")
+	if err := os.WriteFile(old, []byte(`{"version":1,"nextId":1960000001,"rooms":[{"id":1960000000,"aids":["9981","9982"],"ceil":100,"acks":{"9982":500}}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	avRestart(t, old)
+	rep, _ := avatarChatRoomInfo("1960000000", 9981)
+	if info := rep.result.(map[string]any); info["lastMsgSn"] != int64(100) || info["peerAckMsgSn"] != int64(100) {
+		t.Fatalf("old room: lastMsgSn %v peerAckMsgSn %v, want 100 and 100 (the ack clamped)", info["lastMsgSn"], info["peerAckMsgSn"])
+	}
+	if sn := avSend(t, "9981", "1960000000", "x"); sn != 101 {
+		t.Fatalf("first send in an old room = msgSn %d, want 101", sn)
+	}
+
+	for name, msgs := range map[string]string{
+		"out of order": `{"sn":2,"sec":1,"sender":"9981","text":"b"},{"sn":1,"sec":1,"sender":"9981","text":"a"}`,
+		"above ceil":   `{"sn":3,"sec":1,"sender":"9981","text":"c"}`,
+		"non-member":   `{"sn":1,"sec":1,"sender":"9983","text":"x"}`,
+	} {
+		bad := filepath.Join(dir, "bad.json")
+		body := fmt.Sprintf(`{"version":1,"nextId":1960000001,"rooms":[{"id":1960000000,"aids":["9981","9982"],"ceil":2,"msgs":[%s]}]}`, msgs)
+		if err := os.WriteFile(bad, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		book, err := store.LoadChatRoomsFrom(bad)
+		if err != nil {
+			t.Fatalf("%s: load: %v", name, err)
+		}
+		if err := avatarChatRestore(book); err == nil {
+			t.Errorf("%s: message accepted at load", name)
+		}
+	}
+}
+
+// TestAvatarChatAckClampAndSaves: an ack is clamped to the newest serial and kept in memory without a write; the next send's
 // save writes it, and after a restart it is still there.
 func TestAvatarChatAckClampAndSaves(t *testing.T) {
 	avSetup(t)
@@ -593,18 +646,19 @@ func TestAvatarChatAckClampAndSaves(t *testing.T) {
 	for i := 2; i <= 101; i++ {
 		avSend(t, "9981", room, "m")
 	}
-	if store.ChatRoomWrites() != before+1 {
-		t.Fatalf("writes after the next chunk = %d, want %d", store.ChatRoomWrites(), before+1)
+	if store.ChatRoomWrites() != before+100 {
+		t.Fatalf("writes after 100 sends = %d, want %d", store.ChatRoomWrites(), before+100)
 	}
 	avRestart(t, path)
 	rep, _ = avatarChatRoomInfo(room, 9982)
-	if info := rep.result.(map[string]any); info["lastAckSn"] != int64(1) || info["lastMsgSn"] != int64(200) {
-		t.Fatalf("after restart Ben's 1006 lastAckSn %v lastMsgSn %v, want 1 and 200", info["lastAckSn"], info["lastMsgSn"])
+	if info := rep.result.(map[string]any); info["lastAckSn"] != int64(1) || info["lastMsgSn"] != int64(101) {
+		t.Fatalf("after restart Ben's 1006 lastAckSn %v lastMsgSn %v, want 1 and 101", info["lastAckSn"], info["lastMsgSn"])
 	}
 }
 
 // TestAvatarChatSaveFailureRefuses: when the registry cannot be written, the open is refused with no room and no id used,
-// and a send that needs a new chunk is refused with no serial used; once the write works, the same requests succeed.
+// and a send is refused with its message dropped (its serial stays taken, so it is never handed out again); once the write
+// works, the same requests succeed.
 func TestAvatarChatSaveFailureRefuses(t *testing.T) {
 	avSetup(t)
 	t.Cleanup(store.ResetChatRooms)
@@ -651,11 +705,11 @@ func TestAvatarChatSaveFailureRefuses(t *testing.T) {
 	blocked()
 	rep, _ := avatarChatCall(acSend, json.RawMessage(`{"roomId":"1960000000","msgType":1,"msg":"x"}`), 9981, true)
 	if rep.code != acInternal {
-		t.Fatalf("send needing a chunk with a failing save: code %d, want %d", rep.code, acInternal)
+		t.Fatalf("send with a failing save: code %d, want %d", rep.code, acInternal)
 	}
 	avatarChatMu.Lock()
-	if r := avatarChatRooms[1960000000]; r.lastSn != 0 || r.ceil != 0 {
-		t.Fatalf("failed send consumed a serial: lastSn %d ceil %d", r.lastSn, r.ceil)
+	if r := avatarChatRooms[1960000000]; r.lastSn != 1 || len(r.msgs) != 0 {
+		t.Fatalf("failed send left lastSn %d and %d messages, want 1 (serial kept taken) and 0", r.lastSn, len(r.msgs))
 	}
 	avatarChatMu.Unlock()
 
@@ -665,12 +719,12 @@ func TestAvatarChatSaveFailureRefuses(t *testing.T) {
 	if err := os.Mkdir(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if sn := avSend(t, "9981", room, "x"); sn != 1 {
-		t.Fatalf("send after the write works: msgSn %d, want 1", sn)
+	if sn := avSend(t, "9981", room, "x"); sn != 2 {
+		t.Fatalf("send after the write works: msgSn %d, want 2 (serial 1 was never sent)", sn)
 	}
 }
 
-// TestAvatarChatMemoryOnly: with no save target everything works (150 sends across two chunks) and nothing is written.
+// TestAvatarChatMemoryOnly: with no save target everything works (150 sends) and nothing is written.
 func TestAvatarChatMemoryOnly(t *testing.T) {
 	avSetup(t)
 	room := avOpen(t, "9981", "9982")

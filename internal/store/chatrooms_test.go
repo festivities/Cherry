@@ -22,6 +22,7 @@ func TestChatRoomStoreRoundTrip(t *testing.T) {
 
 	want := ChatRoomBook{NextID: 1960000002, Rooms: []ChatRoom{{
 		ID: 1960000001, Aids: [2]string{"9981", "9982"}, Ceil: 200, Acks: map[string]int64{"9981": 0, "9982": 7},
+		Msgs: []ChatMsg{{Sn: 199, Sec: 1700000000, Sender: "9981", Text: "hi"}, {Sn: 200, Sec: 1700000001, Sender: "9982", Text: "yo"}},
 	}}}
 	if err := SaveChatRooms(want); err != nil {
 		t.Fatalf("save: %v", err)

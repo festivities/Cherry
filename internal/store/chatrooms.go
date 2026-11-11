@@ -10,17 +10,29 @@ import (
 )
 
 // Chat rooms (1:1 friend chat, lpn/avatarchat.go): the room registry in %LOCALAPPDATA%\Cherry\chatrooms.json beside
-// circles.json. It holds only what must never repeat after a restart: each room's id and members, its serial ceiling and
-// each member's last ack, and the next room id. Message text is not stored. Absence means no rooms. The rules live in
-// lpn; this file only holds the registry and saves it.
+// circles.json. It holds each room's id and members, its newest serial and each member's last ack, the room's newest
+// messages, and the next room id. Absence means no rooms. The rules live in lpn; this file only holds the registry and
+// saves it, whole, on every change.
 
-// ChatRoom is one room. Aids are its two members in ascending order, as decimal strings. Ceil is the serial ceiling:
-// serials up to it are reserved. Acks maps each member's aid to its last acked serial.
+// ChatRoom is one room. Aids are its two members in ascending order, as decimal strings. Ceil is the room's newest serial
+// as of the save, so a restart resumes there (files from the chunked registry keep a serial ceiling in this field, which
+// a restart resumes at too). Acks maps each member's aid to its last acked serial. Msgs are the newest messages, oldest
+// first; a file without them loads with none.
 type ChatRoom struct {
 	ID   int64            `json:"id"`
 	Aids [2]string        `json:"aids"`
 	Ceil int64            `json:"ceil"`
 	Acks map[string]int64 `json:"acks,omitempty"`
+	Msgs []ChatMsg        `json:"msgs,omitempty"`
+}
+
+// ChatMsg is one stored message: its serial, unix seconds, sender aid (decimal string) and text. The text is private: it is
+// never logged.
+type ChatMsg struct {
+	Sn     int64  `json:"sn"`
+	Sec    int64  `json:"sec"`
+	Sender string `json:"sender"`
+	Text   string `json:"text"`
 }
 
 // ChatRoomBook is the whole registry: the next room id to hand out and the rooms.
