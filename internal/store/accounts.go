@@ -108,29 +108,7 @@ func LoadAccountsFrom(path string) error {
 			if id == "" || saved.AccessToken != id || saved.SessionKey == "" || parseErr != nil || aid > state.NextAvatarID {
 				return fmt.Errorf("invalid account record")
 			}
-			inventoryCodes := saved.InventoryCodes
-			if inventoryCodes == nil {
-				inventoryCodes = saved.ItemCodes
-			}
-			inventoryCopy := AppendUniqueItemCodes(nil, inventoryCodes)
-			byID[id] = &Account{
-				AccessToken: saved.AccessToken, SessionKey: saved.SessionKey, Mid: saved.Mid,
-				AvatarUserID: saved.AvatarUserID, Aid: saved.Aid, Name: saved.Name,
-				Gender: saved.Gender, Skin: saved.Skin, Country: saved.Country,
-				ItemCodes: saved.ItemCodes, InventoryCodes: inventoryCopy,
-				RoomItems: saved.RoomItems, NextRoomSeq: roomNextSeq(saved.RoomItems, saved.NextRoomSeq), Rooms: saved.Rooms, Presets: saved.Presets, Pets: saved.Pets,
-				Gems: max(saved.Gems, 0), Cash: max(saved.Cash, 0), FaceTickets: max(saved.FaceTickets, 0), Welcomed: saved.Welcomed,
-				AttendDay: saved.AttendDay, AttendKey: saved.AttendKey, Mail: saved.Mail, NextMailSeq: saved.NextMailSeq,
-				ProfileImage: derefProfile(saved.ProfileImage), Quests: saved.Quests, Fishing: saved.Fishing,
-				FishCaught: saved.FishCaught, Gear: saved.Gear, BossCoins: max(saved.BossCoins, 0), BossTries: saved.BossTries,
-				BossCaught: saved.BossCaught, BossBook: saved.BossBook, Hearts: saved.Hearts, PaidPrices: saved.PaidPrices,
-				Smiles: max(saved.Smiles, 0), GardenBag: saved.GardenBag, Gather: saved.Gather,
-				Atelier: saved.Atelier,
-				Racing:  saved.Racing, GardenMap: saved.GardenMap, Landscapes: saved.Landscapes,
-				Pins: saved.Pins, DiaryProfile: saved.DiaryProfile, Wishes: saved.Wishes, Butlers: saved.Butlers,
-				Dyes: saved.Dyes, DyeColors: saved.DyeColors, LuckySpinDay: saved.LuckySpinDay,
-				GuestCode: saved.GuestCode, Identity: saved.Identity, CodeHashes: saved.CodeHashes,
-			}
+			byID[id] = accountFromStored(saved)
 		}
 		for token, id := range state.Aliases {
 			acc := byID[id]
@@ -229,6 +207,34 @@ func StoredFrom(acc *Account) StoredAccount {
 		DiaryProfile: acc.DiaryProfile, Wishes: acc.Wishes, Butlers: acc.Butlers,
 		Dyes: acc.Dyes, DyeColors: acc.DyeColors, LuckySpinDay: acc.LuckySpinDay,
 		GuestCode: acc.GuestCode, Identity: acc.Identity, CodeHashes: acc.CodeHashes,
+	}
+}
+
+// accountFromStored is the in-memory account of one persisted record: the mapping LoadAccountsFrom applies, also used
+// by the cherry.db reads (dbaccounts.go).
+func accountFromStored(saved StoredAccount) *Account {
+	inventoryCodes := saved.InventoryCodes
+	if inventoryCodes == nil {
+		inventoryCodes = saved.ItemCodes
+	}
+	inventoryCopy := AppendUniqueItemCodes(nil, inventoryCodes)
+	return &Account{
+		AccessToken: saved.AccessToken, SessionKey: saved.SessionKey, Mid: saved.Mid,
+		AvatarUserID: saved.AvatarUserID, Aid: saved.Aid, Name: saved.Name,
+		Gender: saved.Gender, Skin: saved.Skin, Country: saved.Country,
+		ItemCodes: saved.ItemCodes, InventoryCodes: inventoryCopy,
+		RoomItems: saved.RoomItems, NextRoomSeq: roomNextSeq(saved.RoomItems, saved.NextRoomSeq), Rooms: saved.Rooms, Presets: saved.Presets, Pets: saved.Pets,
+		Gems: max(saved.Gems, 0), Cash: max(saved.Cash, 0), FaceTickets: max(saved.FaceTickets, 0), Welcomed: saved.Welcomed,
+		AttendDay: saved.AttendDay, AttendKey: saved.AttendKey, Mail: saved.Mail, NextMailSeq: saved.NextMailSeq,
+		ProfileImage: derefProfile(saved.ProfileImage), Quests: saved.Quests, Fishing: saved.Fishing,
+		FishCaught: saved.FishCaught, Gear: saved.Gear, BossCoins: max(saved.BossCoins, 0), BossTries: saved.BossTries,
+		BossCaught: saved.BossCaught, BossBook: saved.BossBook, Hearts: saved.Hearts, PaidPrices: saved.PaidPrices,
+		Smiles: max(saved.Smiles, 0), GardenBag: saved.GardenBag, Gather: saved.Gather,
+		Atelier: saved.Atelier,
+		Racing:  saved.Racing, GardenMap: saved.GardenMap, Landscapes: saved.Landscapes,
+		Pins: saved.Pins, DiaryProfile: saved.DiaryProfile, Wishes: saved.Wishes, Butlers: saved.Butlers,
+		Dyes: saved.Dyes, DyeColors: saved.DyeColors, LuckySpinDay: saved.LuckySpinDay,
+		GuestCode: saved.GuestCode, Identity: saved.Identity, CodeHashes: saved.CodeHashes,
 	}
 }
 

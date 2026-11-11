@@ -129,6 +129,8 @@ type Account struct {
 	GuestCode      string                // device uniqueCode bound by the guest login (GuestLogin); "" = none
 	Identity       string                // provider identity ("discord:<id>" or "dev-<name>"), discord and dev-fake modes (identity.go); "" = none
 	CodeHashes     []string              // SHA-256 hex of the uniqueCodes minted for Identity, oldest first, at most maxCodeHashes (identity.go)
+	DBID           int64                 // row id in cherry.db (dbaccounts.go, slice 8.3b); 0 = not written there yet
+	GuestCodeHash  string                // SHA-256 hex of the guest uniqueCode as the database keeps it; set when read back, GuestCode is "" then
 }
 
 // FishingGear is the Square fishing gear an account bought (economy/fishing_shop.go): the item IDs
