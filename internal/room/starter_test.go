@@ -1,6 +1,7 @@
 package room
 
 import (
+	"cherry/internal/testutil"
 	"os"
 	"path/filepath"
 	"slices"
@@ -82,7 +83,12 @@ func TestStarterOverrideGrantsOperatorCodes(t *testing.T) {
 		t.Fatalf("override: %v", err)
 	}
 	acc := &store.Account{Aid: "7101", AccessToken: "starter-test"}
-	if err := EnsureRoomLocked(acc); err != nil {
+	testutil.InstallAccounts(t, map[string]*store.Account{"starter-test": acc})
+	testutil.SetLab(t, "7101", false) // the starter file alone decides what it gets
+	store.AccountsMu.Lock()
+	err := EnsureRoomLocked(acc)
+	store.AccountsMu.Unlock()
+	if err != nil {
 		t.Fatal(err)
 	}
 	var got []string

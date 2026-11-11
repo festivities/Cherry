@@ -1,6 +1,7 @@
 package economy
 
 import (
+	"cherry/internal/testutil"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -53,16 +54,13 @@ func TestFishCatchRecordsBookAtCap(t *testing.T) {
 
 // The book is saved with the account, keyed by fish id.
 func TestFishCatchBookPersists(t *testing.T) {
-	dir := fishAccount(t, "9912", 0, nil)
+	fishAccount(t, "9912", 0, nil)
 	for i := 0; i < 2; i++ {
 		if _, ok := FishCatch("9912", ActiveFishing().normal[0], jstAt(11, 12, i)); !ok {
 			t.Fatal("catch failed")
 		}
 	}
-	b, err := os.ReadFile(filepath.Join(dir, "accounts.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	b := testutil.AccountRowText(t, "9912")
 	if !regexp.MustCompile(`"fishCaught":\{"4101":2\}`).Match(b) {
 		t.Fatalf("saved book missing: %s", b)
 	}
@@ -75,9 +73,7 @@ func TestFishCatchBookRollsBackWithSave(t *testing.T) {
 	if err := os.WriteFile(blocker, []byte("file, not a directory"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(blocker, "accounts.json")
-	store.AccountsMu.Unlock()
+	testutil.FailSaves(t)
 	if _, ok := FishCatch("9913", ActiveFishing().normal[0], jstAt(11, 12, 0)); ok {
 		t.Fatal("failed save reported ok")
 	}

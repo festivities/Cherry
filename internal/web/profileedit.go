@@ -128,7 +128,7 @@ func handleAvatarProfileSave(w http.ResponseWriter, r *http.Request) {
 		name = req.Name
 	}
 	acc.Name, acc.DiaryProfile = name, &next
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(nil, acc); err != nil {
 		acc.Name, acc.DiaryProfile = previousName, previous
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
@@ -248,7 +248,7 @@ func handleProfilePhotoSave(w http.ResponseWriter, r *http.Request) {
 	}
 	next.Photos = photos
 	acc.DiaryProfile = &next
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(nil, acc); err != nil {
 		acc.DiaryProfile = previous
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
@@ -315,7 +315,7 @@ func handleProfileIntroSave(w http.ResponseWriter, r *http.Request) {
 		next.StatusMessage, next.Photos = previous.StatusMessage, previous.Photos
 	}
 	acc.DiaryProfile = next
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(nil, acc); err != nil {
 		acc.DiaryProfile = previous
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return

@@ -1,10 +1,9 @@
 package web
 
 import (
+	"cherry/internal/testutil"
 	"encoding/json"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -13,23 +12,22 @@ import (
 
 // pinFixture: pin-me (1101) is the requester and friends pin-fr (1102, with a profile picture) on an
 // accepted friendship; pin-gone (1103) is deleted later in the test. The account store is file-backed.
-func pinFixture(t *testing.T) string {
+func pinFixture(t *testing.T) {
 	t.Helper()
 	me := &store.Account{AccessToken: "pin-me", SessionKey: "sk", Aid: "1101", Name: "Pina"}
 	fr := &store.Account{AccessToken: "pin-fr", SessionKey: "sk", Aid: "1102", Name: "Fumi",
 		ProfileImage: store.ProfileImage{Image: "/lineplay/pr/1102_1700000000", Bg: "profilebg/3.jpg"}}
 	gone := &store.Account{AccessToken: "pin-gone", SessionKey: "sk", Aid: "1103", Name: "Gone"}
 	installSocialTestAccounts(t, map[string]*store.Account{"pin-me": me, "pin-fr": fr, "pin-gone": gone})
-	path := filepath.Join(t.TempDir(), "accounts.json")
+	testutil.UseDatabase(t)
 	store.AccountsMu.Lock()
-	store.AccountStorePath, store.NextAvatarID, store.LatestAcc = path, 1103, me
+	store.NextAvatarID, store.LatestAcc = 1103, me
 	store.AccountsMu.Unlock()
 	store.ResetSocial()
 	t.Cleanup(store.ResetSocial)
 	store.SocialMu.Lock()
 	store.Friendships = []store.Friendship{{A: "1101", B: "1102", State: "accepted"}}
 	store.SocialMu.Unlock()
-	return path
 }
 
 func pinList(t *testing.T, token string) []pinRow {
@@ -50,7 +48,7 @@ func pinList(t *testing.T, token string) []pinRow {
 }
 
 func TestPinAddListDeleteRoundTrip(t *testing.T) {
-	path := pinFixture(t)
+	pinFixture(t)
 
 	if rec := socialTestRequestAs(t, "pin-me", http.MethodGet, "/v4/pin/list", ""); rec.Body.String() != `{"result":{"pinList":[]}}` {
 		t.Fatalf("empty pin list = %s", rec.Body.String())
@@ -83,17 +81,19 @@ func TestPinAddListDeleteRoundTrip(t *testing.T) {
 	if rec := serve(t, http.MethodGet, "/v4/pin/list"); rec.Code != http.StatusNotFound {
 		t.Errorf("pin list without session = %d, want 404", rec.Code)
 	}
-	saved, err := os.ReadFile(path)
-	if err != nil {
+	if err := store.ReloadAccounts(); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(saved), `"pins":["1102","1103","100000"]`) {
-		t.Errorf("accounts.json does not hold the pins: %s", saved)
+	store.AccountsMu.Lock()
+	pins := store.AccountByTokenLocked("pin-me").Pins
+	store.AccountsMu.Unlock()
+	if got := strings.Join(pins, ","); got != "1102,1103,100000" {
+		t.Errorf("reloaded pins = %s, want 1102,1103,100000", got)
 	}
 
 	// Delete Avatar: the deleted account vanishes from the requester's list at read time.
 	store.AccountsMu.Lock()
-	gone := store.Accounts["pin-gone"]
+	gone := store.AccountByTokenLocked("pin-gone")
 	store.AccountsMu.Unlock()
 	if err := deleteAccount(gone); err != nil {
 		t.Fatal(err)

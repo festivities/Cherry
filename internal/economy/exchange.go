@@ -243,7 +243,7 @@ func ExchangeBuy(aid string, id int64, now time.Time) (row ExchangeRow, balance 
 		return ExchangeRow{}, acc.BossCoins, false
 	}
 	acc.BossCoins = prev.BossCoins - row.Price
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(nil, acc); err != nil {
 		*acc = prev
 		log.Printf("cherry: square exchange save failed aid=%s row=%d err=%v", aid, id, err)
 		return ExchangeRow{}, acc.BossCoins, false

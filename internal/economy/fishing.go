@@ -186,12 +186,11 @@ func FishCatch(aid string, fish FishDef, now time.Time) (int64, bool) {
 		}
 		acc.Fishing = &store.FishingDay{Day: day, Gems: rec.Gems + credit}
 	}
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(lines, acc); err != nil {
 		*acc = prev
 		log.Printf("cherry: square fishing save failed aid=%s fish=%d err=%v", aid, fish.ID, err)
 		return 0, false
 	}
-	store.FlushLedgerLocked(lines)
 	return credit, true
 }
 

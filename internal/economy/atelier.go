@@ -458,11 +458,10 @@ func AtelierOpenDesign(aid string, design int64, now time.Time) (int64, AtelierS
 		return AtelierNotSmiles, snap
 	}
 	acc.Atelier = atelierRecord(acc, cur, at, d.ID)
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(lines, acc); err != nil {
 		*acc = prev
 		return AtelierSave, snap
 	}
-	store.FlushLedgerLocked(lines)
 	return AtelierOK, atelierSnapLocked(acc, a, now)
 }
 
@@ -495,7 +494,7 @@ func AtelierMakeMaterial(aid string, design, count int64, now time.Time) (int64,
 	cur, at := atelierStamina(acc, a, now)
 	acc.GardenBag = bag
 	acc.Atelier = atelierRecord(acc, cur-d.Stamina*count, at)
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(nil, acc); err != nil {
 		*acc = prev
 		return AtelierSave, snap
 	}
@@ -537,7 +536,7 @@ func AtelierMakeClothes(aid string, design int64, now time.Time) (int64, Atelier
 		*acc = prev
 		return AtelierInvalid, snap
 	}
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(nil, acc); err != nil {
 		*acc = prev
 		return AtelierSave, snap
 	}

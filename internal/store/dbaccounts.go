@@ -9,29 +9,26 @@ import (
 	"time"
 )
 
-// Account rows of cherry.db (accounts, tokens, the account part of meta, ledger). Access tokens and aliases reach the
-// database only as SHA-256 hex (CodeHash); so does the guest code. Every write takes the caller's transaction. Tokens
-// are insert-only: an alias is never pruned (AGENTS, "Tokens are stored in clear"), and a row read back has only hashes,
-// so a save never rewrites token rows.
+// Account rows of cherry.db: accounts, tokens, the account scalars of meta and the ledger. Access tokens and the guest
+// code reach the database only as SHA-256 hex (CodeHash). The writers are called by commitLocked (accounts.go) inside its
+// transaction; the readers take a Querier. Token rows are insert-only: an alias is never pruned.
 
-// AccountState is the account table as read back: the in-memory accounts (internal id order), the token hash -> account
-// index that replaces the clear-token map, the latest account and the next avatar id. The clear secrets are not in the
-// database: Account.AccessToken and Account.GuestCode are "" after a read, and Account.GuestCodeHash holds the hash.
-// ponytail: every account is read into RAM at start, as the JSON store does; load on demand when the table is too big.
+// AccountState is the account table as read back: the accounts in row order, the token hash -> account index, the latest
+// account and the next avatar id. The clear secrets are not in the database: Account.AccessToken and GuestCode are ""
+// after a read, and GuestCodeHash holds the hash.
+// ponytail: every account is read into RAM at start, as the JSON store did; load on demand when the table is too big.
 type AccountState struct {
 	Accounts     []*Account
 	ByToken      map[string]*Account // CodeHash of an access token or alias -> its account
 	Latest       *Account
 	NextAvatarID uint64
+	rowIDs       map[*Account]int64
 }
 
-// accountRow is what the accounts row of acc holds: the StoredFrom JSON without the clear access token and guest code,
-// its SHA-256, and the hash of the guest code (the clear one when set, else the hash read back earlier).
+// accountRow is the row of acc: the guest code hash, the data (the StoredFrom JSON) and the checksum of both. The
+// checksum is what the database keeps as data_hash and what the safety net compares.
 func accountRow(acc *Account) (guest, data, sum string, err error) {
-	s := StoredFrom(acc)
-	s.AccessToken = ""
-	s.GuestCode = ""
-	b, err := json.Marshal(s)
+	b, err := json.Marshal(StoredFrom(acc))
 	if err != nil {
 		return "", "", "", err
 	}
@@ -40,77 +37,60 @@ func accountRow(acc *Account) (guest, data, sum string, err error) {
 		guest = CodeHash(acc.GuestCode)
 	}
 	data = string(b)
-	return guest, data, CodeHash(data), nil
+	return guest, data, CodeHash(guest + "\n" + data), nil
 }
 
 // dbNow is the timestamp of the created, updated and last_used columns.
 func dbNow() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 
-// InsertAccountTx adds acc as a new row whose access token is ownToken, and sets acc.DBID. acc must not have a row yet.
-// If the transaction later fails, acc.DBID is stale: the caller drops the account.
-func InsertAccountTx(tx *sql.Tx, acc *Account, ownToken string) error {
-	if acc.DBID != 0 || ownToken == "" {
-		return errors.New("account row: a new account needs an access token and no row yet")
-	}
+// insertAccountRowTx writes the row of an account that has none and returns its id and checksum.
+func insertAccountRowTx(tx *sql.Tx, acc *Account) (int64, string, error) {
 	guest, data, sum, err := accountRow(acc)
 	if err != nil {
-		return err
+		return 0, "", err
 	}
 	now := dbNow()
 	res, err := tx.Exec(`INSERT INTO accounts (aid, name, identity, guest_code_hash, created, updated, data_hash, data)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, acc.Aid, acc.Name, acc.Identity, guest, now, now, sum, data)
 	if err != nil {
-		return err
+		return 0, "", err
 	}
 	id, err := res.LastInsertId()
-	if err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`INSERT INTO tokens (hash, account_id, kind, created, last_used) VALUES (?, ?, 'own', ?, '')`,
-		CodeHash(ownToken), id, now); err != nil {
-		return err
-	}
-	acc.DBID = id
-	return nil
+	return id, sum, err
 }
 
-// SaveAccountTx rewrites the row of an account that has one (acc.DBID) with its current fields.
+// updateAccountRowTx rewrites the row id with the current fields of acc and returns the checksum.
 // ponytail: one JSON column, so a save writes the whole account; split the column when the WAL numbers ask (PLAN P2).
-func SaveAccountTx(tx *sql.Tx, acc *Account) error {
-	if acc.DBID == 0 {
-		return errors.New("account row: the account has no row yet")
-	}
+func updateAccountRowTx(tx *sql.Tx, id int64, acc *Account) (string, error) {
 	guest, data, sum, err := accountRow(acc)
 	if err != nil {
-		return err
+		return "", err
 	}
 	res, err := tx.Exec(`UPDATE accounts SET aid = ?, name = ?, identity = ?, guest_code_hash = ?, updated = ?, data_hash = ?, data = ?
-		WHERE id = ?`, acc.Aid, acc.Name, acc.Identity, guest, dbNow(), sum, data, acc.DBID)
+		WHERE id = ?`, acc.Aid, acc.Name, acc.Identity, guest, dbNow(), sum, data, id)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if n, err := res.RowsAffected(); err != nil || n != 1 {
-		return errors.New("account row: missing")
+		return "", errors.New("account row: missing")
 	}
-	return nil
+	return sum, nil
 }
 
-// AddTokenTx adds token as an alias of acc (AV_AUTH). The token is stored as its hash only.
-func AddTokenTx(tx *sql.Tx, acc *Account, token string) error {
-	if acc.DBID == 0 || token == "" {
-		return errors.New("account token: needs an account row and a token")
+// addTokenRowTx writes the token row of a pending token of the account whose row is id. Only the hash is stored.
+func addTokenRowTx(tx *sql.Tx, id int64, p pendingToken) error {
+	kind := "alias"
+	if p.own {
+		kind = "own"
 	}
-	_, err := tx.Exec(`INSERT INTO tokens (hash, account_id, kind, created, last_used) VALUES (?, ?, 'alias', ?, '')`,
-		CodeHash(token), acc.DBID, dbNow())
+	_, err := tx.Exec(`INSERT INTO tokens (hash, account_id, kind, created, last_used) VALUES (?, ?, ?, ?, '')`,
+		p.hash, id, kind, dbNow())
 	return err
 }
 
-// DeleteAccountTx removes acc's row; its tokens go with it (ON DELETE CASCADE).
-func DeleteAccountTx(tx *sql.Tx, acc *Account) error {
-	if acc.DBID == 0 {
-		return errors.New("account row: the account has no row yet")
-	}
-	res, err := tx.Exec(`DELETE FROM accounts WHERE id = ?`, acc.DBID)
+// deleteAccountRowTx removes the row id; its tokens go with it (ON DELETE CASCADE).
+func deleteAccountRowTx(tx *sql.Tx, id int64) error {
+	res, err := tx.Exec(`DELETE FROM accounts WHERE id = ?`, id)
 	if err != nil {
 		return err
 	}
@@ -120,23 +100,18 @@ func DeleteAccountTx(tx *sql.Tx, acc *Account) error {
 	return nil
 }
 
-// SetAccountMetaTx stores the account scalars of the JSON envelope: nextAvatarId and the latest account (nil = none).
-// latest must already have its row.
-func SetAccountMetaTx(tx *sql.Tx, nextAvatarID uint64, latest *Account) error {
-	var latestID int64
-	if latest != nil {
-		latestID = latest.DBID
-	}
+// SetAccountMetaTx stores the account scalars of the store: nextAvatarId and the latest account's row id (0 = none).
+func SetAccountMetaTx(tx *sql.Tx, nextAvatarID uint64, latestID int64) error {
 	if err := setMetaTx(tx, "accounts.nextAvatarId", strconv.FormatUint(nextAvatarID, 10)); err != nil {
 		return err
 	}
 	return setMetaTx(tx, "accounts.latest", strconv.FormatInt(latestID, 10))
 }
 
-// ReadAccounts reads every account, its token hashes and the account scalars. A row whose data does not match its hash
-// is an error.
+// ReadAccounts reads every account, its token hashes and the account scalars. A row whose data does not match its
+// checksum is an error.
 func ReadAccounts(q Querier) (AccountState, error) {
-	st := AccountState{ByToken: map[string]*Account{}}
+	st := AccountState{ByToken: map[string]*Account{}, rowIDs: map[*Account]int64{}}
 	byID := map[int64]*Account{}
 	rows, err := q.Query(`SELECT id, guest_code_hash, data, data_hash FROM accounts ORDER BY id`)
 	if err != nil {
@@ -149,17 +124,17 @@ func ReadAccounts(q Querier) (AccountState, error) {
 		if err := rows.Scan(&id, &guest, &data, &sum); err != nil {
 			return st, err
 		}
-		if CodeHash(data) != sum {
-			return st, fmt.Errorf("account row %d: data does not match its hash", id)
+		if CodeHash(guest+"\n"+data) != sum {
+			return st, fmt.Errorf("account row %d: data does not match its checksum", id)
 		}
 		var saved StoredAccount
 		if err := json.Unmarshal([]byte(data), &saved); err != nil {
 			return st, fmt.Errorf("account row %d: %w", id, err)
 		}
 		acc := accountFromStored(saved)
-		acc.DBID = id
 		acc.GuestCodeHash = guest
 		byID[id] = acc
+		st.rowIDs[acc] = id
 		st.Accounts = append(st.Accounts, acc)
 	}
 	if err := rows.Err(); err != nil {
@@ -198,7 +173,7 @@ func ReadAccounts(q Querier) (AccountState, error) {
 	return st, err
 }
 
-// AppendLedgerTx appends the ledger lines (the lines of ledger.jsonl) to the ledger table, in order.
+// AppendLedgerTx appends the ledger lines to the ledger table, in order.
 func AppendLedgerTx(tx *sql.Tx, lines []LedgerLine) error {
 	if len(lines) == 0 {
 		return nil

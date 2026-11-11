@@ -133,7 +133,7 @@ func SetGardenMap(aid, stem string) error {
 	}
 	prev := acc.GardenMap
 	acc.GardenMap = stem
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(nil, acc); err != nil {
 		acc.GardenMap = prev
 		return err
 	}

@@ -585,7 +585,7 @@ func handleClosetItemsAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	store.AccountsMu.Lock()
-	acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]
+	acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
 	var codes []string
 	var paid map[string]int64            // copy-on-write, safe to read after unlock
 	var dyes map[string][]store.DyeColor // copy-on-write, safe to read after unlock
@@ -743,13 +743,8 @@ func handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		httpx.ServeNotFound(w)
 		return
 	}
-	token := store.RandomToken(256)
 	store.AccountsMu.Lock()
-	store.Accounts[token] = acc
-	err := store.SaveAccountsLocked()
-	if err != nil {
-		delete(store.Accounts, token)
-	}
+	token, err := store.MintAliasLocked(acc)
 	store.AccountsMu.Unlock()
 	if err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
@@ -765,18 +760,13 @@ func handleCheckSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	store.AccountsMu.Lock()
-	acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]
+	acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
 	if acc == nil {
 		store.AccountsMu.Unlock()
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
 		return
 	}
-	token := store.RandomToken(256)
-	store.Accounts[token] = acc
-	err := store.SaveAccountsLocked()
-	if err != nil {
-		delete(store.Accounts, token)
-	}
+	token, err := store.MintAliasLocked(acc)
 	store.AccountsMu.Unlock()
 	if err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
@@ -926,13 +916,12 @@ func handleCreateAvatar(w http.ResponseWriter, r *http.Request) {
 	}
 
 	store.AccountsMu.Lock()
-	acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]
+	acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
 	store.AccountsMu.Unlock()
 	if acc == nil {
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
 		return
 	}
-	token := store.RandomToken(256)
 	store.AccountsMu.Lock()
 	previous, previousID := *acc, store.NextAvatarID
 	if acc.Aid == "0" {
@@ -950,11 +939,11 @@ func handleCreateAvatar(w http.ResponseWriter, r *http.Request) {
 	acc.InventoryCodes = store.AppendUniqueItemCodes(store.AccountInventoryCodes(acc), itemCodes)
 	acc.ItemCodes = append([]string(nil), itemCodes...)
 	aid, sessionKey := acc.Aid, acc.SessionKey
-	store.Accounts[token] = acc
-	err = store.SaveAccountsLocked()
+	token := store.AddAliasLocked(acc)
+	err = store.SaveLocked(nil, acc)
 	if err != nil {
 		*acc, store.NextAvatarID = previous, previousID
-		delete(store.Accounts, token)
+		store.RemoveAliasLocked(token)
 	}
 	store.AccountsMu.Unlock()
 	if err != nil {
@@ -1032,7 +1021,7 @@ func handleAvatarSaveV2(w http.ResponseWriter, r *http.Request) {
 	}
 
 	store.AccountsMu.Lock()
-	acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]
+	acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
 	if acc == nil {
 		store.AccountsMu.Unlock()
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
@@ -1048,7 +1037,7 @@ func handleAvatarSaveV2(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
 	}
-	err = store.SaveAccountsLocked()
+	err = store.SaveLocked(nil, acc)
 	if err != nil {
 		*acc = previous
 		store.AccountsMu.Unlock()

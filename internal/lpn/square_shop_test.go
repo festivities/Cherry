@@ -196,9 +196,7 @@ func TestSquareFishShopSaveFailureKeepsGems(t *testing.T) {
 	if err := os.WriteFile(blocker, []byte("file, not a directory"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(blocker, "accounts.json") // MkdirAll fails: the parent is a file
-	store.AccountsMu.Unlock()
+	testutil.FailSaves(t)
 	status, gems := economy.BuyFishingItem(aidText, 9101)
 	if status != economy.FishBuyFailed || gems != 500 {
 		t.Fatalf("status=%d gems=%d, want failed and 500 unchanged", status, gems)

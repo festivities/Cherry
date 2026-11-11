@@ -99,10 +99,11 @@ func PrepareDBPath(path string, force bool) error {
 // loadDataDir runs the server's loaders on the files of dir (a missing file is an empty store) and copies the result out.
 func loadDataDir(dir string) (loadedDir, error) {
 	var in loadedDir
-	if err := LoadAccountsFrom(filepath.Join(dir, "accounts.json")); err != nil {
+	f, err := readAccountFile(filepath.Join(dir, "accounts.json"))
+	if err != nil {
 		return in, loadError("accounts.json", err)
 	}
-	in.accounts, in.latest, in.nextAvatarID = accountsSnapshot()
+	in.accounts, in.latest, in.nextAvatarID = f.byToken, f.latest, f.nextID
 	if err := LoadSocialFrom(filepath.Join(dir, "social.json")); err != nil {
 		return in, loadError("social.json", err)
 	}
@@ -142,21 +143,13 @@ func loadError(file string, err error) error {
 // resetStores puts back the process-wide stores that the loaders set.
 func resetStores() {
 	AccountsMu.Lock()
-	Accounts = make(map[string]*Account)
-	LatestAcc, NextAvatarID, AccountStorePath = nil, 0, ""
+	accountsByHash, accountList, accountRows, pendingTokens = map[string]*Account{}, nil, map[*Account]*rowState{}, nil
+	LatestAcc, NextAvatarID, database, savedLatest, savedNext = nil, 0, nil, nil, 0
 	AccountsMu.Unlock()
 	ResetSocial()
 	ResetCircles()
 	ResetTreasure()
 	ResetChatRooms()
-}
-
-func accountsSnapshot() (map[string]*Account, *Account, uint64) {
-	AccountsMu.Lock()
-	defer AccountsMu.Unlock()
-	m := make(map[string]*Account, len(Accounts))
-	maps.Copy(m, Accounts)
-	return m, LatestAcc, NextAvatarID
 }
 
 // socialSnapshot is social.json's content as SaveSocialLocked would write it.
@@ -260,21 +253,32 @@ func (in loadedDir) report() ImportReport {
 	return r
 }
 
+// writeAccountsTx writes the rows of the accounts with the same row writers the server saves with: one row per account,
+// then each of its tokens (the own one flagged as own), then the scalars.
 func writeAccountsTx(tx *sql.Tx, in loadedDir) error {
-	own := in.ownAccounts()
-	for _, acc := range own {
-		if err := InsertAccountTx(tx, acc, acc.AccessToken); err != nil {
+	tokens := make(map[*Account][]string, len(in.accounts))
+	for token, acc := range in.accounts {
+		tokens[acc] = append(tokens[acc], token)
+	}
+	ids := make(map[*Account]int64, len(in.accounts))
+	for _, acc := range in.ownAccounts() {
+		id, _, err := insertAccountRowTx(tx, acc)
+		if err != nil {
 			return err
 		}
-	}
-	for token, acc := range in.accounts {
-		if token != acc.AccessToken {
-			if err := AddTokenTx(tx, acc, token); err != nil {
+		ids[acc] = id
+		for _, token := range tokens[acc] {
+			p := pendingToken{acc: acc, hash: CodeHash(token), own: token == acc.AccessToken}
+			if err := addTokenRowTx(tx, id, p); err != nil {
 				return err
 			}
 		}
 	}
-	return SetAccountMetaTx(tx, in.nextAvatarID, in.latest)
+	var latestID int64
+	if in.latest != nil {
+		latestID = ids[in.latest]
+	}
+	return SetAccountMetaTx(tx, in.nextAvatarID, latestID)
 }
 
 // verifyDB reads the database back in one snapshot and compares it with the loaded stores.

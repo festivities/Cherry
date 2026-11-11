@@ -30,9 +30,7 @@ func butlerAccount(t *testing.T, aid string, cash, gems int64) string {
 	t.Helper()
 	testutil.InstallAccounts(t, map[string]*store.Account{"btok-" + aid: {AccessToken: "btok-" + aid, SessionKey: "sk", Aid: aid, Name: "Butler", Cash: cash, Gems: gems}})
 	dir := t.TempDir()
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(dir, "accounts.json")
-	store.AccountsMu.Unlock()
+	testutil.UseDatabase(t)
 	return dir
 }
 
@@ -51,7 +49,7 @@ func butlerState(t *testing.T, aid string) (cash, gems int64, book store.ButlerB
 // ledgerLines returns the raw lines of ledger.jsonl in dir.
 func ledgerLines(t *testing.T, dir string) []string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(dir, "ledger.jsonl"))
+	b, err := testutil.LedgerText(t)
 	if err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
@@ -78,9 +76,7 @@ func ledgerReasons(t *testing.T, dir string) []string {
 // writeLedger replaces ledger.jsonl in dir with lines.
 func writeLedger(t *testing.T, dir string, lines ...string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, "ledger.jsonl"), []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	testutil.WriteLedgerJSON(t, lines)
 }
 
 // cashLedgerLine is one ledger line of aid's Cash change at at.

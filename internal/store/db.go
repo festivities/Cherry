@@ -23,6 +23,7 @@ const dbPragmas = "_pragma=busy_timeout(5000)&_pragma=foreign_keys(ON)&_pragma=j
 type DB struct {
 	write *sql.DB
 	read  *sql.DB
+	path  string // the file it was opened from (StoreDirLocked)
 }
 
 // OpenDB opens the database at path, creating it if needed, and migrates it to the schema this build knows. A database
@@ -39,7 +40,7 @@ func OpenDB(path string) (*DB, error) {
 	}
 	// ponytail: one write connection, so writers queue in Go and never see SQLITE_BUSY; a second writer is not needed yet.
 	write.SetMaxOpenConns(1)
-	d := &DB{write: write}
+	d := &DB{write: write, path: path}
 	if err := write.Ping(); err != nil {
 		d.Close()
 		return nil, err
@@ -269,3 +270,6 @@ CREATE TABLE chat_messages (
 ) STRICT;
 CREATE INDEX chat_messages_room ON chat_messages(room_id, id);
 `
+
+// Path is the file the database was opened from.
+func (d *DB) Path() string { return d.path }

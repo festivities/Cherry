@@ -2,7 +2,6 @@ package lpn
 
 import (
 	"bytes"
-	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -77,9 +76,7 @@ func TestSquareFishingSpotEncoding(t *testing.T) {
 func fishingRoomAccount(t *testing.T, aid string, gems int64) *sqClient {
 	t.Helper()
 	testutil.InstallAccounts(t, map[string]*store.Account{"fish-" + aid: {AccessToken: "fish-" + aid, SessionKey: "sk", Aid: aid, Name: "Fisher", Gems: gems}})
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(t.TempDir(), "accounts.json")
-	store.AccountsMu.Unlock()
+	testutil.UseDatabase(t)
 	c := newSqClient(t, &squareRoom{}, 1)
 	n, err := strconv.ParseUint(aid, 10, 64)
 	if err != nil {

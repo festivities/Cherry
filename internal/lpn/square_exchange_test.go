@@ -1,7 +1,6 @@
 package lpn
 
 import (
-	"path/filepath"
 	"slices"
 	"testing"
 	"time"
@@ -18,9 +17,7 @@ func exchangeAccount(t *testing.T, aid string, coins int64, inventory []string) 
 	t.Helper()
 	testutil.InstallAccounts(t, map[string]*store.Account{"xtok-" + aid: {AccessToken: "xtok-" + aid, SessionKey: "sk", Aid: aid, Name: "Exch", BossCoins: coins, InventoryCodes: inventory}})
 	testutil.SetLab(t, aid, false)
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(t.TempDir(), "accounts.json")
-	store.AccountsMu.Unlock()
+	testutil.UseDatabase(t)
 }
 
 // exchangeAt fixes the economy clock (the office's event rows follow it) until the test ends.

@@ -1,8 +1,6 @@
 package lpn
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -20,9 +18,7 @@ func rideShopAccount(t *testing.T, aid string, points int64, inventory []string)
 		InventoryCodes: inventory, Racing: &store.RacingRecord{Points: points}}
 	testutil.InstallAccounts(t, map[string]*store.Account{"ride-" + aid: acc})
 	testutil.SetLab(t, aid, false)
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(t.TempDir(), "accounts.json")
-	store.AccountsMu.Unlock()
+	testutil.UseDatabase(t)
 }
 
 // rideShopBalances is aid's Ride Points, Gems and Cash.
@@ -174,9 +170,13 @@ func TestRideShopBuyCharges(t *testing.T) {
 		t.Fatalf("points = %d, want 0", points)
 	}
 
-	raw, err := os.ReadFile(filepath.Join(filepath.Dir(store.AccountStorePath), "ledger.jsonl"))
-	if err != nil || !strings.Contains(string(raw), `"currency":"ridePoints"`) || !strings.Contains(string(raw), "racingexchange:1 CUTO0018W") {
-		t.Fatalf("ledger %q: %v", raw, err)
+	lines, err := store.LedgerLines()
+	found := false
+	for _, l := range lines {
+		found = found || l.Currency == "ridePoints" && strings.Contains(l.Reason, "racingexchange:1 CUTO0018W")
+	}
+	if err != nil || !found {
+		t.Fatalf("ledger %+v: %v", lines, err)
 	}
 }
 

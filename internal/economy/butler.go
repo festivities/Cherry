@@ -1,14 +1,11 @@
 package economy
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -465,7 +462,7 @@ func ExpireButlers(aid string, now time.Time) ([]ButlerDef, error) {
 	}
 	prev := *acc
 	acc.Butlers = &next
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(nil, acc); err != nil {
 		*acc = prev
 		return nil, err
 	}
@@ -523,11 +520,10 @@ func HireButler(aid string, id, costType, employDays int64, wantFree bool, now t
 		return ButlerHired{}, ErrButlerRefused
 	}
 	acc.Butlers = &next
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(lines, acc); err != nil {
 		*acc = prev
 		return ButlerHired{}, err
 	}
-	store.FlushLedgerLocked(lines)
 	return ButlerHired{Butler: butler, Hire: h, Price: price, Free: free}, nil
 }
 
@@ -546,7 +542,7 @@ func SetButlerChief(aid string, id int64, now time.Time) error {
 	book.Leader = id
 	prev := *acc
 	acc.Butlers = &book
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(nil, acc); err != nil {
 		*acc = prev
 		return err
 	}
@@ -607,7 +603,7 @@ func StartButlerGather(aid string, id int64, now time.Time, roll func(n int) int
 	next.Day, next.Gems, next.Gathers = day, gems+rec.Gems, gathers+1
 	prev := *acc
 	acc.Butlers = &next
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(nil, acc); err != nil {
 		*acc = prev
 		return store.ButlerGather{}, err
 	}
@@ -685,11 +681,10 @@ func butlerPayLocked(acc *store.Account, book store.ButlerBook, rec store.Butler
 	}
 	acc.GardenBag = bag
 	acc.Butlers = &book
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(lines, acc); err != nil {
 		*acc = prev
 		return err
 	}
-	store.FlushLedgerLocked(lines)
 	return nil
 }
 
@@ -698,23 +693,16 @@ type butlerDebit struct {
 	at, amount int64
 }
 
-// butlerHireDebits reads the butler hire charges of every account from ledger.jsonl next to the account store, by
+// butlerHireDebits reads the butler hire charges of every account from the ledger table, by
 // account and butler id. A missing ledger has none.
 func butlerHireDebits() (map[string]map[int64][]butlerDebit, error) {
 	out := map[string]map[int64][]butlerDebit{}
-	if store.AccountStorePath == "" {
-		return out, nil
-	}
-	raw, err := os.ReadFile(filepath.Join(filepath.Dir(store.AccountStorePath), "ledger.jsonl"))
-	if errors.Is(err, fs.ErrNotExist) {
-		return out, nil
-	}
+	lines, err := store.LedgerLines()
 	if err != nil {
 		return nil, err
 	}
-	for _, line := range strings.Split(string(raw), "\n") {
-		var l store.LedgerLine
-		if json.Unmarshal([]byte(line), &l) != nil || l.Currency != "cash" || l.Delta >= 0 {
+	for _, l := range lines {
+		if l.Currency != "cash" || l.Delta >= 0 {
 			continue
 		}
 		rest, ok := strings.CutPrefix(l.Reason, "butler:hire:")
@@ -773,7 +761,7 @@ func MigrateButlerRoster(now time.Time) error {
 		}
 	}
 	seen := map[*store.Account]bool{} // token aliases share one account
-	for _, acc := range store.Accounts {
+	for _, acc := range store.AllAccountsLocked() {
 		if seen[acc] || acc.Butlers == nil {
 			seen[acc] = true
 			continue
@@ -828,10 +816,13 @@ func MigrateButlerRoster(now time.Time) error {
 	if len(changes) == 0 {
 		return nil
 	}
-	if err := store.SaveAccountsLocked(); err != nil {
+	named := make([]*store.Account, 0, len(changes))
+	for _, c := range changes {
+		named = append(named, c.acc)
+	}
+	if err := store.SaveLocked(lines, named...); err != nil {
 		restore()
 		return err
 	}
-	store.FlushLedgerLocked(lines)
 	return nil
 }

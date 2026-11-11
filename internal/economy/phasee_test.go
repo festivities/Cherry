@@ -7,8 +7,6 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -240,13 +238,7 @@ func TestMailItemReceiveRollsBack(t *testing.T) {
 	phaseEClock(t, time.Date(2026, time.October, 25, 6, 30, 0, 0, jst))
 	acc, _ := phaseEAccount(t, 5, nil)
 	seq := phaseEAddItemMail(t, acc, phaseEClothing)
-	store.AccountsMu.Lock()
-	blocker := filepath.Join(t.TempDir(), "blocker") // a file where the store directory should be: MkdirAll fails
-	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	store.AccountStorePath = filepath.Join(blocker, "accounts.json")
-	store.AccountsMu.Unlock()
+	testutil.FailSaves(t)
 	rec := phaseECall(t, http.MethodPost, "/v4/postbox/receive/"+strconv.FormatInt(seq, 10), "", "ptok")
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("receive = %d %s, want 500", rec.Code, rec.Body.String())

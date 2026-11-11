@@ -445,7 +445,7 @@ func spinFreeChance(r *http.Request, g SpinGame) int {
 	}
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
-	acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]
+	acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
 	if acc == nil || acc.LuckySpinDay == AttendDayKey(spinNow()) {
 		return 0
 	}
@@ -527,7 +527,7 @@ func handleSpinPlay(w http.ResponseWriter, r *http.Request) {
 
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
-	acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]
+	acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
 	if acc == nil {
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
 		return
@@ -590,12 +590,11 @@ func handleSpinPlay(w http.ResponseWriter, r *http.Request) {
 	if useFree {
 		acc.LuckySpinDay = day
 	}
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(lines, acc); err != nil {
 		*acc = previous
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
 	}
-	store.FlushLedgerLocked(lines)
 
 	p := spinPrizeOf(slot)
 	hist := spinHistory{RewardNo: spinRewardNo(spinKey(jackpot, tier), idx+1), GetImagePath: p.picture, RewardType: p.rewardType,

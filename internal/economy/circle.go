@@ -401,7 +401,7 @@ type CircleModifyRequest struct {
 func circleTx(token string, write bool, op func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error)) error {
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
-	return circleTxLocked(store.Accounts[token], write, op)
+	return circleTxLocked(store.AccountByTokenLocked(token), write, op)
 }
 
 // circleTxAid is circleTx for an avatar id (the LPN side has no token).
@@ -438,13 +438,12 @@ func circleTxLocked(acc *store.Account, write bool, op func(acc *store.Account, 
 	}
 	store.CircleState = next
 	if len(lines) > 0 {
-		if err := store.SaveAccountsLocked(); err != nil {
+		if err := store.SaveLocked(lines, acc); err != nil {
 			*acc = prevAcc
 			store.CircleState = prevBook
 			_ = store.SaveCirclesLocked(prevBook)
 			return err
 		}
-		store.FlushLedgerLocked(lines)
 	}
 	return nil
 }

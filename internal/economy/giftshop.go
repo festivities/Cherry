@@ -242,11 +242,10 @@ func HandleGiftSend(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(lines, acc, recv); err != nil {
 		*acc, *recv = prevSender, prevRecv
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
 	}
-	store.FlushLedgerLocked(lines)
 	httpx.WriteJSON(w, http.StatusOK, fmt.Sprintf(`{"result":{"balance":%d,"balanceUnit":"GEM"}}`, acc.Gems))
 }

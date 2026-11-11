@@ -2,6 +2,7 @@ package lpn
 
 import (
 	"bytes"
+	"cherry/internal/testutil"
 	"encoding/binary"
 	"io"
 	"log"
@@ -368,10 +369,7 @@ func TestSquareInvalidLogin(t *testing.T) {
 }
 
 func TestSquareSelfAvatarInfo(t *testing.T) {
-	store.AccountsMu.Lock()
-	store.Accounts["sq-test"] = &store.Account{Aid: "9001", Name: "Mia", Gender: "MALE", ItemCodes: []string{"CUON004TV", "UNKNOWN01"}}
-	store.AccountsMu.Unlock()
-	defer func() { store.AccountsMu.Lock(); delete(store.Accounts, "sq-test"); store.AccountsMu.Unlock() }()
+	testutil.InstallAccounts(t, map[string]*store.Account{"sq-test": {Aid: "9001", Name: "Mia", Gender: "MALE", ItemCodes: []string{"CUON004TV", "UNKNOWN01"}}})
 
 	want := pbLen(nil, 1, []byte("9001"))
 	want = pbLen(want, 3, []byte("Mia"))

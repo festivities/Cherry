@@ -249,7 +249,7 @@ func HandleFaceShopData(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	store.AccountsMu.Lock()
-	acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]
+	acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
 	gender := ""
 	if acc != nil {
 		gender = acc.Gender
@@ -392,7 +392,7 @@ func HandleFaceShopPurchase(w http.ResponseWriter, r *http.Request) {
 	}
 
 	store.AccountsMu.Lock()
-	acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]
+	acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
 	if acc == nil {
 		store.AccountsMu.Unlock()
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
@@ -456,7 +456,7 @@ func HandleFaceShopPurchase(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if skin != "" && !sameSkin(skin, current) {
-		acc.Skin = skin // before SaveAccountsLocked, so the rollback below restores it too
+		acc.Skin = skin // before SaveLocked, so the rollback below restores it too
 	}
 	// replace: the code each changed slot wears now ("" = the default base, so the stored item is dropped).
 	replace := maps.Clone(faces)
@@ -498,13 +498,12 @@ func HandleFaceShopPurchase(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	acc.ItemCodes = equipped
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(lines, acc); err != nil {
 		*acc = previous
 		store.AccountsMu.Unlock()
 		httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
 		return
 	}
-	store.FlushLedgerLocked(lines)
 	coin, cash := int(acc.Gems), int(acc.Cash)
 	info := store.AvatarInfoForAccount(store.AccountSnapshot{
 		Aid: acc.Aid, Name: acc.Name, Gender: acc.Gender, Skin: acc.Skin,

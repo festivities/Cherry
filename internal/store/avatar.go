@@ -57,7 +57,7 @@ func AvatarOutfitSkips(gender, code string) bool {
 
 // SetAvatarOutfitLocked replaces acc's equipped codes with outfit under save/v2's rules: the skipped codes (AvatarOutfitSkips)
 // are dropped and every other code must be owned. An outfit that names an unowned code changes nothing. It does not save:
-// the caller holds AccountsMu, calls SaveAccountsLocked and puts *acc back when that fails.
+// the caller holds AccountsMu, calls SaveLocked and puts *acc back when that fails.
 func SetAvatarOutfitLocked(acc *Account, outfit []string) error {
 	owned := AccountOwnedCodes(acc)
 	kept := make([]string, 0, len(outfit))

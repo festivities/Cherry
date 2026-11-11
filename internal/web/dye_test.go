@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"image/png"
 	"net/http"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -41,8 +40,8 @@ func dyeSetup(t *testing.T, gems int64, inventory, equipped []string, dyes map[s
 	installSocialTestAccounts(t, map[string]*store.Account{dyeToken: acc})
 	setLab(t, dyeAID, false)
 	dir := t.TempDir()
+	testutil.UseDatabase(t)
 	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(dir, "accounts.json")
 	store.NextAvatarID = 9601
 	store.LatestAcc = acc
 	store.AccountsMu.Unlock()
@@ -194,7 +193,7 @@ func TestDyeBaseItemsAreOwnedDyeables(t *testing.T) {
 // TestDyeBuySpendsGems: one dye costs its catalog price in Gems, is added to the count and is logged; the reply carries the
 // new Gem total.
 func TestDyeBuySpendsGems(t *testing.T) {
-	acc, dir := dyeSetup(t, 150, nil, nil, nil)
+	acc, _ := dyeSetup(t, 150, nil, nil, nil)
 	rec := decorReq(t, dyeToken, http.MethodPost, "/v4/purchase/dye/item",
 		`{"deviceType":"android","coinUnit":"GEM","itemNo":9501,"itemCount":1,"price":100,"cpId":"avtplay"}`)
 	if rec.Code != http.StatusOK {
@@ -213,7 +212,7 @@ func TestDyeBuySpendsGems(t *testing.T) {
 	if gems != 50 || dyes["9501"] != 1 {
 		t.Fatalf("gems %d dyes %v", gems, dyes)
 	}
-	lines := readLedger(t, dir)
+	lines := readLedger(t)
 	if len(lines) != 1 || lines[0].Reason != "dye:buy:9501" || lines[0].Delta != -100 {
 		t.Fatalf("ledger = %+v", lines)
 	}
@@ -749,7 +748,7 @@ func TestBleachRefusals(t *testing.T) {
 
 // TestBleachBuysLikeADye: a bleach costs 60 Gems through purchase/dye/item and is logged as a dye purchase.
 func TestBleachBuysLikeADye(t *testing.T) {
-	acc, dir := dyeSetup(t, 60, nil, nil, nil)
+	acc, _ := dyeSetup(t, 60, nil, nil, nil)
 	rec := decorReq(t, dyeToken, http.MethodPost, "/v4/purchase/dye/item",
 		`{"deviceType":"android","coinUnit":"GEM","itemNo":9511,"itemCount":1,"price":60,"cpId":"avtplay"}`)
 	if rec.Code != http.StatusOK {
@@ -759,7 +758,7 @@ func TestBleachBuysLikeADye(t *testing.T) {
 	if gems != 0 || dyes["9511"] != 1 {
 		t.Fatalf("gems %d dyes %v", gems, dyes)
 	}
-	if lines := readLedger(t, dir); len(lines) != 1 || lines[0].Reason != "dye:buy:9511" || lines[0].Delta != -60 {
+	if lines := readLedger(t); len(lines) != 1 || lines[0].Reason != "dye:buy:9511" || lines[0].Delta != -60 {
 		t.Fatalf("ledger = %+v", lines)
 	}
 }

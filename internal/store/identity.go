@@ -8,8 +8,8 @@ import (
 )
 
 // Provider identities (CONTRACT §3, slice 8.6a). An identity ("discord:<id>" or "dev-<name>") is stored on its account
-// with the SHA-256 hashes of the uniqueCodes minted for it; a code itself is never stored. The fields ride in the
-// account record until slice 8.3b gives them tables.
+// with the SHA-256 hashes of the uniqueCodes minted for it; a code itself is never stored. The fields are columns of the
+// account row (identity, the data JSON).
 
 // maxCodeHashes bounds the codes one identity holds; minting a new one drops the oldest.
 const maxCodeHashes = 10
@@ -24,12 +24,12 @@ func CodeHash(code string) string {
 }
 
 // IdentityAccountLocked returns the account of a provider identity, or nil. Caller holds AccountsMu.
-// ponytail: linear scan; index by identity when the account table grows (slice 8.3b moves it to tables).
+// ponytail: linear scan; index by identity when the account table grows.
 func IdentityAccountLocked(identity string) *Account {
 	if identity == "" {
 		return nil
 	}
-	for _, acc := range Accounts {
+	for _, acc := range accountList {
 		if acc.Identity == identity {
 			return acc
 		}
@@ -54,14 +54,14 @@ func MintIdentityCode(identity, codeHash string) (aid string, isNew bool, err er
 		}
 		return created.Aid, true, nil
 	}
-	previous := acc.CodeHashes
-	hashes := append(append([]string(nil), previous...), codeHash)
+	prev := *acc
+	hashes := append(append([]string(nil), acc.CodeHashes...), codeHash)
 	if len(hashes) > maxCodeHashes {
 		hashes = hashes[len(hashes)-maxCodeHashes:]
 	}
 	acc.CodeHashes = hashes
-	if err := SaveAccountsLocked(); err != nil {
-		acc.CodeHashes = previous
+	if err := SaveLocked(nil, acc); err != nil {
+		*acc = prev
 		return "", false, err
 	}
 	return acc.Aid, acc.Aid == "0", nil
@@ -74,10 +74,10 @@ func CodeLogin(code string) (string, error) {
 	h := []byte(CodeHash(code))
 	AccountsMu.Lock()
 	defer AccountsMu.Unlock()
-	for _, acc := range Accounts {
+	for _, acc := range accountList {
 		for _, stored := range acc.CodeHashes {
 			if subtle.ConstantTimeCompare([]byte(stored), h) == 1 {
-				return aliasLocked(acc)
+				return loginAliasLocked(acc)
 			}
 		}
 	}

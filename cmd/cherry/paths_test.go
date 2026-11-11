@@ -25,7 +25,7 @@ func TestPathsFollowTwoFolders(t *testing.T) {
 	activate(config.Config{DataDir: data, CacheDir: cache, Gateway: ":20000"})
 
 	for name, load := range map[string]func() error{
-		"accounts":  store.LoadAccounts,
+		"accounts":  func() error { return openAccounts(data) },
 		"social":    store.LoadSocial,
 		"circles":   store.LoadCircles,
 		"treasure":  store.LoadTreasure,
@@ -35,8 +35,12 @@ func TestPathsFollowTwoFolders(t *testing.T) {
 			t.Fatalf("load %s: %v", name, err)
 		}
 	}
+	t.Cleanup(func() { store.CloseStore() })
+	store.AccountsMu.Lock()
+	dbDir := store.StoreDirLocked()
+	store.AccountsMu.Unlock()
 	state := map[string]string{
-		"accounts.json":  store.AccountStorePath,
+		"cherry.db":      filepath.Join(dbDir, store.DBFileName),
 		"social.json":    store.SocialStorePath,
 		"circles.json":   store.CirclesStorePath,
 		"treasure.json":  store.TreasureStorePath,

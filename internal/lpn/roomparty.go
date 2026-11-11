@@ -1132,7 +1132,7 @@ func randomRoomHost(exclude string) (string, bool) {
 	defer store.AccountsMu.Unlock()
 	seen := map[string]bool{}
 	var aids []string
-	for _, acc := range store.Accounts {
+	for _, acc := range store.AllAccountsLocked() {
 		if acc == nil || acc.Aid == exclude || acc.Aid == "0" || !store.ValidAvatarID(acc.Aid) || seen[acc.Aid] {
 			continue
 		}

@@ -155,7 +155,7 @@ func sessionAccount(body []byte) uint64 {
 	}
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
-	for _, acc := range store.Accounts {
+	for _, acc := range store.AllAccountsLocked() {
 		if acc.SessionKey == req.SessionKey {
 			aid, err := strconv.ParseUint(acc.Aid, 10, 64)
 			if err != nil {

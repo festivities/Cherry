@@ -288,7 +288,7 @@ func handleModelHouseBuy(w http.ResponseWriter, r *http.Request) {
 
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
-	acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]
+	acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
 	if acc == nil {
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
 		return
@@ -313,12 +313,11 @@ func handleModelHouseBuy(w http.ResponseWriter, r *http.Request) {
 		seq++
 	}
 	acc.RoomItems, acc.NextRoomSeq = items, seq
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(lines, acc); err != nil {
 		*acc = previous
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
 	}
-	store.FlushLedgerLocked(lines)
 	body, _ := json.Marshal(map[string]any{"result": map[string]any{
 		"balance": acc.Gems, "resultCode": 0, "buyItems": s.Elements}})
 	httpx.WriteJSON(w, http.StatusOK, string(body))

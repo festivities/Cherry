@@ -1,8 +1,8 @@
 package web
 
 import (
+	"cherry/internal/testutil"
 	"encoding/json"
-	"path/filepath"
 	"testing"
 
 	"cherry/internal/httpx"
@@ -87,18 +87,18 @@ func TestPetUnknownSession(t *testing.T) {
 func TestPetPersistence(t *testing.T) {
 	acc := &store.Account{AccessToken: "ptok", SessionKey: "k", Aid: "9203", Name: "P"}
 	installSocialTestAccounts(t, map[string]*store.Account{"ptok": acc})
+	testutil.UseDatabase(t)
 	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(t.TempDir(), "accounts.json")
 	store.NextAvatarID = 9203
 	store.AccountsMu.Unlock()
 	decorReq(t, "ptok", "POST", "/v4/pet/inven/change/represent", "[920303]")
-	if err := store.LoadAccountsFrom(store.AccountStorePath); err != nil {
+	if err := store.ReloadAccounts(); err != nil {
 		t.Fatal(err)
 	}
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
 	var got *store.Account
-	for _, a := range store.Accounts {
+	for _, a := range store.AllAccountsLocked() {
 		got = a
 	}
 	if got == nil || len(got.Pets) != len(room.PetShowcaseNums) {

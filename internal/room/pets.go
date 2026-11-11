@@ -63,7 +63,7 @@ func EnsurePetsLocked(acc *store.Account) error {
 	}
 	prev := acc.Pets
 	acc.Pets = pets
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(nil, acc); err != nil {
 		acc.Pets = prev
 		return err
 	}
@@ -83,7 +83,7 @@ func NewPetLocked(acc *store.Account, cd string) store.PetItem {
 // petAccount mirrors roomAccount: caller unlocks accountsMu iff non-nil.
 func petAccount(w http.ResponseWriter, r *http.Request) *store.Account {
 	store.AccountsMu.Lock()
-	acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]
+	acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
 	if acc == nil {
 		store.AccountsMu.Unlock()
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
@@ -101,7 +101,7 @@ func petAccount(w http.ResponseWriter, r *http.Request) *store.Account {
 func PetsOfAid(aid string) []store.PetItem {
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
-	for _, acc := range store.Accounts {
+	for _, acc := range store.AllAccountsLocked() {
 		if acc.Aid == aid {
 			if EnsurePetsLocked(acc) != nil {
 				return nil
@@ -229,7 +229,7 @@ func petSetRepresent(w http.ResponseWriter, r *http.Request, change bool) {
 	}
 	prev := acc.Pets
 	acc.Pets = pets
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(nil, acc); err != nil {
 		acc.Pets = prev
 		httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
 		return

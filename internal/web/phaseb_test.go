@@ -1,9 +1,9 @@
 package web
 
 import (
+	"cherry/internal/testutil"
 	"encoding/json"
 	"net/http/httptest"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -99,7 +99,7 @@ func TestAttendTodayInfoShapes(t *testing.T) {
 }
 
 func TestAttendCreditsOnceAndWraps(t *testing.T) {
-	acc, dir := ecoSetup(t, 0, 0, 0)
+	acc, _ := ecoSetup(t, 0, 0, 0)
 	clock := setClock(t, day0)
 	attend := func() map[string]any {
 		code, out := ecoGet(t, "GET", "/v4/dailybonus/attend", "")
@@ -128,7 +128,7 @@ func TestAttendCreditsOnceAndWraps(t *testing.T) {
 	if r["attendable"] != false || r["todayCount"] != 1.0 || row0["attendYN"] != true {
 		t.Fatalf("after attend %v", r)
 	}
-	if l := readLedger(t, dir); len(l) != 1 || l[0].Delta != 90 || l[0].Reason != "daily login day 1" {
+	if l := readLedger(t); len(l) != 1 || l[0].Delta != 90 || l[0].Reason != "daily login day 1" {
 		t.Fatalf("ledger %+v", l)
 	}
 	// Days 2..7 on consecutive days, then wrap to day 1.
@@ -192,22 +192,20 @@ func TestAttendDayBoundaryAndMissedDays(t *testing.T) {
 }
 
 func TestAttendPersistsAndRollsBack(t *testing.T) {
-	acc, dir := ecoSetup(t, 0, 0, 0)
+	acc, _ := ecoSetup(t, 0, 0, 0)
 	setClock(t, day0)
 	ecoGet(t, "GET", "/v4/dailybonus/attend", "")
-	if err := store.LoadAccountsFrom(filepath.Join(dir, "accounts.json")); err != nil {
+	if err := store.ReloadAccounts(); err != nil {
 		t.Fatal(err)
 	}
 	store.AccountsMu.Lock()
-	got := store.Accounts["etok"]
+	got := store.AccountByTokenLocked("etok")
 	store.AccountsMu.Unlock()
 	if got == nil || got.AttendDay != 1 || got.AttendKey != economy.AttendDayKey(day0) || got.Gems != 90 {
 		t.Fatalf("reload %+v", got)
 	}
 	// A failing save leaves the account untouched.
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(dir, "no-such-dir", "x", "\x00bad")
-	store.AccountsMu.Unlock()
+	testutil.FailSaves(t)
 	setClock(t, day0.Add(24*time.Hour))
 	acc = got
 	if code, _ := ecoGet(t, "GET", "/v4/dailybonus/attend", ""); code != 500 || acc.Gems != 90 || acc.AttendDay != 1 {
@@ -262,7 +260,7 @@ func adminMail(t *testing.T, remote, body string) *httptest.ResponseRecorder {
 }
 
 func TestMailboxLifecycle(t *testing.T) {
-	acc, dir := ecoSetup(t, 10, 0, 0)
+	acc, _ := ecoSetup(t, 10, 0, 0)
 	clock := setClock(t, day0)
 	if _, out := ecoGet(t, "GET", "/v4/postbox/exist", ""); out["result"] != false {
 		t.Fatalf("empty exist %v", out)
@@ -356,16 +354,16 @@ func TestMailboxLifecycle(t *testing.T) {
 	if _, out := ecoGet(t, "GET", "/v4/postbox/exist", ""); out["result"] != false {
 		t.Fatalf("exist after %v", out)
 	}
-	l := readLedger(t, dir)
+	l := readLedger(t)
 	if len(l) != 2 || l[0].Reason != "mail receive 1" || l[0].Delta != 500 || l[1].Currency != "faceTickets" {
 		t.Fatalf("ledger %+v", l)
 	}
 	// Persisted.
-	if err := store.LoadAccountsFrom(filepath.Join(dir, "accounts.json")); err != nil {
+	if err := store.ReloadAccounts(); err != nil {
 		t.Fatal(err)
 	}
 	store.AccountsMu.Lock()
-	again := store.Accounts["etok"]
+	again := store.AccountByTokenLocked("etok")
 	store.AccountsMu.Unlock()
 	if again.NextMailSeq != 3 || len(again.Mail) != 0 || again.Gems != 510 {
 		t.Fatalf("reload %+v", again)
@@ -374,7 +372,7 @@ func TestMailboxLifecycle(t *testing.T) {
 }
 
 func TestMailboxExpiry(t *testing.T) {
-	acc, dir := ecoSetup(t, 0, 0, 0)
+	acc, _ := ecoSetup(t, 0, 0, 0)
 	clock := setClock(t, day0)
 	adminMail(t, "127.0.0.1:9", `{"aid":"9401","type":"gems","amount":100,"expiresDays":2}`)
 	adminMail(t, "127.0.0.1:9", `{"aid":"9401","type":"gems","amount":200,"expiresDays":10}`)
@@ -391,7 +389,7 @@ func TestMailboxExpiry(t *testing.T) {
 	if _, out := ecoGet(t, "GET", "/v4/postbox/exist", ""); out["result"] != false {
 		t.Fatal("all expired should clear the badge")
 	}
-	if l := readLedger(t, dir); len(l) != 0 {
+	if l := readLedger(t); len(l) != 0 {
 		t.Fatalf("ledger %+v", l)
 	}
 }
@@ -424,8 +422,11 @@ func TestAdminMailRulesAndAll(t *testing.T) {
 	acc, _ := ecoSetup(t, 0, 0, 0)
 	other := &store.Account{AccessToken: "o2", SessionKey: "sk", Aid: "9402", Name: "Two"}
 	store.AccountsMu.Lock()
-	store.Accounts["o2"] = other
+	addErr := store.AddAccountForTest("o2", other)
 	store.AccountsMu.Unlock()
+	if addErr != nil {
+		t.Fatal(addErr)
+	}
 	setClock(t, day0)
 	good := `{"aid":"9401","type":"gems","amount":5}`
 	for _, remote := range []string{"192.168.1.9:5000", "10.0.2.2:1", "garbage"} {

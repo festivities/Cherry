@@ -54,9 +54,7 @@ func racingAccount(t *testing.T, aid string, pets []store.PetItem) *sqClient {
 	t.Helper()
 	racingArchive(t)
 	testutil.InstallAccounts(t, map[string]*store.Account{"race-" + aid: {AccessToken: "race-" + aid, SessionKey: "sk", Aid: aid, Name: "Racer", Pets: pets}})
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(t.TempDir(), "accounts.json")
-	store.AccountsMu.Unlock()
+	testutil.UseDatabase(t)
 	c := newSqClient(t, &squareRoom{}, 1)
 	n, err := strconv.ParseUint(aid, 10, 64)
 	if err != nil {

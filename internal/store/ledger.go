@@ -1,11 +1,8 @@
 package store
 
 import (
-	"encoding/json"
 	"fmt"
-	"log"
-	"os"
-	"path/filepath"
+	"slices"
 	"time"
 )
 
@@ -31,6 +28,7 @@ func (e *BalanceError) Error() string {
 	return fmt.Sprintf("ledger: %s balance %d cannot change by %d", e.Currency, e.Balance, e.Delta)
 }
 
+// LedgerLine is one row of the ledger table: a balance change of one account, with the balance after it.
 type LedgerLine struct {
 	Time     string `json:"time"`
 	Aid      string `json:"aid"`
@@ -41,9 +39,9 @@ type LedgerLine struct {
 }
 
 // SpendLocked checks and applies d to acc's in-memory balances and returns the log
-// lines. It does not save: the caller (holding accountsMu) saves with the rest of its
-// mutation, restores `*acc = previous` on failure, and calls flushLedgerLocked after a
-// successful save. Nothing changes when an error is returned.
+// lines. It does not save: the caller (holding accountsMu) saves them with its mutation
+// through SaveLocked(lines, acc), restores `*acc = previous` on failure. Nothing changes
+// when an error is returned.
 func SpendLocked(acc *Account, d LedgerDeltas, reason string) ([]LedgerLine, error) {
 	names := [4]string{"gems", "cash", "faceTickets", "smiles"}
 	fields := [4]*int64{&acc.Gems, &acc.Cash, &acc.FaceTickets, &acc.Smiles}
@@ -66,52 +64,51 @@ func SpendLocked(acc *Account, d LedgerDeltas, reason string) ([]LedgerLine, err
 	return lines, nil
 }
 
-// FlushLedgerLocked appends lines to ledger.jsonl next to accounts.json. Call only
-// after the account save succeeded; a failure here is logged, never fatal.
-func FlushLedgerLocked(lines []LedgerLine) {
-	if len(lines) == 0 || AccountStorePath == "" {
-		return
-	}
-	var buf []byte
-	for _, l := range lines {
-		b, _ := json.Marshal(l)
-		buf = append(append(buf, b...), '\n')
-	}
-	path := filepath.Join(filepath.Dir(AccountStorePath), "ledger.jsonl")
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err == nil {
-		_, err = f.Write(buf)
-		if cerr := f.Close(); err == nil {
-			err = cerr
-		}
-	}
-	if err != nil {
-		log.Printf("cherry: ledger log write failed: %v", err)
-	}
-}
-
-// ApplyDeltasLocked is the standalone transaction: check, apply, save, roll back on a
-// save failure, then log. Caller holds accountsMu.
+// ApplyDeltasLocked is the standalone transaction: check, apply, save with its ledger lines, roll back when the save
+// fails. Caller holds accountsMu.
 func ApplyDeltasLocked(acc *Account, d LedgerDeltas, reason string) error {
 	prev := *acc
 	lines, err := SpendLocked(acc, d, reason)
 	if err != nil {
 		return err
 	}
-	if err := SaveAccountsLocked(); err != nil {
+	if err := SaveLocked(lines, acc); err != nil {
 		*acc = prev
 		return err
 	}
-	FlushLedgerLocked(lines)
 	return nil
 }
 
-// AccountByAidLocked finds an account by aid (aliases share one pointer).
+// AccountByAidLocked finds an account by aid. Caller holds AccountsMu.
 func AccountByAidLocked(aid string) *Account {
-	for _, a := range Accounts {
-		if a.Aid == aid {
-			return a
-		}
+	i := slices.IndexFunc(accountList, func(a *Account) bool { return a.Aid == aid })
+	if i < 0 {
+		return nil
 	}
-	return nil
+	return accountList[i]
+}
+
+// LedgerLines returns the ledger rows of the attached database in append order, none when the store is memory-only.
+// It takes AccountsMu itself: callers must not hold it.
+func LedgerLines() ([]LedgerLine, error) {
+	AccountsMu.Lock()
+	d := database
+	AccountsMu.Unlock()
+	if d == nil {
+		return nil, nil
+	}
+	var lines []LedgerLine
+	err := d.View(func(q Querier) error {
+		var err error
+		lines, err = ReadLedger(q)
+		return err
+	})
+	return lines, err
+}
+
+// AttachedDB returns the database the store saves to, or nil when it is memory-only. Tests and the lab tools use it.
+func AttachedDB() *DB {
+	AccountsMu.Lock()
+	defer AccountsMu.Unlock()
+	return database
 }

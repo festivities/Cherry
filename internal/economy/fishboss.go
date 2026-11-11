@@ -236,7 +236,7 @@ func BossTryStart(aid string, now time.Time) (int64, bool) {
 	}
 	prev := *acc
 	acc.BossTries = &store.BossDay{Day: day, Used: used + 1}
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(nil, acc); err != nil {
 		*acc = prev
 		log.Printf("cherry: square boss try save failed aid=%s err=%v", aid, err)
 		return bossLeft(limit, used), false
@@ -267,12 +267,11 @@ func BossReset(aid string, now time.Time) (int64, bool) {
 		return left, false
 	}
 	acc.BossTries = &store.BossDay{Day: day}
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(lines, acc); err != nil {
 		*acc = prev
 		log.Printf("cherry: square boss reset save failed aid=%s err=%v", aid, err)
 		return left, false
 	}
-	store.FlushLedgerLocked(lines)
 	return boss.MaxTries, true
 }
 
@@ -314,12 +313,11 @@ func BossFinish(aid string, caught bool, now time.Time) (gems, coins, balance in
 		counts[boss.Boss.ID]++
 		acc.BossCaught = counts
 	}
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(lines, acc); err != nil {
 		*acc = prev
 		log.Printf("cherry: square boss finish save failed aid=%s err=%v", aid, err)
 		return 0, 0, prev.BossCoins, false
 	}
-	store.FlushLedgerLocked(lines)
 	return gems, coins, acc.BossCoins, true
 }
 
@@ -356,11 +354,10 @@ func BossBookClaim(aid string) (ok bool) {
 	}
 	claimed[id] = true
 	acc.BossBook = claimed
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(lines, acc); err != nil {
 		*acc = prev
 		log.Printf("cherry: square boss book claim save failed aid=%s err=%v", aid, err)
 		return false
 	}
-	store.FlushLedgerLocked(lines)
 	return true
 }

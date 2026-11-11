@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"log"
 	"net"
-	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
@@ -20,9 +19,7 @@ import (
 func inviteAccounts(t *testing.T, entries map[string]*store.Account) {
 	t.Helper()
 	testutil.InstallAccounts(t, entries)
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(t.TempDir(), "accounts.json")
-	store.AccountsMu.Unlock()
+	testutil.UseDatabase(t)
 }
 
 // inviteeSession opens a :10123 session for the account with session key key, the way the client does: banner, hello,

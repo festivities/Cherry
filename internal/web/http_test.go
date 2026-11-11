@@ -6,6 +6,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/md5"
+	"database/sql"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -819,17 +820,12 @@ func TestAuthRoundTrip(t *testing.T) {
 }
 
 func TestAccountsSurviveRestart(t *testing.T) {
+	testutil.InstallAccounts(t, nil)
+	d := testutil.UseDatabase(t)
 	store.AccountsMu.Lock()
-	previousAccounts, previousLatest, previousID, previousPath := store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath
-	store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath = make(map[string]*store.Account), nil, 0, ""
+	store.NextAvatarID = 0
 	store.AccountsMu.Unlock()
-	t.Cleanup(func() {
-		store.AccountsMu.Lock()
-		store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath = previousAccounts, previousLatest, previousID, previousPath
-		store.AccountsMu.Unlock()
-	})
-	path := filepath.Join(t.TempDir(), "accounts.json")
-	if err := store.LoadAccountsFrom(path); err != nil {
+	if err := store.ReloadAccounts(); err != nil {
 		t.Fatal(err)
 	}
 	accessToken := guestGenerate(t)
@@ -846,10 +842,8 @@ func TestAccountsSurviveRestart(t *testing.T) {
 	}
 	rotated := avAuthValue(t, checkSession(t, oldToken))
 
-	store.AccountsMu.Lock()
-	store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath = make(map[string]*store.Account), nil, 0, ""
-	store.AccountsMu.Unlock()
-	if err := store.LoadAccountsFrom(path); err != nil {
+	testutil.ClearAccounts(t)
+	if err := store.ReloadAccounts(); err != nil {
 		t.Fatalf("reload: %v", err)
 	}
 	for _, token := range []string{oldToken, rotated, avAuthValue(t, created)} {
@@ -876,29 +870,21 @@ func TestAccountsSurviveRestart(t *testing.T) {
 	if err := json.Unmarshal(other.Body.Bytes(), &next); err != nil || next.Result == nil || next.Result.AvatarID == avatar.Result.AvatarID {
 		t.Fatalf("avatar ID reused after restart: %s, %v", other.Body.String(), err)
 	}
-	if err := os.WriteFile(path, []byte("corrupt"), 0600); err != nil {
+	raw, err := sql.Open("sqlite", d.Path())
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.LoadAccountsFrom(path); err == nil {
+	defer raw.Close()
+	if _, err := raw.Exec(`UPDATE accounts SET data = 'corrupt'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReloadAccounts(); err == nil {
 		t.Fatal("corrupt persisted accounts silently loaded")
 	}
 }
 
 func TestAccountStoreFailureDoesNotIssueCookie(t *testing.T) {
-	store.AccountsMu.Lock()
-	previousPath := store.AccountStorePath
-	store.AccountStorePath = filepath.Join(t.TempDir(), "missing", "accounts.json")
-	store.AccountsMu.Unlock()
-	t.Cleanup(func() {
-		store.AccountsMu.Lock()
-		store.AccountStorePath = previousPath
-		store.AccountsMu.Unlock()
-	})
-	// A regular file as parent forces MkdirAll to fail without touching a real store.
-	parent := filepath.Dir(store.AccountStorePath)
-	if err := os.WriteFile(parent, []byte("not a directory"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	testutil.FailSaves(t)
 	rec := serveRequest(t, guestRequest("00000000-0000-0000-0000-00000000fa11"))
 	if rec.Code != http.StatusInternalServerError || rec.Header().Get("Set-Cookie") != "" {
 		t.Fatalf("failed save returned credential: %d", rec.Code)
@@ -1157,17 +1143,16 @@ func TestStyleMagazineEmptyReply(t *testing.T) {
 }
 
 func TestAvatarSaveV2RoundTrip(t *testing.T) {
+	testutil.InstallAccounts(t, nil)
+	testutil.UseDatabase(t)
 	store.AccountsMu.Lock()
-	previousAccounts, previousLatest, previousID, previousPath := store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath
-	store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath = make(map[string]*store.Account), nil, 0, ""
+	store.NextAvatarID = 0
 	store.AccountsMu.Unlock()
 	t.Cleanup(func() {
 		store.AccountsMu.Lock()
-		store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath = previousAccounts, previousLatest, previousID, previousPath
 		store.AccountsMu.Unlock()
 	})
-	path := filepath.Join(t.TempDir(), "accounts.json")
-	if err := store.LoadAccountsFrom(path); err != nil {
+	if err := store.ReloadAccounts(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1267,10 +1252,11 @@ func TestAvatarSaveV2RoundTrip(t *testing.T) {
 		}
 	}
 
+	testutil.ClearAccounts(t)
 	store.AccountsMu.Lock()
-	store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath = make(map[string]*store.Account), nil, 0, ""
+	store.NextAvatarID = 0
 	store.AccountsMu.Unlock()
-	if err := store.LoadAccountsFrom(path); err != nil {
+	if err := store.ReloadAccounts(); err != nil {
 		t.Fatalf("reload account store: %v", err)
 	}
 	profile := serve(t, http.MethodGet, "/v4/avatar/"+createdAvatar.Result.AvatarID)
@@ -1658,13 +1644,12 @@ func TestSckeyWrapperCrossCheck(t *testing.T) {
 }
 
 func TestNewAvatarIDsAreMultiDigit(t *testing.T) {
+	testutil.InstallAccounts(t, nil)
 	store.AccountsMu.Lock()
-	previousAccounts, previousLatest, previousID, previousPath := store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath
-	store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath = make(map[string]*store.Account), nil, 0, ""
+	store.NextAvatarID = 0
 	store.AccountsMu.Unlock()
 	t.Cleanup(func() {
 		store.AccountsMu.Lock()
-		store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath = previousAccounts, previousLatest, previousID, previousPath
 		store.AccountsMu.Unlock()
 	})
 	token := avAuthValue(t, createSession(t, guestGenerate(t)))

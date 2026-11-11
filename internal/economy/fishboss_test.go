@@ -1,6 +1,7 @@
 package economy
 
 import (
+	"cherry/internal/testutil"
 	"image/png"
 	"net/http"
 	"net/http/httptest"
@@ -152,7 +153,7 @@ func bookAccount(t *testing.T, aid string) (coins int64, claimed bool) {
 // bookLedgerLines returns the ledger lines of the boss book reward (reason fishboss:book:<bossId>).
 func bookLedgerLines(t *testing.T, dir string) []string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(dir, "ledger.jsonl"))
+	b, err := testutil.LedgerText(t)
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -233,9 +234,7 @@ func TestFishBossBookClaimSaveFailureRollsBack(t *testing.T) {
 	if err := os.WriteFile(blocker, []byte("file, not a directory"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(blocker, "accounts.json") // MkdirAll fails: the parent is a file
-	store.AccountsMu.Unlock()
+	testutil.FailSaves(t)
 	if BossBookClaim("9908") {
 		t.Fatal("failed save reported a claim")
 	}
@@ -246,9 +245,7 @@ func TestFishBossBookClaimSaveFailureRollsBack(t *testing.T) {
 		t.Fatalf("rolled back Boss Coins %d, claimed %v; want 0, not claimed", coins, claimed)
 	}
 
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(t.TempDir(), "accounts.json")
-	store.AccountsMu.Unlock()
+	testutil.UseDatabase(t)
 	if !BossBookClaim("9908") {
 		t.Fatal("claim refused after the save works again")
 	}
@@ -270,9 +267,8 @@ func TestFishBossBookClaimSurvivesReload(t *testing.T) {
 		t.Fatal("claim refused")
 	}
 	store.AccountsMu.Lock()
-	path := store.AccountStorePath
 	store.AccountsMu.Unlock()
-	if err := store.LoadAccountsFrom(path); err != nil {
+	if err := store.ReloadAccounts(); err != nil {
 		t.Fatal(err)
 	}
 	if coins, claimed := bookAccount(t, "9909"); coins != ActiveFishBoss().BookReward.BossCoins || !claimed {

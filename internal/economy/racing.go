@@ -249,7 +249,7 @@ func RaceStart(aid string, now time.Time) (left int64, ok bool) {
 	rec.Used++
 	prev := *acc
 	acc.Racing = &rec
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(nil, acc); err != nil {
 		*acc = prev
 		log.Printf("cherry: square racing ticket save failed aid=%s err=%v", aid, err)
 		return limit - before, false
@@ -292,11 +292,10 @@ func RaceFinish(aid string, arrived bool, now time.Time) (out RaceOutcome, ok bo
 		}
 	}
 	acc.Racing = &rec
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(lines, acc); err != nil {
 		*acc = prev
 		log.Printf("cherry: square racing reward save failed aid=%s err=%v", aid, err)
 		return RaceOutcome{}, false
 	}
-	store.FlushLedgerLocked(lines)
 	return RaceOutcome{Before: before, After: raceStatus(acc, now), Gems: gems}, true
 }

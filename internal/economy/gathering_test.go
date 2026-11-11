@@ -21,9 +21,7 @@ func gatherAccount(t *testing.T, aid string, gems int64, gather *store.GatherDay
 	testutil.InstallAccounts(t, map[string]*store.Account{"gtok-" + aid: {AccessToken: "gtok-" + aid, SessionKey: "sk", Aid: aid, Name: "Gather", Gems: gems, Gather: gather}})
 	testutil.SetLab(t, aid, false)
 	dir := t.TempDir()
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(dir, "accounts.json")
-	store.AccountsMu.Unlock()
+	testutil.UseDatabase(t)
 	return dir
 }
 
@@ -149,7 +147,7 @@ func TestGatherCapsOwnAndFriendGardens(t *testing.T) {
 // TestGatherCreditRewardsAndLedger checks one gather: the material into the Bag, +3 Smiles, +2 Gems,
 // and one ledger line per currency with the gather reason.
 func TestGatherCreditRewardsAndLedger(t *testing.T) {
-	dir := gatherAccount(t, "9902", 100, nil)
+	_ = gatherAccount(t, "9902", 100, nil)
 	now := jstAt(11, 12, 0)
 	lim, gems, ok := GatherCredit("9902", "9902", GatherEssence, 210000, now)
 	if !ok || gems != 2 || lim.Rest != ActiveGathering().OwnCap-1 {
@@ -163,7 +161,7 @@ func TestGatherCreditRewardsAndLedger(t *testing.T) {
 		t.Fatalf("record = %+v", rec)
 	}
 
-	raw, err := os.ReadFile(filepath.Join(dir, "ledger.jsonl"))
+	raw, err := testutil.LedgerText(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,9 +231,7 @@ func TestGatherSaveFailureRollsBack(t *testing.T) {
 	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(blocker, "accounts.json")
-	store.AccountsMu.Unlock()
+	testutil.FailSaves(t)
 	if _, _, ok := GatherCredit("9904", "9904", GatherOre, 310000, jstAt(11, 12, 0)); ok {
 		t.Fatal("gather paid despite a failed save")
 	}
@@ -314,13 +310,12 @@ func TestGatherPersistRoundTrip(t *testing.T) {
 	acc.GardenBag = []store.GardenBagStack{{Item: 330000, Count: 4, Updated: 1234}, {Item: 110000, Count: 1, Updated: 5678}}
 	acc.Gather = &store.GatherDay{Day: 20470, Own: 7, Gardens: map[string]int64{"7001": 2}, Gems: 14}
 	store.NextAvatarID = 9999
-	err := store.SaveAccountsLocked()
-	path := store.AccountStorePath
+	err := store.SaveLocked(nil, acc)
 	store.AccountsMu.Unlock()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.LoadAccountsFrom(path); err != nil {
+	if err := store.ReloadAccounts(); err != nil {
 		t.Fatal(err)
 	}
 	g, s, bag, rec := gatherState(t, "9906")

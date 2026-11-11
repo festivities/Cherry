@@ -160,9 +160,7 @@ func atelierAccount(t *testing.T, aid string, smiles int64, bag []store.GardenBa
 	t.Helper()
 	testutil.InstallAccounts(t, map[string]*store.Account{"atok-" + aid: {AccessToken: "atok-" + aid, SessionKey: "sk", Aid: aid, Name: "Atelier", Smiles: smiles, GardenBag: bag, Atelier: atelier}})
 	testutil.SetLab(t, aid, false)
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(t.TempDir(), "accounts.json")
-	store.AccountsMu.Unlock()
+	testutil.UseDatabase(t)
 }
 
 func atelierBag(t *testing.T, aid string) map[int64]int64 {

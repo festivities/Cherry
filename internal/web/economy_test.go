@@ -1,7 +1,6 @@
 package web
 
 import (
-	"bufio"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -33,34 +32,22 @@ func ecoSetup(t *testing.T, gems, cash, tickets int64) (*store.Account, string) 
 	installSocialTestAccounts(t, map[string]*store.Account{"etok": acc})
 	setLab(t, "9401", false)
 	dir := t.TempDir()
+	testutil.UseDatabase(t)
 	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(dir, "accounts.json")
 	store.NextAvatarID = 9401
 	store.LatestAcc = acc
 	store.AccountsMu.Unlock()
 	return acc, dir
 }
 
-func readLedger(t *testing.T, dir string) []store.LedgerLine {
+// readLedger returns the ledger rows of the attached database, in order (none when the store is memory-only).
+func readLedger(t *testing.T) []store.LedgerLine {
 	t.Helper()
-	f, err := os.Open(filepath.Join(dir, "ledger.jsonl"))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
+	lines, err := store.LedgerLines()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
-	var out []store.LedgerLine
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		var l store.LedgerLine
-		if err := json.Unmarshal(sc.Bytes(), &l); err != nil {
-			t.Fatal(err)
-		}
-		out = append(out, l)
-	}
-	return out
+	return lines
 }
 
 func ecoGet(t *testing.T, method, target, body string) (int, map[string]any) {
@@ -72,7 +59,7 @@ func ecoGet(t *testing.T, method, target, body string) (int, map[string]any) {
 }
 
 func TestLedgerApplyOverdraftAndLog(t *testing.T) {
-	acc, dir := ecoSetup(t, 100, 5, 2)
+	acc, _ := ecoSetup(t, 100, 5, 2)
 	store.AccountsMu.Lock()
 	err := store.ApplyDeltasLocked(acc, store.LedgerDeltas{Gems: -40, FaceTickets: 3}, "test")
 	g, c, ft := acc.Gems, acc.Cash, acc.FaceTickets
@@ -95,20 +82,18 @@ func TestLedgerApplyOverdraftAndLog(t *testing.T) {
 	if !errors.As(err, &be) {
 		t.Fatalf("cap not enforced: %v", err)
 	}
-	lines := readLedger(t, dir)
+	lines := readLedger(t)
 	if len(lines) != 2 || lines[0].Currency != "gems" || lines[0].Delta != -40 || lines[0].Balance != 60 ||
 		lines[1].Currency != "faceTickets" || lines[1].Balance != 5 || lines[0].Aid != "9401" || lines[0].Reason != "test" || lines[0].Time == "" {
 		t.Fatalf("ledger = %+v", lines)
 	}
 	// Persisted additively and reloaded.
-	store.AccountsMu.Lock()
-	store.Accounts, store.LatestAcc = map[string]*store.Account{}, nil
-	store.AccountsMu.Unlock()
-	if err := store.LoadAccountsFrom(store.AccountStorePath); err != nil {
+	testutil.ClearAccounts(t)
+	if err := store.ReloadAccounts(); err != nil {
 		t.Fatal(err)
 	}
 	store.AccountsMu.Lock()
-	r := store.Accounts["etok"]
+	r := store.AccountByTokenLocked("etok")
 	store.AccountsMu.Unlock()
 	if r == nil || r.Gems != 60 || r.FaceTickets != 5 {
 		t.Fatalf("reloaded %+v", r)
@@ -116,29 +101,40 @@ func TestLedgerApplyOverdraftAndLog(t *testing.T) {
 }
 
 func TestLedgerSaveFailureRollsBackAndSkipsLog(t *testing.T) {
-	acc, dir := ecoSetup(t, 100, 0, 0)
-	blocker := filepath.Join(dir, "blocker")
-	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+	// The ledger line is written in the save's own transaction: when the save fails, memory is restored and no row is kept.
+	acc, _ := ecoSetup(t, 100, 0, 0)
+	d := testutil.UseDatabase(t)
+	if err := d.Close(); err != nil { // every save from now on fails
 		t.Fatal(err)
 	}
 	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(blocker, "accounts.json")
 	err := store.ApplyDeltasLocked(acc, store.LedgerDeltas{Gems: -10}, "x")
 	g := acc.Gems
 	store.AccountsMu.Unlock()
 	if err == nil || g != 100 {
 		t.Fatalf("err %v gems %d", err, g)
 	}
-	if l := readLedger(t, dir); l != nil {
-		t.Fatalf("logged after failed save: %v", l)
+	rd, err := store.OpenDB(d.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rd.Close()
+	var lines []store.LedgerLine
+	if err := rd.View(func(q store.Querier) error {
+		var err error
+		lines, err = store.ReadLedger(q)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(lines) != 0 {
+		t.Fatalf("logged after failed save: %v", lines)
 	}
 }
 
-func TestLedgerLogFailureIsNonFatal(t *testing.T) {
-	acc, dir := ecoSetup(t, 100, 0, 0)
-	if err := os.Mkdir(filepath.Join(dir, "ledger.jsonl"), 0o700); err != nil { // a directory: open fails
-		t.Fatal(err)
-	}
+func TestLedgerLineIsWrittenWithItsSave(t *testing.T) {
+	acc, _ := ecoSetup(t, 100, 0, 0)
+	testutil.UseDatabase(t)
 	store.AccountsMu.Lock()
 	err := store.ApplyDeltasLocked(acc, store.LedgerDeltas{Gems: -10}, "x")
 	g := acc.Gems
@@ -146,19 +142,42 @@ func TestLedgerLogFailureIsNonFatal(t *testing.T) {
 	if err != nil || g != 90 {
 		t.Fatalf("err %v gems %d", err, g)
 	}
+	lines := readLedger(t)
+	if len(lines) != 1 || lines[0].Reason != "x" || lines[0].Delta != -10 || lines[0].Balance != 90 {
+		t.Fatalf("ledger %+v", lines)
+	}
 }
 
 func TestOldStoreLoadsZeroBalances(t *testing.T) {
+	// A legacy accounts.json with no balances imports as zero balances; the server then reads them from the database.
 	ecoSetup(t, 0, 0, 0)
-	if err := os.WriteFile(store.AccountStorePath, []byte(`{"version":1,"accounts":{"etok":{"accessToken":"etok","sessionKey":"sk","aid":"9401","itemCodes":null,"inventoryCodes":null}},"aliases":{"etok":"etok"},"latest":"etok","nextAvatarId":9401}`), 0o600); err != nil {
+	restore, err := store.SwapAccountsForTest(nil)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.LoadAccountsFrom(store.AccountStorePath); err != nil {
+	t.Cleanup(restore)
+	dir := t.TempDir()
+	legacy := `{"version":1,"accounts":{"etok":{"accessToken":"etok","sessionKey":"sk","aid":"9401","itemCodes":null,"inventoryCodes":null}},"aliases":{"etok":"etok"},"latest":"etok","nextAvatarId":9401}`
+	if err := os.WriteFile(filepath.Join(dir, "accounts.json"), []byte(legacy), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	dbPath := filepath.Join(dir, store.DBFileName)
+	d, err := store.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ImportDir(d, dir); err != nil {
+		d.Close()
+		t.Fatal(err)
+	}
+	d.Close()
+	if err := store.OpenStore(dbPath); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.CloseStore() })
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
-	if a := store.Accounts["etok"]; a == nil || a.Gems != 0 || a.Cash != 0 || a.FaceTickets != 0 || a.Welcomed {
+	if a := store.AccountByTokenLocked("etok"); a == nil || a.Gems != 0 || a.Cash != 0 || a.FaceTickets != 0 || a.Welcomed {
 		t.Fatalf("loaded %+v", a)
 	}
 }
@@ -218,7 +237,7 @@ func TestBalanceRoutes(t *testing.T) {
 }
 
 func TestWelcomeGiftOnce(t *testing.T) {
-	acc, dir := ecoSetup(t, 0, 0, 0)
+	acc, _ := ecoSetup(t, 0, 0, 0)
 	_, out := ecoGet(t, "POST", "/v4/create/complete", `{"inviteCode":""}`)
 	r := out["result"].(map[string]any)
 	if r["status"] != true || r["rewardCoin"] != float64(300) || len(r) != 2 {
@@ -235,7 +254,7 @@ func TestWelcomeGiftOnce(t *testing.T) {
 	if g != 300 {
 		t.Fatalf("gems %d", g)
 	}
-	if l := readLedger(t, dir); len(l) != 1 || l[0].Reason != "welcome gift" || l[0].Delta != 300 {
+	if l := readLedger(t); len(l) != 1 || l[0].Reason != "welcome gift" || l[0].Delta != 300 {
 		t.Fatalf("ledger %+v", l)
 	}
 	if rec := decorReq(t, "etok", "GET", "/v4/create/complete", ""); rec.Code != 404 {
@@ -248,14 +267,14 @@ func TestWelcomeGiftOnce(t *testing.T) {
 }
 
 func TestFaceTicketConsumeAndInsufficient(t *testing.T) {
-	acc, dir := ecoSetup(t, 0, 0, 1)
+	acc, _ := ecoSetup(t, 0, 0, 1)
 	acc.ItemCodes, acc.InventoryCodes = []string{"CUEY00002"}, []string{"CUEY00002"}
 	body := `{"saveItemList":[{"itemCode":"CUEY0030Q"}],"useVoucher":"true"}`
 	rec := decorReq(t, "etok", "POST", faceShopPurchaseURL, body)
 	if rec.Code != 200 || acc.FaceTickets != 0 {
 		t.Fatalf("buy: %d %s tickets %d", rec.Code, rec.Body, acc.FaceTickets)
 	}
-	if l := readLedger(t, dir); len(l) != 1 || l[0].Currency != "faceTickets" || l[0].Delta != -1 || l[0].Balance != 0 {
+	if l := readLedger(t); len(l) != 1 || l[0].Currency != "faceTickets" || l[0].Delta != -1 || l[0].Balance != 0 {
 		t.Fatalf("ledger %+v", l)
 	}
 	// No ticket left: clean error, no face granted or equipped.
@@ -274,7 +293,7 @@ func TestFaceTicketConsumeAndInsufficient(t *testing.T) {
 }
 
 func TestTicketShopListAndPurchase(t *testing.T) {
-	acc, dir := ecoSetup(t, 700, 0, 0)
+	acc, _ := ecoSetup(t, 700, 0, 0)
 	_, out := ecoGet(t, "GET", "/v4/voucher/product/list/faceshop?isOnlyGemProduct=true", "")
 	rows := out["result"].([]any)
 	if len(rows) != 2 {
@@ -319,7 +338,7 @@ func TestTicketShopListAndPurchase(t *testing.T) {
 	if code, _ = buy(`{"coinUnit":"GEM","productCode":"FSV1","price":150}`); code != 400 || acc.Gems != 50 || acc.FaceTickets != 5 {
 		t.Fatalf("insufficient %d gems %d", code, acc.Gems)
 	}
-	if l := readLedger(t, dir); len(l) != 2 || l[0].Delta != -650 || l[1].Delta != 5 {
+	if l := readLedger(t); len(l) != 2 || l[0].Delta != -650 || l[1].Delta != 5 {
 		t.Fatalf("ledger %+v", l)
 	}
 	if rec := decorReq(t, "etok", "GET", "/v4/voucher/own/list/faceshop", ""); rec.Body.String() != `{"result":[]}` {
@@ -374,7 +393,7 @@ func adminReq(t *testing.T, remote, method, body string) *httptest.ResponseRecor
 }
 
 func TestAdminGrantLoopbackOnly(t *testing.T) {
-	acc, dir := ecoSetup(t, 10, 0, 0)
+	acc, _ := ecoSetup(t, 10, 0, 0)
 	body := `{"aid":"9401","gems":100,"cash":7,"faceTickets":2,"reason":"qa"}`
 	for _, remote := range []string{"192.168.1.9:5000", "10.0.2.2:5000", "8.8.8.8:1", "garbage"} {
 		if rec := adminReq(t, remote, "POST", body); rec.Code != 404 || acc.Gems != 10 {
@@ -396,7 +415,7 @@ func TestAdminGrantLoopbackOnly(t *testing.T) {
 			t.Fatalf("%s: %d", b, rec.Code)
 		}
 	}
-	if l := readLedger(t, dir); len(l) != 4 || !strings.HasPrefix(l[0].Reason, "staff grant: qa") {
+	if l := readLedger(t); len(l) != 4 || !strings.HasPrefix(l[0].Reason, "staff grant: qa") {
 		t.Fatalf("ledger %+v", l)
 	}
 	// Not reachable through the public mux.

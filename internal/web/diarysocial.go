@@ -76,7 +76,7 @@ func likeRows(items []store.DiaryLike) []likeRow {
 func profileImagePath(aid string) string {
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
-	for _, acc := range store.Accounts {
+	for _, acc := range store.AllAccountsLocked() {
 		if acc.Aid == aid {
 			return acc.ProfileImage.Image
 		}

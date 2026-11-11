@@ -89,12 +89,15 @@ func HeartSend(sender, target string, now time.Time) bool {
 			return false
 		}
 	}
-	if err := store.SaveAccountsLocked(); err != nil {
+	named := []*store.Account{acc}
+	if tgt != nil {
+		named = append(named, tgt)
+	}
+	if err := store.SaveLocked(lines, named...); err != nil {
 		restore()
 		log.Printf("cherry: heart save failed aid=%s to=%s err=%v", sender, target, err)
 		return false
 	}
-	store.FlushLedgerLocked(lines)
 	log.Printf("cherry: heart sent aid=%s to=%s sent=%d", sender, target, rec.Sent)
 	return true
 }

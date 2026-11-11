@@ -3,8 +3,12 @@ package store
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"net/http"
+	"slices"
+	"strconv"
 	"sync"
+	"time"
 
 	"cherry/internal/httpx"
 )
@@ -57,7 +61,7 @@ func AppendUniqueItemCodes(existing, additions []string) []string {
 func AccountByAvatarID(id string) (AccountSnapshot, bool) {
 	AccountsMu.Lock()
 	defer AccountsMu.Unlock()
-	for _, acc := range Accounts {
+	for _, acc := range accountList {
 		if acc.Aid == id {
 			return AccountSnapshot{
 				Aid:            acc.Aid,
@@ -129,8 +133,7 @@ type Account struct {
 	GuestCode      string                // device uniqueCode bound by the guest login (GuestLogin); "" = none
 	Identity       string                // provider identity ("discord:<id>" or "dev-<name>"), discord and dev-fake modes (identity.go); "" = none
 	CodeHashes     []string              // SHA-256 hex of the uniqueCodes minted for Identity, oldest first, at most maxCodeHashes (identity.go)
-	DBID           int64                 // row id in cherry.db (dbaccounts.go, slice 8.3b); 0 = not written there yet
-	GuestCodeHash  string                // SHA-256 hex of the guest uniqueCode as the database keeps it; set when read back, GuestCode is "" then
+	GuestCodeHash  string                // SHA-256 hex of the guest uniqueCode (bindGuest); the lookups use it, GuestCode is "" after a reload
 }
 
 // FishingGear is the Square fishing gear an account bought (economy/fishing_shop.go): the item IDs
@@ -183,12 +186,32 @@ type Hearts struct {
 const MinAvatarID = 10
 
 var (
-	AccountsMu       sync.Mutex
-	Accounts         = make(map[string]*Account)
-	LatestAcc        *Account
-	NextAvatarID     uint64
-	AccountStorePath string
+	AccountsMu   sync.Mutex
+	LatestAcc    *Account // the newest account: the fallback of a request with no token (CurrentAccount, the welcome gift)
+	NextAvatarID uint64
+
+	accountsByHash = map[string]*Account{} // CodeHash of the own access token and of every alias -> its account
+	accountList    []*Account              // every account once, in creation order
+	accountRows    = map[*Account]*rowState{}
+	pendingTokens  []pendingToken // token rows the database does not have yet
+	database       *DB            // nil: memory only (the tests' default; see OpenStore)
+	savedLatest    *Account       // the latest account and next avatar id as the database last had them
+	savedNext      uint64
 )
+
+// rowState is what the database holds for one account: its row id (0 = no row yet) and the checksum of the row as last
+// written or read. It sits beside the account, not in it, so a handler's `*acc = previous` cannot undo a row a save wrote.
+type rowState struct {
+	id  int64
+	sum string
+}
+
+// pendingToken is an access token or alias that resolves to acc and whose row the database does not have yet.
+type pendingToken struct {
+	acc  *Account
+	hash string
+	own  bool
+}
 
 func NewAccount() (*Account, error) {
 	AccountsMu.Lock()
@@ -201,29 +224,88 @@ func newAccountLocked(guestCode string) (*Account, error) {
 	return insertAccountLocked(newRecord(guestCode))
 }
 
-// newRecord is a fresh account with no avatar yet (aid "0") and new credentials; it is not in Accounts.
+// newRecord is a fresh account with no avatar yet (aid "0") and new credentials; it is not in the store.
 func newRecord(guestCode string) *Account {
-	return &Account{
+	acc := &Account{
 		AccessToken:  RandomToken(32),
 		SessionKey:   RandomToken(32),
 		Mid:          "1",
 		AvatarUserID: "3001",
 		Aid:          "0",
-		GuestCode:    guestCode,
 	}
+	if guestCode != "" {
+		bindGuest(acc, guestCode)
+	}
+	return acc
 }
 
-// insertAccountLocked adds a new record and saves; a failed save leaves no account behind. Caller holds AccountsMu.
+// bindGuest sets the device uniqueCode of acc: the clear code and its hash, which is what the lookups use.
+func bindGuest(acc *Account, code string) {
+	acc.GuestCode = code
+	acc.GuestCodeHash = CodeHash(code)
+}
+
+// insertAccountLocked adds a new account with its own access token and saves it as the latest account; a failed save
+// leaves no account behind. Caller holds AccountsMu.
 func insertAccountLocked(acc *Account) (*Account, error) {
-	Accounts[acc.AccessToken] = acc
+	accountList = append(accountList, acc)
+	accountRows[acc] = &rowState{}
+	addTokenLocked(acc, acc.AccessToken, true)
 	previous := LatestAcc
 	LatestAcc = acc
-	if err := SaveAccountsLocked(); err != nil {
-		delete(Accounts, acc.AccessToken)
+	if err := SaveLocked(nil, acc); err != nil {
 		LatestAcc = previous
+		forgetAccountLocked(acc)
 		return nil, err
 	}
 	return acc, nil
+}
+
+// forgetAccountLocked drops acc from memory: its list entry, row state, pending tokens and every token that resolves to
+// it. It returns those token hashes.
+func forgetAccountLocked(acc *Account) []string {
+	accountList = slices.DeleteFunc(accountList, func(a *Account) bool { return a == acc })
+	delete(accountRows, acc)
+	pendingTokens = slices.DeleteFunc(pendingTokens, func(p pendingToken) bool { return p.acc == acc })
+	var hashes []string
+	for h, a := range accountsByHash {
+		if a == acc {
+			hashes = append(hashes, h)
+			delete(accountsByHash, h)
+		}
+	}
+	return hashes
+}
+
+// addTokenLocked makes token resolve to acc; its row is pending until a save names acc.
+func addTokenLocked(acc *Account, token string, own bool) string {
+	h := CodeHash(token)
+	accountsByHash[h] = acc
+	pendingTokens = append(pendingTokens, pendingToken{acc: acc, hash: h, own: own})
+	return h
+}
+
+// AccountByTokenLocked returns the account that a clear access token or alias resolves to, or nil. Caller holds AccountsMu.
+func AccountByTokenLocked(token string) *Account {
+	if token == "" {
+		return nil
+	}
+	return accountsByHash[CodeHash(token)]
+}
+
+// AllAccountsLocked returns every account once, in creation order (a copy). Caller holds AccountsMu.
+func AllAccountsLocked() []*Account { return slices.Clone(accountList) }
+
+// AccountTokenHashesLocked returns the hashes of the tokens that resolve to acc. Caller holds AccountsMu.
+func AccountTokenHashesLocked(acc *Account) []string {
+	var hashes []string
+	for h, a := range accountsByHash {
+		if a == acc {
+			hashes = append(hashes, h)
+		}
+	}
+	slices.Sort(hashes)
+	return hashes
 }
 
 // maxGuestCode bounds a device uniqueCode; the device UUID is 36 characters.
@@ -243,24 +325,37 @@ func ValidGuestCode(code string) bool {
 	return true
 }
 
-// GuestAccountLocked returns the account bound to a device uniqueCode, or nil. A deleted account has
-// left Accounts (deleteAccount), so it is never returned. Caller holds AccountsMu.
-// ponytail: linear scan; index by guest code if the account table grows.
+// GuestAccountLocked returns the account bound to a device uniqueCode, or nil. A deleted account is not in the store, so
+// it is never returned. Caller holds AccountsMu.
+// ponytail: linear scan; index by guest code hash if the account table grows.
 func GuestAccountLocked(code string) *Account {
 	if code == "" {
 		return nil
 	}
-	for _, acc := range Accounts {
-		if acc.GuestCode == code {
+	h := CodeHash(code)
+	for _, acc := range accountList {
+		if acc.GuestCodeHash == h {
 			return acc
 		}
 	}
 	return nil
 }
 
-// GuestLogin serves POST /v4/account/guest/generate for a validated device uniqueCode. The device's
-// account gets a new access token alias (the credential createSession reads as cc); a device without
-// one gets a new account bound to its code. A failed save leaves no alias or account behind.
+// BindGuestLocked binds a device uniqueCode to acc (the staff tool and tests). A failed save leaves acc as it was.
+// Caller holds AccountsMu.
+func BindGuestLocked(acc *Account, code string) error {
+	prev := *acc
+	bindGuest(acc, code)
+	if err := SaveLocked(nil, acc); err != nil {
+		*acc = prev
+		return err
+	}
+	return nil
+}
+
+// GuestLogin serves POST /v4/account/guest/generate for a validated device uniqueCode. The device's account gets a new
+// access token alias (the credential createSession reads as cc); a device without one gets a new account bound to its
+// code. A failed save leaves no alias or account behind.
 func GuestLogin(code string) (string, error) {
 	AccountsMu.Lock()
 	defer AccountsMu.Unlock()
@@ -272,26 +367,102 @@ func GuestLogin(code string) (string, error) {
 		}
 		return created.AccessToken, nil
 	}
-	return aliasLocked(acc)
+	return loginAliasLocked(acc)
 }
 
-// aliasLocked returns an access token for acc: its own token the first time, a new alias after that (the credential
-// createSession reads as cc). Caller holds AccountsMu.
-func aliasLocked(acc *Account) (string, error) {
-	if Accounts[acc.AccessToken] == acc { // the account's own access token: the shape the client got at its first guest login
-		LatestAcc = acc
-		return acc.AccessToken, nil
-	}
-	token := RandomToken(256)
-	Accounts[token] = acc
+// loginAliasLocked gives acc a new alias and makes it the latest account, as a login does. Caller holds AccountsMu.
+func loginAliasLocked(acc *Account) (string, error) {
 	previous := LatestAcc
 	LatestAcc = acc
-	if err := SaveAccountsLocked(); err != nil {
-		delete(Accounts, token)
+	token, err := MintAliasLocked(acc)
+	if err != nil {
 		LatestAcc = previous
 		return "", err
 	}
 	return token, nil
+}
+
+// AddAliasLocked makes a new random access token resolve to acc, in memory only: the row is written by the save the
+// caller makes next (SaveLocked naming acc). RemoveAliasLocked undoes it when that save fails.
+func AddAliasLocked(acc *Account) string {
+	token := RandomToken(256)
+	addTokenLocked(acc, token, false)
+	return token
+}
+
+// RemoveAliasLocked drops an alias that AddAliasLocked made and whose save failed.
+func RemoveAliasLocked(token string) {
+	dropTokenLocked(CodeHash(token))
+}
+
+// dropTokenLocked forgets a token that was never saved.
+func dropTokenLocked(h string) {
+	delete(accountsByHash, h)
+	pendingTokens = slices.DeleteFunc(pendingTokens, func(p pendingToken) bool { return p.hash == h })
+}
+
+// MintAliasLocked gives acc a new alias and saves it. The alias is the credential createSession reads as cc, and
+// checkSession rotates AV_AUTH with it.
+func MintAliasLocked(acc *Account) (string, error) {
+	token := AddAliasLocked(acc)
+	if err := SaveLocked(nil, acc); err != nil {
+		RemoveAliasLocked(token)
+		return "", err
+	}
+	return token, nil
+}
+
+// DeleteAccountLocked removes acc from memory and from the database in ONE transaction with lines. LatestAcc moves to the
+// highest remaining aid when it was acc. The returned undo puts acc back and writes it again (with a compensating ledger
+// line); the caller runs it when a later step of the same operation fails. On error memory is as it was.
+func DeleteAccountLocked(acc *Account, lines []LedgerLine) (undo func() error, err error) {
+	rs := accountRows[acc]
+	if rs == nil {
+		return nil, errors.New("account is not in the store")
+	}
+	prevRow, prevList, prevPending, prevLatest := *rs, slices.Clone(accountList), slices.Clone(pendingTokens), LatestAcc
+	pos := slices.Index(accountList, acc)
+	hashes := forgetAccountLocked(acc)
+	if LatestAcc == acc {
+		LatestAcc = highestAidLocked()
+	}
+	if err := commitLocked(lines, nil, prevRow.id, callerSite()); err != nil {
+		accountList, pendingTokens, LatestAcc = prevList, prevPending, prevLatest
+		accountRows[acc] = rs
+		for _, h := range hashes {
+			accountsByHash[h] = acc
+		}
+		return nil, err
+	}
+	undo = func() error {
+		accountList = slices.Insert(accountList, min(pos, len(accountList)), acc)
+		accountRows[acc] = &rowState{}
+		for _, h := range hashes {
+			accountsByHash[h] = acc
+			pendingTokens = append(pendingTokens, pendingToken{acc: acc, hash: h})
+		}
+		LatestAcc = prevLatest
+		compensating := []LedgerLine{{Time: time.Now().UTC().Format(time.RFC3339), Aid: acc.Aid, Reason: "account delete rolled back"}}
+		if err := SaveLocked(compensating, acc); err != nil {
+			forgetAccountLocked(acc)
+			LatestAcc = highestAidLocked()
+			return err
+		}
+		return nil
+	}
+	return undo, nil
+}
+
+// highestAidLocked is the account with the highest aid (the first on a tie), or nil. Caller holds AccountsMu.
+func highestAidLocked() *Account {
+	var latest *Account
+	var best uint64
+	for _, a := range accountList {
+		if n, _ := strconv.ParseUint(a.Aid, 10, 64); latest == nil || n > best {
+			latest, best = a, n
+		}
+	}
+	return latest
 }
 
 func RandomToken(n int) string {
@@ -308,12 +479,14 @@ func CurrentAccount(r *http.Request) *Account {
 		token = httpx.CookieValue(r, "cc") // Native createSession sends its guest access token as cc.
 	}
 	if token != "" {
-		return Accounts[token]
+		return AccountByTokenLocked(token)
 	}
 	return LatestAcc
 }
 
-func SessionAccountLocked(r *http.Request) *Account { return Accounts[httpx.CookieValue(r, "AV_AUTH")] }
+func SessionAccountLocked(r *http.Request) *Account {
+	return AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
+}
 
 func AccountForRequest(r *http.Request) (AccountSnapshot, bool) {
 	token := httpx.CookieValue(r, "AV_AUTH")
@@ -321,7 +494,7 @@ func AccountForRequest(r *http.Request) (AccountSnapshot, bool) {
 		return AccountSnapshot{}, false
 	}
 	AccountsMu.Lock()
-	acc := Accounts[token]
+	acc := AccountByTokenLocked(token)
 	if acc == nil || !ValidAvatarID(acc.Aid) || acc.Aid == "0" {
 		AccountsMu.Unlock()
 		return AccountSnapshot{}, false

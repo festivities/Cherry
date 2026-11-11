@@ -45,7 +45,7 @@ func handleProfileImageSave(w http.ResponseWriter, r *http.Request) {
 	}
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
-	acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]
+	acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
 	if acc == nil {
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
 		return
@@ -58,7 +58,7 @@ func handleProfileImageSave(w http.ResponseWriter, r *http.Request) {
 	}
 	previous := acc.ProfileImage
 	acc.ProfileImage = store.ProfileImage{Image: req.ImageURL, WholeBody: req.WbImageURL, Bg: req.BgURL}
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(nil, acc); err != nil {
 		acc.ProfileImage = previous
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return

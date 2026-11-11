@@ -33,9 +33,7 @@ func rideShopAccount(t *testing.T, aid string, points int64, inventory []string)
 	testutil.InstallAccounts(t, map[string]*store.Account{"rtok-" + aid: acc})
 	testutil.SetLab(t, aid, false)
 	dir := t.TempDir()
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(dir, "accounts.json")
-	store.AccountsMu.Unlock()
+	testutil.UseDatabase(t)
 	return dir
 }
 
@@ -126,7 +124,7 @@ func TestRideShopBuyChargesPoints(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, time.October, 26, 12, 0, 0, 0, jst)
-	dir := rideShopAccount(t, "9851", 50, nil)
+	_ = rideShopAccount(t, "9851", 50, nil)
 
 	row, points, ok := RideShopBuy("9851", 1, now)
 	if !ok || row.ItemCode != "CUTO0018W" || row.Price != 20 || points != 30 {
@@ -147,7 +145,7 @@ func TestRideShopBuyChargesPoints(t *testing.T) {
 		t.Fatalf("room row: points %d ok %v", points, ok)
 	}
 
-	raw, err := os.ReadFile(filepath.Join(dir, "ledger.jsonl"))
+	raw, err := testutil.LedgerText(t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,9 +188,7 @@ func TestRideShopRefusalsChangeNothing(t *testing.T) {
 	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(blocker, "accounts.json") // the parent is a file: the save fails
-	store.AccountsMu.Unlock()
+	testutil.FailSaves(t)
 	if _, points, ok := RideShopBuy("9854", 1, now); ok || points != 50 || exchangeOwns(t, "9854", "CUTO0018W") {
 		t.Fatalf("a failed save changed the account: points %d ok %v", points, ok)
 	}

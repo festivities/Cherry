@@ -2,6 +2,7 @@ package auth
 
 import (
 	"bytes"
+	"cherry/internal/testutil"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -43,15 +44,8 @@ func pkce(verifier string) string {
 // useAccountFile points the account table at a fresh file for one test and restores the old state after it.
 func useAccountFile(t *testing.T) {
 	t.Helper()
-	store.AccountsMu.Lock()
-	oldAccounts, oldLatest, oldNext, oldPath := store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath
-	store.AccountsMu.Unlock()
-	t.Cleanup(func() {
-		store.AccountsMu.Lock()
-		store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath = oldAccounts, oldLatest, oldNext, oldPath
-		store.AccountsMu.Unlock()
-	})
-	if err := store.LoadAccountsFrom(filepath.Join(t.TempDir(), "accounts.json")); err != nil {
+	testutil.UseDatabase(t)
+	if err := store.ReloadAccounts(); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -709,9 +703,8 @@ func TestAccountFileRoundTripKeepsIdentity(t *testing.T) {
 	env := newEnv(t, devConfig())
 	env.exchange(env.devSignIn(testIP, "hana"), testVerifier, testIP)
 	store.AccountsMu.Lock()
-	path := store.AccountStorePath
 	store.AccountsMu.Unlock()
-	if err := store.LoadAccountsFrom(path); err != nil {
+	if err := store.ReloadAccounts(); err != nil {
 		t.Fatal(err)
 	}
 	store.AccountsMu.Lock()

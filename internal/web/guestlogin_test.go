@@ -22,9 +22,7 @@ const (
 func guestAccountTest(t *testing.T) {
 	t.Helper()
 	testutil.InstallAccounts(t, map[string]*store.Account{})
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(t.TempDir(), "accounts.json")
-	store.AccountsMu.Unlock()
+	testutil.UseDatabase(t)
 }
 
 func sessionOf(t *testing.T, token string) sessionResult {
@@ -52,9 +50,12 @@ func TestGuestGenerateReturnsDeviceAccount(t *testing.T) {
 		t.Fatalf("session aid = %s, want %s", before.Aid, avatar.Result.AvatarID)
 	}
 
-	second := guestGenerateCode(t, deviceA)
-	if second != first {
-		t.Fatal("same device should get its account's own access token back (the 32-byte shape the client already sent as cc)")
+	second := guestGenerateCode(t, deviceA) // a rebind mints an alias that resolves to the same account
+	store.AccountsMu.Lock()
+	same := store.AccountByTokenLocked(first) != nil && store.AccountByTokenLocked(first) == store.AccountByTokenLocked(second)
+	store.AccountsMu.Unlock()
+	if !same {
+		t.Fatal("same device should get a token that resolves to its account")
 	}
 	if again := sessionOf(t, second); again.Aid != before.Aid || again.SessionKey != before.SessionKey {
 		t.Fatalf("device got aid %s, want its own %s", again.Aid, before.Aid)
@@ -64,9 +65,8 @@ func TestGuestGenerateReturnsDeviceAccount(t *testing.T) {
 	}
 
 	store.AccountsMu.Lock()
-	path := store.AccountStorePath
 	store.AccountsMu.Unlock()
-	if err := store.LoadAccountsFrom(path); err != nil {
+	if err := store.ReloadAccounts(); err != nil {
 		t.Fatal(err)
 	}
 	store.AccountsMu.Lock()
@@ -100,7 +100,7 @@ func TestGuestGenerateRefusesBadRequests(t *testing.T) {
 		}
 	}
 	store.AccountsMu.Lock()
-	n := len(store.Accounts)
+	n := store.AccountCountLocked()
 	store.AccountsMu.Unlock()
 	if n != 0 {
 		t.Fatalf("refused requests created %d accounts", n)
@@ -134,7 +134,7 @@ func TestGuestGenerateSkipsDeletedAccount(t *testing.T) {
 		t.Fatalf("create avatar = %d %s", created.Code, created.Body.String())
 	}
 	store.AccountsMu.Lock()
-	acc := store.Accounts[old]
+	acc := store.AccountByTokenLocked(old)
 	store.AccountsMu.Unlock()
 	if acc == nil {
 		t.Fatal("device token has no account")

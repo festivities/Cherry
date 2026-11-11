@@ -291,7 +291,7 @@ func TestAccountRowsRoundTrip(t *testing.T) {
 			owns = append(owns, own)
 			aliases = append(aliases, alias)
 		}
-		return SetAccountMetaTx(tx, 1100, accs[2])
+		return SetAccountMetaTx(tx, 1100, testRowIDs[accs[2]])
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -405,7 +405,7 @@ func TestWALBytesPerAccountWrite(t *testing.T) {
 		// The measured write must be the real one: the row holds the account as it is now.
 		var stored string
 		if err := d.View(func(q Querier) error {
-			return q.QueryRow(`SELECT data FROM accounts WHERE id = ?`, acc.DBID).Scan(&stored)
+			return q.QueryRow(`SELECT data FROM accounts WHERE id = ?`, testRowIDs[acc]).Scan(&stored)
 		}); err != nil || stored != data {
 			t.Fatalf("%s: the row does not hold the written account (err %v)", name, err)
 		}

@@ -5,61 +5,87 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-// fileAccounts points the account table at a fresh file for one test and restores the old state after it.
-func fileAccounts(t *testing.T) string {
+// attachTestDB makes a fresh database the store's record for one test, with no accounts; cleanup detaches it and puts the
+// previous account table back.
+func attachTestDB(t *testing.T) *DB {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "accounts.json")
-	AccountsMu.Lock()
-	oldAccounts, oldLatest, oldNext, oldPath := Accounts, LatestAcc, NextAvatarID, AccountStorePath
-	AccountsMu.Unlock()
-	t.Cleanup(func() {
-		AccountsMu.Lock()
-		Accounts, LatestAcc, NextAvatarID, AccountStorePath = oldAccounts, oldLatest, oldNext, oldPath
-		AccountsMu.Unlock()
-	})
-	if err := LoadAccountsFrom(path); err != nil {
+	restore, err := SwapAccountsForTest(nil)
+	if err != nil {
 		t.Fatal(err)
 	}
-	return path
+	t.Cleanup(restore)
+	d, err := OpenDB(filepath.Join(t.TempDir(), DBFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := AttachDB(d); err != nil {
+		d.Close()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		DetachDB()
+		d.Close()
+	})
+	return d
 }
 
-// TestOldAccountFileRoundTrips: an account file written before the identity fields existed loads, and saving it again
-// writes the same bytes (the new fields are omitted when empty).
-func TestOldAccountFileRoundTrips(t *testing.T) {
+// rowText is every stored account, guest hash and token hash of d as one string, to check what the database holds.
+func rowText(t *testing.T, d *DB) string {
+	t.Helper()
+	var b strings.Builder
+	err := d.View(func(q Querier) error {
+		for _, query := range []string{`SELECT data || guest_code_hash FROM accounts`, `SELECT hash FROM tokens`} {
+			rows, err := q.Query(query)
+			if err != nil {
+				return err
+			}
+			for rows.Next() {
+				var s string
+				if err := rows.Scan(&s); err != nil {
+					rows.Close()
+					return err
+				}
+				b.WriteString(s + "\n")
+			}
+			rows.Close()
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b.String()
+}
+
+// TestOldAccountFileImports: an account file written before the identity fields existed imports; the importer checks the
+// database against its input, so the identity fields come back as they were.
+func TestOldAccountFileImports(t *testing.T) {
 	old, err := os.ReadFile(filepath.Join("testdata", "accounts_before_identity.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	old = bytes.TrimSuffix(old, []byte("\n"))
-	path := filepath.Join(t.TempDir(), "accounts.json")
-	if err := os.WriteFile(path, old, 0o600); err != nil {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "accounts.json"), bytes.TrimSuffix(old, []byte("\n")), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := LoadAccountsFrom(path); err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	AccountsMu.Lock()
-	err = SaveAccountsLocked()
-	AccountsMu.Unlock()
-	if err != nil {
-		t.Fatalf("save: %v", err)
-	}
-	again, err := os.ReadFile(path)
+	d, err := OpenDB(filepath.Join(t.TempDir(), DBFileName))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(again, old) {
-		t.Fatalf("re-saved file differs:\n got %s\nwant %s", again, old)
+	defer d.Close()
+	if _, err := ImportDir(d, dir); err != nil {
+		t.Fatalf("import: %v", err)
 	}
 }
 
 // TestMintIdentityCodeCapsAndLogsIn: the first mint creates the identity's account (aid "0", new); later mints add codes
 // to the same account, the eleventh drops the first; every held code logs in to that account and the dropped one does not.
 func TestMintIdentityCodeCapsAndLogsIn(t *testing.T) {
-	path := fileAccounts(t)
+	d := attachTestDB(t)
 	const identity = "discord:1"
 	codes := make([]string, maxCodeHashes+1)
 	for i := range codes {
@@ -75,13 +101,10 @@ func TestMintIdentityCodeCapsAndLogsIn(t *testing.T) {
 	AccountsMu.Lock()
 	acc := IdentityAccountLocked(identity)
 	n := len(acc.CodeHashes)
-	accounts := make(map[*Account]bool)
-	for _, a := range Accounts {
-		accounts[a] = true
-	}
+	count := AccountCountLocked()
 	AccountsMu.Unlock()
-	if n != maxCodeHashes || len(accounts) != 1 {
-		t.Fatalf("codes = %d, accounts = %d; want %d codes on one account", n, len(accounts), maxCodeHashes)
+	if n != maxCodeHashes || count != 1 {
+		t.Fatalf("codes = %d, accounts = %d; want %d codes on one account", n, count, maxCodeHashes)
 	}
 	for i, code := range codes {
 		token, err := CodeLogin(code)
@@ -95,20 +118,16 @@ func TestMintIdentityCodeCapsAndLogsIn(t *testing.T) {
 			t.Fatalf("code %d: %v", i, err)
 		}
 		AccountsMu.Lock()
-		got := Accounts[token]
+		got := AccountByTokenLocked(token)
 		AccountsMu.Unlock()
 		if got == nil || got.Identity != identity {
 			t.Fatalf("code %d logged in to %+v, want the identity's account", i, got)
 		}
 	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
+	if stored := rowText(t, d); strings.Contains(stored, codes[len(codes)-1]) || strings.Contains(stored, codes[1]) {
+		t.Fatal("a uniqueCode appears in the database; only its hash may")
 	}
-	if bytes.Contains(raw, []byte(codes[len(codes)-1])) || bytes.Contains(raw, []byte(codes[1])) {
-		t.Fatal("a uniqueCode appears in the account file; only its hash may")
-	}
-	if err := LoadAccountsFrom(path); err != nil {
+	if err := ReloadAccounts(); err != nil {
 		t.Fatalf("reload: %v", err)
 	}
 	AccountsMu.Lock()
@@ -119,50 +138,46 @@ func TestMintIdentityCodeCapsAndLogsIn(t *testing.T) {
 	}
 }
 
-// TestMintFailureLeavesNothing: a save that fails creates no account and keeps the codes an account had.
+// TestMintFailureLeavesNothing: a save that fails creates no account.
 func TestMintFailureLeavesNothing(t *testing.T) {
-	fileAccounts(t)
-	blocker := filepath.Join(t.TempDir(), "file")
-	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+	d := attachTestDB(t)
+	if err := d.Close(); err != nil { // every save from now on fails: the transaction cannot begin
 		t.Fatal(err)
 	}
-	AccountsMu.Lock()
-	AccountStorePath = filepath.Join(blocker, "accounts.json") // its parent is a file, so the save cannot succeed
-	AccountsMu.Unlock()
 	if _, _, err := MintIdentityCode("dev-x", CodeHash("a")); err == nil {
 		t.Fatal("mint with a failing save succeeded")
 	}
 	AccountsMu.Lock()
-	n := len(Accounts)
+	n := AccountCountLocked()
 	AccountsMu.Unlock()
 	if n != 0 {
 		t.Fatalf("failed mint left %d accounts", n)
 	}
 }
 
-// TestDuplicateIdentityRefusesToLoad: one identity maps to one account; a file that says otherwise is refused.
-func TestDuplicateIdentityRefusesToLoad(t *testing.T) {
-	path := fileAccounts(t)
+// TestDuplicateIdentityIsRefused: one identity maps to one account; the database refuses a second row for it, and memory
+// keeps the one account.
+func TestDuplicateIdentityIsRefused(t *testing.T) {
+	attachTestDB(t)
 	if _, _, err := MintIdentityCode("dev-same", CodeHash("one")); err != nil {
 		t.Fatal(err)
 	}
 	second := newRecord("")
 	second.Identity = "dev-same"
-	second.CodeHashes = nil
 	AccountsMu.Lock()
-	Accounts[second.AccessToken] = second
-	err := SaveAccountsLocked()
+	_, err := insertAccountLocked(second)
+	count := AccountCountLocked()
 	AccountsMu.Unlock()
-	if err != nil {
-		t.Fatal(err)
+	if err == nil {
+		t.Fatal("a second account for one identity was saved")
 	}
-	if err := LoadAccountsFrom(path); err == nil {
-		t.Fatal("a file with two accounts for one identity loaded")
+	if count != 1 {
+		t.Fatalf("accounts after the refused insert = %d, want 1", count)
 	}
 }
 
 func TestCodeLoginRefusesUnknownCode(t *testing.T) {
-	fileAccounts(t)
+	attachTestDB(t)
 	if _, err := CodeLogin("00000000-0000-4000-8000-000000000001"); err != ErrUnknownCode {
 		t.Fatalf("err = %v, want ErrUnknownCode", err)
 	}

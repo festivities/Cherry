@@ -35,7 +35,9 @@ func writeDataDir(t *testing.T) string {
 		if i > 0 {
 			acc.Aid = "0" // an account with no avatar yet
 		}
-		accounts.Accounts[own] = StoredFrom(acc)
+		rec := StoredFrom(acc)
+		rec.AccessToken = own // the legacy file keeps the clear token as the record key
+		accounts.Accounts[own] = rec
 		accounts.Aliases[own] = own
 		accounts.Aliases[alias] = own
 		if i == 0 {
@@ -132,7 +134,7 @@ func TestImportDirEndToEnd(t *testing.T) {
 	if !reflect.DeepEqual(before, hashDir(t, dir)) {
 		t.Fatal("the import changed the data directory")
 	}
-	if len(Accounts) != 0 || LatestAcc != nil || AccountStorePath != "" || DiaryPosts != nil {
+	if len(accountList) != 0 || LatestAcc != nil || database != nil || DiaryPosts != nil {
 		t.Fatal("the loaders' process-wide state was not put back")
 	}
 }

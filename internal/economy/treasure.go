@@ -987,19 +987,19 @@ func treasureTx(aid string, now time.Time, gate treasureGate, op func(acc *store
 		return treasureView(rec, acc, now.UnixMilli(), d), err
 	}
 	if acc != nil {
-		if err := store.SaveAccountsLocked(); err != nil {
+		if err := store.SaveLocked(lines, acc); err != nil {
 			*acc = prev
 			return TreasureView{}, err
 		}
 	}
 	if _, err := store.UpdateTreasure(aid, func(r *store.TreasureRecord) { *r = rec }); err != nil {
 		if acc != nil {
+			rev := reversalLines(lines, acc)
 			*acc = prev
-			_ = store.SaveAccountsLocked()
+			_ = store.SaveLocked(rev, acc)
 		}
 		return TreasureView{}, err
 	}
-	store.FlushLedgerLocked(lines)
 	return treasureView(rec, acc, now.UnixMilli(), d), nil
 }
 
@@ -1315,4 +1315,17 @@ func TreasureTutorialDone(aid string) error {
 	defer store.AccountsMu.Unlock()
 	_, err := store.UpdateTreasure(aid, func(r *store.TreasureRecord) { r.Tutorial = true })
 	return err
+}
+
+// reversalLines are the ledger lines that undo lines, written when a save that committed must be rolled back (the
+// treasure record failed after the account save). acc holds the balances after lines; it is only read.
+func reversalLines(lines []store.LedgerLine, acc *store.Account) []store.LedgerLine {
+	now := time.Now().UTC().Format(time.RFC3339)
+	bal := map[string]int64{"gems": acc.Gems, "cash": acc.Cash, "faceTickets": acc.FaceTickets, "smiles": acc.Smiles}
+	out := make([]store.LedgerLine, 0, len(lines))
+	for _, l := range lines {
+		bal[l.Currency] -= l.Delta
+		out = append(out, store.LedgerLine{Time: now, Aid: l.Aid, Currency: l.Currency, Delta: -l.Delta, Balance: bal[l.Currency], Reason: "rollback: " + l.Reason})
+	}
+	return out
 }

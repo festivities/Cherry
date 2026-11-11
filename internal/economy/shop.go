@@ -433,7 +433,7 @@ func requesterOwned(r *http.Request) (rooms, pets, landscapes map[string]bool) {
 	rooms, pets, landscapes = map[string]bool{}, map[string]bool{}, map[string]bool{}
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
-	if acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]; acc != nil {
+	if acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH")); acc != nil {
 		for _, it := range acc.RoomItems {
 			rooms[it.Cd] = true
 		}
@@ -652,7 +652,7 @@ func handleShopBuy(kind byte) http.HandlerFunc {
 
 		store.AccountsMu.Lock()
 		defer store.AccountsMu.Unlock()
-		acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]
+		acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
 		if acc == nil {
 			httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
 			return
@@ -728,12 +728,11 @@ func handleShopBuy(kind byte) http.HandlerFunc {
 				acc.Pets = append(slices.Clone(acc.Pets), room.NewPetLocked(acc, code))
 			}
 		}
-		if err := store.SaveAccountsLocked(); err != nil {
+		if err := store.SaveLocked(lines, acc); err != nil {
 			*acc = previous
 			httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 			return
 		}
-		store.FlushLedgerLocked(lines)
 		balance := acc.Gems
 		if cash {
 			balance = acc.Cash
@@ -796,7 +795,7 @@ func handleRecycle(interior bool) http.HandlerFunc {
 		}
 		store.AccountsMu.Lock()
 		defer store.AccountsMu.Unlock()
-		acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]
+		acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
 		if acc == nil {
 			httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
 			return
@@ -891,12 +890,11 @@ func handleRecycle(interior bool) http.HandlerFunc {
 				acc.PaidPrices = left
 			}
 		}
-		if err := store.SaveAccountsLocked(); err != nil {
+		if err := store.SaveLocked(lines, acc); err != nil {
 			*acc = previous
 			httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 			return
 		}
-		store.FlushLedgerLocked(lines)
 		body, _ := json.Marshal(map[string]any{"result": map[string]any{"balance": acc.Gems, "invalidItems": []any{}}})
 		httpx.WriteJSON(w, http.StatusOK, string(body))
 	}

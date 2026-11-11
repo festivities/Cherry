@@ -200,7 +200,7 @@ func handleMailReceive(w http.ResponseWriter, r *http.Request) {
 	}
 	if err == nil {
 		acc.Mail = rest
-		err = store.SaveAccountsLocked()
+		err = store.SaveLocked(lines, acc)
 	}
 	if err != nil {
 		*acc = prev
@@ -211,7 +211,6 @@ func handleMailReceive(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusBadRequest, errMailExpired)
 		return
 	}
-	store.FlushLedgerLocked(lines)
 	httpx.WriteJSON(w, http.StatusOK, `{"result":true}`)
 }
 
@@ -231,7 +230,7 @@ func handleMailReject(w http.ResponseWriter, r *http.Request) {
 	if idx := findMail(acc, strings.TrimPrefix(r.URL.Path, "/v4/postbox/reject/")); idx >= 0 {
 		prev := *acc
 		acc.Mail = slices.Delete(slices.Clone(acc.Mail), idx, idx+1)
-		if err := store.SaveAccountsLocked(); err != nil {
+		if err := store.SaveLocked(nil, acc); err != nil {
 			*acc = prev
 			httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
 			return
@@ -286,7 +285,7 @@ func handleAdminMail(w http.ResponseWriter, r *http.Request) {
 	var targets []*store.Account
 	if req.Aid == "all" {
 		seen := map[*store.Account]bool{}
-		for _, a := range store.Accounts {
+		for _, a := range store.AllAccountsLocked() {
 			if !seen[a] {
 				seen[a] = true
 				targets = append(targets, a)
@@ -312,7 +311,7 @@ func handleAdminMail(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusBadRequest, `{"errorCode":"400","errorMessage":"cherry: mailbox full"}`)
 		return
 	}
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(nil, targets...); err != nil {
 		for i, a := range targets {
 			*a = prevs[i]
 		}

@@ -208,14 +208,13 @@ func handleAttend(w http.ResponseWriter, r *http.Request) {
 		}
 		acc.AttendDay, acc.AttendKey = count, AttendDayKey(now)
 		if err == nil {
-			err = store.SaveAccountsLocked()
+			err = store.SaveLocked(lines, acc)
 		}
 		if err != nil {
 			*acc = prev
 			httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
 			return
 		}
-		store.FlushLedgerLocked(lines)
 	}
 	_, _, h, m := AttendState(acc, now)
 	httpx.WriteObj(w, map[string]any{"result": map[string]any{
@@ -268,7 +267,7 @@ func handleAdminAttend(w http.ResponseWriter, r *http.Request) {
 		}
 		acc.AttendKey -= shift
 	}
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(nil, acc); err != nil {
 		*acc = prev
 		httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
 		return

@@ -126,7 +126,7 @@ func wishesOf(aid string) []string {
 func editWishes(token string, edit func(prev []string) ([]string, bool)) (found, saved bool, err error) {
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
-	acc := store.Accounts[token]
+	acc := store.AccountByTokenLocked(token)
 	if acc == nil {
 		return false, false, nil
 	}
@@ -136,7 +136,7 @@ func editWishes(token string, edit func(prev []string) ([]string, bool)) (found,
 	}
 	prev := acc.Wishes
 	acc.Wishes = next
-	if err = store.SaveAccountsLocked(); err != nil {
+	if err = store.SaveLocked(nil, acc); err != nil {
 		acc.Wishes = prev
 		return true, true, err
 	}

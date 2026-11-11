@@ -3,10 +3,7 @@ package lpn
 import (
 	"bytes"
 	"encoding/binary"
-	"encoding/json"
 	"io"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -26,9 +23,7 @@ func bossRoomClients(t *testing.T, sq *squareRoom, aids ...string) []*sqClient {
 		entries["boss-"+aid] = &store.Account{AccessToken: "boss-" + aid, SessionKey: "sk", Aid: aid, Name: "Diver " + aid}
 	}
 	testutil.InstallAccounts(t, entries)
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(t.TempDir(), "accounts.json")
-	store.AccountsMu.Unlock()
+	testutil.UseDatabase(t)
 	var clients []*sqClient
 	for i, aid := range aids {
 		c := newSqClient(t, sq, byte(i+1))
@@ -143,25 +138,12 @@ func bossTries(t *testing.T, aid string) int64 {
 // bossLedger returns the ledger lines of aid whose reason starts with prefix (the boss pays through the ledger).
 func bossLedger(t *testing.T, aid, prefix string) []store.LedgerLine {
 	t.Helper()
-	store.AccountsMu.Lock()
-	path := filepath.Join(filepath.Dir(store.AccountStorePath), "ledger.jsonl")
-	store.AccountsMu.Unlock()
-	b, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return nil
-	}
+	lines, err := store.LedgerLines()
 	if err != nil {
 		t.Fatal(err)
 	}
 	var out []store.LedgerLine
-	for _, raw := range bytes.Split(b, []byte("\n")) {
-		if len(raw) == 0 {
-			continue
-		}
-		var l store.LedgerLine
-		if err := json.Unmarshal(raw, &l); err != nil {
-			t.Fatalf("ledger line %q: %v", raw, err)
-		}
+	for _, l := range lines {
 		if l.Aid == aid && strings.HasPrefix(l.Reason, prefix) {
 			out = append(out, l)
 		}
@@ -694,9 +676,7 @@ func TestSquareBossLobbiesPerSquare(t *testing.T) {
 		"boss-9901": {AccessToken: "boss-9901", SessionKey: "sk", Aid: "9901", Name: "Diver 1"},
 		"boss-9902": {AccessToken: "boss-9902", SessionKey: "sk", Aid: "9902", Name: "Diver 2"},
 	})
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(t.TempDir(), "accounts.json")
-	store.AccountsMu.Unlock()
+	testutil.UseDatabase(t)
 	a.joinTheme(9901, squareThemeID)
 	b.joinTheme(9902, 32)
 	bossStart(t, a)

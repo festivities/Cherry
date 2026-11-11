@@ -78,10 +78,7 @@ func TestRoomPartyLogin(t *testing.T) {
 }
 
 func TestRoomRoutes(t *testing.T) {
-	store.AccountsMu.Lock()
-	store.Accounts["room-test"] = &store.Account{Aid: "9002", Name: "Rin"}
-	store.AccountsMu.Unlock()
-	defer func() { store.AccountsMu.Lock(); delete(store.Accounts, "room-test"); store.AccountsMu.Unlock() }()
+	testutil.InstallAccounts(t, map[string]*store.Account{"room-test": {Aid: "9002", Name: "Rin"}})
 	for path, name := range map[string]string{
 		"/v4/room/enter/9002/LEVEL_2":                "Rin",
 		"/v4/room/enter/100000/LEVEL_1":              store.FriendName(),

@@ -16,7 +16,7 @@ import (
 // only: the fish shop's wire PriceType 1 is Gem (2 = Cash; the client uses wire-1 as its generic
 // ITEM_PRICE_TYPE, where 1 is Cash — NaFishingShopPurchasePopup::OnClickButton 0x1dab598,
 // eventcoin-spec.md §9), and no billing code is ever sent. Each item is bought
-// once and kept in accounts.json (store.FishingGear). One rod and one bait can be in use; they add
+// once and kept in the account record (store.FishingGear). One rod and one bait can be in use; they add
 // rare-catch chance points. The daily Gem cap (daily_cap) is not changed by gear.
 // Wire notes: %TEMP%\opencode\cherry\phaseD-20261011\gathering.txt, "Resolution (shop, book, bag, boss)".
 
@@ -107,11 +107,10 @@ func BuyFishingItem(aid string, id int64) (FishBuyStatus, int64) {
 		gear.Bait = id
 	}
 	acc.Gear = &gear
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(lines, acc); err != nil {
 		*acc = prev
 		return FishBuyFailed, prev.Gems
 	}
-	store.FlushLedgerLocked(lines)
 	return FishBuyOK, acc.Gems
 }
 

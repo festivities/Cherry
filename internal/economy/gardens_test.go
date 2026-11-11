@@ -3,7 +3,6 @@ package economy
 import (
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -63,8 +62,9 @@ func TestGardenFishSpot(t *testing.T) {
 func TestAdminGarden(t *testing.T) {
 	acc := &store.Account{AccessToken: "gmtok", SessionKey: "sk", Aid: "9501"}
 	testutil.InstallAccounts(t, map[string]*store.Account{"gmtok": acc})
+	testutil.UseDatabase(t)
 	store.AccountsMu.Lock()
-	store.AccountStorePath, store.NextAvatarID = filepath.Join(t.TempDir(), "accounts.json"), 9501
+	store.NextAvatarID = 9501
 	store.AccountsMu.Unlock()
 	post := func(remote, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, "/admin/garden", strings.NewReader(body))
@@ -93,7 +93,7 @@ func TestAdminGarden(t *testing.T) {
 	if rec := post("127.0.0.1:5000", `{"aid":"9501","map":"1908231803"}`); rec.Code != http.StatusOK {
 		t.Fatalf("set again = %d", rec.Code)
 	}
-	if err := store.LoadAccountsFrom(store.AccountStorePath); err != nil || GardenMap("9501") != "1908231803" {
+	if err := store.ReloadAccounts(); err != nil || GardenMap("9501") != "1908231803" {
 		t.Fatalf("reload: %v, map %s", err, GardenMap("9501"))
 	}
 }

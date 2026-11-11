@@ -1,7 +1,6 @@
 package lpn
 
 import (
-	"path/filepath"
 	"testing"
 
 	"cherry/internal/economy"
@@ -15,8 +14,9 @@ func landscapeAccount(t *testing.T, aid string, bought []string) {
 	t.Helper()
 	testutil.InstallAccounts(t, map[string]*store.Account{"ls-" + aid: {AccessToken: "ls-" + aid, SessionKey: "sk", Aid: aid, Name: "Landscape", Landscapes: bought}})
 	testutil.SetLab(t, aid, false)
+	testutil.UseDatabase(t)
 	store.AccountsMu.Lock()
-	store.AccountStorePath, store.NextAvatarID = filepath.Join(t.TempDir(), "accounts.json"), 9999
+	store.NextAvatarID = 9999
 	store.AccountsMu.Unlock()
 }
 
@@ -85,9 +85,8 @@ func TestGardenLandscapeChangeFlow(t *testing.T) {
 		t.Fatalf("Garden map after the change = %s", economy.GardenMap("9702"))
 	}
 	store.AccountsMu.Lock()
-	path := store.AccountStorePath
 	store.AccountsMu.Unlock()
-	if err := store.LoadAccountsFrom(path); err != nil || economy.GardenMap("9702") != "1908231804" {
+	if err := store.ReloadAccounts(); err != nil || economy.GardenMap("9702") != "1908231804" {
 		t.Fatalf("saved map after reload: %v, %s", err, economy.GardenMap("9702"))
 	}
 	refused(gardenLandscapeReply(5, 9702, 9702, nil, st, logger), 6) // the preview was used up

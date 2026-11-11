@@ -91,7 +91,7 @@ func handleCoinBalance(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	store.AccountsMu.Lock()
-	acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]
+	acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
 	var n int64
 	if acc != nil {
 		n = acc.Gems
@@ -127,7 +127,7 @@ func Balances(aid string) (gems, cash int64, ok bool) {
 func HandleWelcomeGift(w http.ResponseWriter, r *http.Request) {
 	const noGift = `{"result":{"status":true,"rewardCoin":0}}`
 	store.AccountsMu.Lock()
-	acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]
+	acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
 	if acc == nil {
 		acc = store.LatestAcc
 	}
@@ -140,7 +140,7 @@ func HandleWelcomeGift(w http.ResponseWriter, r *http.Request) {
 	lines, err := store.SpendLocked(acc, store.LedgerDeltas{Gems: ActiveRewards().WelcomeGems}, "welcome gift")
 	acc.Welcomed = true
 	if err == nil {
-		err = store.SaveAccountsLocked()
+		err = store.SaveLocked(lines, acc)
 	}
 	if err != nil {
 		*acc = prev
@@ -148,7 +148,6 @@ func HandleWelcomeGift(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
 		return
 	}
-	store.FlushLedgerLocked(lines)
 	store.AccountsMu.Unlock()
 	httpx.WriteJSON(w, http.StatusOK, fmt.Sprintf(`{"result":{"status":true,"rewardCoin":%d}}`, ActiveRewards().WelcomeGems))
 }
@@ -160,7 +159,7 @@ func handleVoucherCount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	store.AccountsMu.Lock()
-	acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]
+	acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
 	var n int64
 	if acc != nil {
 		n = acc.FaceTickets
@@ -240,7 +239,7 @@ func handleVoucherPurchase(w http.ResponseWriter, r *http.Request) {
 	p := ActivePrices().FaceTickets[idx]
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
-	acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]
+	acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
 	if acc == nil {
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
 		return
@@ -291,10 +290,7 @@ func handleAdminGuestCode(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusConflict, `{"errorCode":"409","errorMessage":"cherry: guest code held by another account"}`)
 		return
 	}
-	prev := acc.GuestCode
-	acc.GuestCode = req.UniqueCode
-	if err := store.SaveAccountsLocked(); err != nil {
-		acc.GuestCode = prev
+	if err := store.BindGuestLocked(acc, req.UniqueCode); err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
 		return
 	}

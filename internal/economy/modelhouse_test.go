@@ -243,7 +243,7 @@ func modelHouseBody(code string, price int64, coin string, elements []string) st
 // TestModelHouseBuy: the happy path spends the set's Gems through the ledger and grants every element.
 func TestModelHouseBuy(t *testing.T) {
 	modelHouseFixture(t)
-	store.AccountStorePath = filepath.Join(t.TempDir(), "accounts.json")
+	testutil.UseDatabase(t)
 	s := modelHouseFile.Get().Sets[0]
 	acc, _ := phaseEAccount(t, 1000, nil)
 	before := len(acc.RoomItems)
@@ -273,9 +273,13 @@ func TestModelHouseBuy(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || out.Result.Balance != 1000-s.Price || !slices.Equal(out.Result.BuyItems, s.Elements) {
 		t.Errorf("buy reply %q", rec.Body.String())
 	}
-	ledger, err := os.ReadFile(filepath.Join(filepath.Dir(store.AccountStorePath), "ledger.jsonl"))
-	if err != nil || !strings.Contains(string(ledger), "modelhouse:set:"+s.Code) {
-		t.Errorf("ledger = %q (%v), want a line for %s", ledger, err, s.Code)
+	lines, err := store.LedgerLines()
+	found := false
+	for _, l := range lines {
+		found = found || strings.HasPrefix(l.Reason, "modelhouse:set:"+s.Code)
+	}
+	if err != nil || !found {
+		t.Errorf("ledger %+v (%v), want a line for %s", lines, err, s.Code)
 	}
 }
 
@@ -283,7 +287,7 @@ func TestModelHouseBuy(t *testing.T) {
 // with nothing spent and nothing granted. Owned elements are granted again (the Interior Shop rule).
 func TestModelHouseBuyRefusals(t *testing.T) {
 	modelHouseFixture(t)
-	store.AccountStorePath = filepath.Join(t.TempDir(), "accounts.json")
+	testutil.UseDatabase(t)
 	s := modelHouseFile.Get().Sets[1]
 
 	acc, _ := phaseEAccount(t, 1000, nil)

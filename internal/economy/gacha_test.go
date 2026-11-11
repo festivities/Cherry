@@ -75,15 +75,13 @@ func gachaAccount(t *testing.T, gems int64, inventory []string, rooms ...string)
 func gachaLedgerDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(dir, "accounts.json")
-	store.AccountsMu.Unlock()
+	testutil.UseDatabase(t)
 	return dir
 }
 
 func gachaLedger(t *testing.T, dir string) []store.LedgerLine {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(dir, "ledger.jsonl"))
+	b, err := testutil.LedgerText(t)
 	if err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
@@ -543,9 +541,7 @@ func TestGachaPurchaseRollsBackOnSaveFailure(t *testing.T) {
 	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(blocker, "accounts.json") // parent is a file: the save fails
-	store.AccountsMu.Unlock()
+	testutil.FailSaves(t)
 	gachaScript(t, pullVals(t, p, "RUGO00002")...)
 	rec := gachaCall(t, http.MethodPost, "/v4/purchase/gacha/coin", gachaBody("1001", "100"), "gtok")
 	if rec.Code != 500 {

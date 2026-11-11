@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"cherry/internal/testutil"
 	"encoding/json"
 	"fmt"
 	"image/color"
@@ -237,26 +238,24 @@ func TestRoomHandleRoomDefaultsAndFriend(t *testing.T) {
 }
 
 func TestRoomPersistenceRoundTrip(t *testing.T) {
+	testutil.InstallAccounts(t, nil)
+	testutil.UseDatabase(t)
 	store.AccountsMu.Lock()
-	pa, pl, pn, pp := store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath
-	store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath = make(map[string]*store.Account), nil, 0, ""
+	store.NextAvatarID = 0
 	store.AccountsMu.Unlock()
 	t.Cleanup(func() {
 		store.AccountsMu.Lock()
-		store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath = pa, pl, pn, pp
 		store.AccountsMu.Unlock()
 	})
-	path := filepath.Join(t.TempDir(), "accounts.json")
-	if err := store.LoadAccountsFrom(path); err != nil {
+	if err := store.ReloadAccounts(); err != nil {
 		t.Fatal(err)
 	}
 	acc, _ := store.NewAccount()
 	setLab(t, acc.Aid, true)
 	store.AccountsMu.Lock()
-	store.Accounts[acc.AccessToken] = acc
 	store.LatestAcc = acc
-	store.AccountStorePath = path
 	store.AccountsMu.Unlock()
+	testutil.UseDatabase(t)
 	tok := acc.AccessToken
 	decorReq(t, tok, http.MethodGet, "/v4/inven/interior/items/all", "")
 	chair := seqOf(t, acc, "RUCH0011X")
@@ -264,22 +263,18 @@ func TestRoomPersistenceRoundTrip(t *testing.T) {
 	if rec := decorReq(t, tok, http.MethodPost, "/v4/room/save/new", body+"\n"); rec.Body.String() != `{"result":true}` {
 		t.Fatalf("save = %s", rec.Body.String())
 	}
-	store.AccountsMu.Lock()
-	store.Accounts, store.LatestAcc = make(map[string]*store.Account), nil
-	store.AccountsMu.Unlock()
-	if err := store.LoadAccountsFrom(path); err != nil {
+	testutil.ClearAccounts(t)
+	if err := store.ReloadAccounts(); err != nil {
 		t.Fatal(err)
 	}
 	store.AccountsMu.Lock()
-	got := store.Accounts[tok]
+	got := store.AccountByTokenLocked(tok)
 	store.AccountsMu.Unlock()
 	if got == nil || len(got.RoomItems) != 56 || got.NextRoomSeq != 100056 || len(got.Rooms[room.DefaultLevel].Placed) != 3 || got.Rooms[room.DefaultLevel].Placed[2].Seq != chair {
 		t.Fatalf("round trip lost layout: %+v", got)
 	}
 	// failed persistence rolls the layout back
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(path, "sub", "accounts.json") // parent is a file
-	store.AccountsMu.Unlock()
+	testutil.FailSaves(t)
 	chair2 := seqOf(t, got, "RUCH0011Y")
 	rec := decorReq(t, tok, http.MethodPost, "/v4/room/save/new", `{"additionItems":[`+rowJSON(chair2, "RUCH0011Y", 1, 1, 0, "FR")+`],"groundLevel":"LEVEL_1"}`)
 	store.AccountsMu.Lock()
@@ -291,34 +286,56 @@ func TestRoomPersistenceRoundTrip(t *testing.T) {
 }
 
 func TestRoomOldStoreLoadsUnchanged(t *testing.T) {
-	store.AccountsMu.Lock()
-	pa, pl, pn, pp := store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath
-	store.AccountsMu.Unlock()
-	t.Cleanup(func() {
-		store.AccountsMu.Lock()
-		store.Accounts, store.LatestAcc, store.NextAvatarID, store.AccountStorePath = pa, pl, pn, pp
-		store.AccountsMu.Unlock()
-	})
-	path := filepath.Join(t.TempDir(), "accounts.json")
+	// A legacy account file without room fields imports; the account has no room fields, and the row a save writes has none.
+	restore, err := store.SwapAccountsForTest(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(restore)
+	dir := t.TempDir()
 	old := `{"version":1,"accounts":{"t1":{"accessToken":"t1","sessionKey":"k","mid":"1","avatarUserId":"u","aid":"10","name":"Old","gender":"MALE","skin":"1","country":"JP","itemCodes":["CUON00164"],"inventoryCodes":["CUON00164"]}},"aliases":{"t1":"t1"},"latest":"t1","nextAvatarId":10}`
-	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "accounts.json"), []byte(old), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.LoadAccountsFrom(path); err != nil {
+	dbPath := filepath.Join(dir, store.DBFileName)
+	d, err := store.OpenDB(dbPath)
+	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.ImportDir(d, dir); err != nil {
+		d.Close()
+		t.Fatal(err)
+	}
+	d.Close()
+	if err := store.OpenStore(dbPath); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.CloseStore() })
 	store.AccountsMu.Lock()
-	acc := store.Accounts["t1"]
+	acc := store.AccountByTokenLocked("t1")
 	store.AccountsMu.Unlock()
 	if acc == nil || acc.Name != "Old" || len(acc.RoomItems) != 0 || acc.Rooms != nil || acc.NextRoomSeq != store.FirstRoomSeq {
 		t.Fatalf("old store = %+v", acc)
 	}
 	store.AccountsMu.Lock()
-	err := store.SaveAccountsLocked()
+	err = store.SaveLocked(nil, acc)
 	store.AccountsMu.Unlock()
-	data, _ := os.ReadFile(path)
-	if err != nil || strings.Contains(string(data), "roomItems") || strings.Contains(string(data), `"rooms"`) {
-		t.Fatalf("unseeded account must stay additive-free: %v %s", err, data)
+	if err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	rd, err := store.OpenDB(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rd.Close()
+	var data string
+	if err := rd.View(func(q store.Querier) error {
+		return q.QueryRow(`SELECT data FROM accounts WHERE aid = '10'`).Scan(&data)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(data, "roomItems") || strings.Contains(data, `"rooms"`) {
+		t.Fatalf("unseeded account must stay additive-free: %s", data)
 	}
 }
 

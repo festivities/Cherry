@@ -128,12 +128,11 @@ func MarkQuest(aid, key string, now time.Time) (QuestDef, bool) {
 		return QuestDef{}, false
 	}
 	acc.Quests = &store.QuestDay{Day: day, Done: done, Claimed: append(slices.Clone(rec.Claimed), def.ID)}
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(lines, acc); err != nil {
 		*acc = prev
 		log.Printf("cherry: garden-quest save failed aid=%s id=%d err=%v", aid, def.ID, err)
 		return QuestDef{}, false
 	}
-	store.FlushLedgerLocked(lines)
 	log.Printf("cherry: garden-quest complete aid=%s id=%d gems=%d", aid, def.ID, def.Gems)
 	return def, true
 }
@@ -162,12 +161,11 @@ func ClaimQuest(aid string, id int64, now time.Time) (int64, int) {
 		return 0, questErrRejected
 	}
 	acc.Quests = &store.QuestDay{Day: day, Done: rec.Done, Claimed: append(slices.Clone(rec.Claimed), id)}
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(lines, acc); err != nil {
 		*acc = prev
 		log.Printf("cherry: garden-quest claim save failed aid=%s id=%d err=%v", aid, id, err)
 		return 0, questErrRejected
 	}
-	store.FlushLedgerLocked(lines)
 	return def.Gems, 0
 }
 

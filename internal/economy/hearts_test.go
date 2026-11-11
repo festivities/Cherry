@@ -1,8 +1,6 @@
 package economy
 
 import (
-	"bufio"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -164,25 +162,12 @@ func TestHeartSendersBounded(t *testing.T) {
 
 // TestHeartLedgerLine: the reward writes one gems line with reason heart:<yyyymmdd>.
 func TestHeartLedgerLine(t *testing.T) {
-	dir := t.TempDir()
 	heartAccounts(t, "9830", "9831")
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(dir, "accounts.json")
-	store.AccountsMu.Unlock()
+	testutil.UseDatabase(t)
 	sendHearts(t, "9830", "9831", int(HeartBase()), jstAt(22, 12, 0))
-	f, err := os.Open(filepath.Join(dir, "ledger.jsonl"))
+	lines, err := store.LedgerLines()
 	if err != nil {
 		t.Fatal(err)
-	}
-	defer f.Close()
-	var lines []store.LedgerLine
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		var l store.LedgerLine
-		if err := json.Unmarshal(sc.Bytes(), &l); err != nil {
-			t.Fatal(err)
-		}
-		lines = append(lines, l)
 	}
 	if len(lines) != 1 || lines[0].Aid != "9830" || lines[0].Currency != "gems" || lines[0].Delta != HeartRewardGems() || lines[0].Reason != "heart:20261022" {
 		t.Fatalf("ledger = %+v, want one gems +%d heart:20261022 line", lines, HeartRewardGems())
@@ -197,9 +182,7 @@ func TestHeartSaveFailureRollsBack(t *testing.T) {
 	if err := os.WriteFile(blocker, []byte("not a directory"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(blocker, "accounts.json")
-	store.AccountsMu.Unlock()
+	testutil.FailSaves(t)
 	if HeartSend("9840", "9841", jstAt(22, 12, 0)) {
 		t.Fatal("heart counted despite a failed save")
 	}

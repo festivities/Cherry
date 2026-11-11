@@ -1,10 +1,10 @@
 package web
 
 import (
+	"cherry/internal/testutil"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -12,7 +12,7 @@ import (
 )
 
 // profileEditFixture: dp-owner (1201, "Yuki") has a saved profile with mixed secret flags and dp-visitor
-// (1202) has none. The account store is in memory unless a test sets AccountStorePath.
+// (1202) has none. The account store is in memory unless a test attaches a database.
 func profileEditFixture(t *testing.T) {
 	t.Helper()
 	owner := &store.Account{AccessToken: "dp-owner", SessionKey: "sk", Aid: "1201", Name: "Yuki",
@@ -109,20 +109,20 @@ func TestDiaryProfileSaveGetRoundTrip(t *testing.T) {
 
 func TestDiaryProfileSaveSurvivesReload(t *testing.T) {
 	profileEditFixture(t)
-	path := filepath.Join(t.TempDir(), "accounts.json")
+	testutil.UseDatabase(t)
 	store.AccountsMu.Lock()
-	store.AccountStorePath, store.NextAvatarID, store.LatestAcc = path, 1300, store.Accounts["dp-owner"]
+	store.NextAvatarID, store.LatestAcc = 1300, store.AccountByTokenLocked("dp-owner")
 	store.AccountsMu.Unlock()
 	body := `{"location":"Nara","locationSecret":true,"sex":"","sexSecret":false,"birthDay":"","birthDaySecret":false,` +
 		`"bloodType":"","bloodTypeSecret":false,"job":"nurse","jobSecret":false}`
 	if rec := socialTestRequestAs(t, "dp-owner", http.MethodPost, "/v4/profile/intro/", body); rec.Code != http.StatusOK {
 		t.Fatalf("save = %d %s", rec.Code, rec.Body.String())
 	}
-	if err := store.LoadAccountsFrom(path); err != nil {
+	if err := store.ReloadAccounts(); err != nil {
 		t.Fatal(err)
 	}
 	store.AccountsMu.Lock()
-	acc := store.Accounts["dp-owner"]
+	acc := store.AccountByTokenLocked("dp-owner")
 	store.AccountsMu.Unlock()
 	if acc == nil || acc.DiaryProfile == nil {
 		t.Fatalf("reloaded owner has no diary profile: %+v", acc)
@@ -249,18 +249,18 @@ func TestAvatarProfileNicknameRenamesCopies(t *testing.T) {
 
 func TestAvatarProfileStatusSurvivesReload(t *testing.T) {
 	profileEditFixture(t)
-	path := filepath.Join(t.TempDir(), "accounts.json")
+	testutil.UseDatabase(t)
 	store.AccountsMu.Lock()
-	store.AccountStorePath, store.NextAvatarID, store.LatestAcc = path, 1300, store.Accounts["dp-owner"]
+	store.NextAvatarID, store.LatestAcc = 1300, store.AccountByTokenLocked("dp-owner")
 	store.AccountsMu.Unlock()
 	if rec := socialTestRequestAs(t, "dp-owner", http.MethodPost, "/v4/avatar/1201/profile", `{"intro":"kept"}`); rec.Code != http.StatusOK {
 		t.Fatalf("save = %d %s", rec.Code, rec.Body.String())
 	}
-	if err := store.LoadAccountsFrom(path); err != nil {
+	if err := store.ReloadAccounts(); err != nil {
 		t.Fatal(err)
 	}
 	store.AccountsMu.Lock()
-	acc := store.Accounts["dp-owner"]
+	acc := store.AccountByTokenLocked("dp-owner")
 	store.AccountsMu.Unlock()
 	if acc == nil || acc.DiaryProfile == nil || acc.DiaryProfile.StatusMessage != "kept" {
 		t.Fatalf("reloaded owner = %+v, want status kept", acc)

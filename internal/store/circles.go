@@ -14,7 +14,7 @@ import (
 )
 
 // Circles (player clubs, economy/circle.go): the circles, their members and their pending applications and invites,
-// in %LOCALAPPDATA%\Cherry\circles.json beside accounts.json. Absence means no circles. The rules live in economy;
+// in %LOCALAPPDATA%\Cherry\circles.json beside cherry.db. Absence means no circles. The rules live in economy;
 // this file only holds the book and saves it.
 
 // CircleMember is one member of a circle. Role is "leader", "vice" or "member": memberLevel MASTER, MANAGER and

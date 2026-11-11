@@ -27,9 +27,7 @@ func circFixture(t *testing.T, gems map[string]int64) string {
 	}
 	testutil.InstallAccounts(t, entries)
 	dir := t.TempDir()
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(dir, "accounts.json")
-	store.AccountsMu.Unlock()
+	testutil.UseDatabase(t)
 	store.ResetCircles()
 	store.CirclesMu.Lock()
 	store.CirclesStorePath = filepath.Join(dir, "circles.json")
@@ -449,7 +447,7 @@ func circleJoin(token string, id int64, now time.Time) error {
 		return err
 	}
 	store.AccountsMu.Lock()
-	acc := store.Accounts[token]
+	acc := store.AccountByTokenLocked(token)
 	aid := ""
 	if acc != nil {
 		aid = acc.Aid
@@ -461,10 +459,8 @@ func circleJoin(token string, id int64, now time.Time) error {
 	}
 	store.CirclesMu.Unlock()
 	leaderToken := ""
-	for tok, a := range store.Accounts {
-		if leader != "" && a.Aid == leader {
-			leaderToken = tok
-		}
+	if leader != "" && store.AccountByTokenLocked("ctok-"+leader) != nil {
+		leaderToken = "ctok-" + leader
 	}
 	store.AccountsMu.Unlock()
 	if leaderToken == "" {

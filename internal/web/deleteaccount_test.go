@@ -1,13 +1,13 @@
 package web
 
 import (
+	"cherry/internal/testutil"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"testing"
 
 	"cherry/internal/httpx"
@@ -29,11 +29,10 @@ func delSetup(t *testing.T) *delFixture {
 	other := &store.Account{AccessToken: "otok", SessionKey: "sk2", Aid: "9502", Name: "Other", Gender: "MALE"}
 	installSocialTestAccounts(t, map[string]*store.Account{"dtok": acc, "dtok2": acc, "otok": other})
 	dir := t.TempDir()
+	testutil.UseDatabaseAt(t, dir)
 	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(dir, "accounts.json")
 	store.NextAvatarID = 9502
 	store.LatestAcc = acc
-	store.Accounts["dtok2"] = acc
 	store.AccountsMu.Unlock()
 	store.ResetSocial()
 	t.Cleanup(store.ResetSocial)
@@ -79,8 +78,8 @@ func TestDeleteAccountRemovesEverything(t *testing.T) {
 		t.Fatalf("delete = %d %s", rec.Code, rec.Body.String())
 	}
 	store.AccountsMu.Lock()
-	_, a1 := store.Accounts["dtok"]
-	_, a2 := store.Accounts["dtok2"]
+	a1 := store.AccountByTokenLocked("dtok") != nil
+	a2 := store.AccountByTokenLocked("dtok2") != nil
 	latest, next := store.LatestAcc, store.NextAvatarID
 	store.AccountsMu.Unlock()
 	if a1 || a2 || latest == nil || latest.Aid != "9502" || next != 9502 {
@@ -102,7 +101,7 @@ func TestDeleteAccountRemovesEverything(t *testing.T) {
 	store.SocialMu.Unlock()
 
 	// Stores on disk reload cleanly (latest valid, no deleted aid).
-	if err := store.LoadAccountsFrom(filepath.Join(f.dir, "accounts.json")); err != nil {
+	if err := store.ReloadAccounts(); err != nil {
 		t.Fatalf("reload accounts: %v", err)
 	}
 	// Backup line carries the full account and social rows.
@@ -115,7 +114,7 @@ func TestDeleteAccountRemovesEverything(t *testing.T) {
 		len(b.Posts) != 1 || len(b.Guestbook) != 2 || len(b.Friendships) != 1 || b.GuestbookRead != 2 {
 		t.Fatalf("backup = %s (%v)", raw, err)
 	}
-	if l := readLedger(t, f.dir); len(l) != 1 || l[0].Reason != "account deleted" || l[0].Aid != "9501" {
+	if l := readLedger(t); len(l) != 1 || l[0].Reason != "account deleted" || l[0].Aid != "9501" {
 		t.Fatalf("ledger = %+v", l)
 	}
 	// The friend's next sync tombstones the deleted aid (status -1).
@@ -170,7 +169,7 @@ func TestDeleteAccountUnknownSessionAndBadCode(t *testing.T) {
 		t.Fatalf("reused code = %d", rec.Code)
 	}
 	store.AccountsMu.Lock()
-	_, ok := store.Accounts["dtok"]
+	ok := store.AccountByTokenLocked("dtok") != nil
 	store.AccountsMu.Unlock()
 	if !ok {
 		t.Fatal("account removed by a refused request")
@@ -190,8 +189,8 @@ func TestDeleteAccountSaveFailureRollsBack(t *testing.T) {
 		t.Fatalf("delete = %d %s", rec.Code, rec.Body.String())
 	}
 	store.AccountsMu.Lock()
-	_, a1 := store.Accounts["dtok"]
-	_, a2 := store.Accounts["dtok2"]
+	a1 := store.AccountByTokenLocked("dtok") != nil
+	a2 := store.AccountByTokenLocked("dtok2") != nil
 	latest := store.LatestAcc
 	store.AccountsMu.Unlock()
 	store.SocialMu.Lock()
@@ -201,9 +200,14 @@ func TestDeleteAccountSaveFailureRollsBack(t *testing.T) {
 	if !a1 || !a2 || latest != f.acc || state != "accepted" || n != 2 || g != 3 || read != 2 {
 		t.Fatalf("not rolled back: %v %v %v %s %d %d %d", a1, a2, latest, state, n, g, read)
 	}
-	// accounts.json on disk still holds the account.
-	raw, _ := os.ReadFile(filepath.Join(f.dir, "accounts.json"))
-	if !strings.Contains(string(raw), `"aid":"9501"`) {
-		t.Fatalf("accounts.json lost the account: %s", raw)
+	// The database still holds the account: the rollback wrote it back.
+	if err := store.ReloadAccounts(); err != nil {
+		t.Fatal(err)
+	}
+	store.AccountsMu.Lock()
+	kept := store.AccountByAidLocked("9501") != nil
+	store.AccountsMu.Unlock()
+	if !kept {
+		t.Fatal("the database lost the account after a failed delete")
 	}
 }

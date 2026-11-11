@@ -122,7 +122,7 @@ func TestDevFakeRefusesCodesNobodyMinted(t *testing.T) {
 		}
 	}
 	store.AccountsMu.Lock()
-	n := len(store.Accounts)
+	n := store.AccountCountLocked()
 	store.AccountsMu.Unlock()
 	if n != 0 {
 		t.Fatalf("refused guest requests created %d accounts", n)
@@ -136,8 +136,12 @@ func TestLabGuestKeepsDeviceGuests(t *testing.T) {
 	useConfig(t, cfg)
 	guestAccountTest(t)
 	token := guestGenerateCode(t, deviceA)
-	if again := guestGenerateCode(t, deviceA); again != token {
-		t.Fatal("lab-guest did not return the device's own account token")
+	again := guestGenerateCode(t, deviceA) // a rebind mints an alias (the own token is not kept in memory after a reload)
+	store.AccountsMu.Lock()
+	same := store.AccountByTokenLocked(token) != nil && store.AccountByTokenLocked(token) == store.AccountByTokenLocked(again)
+	store.AccountsMu.Unlock()
+	if !same {
+		t.Fatal("lab-guest rebind: the new token does not resolve to the device's account")
 	}
 }
 

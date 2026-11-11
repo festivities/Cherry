@@ -68,7 +68,7 @@ func main() {
 		economy.NowFunc = func() time.Time { return time.Now().Add(off) }
 		logger.Printf("cherry: FAKE CLOCK game time starts at %s (offset %s)", t.Format(time.RFC3339), off)
 	}
-	if err := store.LoadAccounts(); err != nil {
+	if err := openAccounts(cfg.DataDir); err != nil {
 		logger.Fatalf("cherry: load accounts: %v", err)
 	}
 	if err := store.LoadSocial(); err != nil {
@@ -204,6 +204,9 @@ func main() {
 	_ = httpLn.Close()
 	if dnsConn != nil {
 		_ = dnsConn.Close()
+	}
+	if err := store.CloseStore(); err != nil {
+		logger.Printf("cherry: close database: %v", err)
 	}
 	logger.Printf("cherry: shutdown complete")
 }

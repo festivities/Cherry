@@ -134,7 +134,7 @@ func writePinResult(w http.ResponseWriter, found bool, err error) {
 func requesterPins(r *http.Request) (aid string, pins []string, ok bool) {
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
-	acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]
+	acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
 	if acc == nil {
 		return "", nil, false
 	}
@@ -146,13 +146,13 @@ func requesterPins(r *http.Request) (aid string, pins []string, ok bool) {
 func editPins(token string, edit func([]string) []string) (found bool, err error) {
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
-	acc := store.Accounts[token]
+	acc := store.AccountByTokenLocked(token)
 	if acc == nil {
 		return false, nil
 	}
 	prev := acc.Pins
 	acc.Pins = edit(prev)
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(nil, acc); err != nil {
 		acc.Pins = prev
 		return true, err
 	}

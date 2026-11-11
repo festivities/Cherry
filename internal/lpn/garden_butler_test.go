@@ -4,8 +4,6 @@ import (
 	"encoding/binary"
 	"io"
 	"log"
-	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -309,10 +307,7 @@ func TestButlerGatherSequence(t *testing.T) {
 			{ID: ophelia, Begin: now.UnixMilli(), End: now.UnixMilli() + month},
 			{ID: ian, Begin: now.UnixMilli(), End: now.UnixMilli() + month},
 		}}}})
-	dir := t.TempDir()
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(dir, "accounts.json")
-	store.AccountsMu.Unlock()
+	testutil.UseDatabase(t)
 
 	// request sends one butler request: the fields are (number, value) pairs.
 	request := func(msgid uint16, at time.Time, fields ...uint64) []gardenMsg {
@@ -435,7 +430,7 @@ func TestButlerGatherSequence(t *testing.T) {
 	if gems, bag, stacks := state(); gems != 3 || bag != 3 || stacks != 3 {
 		t.Fatalf("claim: gems=%d bag=%d stacks=%d, want 3 gems, 3 materials in 3 stacks", gems, bag, stacks)
 	}
-	ledger, err := os.ReadFile(filepath.Join(dir, "ledger.jsonl"))
+	ledger, err := testutil.LedgerText(t)
 	if err != nil || strings.Count(string(ledger), `"reason":"butler:gather:1900000004:20261101"`) != 1 {
 		t.Fatalf("ledger after the claim: %q (err %v), want one butler:gather line for 20261101", ledger, err)
 	}

@@ -226,7 +226,7 @@ func handleAdminGarden(w http.ResponseWriter, r *http.Request) {
 	}
 	prev := acc.GardenMap
 	acc.GardenMap = req.Map
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(nil, acc); err != nil {
 		acc.GardenMap = prev
 		httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
 		return

@@ -20,9 +20,7 @@ func questAccount(t *testing.T, aid string) {
 func questStore(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	store.AccountsMu.Lock()
-	store.AccountStorePath = dir + "/accounts.json"
-	store.AccountsMu.Unlock()
+	testutil.UseDatabase(t)
 	return dir
 }
 

@@ -161,7 +161,7 @@ func EnsureRoomLocked(acc *store.Account) error {
 		acc.Rooms = map[string]store.RoomLayout{}
 	}
 	acc.Rooms[DefaultLevel] = lay
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(nil, acc); err != nil {
 		acc.RoomItems, acc.NextRoomSeq, acc.Rooms = prevItems, prevNext, prevRooms
 		return err
 	}
@@ -172,7 +172,7 @@ func EnsureRoomLocked(acc *store.Account) error {
 // written the response and returns nil. Caller must unlock accountsMu iff non-nil.
 func roomAccount(w http.ResponseWriter, r *http.Request) *store.Account {
 	store.AccountsMu.Lock()
-	acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]
+	acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
 	if acc == nil {
 		store.AccountsMu.Unlock()
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
@@ -414,7 +414,7 @@ func HandleRoomSaveNew(w http.ResponseWriter, r *http.Request) {
 	prev := acc.Rooms
 	acc.Rooms = maps.Clone(prev)
 	acc.Rooms[req.GroundLevel] = lay
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(nil, acc); err != nil {
 		acc.Rooms = prev
 		httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
 		return
@@ -429,9 +429,9 @@ func RoomDecorInfo(r *http.Request, aid, level string) map[string]any {
 	defer store.AccountsMu.Unlock()
 	var acc *store.Account
 	if aid == "" {
-		acc = store.Accounts[httpx.CookieValue(r, "AV_AUTH")]
+		acc = store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
 	} else {
-		for _, a := range store.Accounts {
+		for _, a := range store.AllAccountsLocked() {
 			if a.Aid == aid {
 				acc = a
 				break
@@ -552,7 +552,7 @@ func HandleRoomPresetSave(w http.ResponseWriter, r *http.Request) {
 		acc.Presets = map[string]store.RoomPreset{}
 	}
 	acc.Presets[strconv.Itoa(n)] = store.RoomPreset{Layout: lay, Level: req.GroundLevel, Image: req.RepresentImagePath, TileSize: req.TileSize}
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(nil, acc); err != nil {
 		acc.Presets = prev
 		httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
 		return
@@ -577,7 +577,7 @@ func HandleRoomPresetRemove(w http.ResponseWriter, r *http.Request) {
 	if _, have := prev[strconv.Itoa(n)]; have {
 		acc.Presets = maps.Clone(prev)
 		delete(acc.Presets, strconv.Itoa(n))
-		if err := store.SaveAccountsLocked(); err != nil {
+		if err := store.SaveLocked(nil, acc); err != nil {
 			acc.Presets = prev
 			httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
 			return

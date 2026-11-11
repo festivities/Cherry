@@ -202,11 +202,6 @@ func RideShopBuy(aid string, id int64, now time.Time) (row RideShopRow, points i
 		return row, points, false
 	}
 	setRidePointsLocked(acc, points-row.Price)
-	if err := store.SaveAccountsLocked(); err != nil {
-		*acc = prev
-		log.Printf("cherry: square racing exchange save failed aid=%s row=%d err=%v", aid, id, err)
-		return row, points, false
-	}
 	line := store.LedgerLine{
 		Time:     now.UTC().Format(time.RFC3339),
 		Aid:      aid,
@@ -215,6 +210,10 @@ func RideShopBuy(aid string, id int64, now time.Time) (row RideShopRow, points i
 		Balance:  points - row.Price,
 		Reason:   "racingexchange:" + strconv.FormatInt(row.ID, 10) + " " + row.ItemCode,
 	}
-	store.FlushLedgerLocked([]store.LedgerLine{line})
+	if err := store.SaveLocked([]store.LedgerLine{line}, acc); err != nil {
+		*acc = prev
+		log.Printf("cherry: square racing exchange save failed aid=%s row=%d err=%v", aid, id, err)
+		return row, points, false
+	}
 	return row, points - row.Price, true
 }

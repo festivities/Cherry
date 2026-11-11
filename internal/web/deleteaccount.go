@@ -58,7 +58,7 @@ func handleDeleteCode(w http.ResponseWriter, r *http.Request) {
 	}
 	token := httpx.CookieValue(r, "AV_AUTH")
 	store.AccountsMu.Lock()
-	acc := store.Accounts[token]
+	acc := store.AccountByTokenLocked(token)
 	store.AccountsMu.Unlock()
 	if acc == nil {
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
@@ -90,7 +90,7 @@ func handleAvatarDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	token := httpx.CookieValue(r, "AV_AUTH")
 	store.AccountsMu.Lock()
-	acc := store.Accounts[token]
+	acc := store.AccountByTokenLocked(token)
 	store.AccountsMu.Unlock()
 	if acc == nil {
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
@@ -137,12 +137,7 @@ func deleteAccount(acc *store.Account) error {
 	store.SocialMu.Lock()
 	defer store.SocialMu.Unlock()
 
-	var tokens []string
-	for t, a := range store.Accounts {
-		if a == acc {
-			tokens = append(tokens, t)
-		}
-	}
+	tokens := store.AccountTokenHashesLocked(acc)
 	if len(tokens) == 0 {
 		return fmt.Errorf("account already gone")
 	}
@@ -195,25 +190,8 @@ func deleteAccount(acc *store.Account) error {
 		return err
 	}
 
-	prevAccounts, prevLatest := store.Accounts, store.LatestAcc
-	next := make(map[string]*store.Account, len(store.Accounts))
-	for t, a := range store.Accounts {
-		if a != acc {
-			next[t] = a
-		}
-	}
-	store.Accounts = next
-	if store.LatestAcc == acc { // the store requires a valid latest while accounts remain
-		store.LatestAcc = nil
-		var best uint64
-		for _, a := range next {
-			if n, _ := strconv.ParseUint(a.Aid, 10, 64); store.LatestAcc == nil || n > best {
-				store.LatestAcc, best = a, n
-			}
-		}
-	}
-	if err := store.SaveAccountsLocked(); err != nil {
-		store.Accounts, store.LatestAcc = prevAccounts, prevLatest
+	undo, err := store.DeleteAccountLocked(acc, []store.LedgerLine{{Time: time.Now().UTC().Format(time.RFC3339), Aid: aid, Reason: "account deleted"}})
+	if err != nil {
 		return err
 	}
 	prevPosts, prevBook, prevFriends := store.DiaryPosts, store.GuestbookEntries, store.Friendships
@@ -228,26 +206,25 @@ func deleteAccount(acc *store.Account) error {
 		store.DiaryPosts, store.GuestbookEntries, store.Friendships = prevPosts, prevBook, prevFriends
 		store.DiaryComments, store.DiaryLikes = prevComments, prevLikes
 		store.GuestbookRead = prevRead
-		store.Accounts, store.LatestAcc = prevAccounts, prevLatest
-		if rerr := store.SaveAccountsLocked(); rerr != nil {
+		if rerr := undo(); rerr != nil {
 			log.Printf("cherry: delete account rollback save failed: %v", rerr)
 		}
 		return err
 	}
-	store.FlushLedgerLocked([]store.LedgerLine{{Time: time.Now().UTC().Format(time.RFC3339), Aid: aid, Reason: "account deleted"}})
 	return nil
 }
 
-// appendDeletedBackup writes one JSON line next to accounts.json; caller holds accountsMu.
+// appendDeletedBackup writes one JSON line next to cherry.db; caller holds accountsMu.
 func appendDeletedBackup(b deletedBackup) error {
-	if store.AccountStorePath == "" {
+	dir := store.StoreDirLocked()
+	if dir == "" {
 		return nil // in-memory test sessions
 	}
 	line, err := json.Marshal(b)
 	if err != nil {
 		return err
 	}
-	f, err := os.OpenFile(filepath.Join(filepath.Dir(store.AccountStorePath), "deleted-accounts.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	f, err := os.OpenFile(filepath.Join(dir, "deleted-accounts.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}

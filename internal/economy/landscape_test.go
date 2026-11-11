@@ -249,13 +249,14 @@ func TestOwnedLandscapes(t *testing.T) {
 func TestSetGardenMap(t *testing.T) {
 	acc := &store.Account{AccessToken: "smtok", SessionKey: "sk", Aid: "9602", Name: "Set"}
 	testutil.InstallAccounts(t, map[string]*store.Account{"smtok": acc})
+	testutil.UseDatabase(t)
 	store.AccountsMu.Lock()
-	store.AccountStorePath, store.NextAvatarID = filepath.Join(t.TempDir(), "accounts.json"), 9602
+	store.NextAvatarID = 9602
 	store.AccountsMu.Unlock()
 	if err := SetGardenMap("9602", "2303271138"); err != nil || GardenMap("9602") != "2303271138" {
 		t.Fatalf("set: %v, map %s", err, GardenMap("9602"))
 	}
-	if err := store.LoadAccountsFrom(store.AccountStorePath); err != nil || GardenMap("9602") != "2303271138" {
+	if err := store.ReloadAccounts(); err != nil || GardenMap("9602") != "2303271138" {
 		t.Fatalf("reload: %v, map %s", err, GardenMap("9602"))
 	}
 	if err := SetGardenMap("9602", "1234567890"); err == nil {

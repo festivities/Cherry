@@ -219,7 +219,7 @@ type dyeView struct {
 func dyeViewOf(r *http.Request) dyeView {
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
-	acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]
+	acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
 	if acc == nil {
 		return dyeView{}
 	}
@@ -361,7 +361,7 @@ func handleDyeBaseShop(w http.ResponseWriter, r *http.Request) {
 	store.AccountsMu.Lock()
 	var owned []string
 	animal := false
-	if acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]; acc != nil {
+	if acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH")); acc != nil {
 		owned, animal = store.AccountOwnedCodes(acc), acc.Gender == "ANIMAL"
 	}
 	store.AccountsMu.Unlock()
@@ -432,7 +432,7 @@ func handleDyeBuy(w http.ResponseWriter, r *http.Request) {
 
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
-	acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]
+	acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
 	if acc == nil {
 		shopError(w, r, raw, errUnknown, "unknown session")
 		return
@@ -448,12 +448,11 @@ func handleDyeBuy(w http.ResponseWriter, r *http.Request) {
 	maps.Copy(dyes, acc.Dyes)
 	dyes[key]++
 	acc.Dyes = dyes
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(lines, acc); err != nil {
 		*acc = prev
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
 	}
-	store.FlushLedgerLocked(lines)
 	body, _ := json.Marshal(map[string]any{"result": map[string]any{"balanceUnit": dyeCoinUnit, "balance": acc.Gems}})
 	httpx.WriteJSON(w, http.StatusOK, string(body))
 }
@@ -547,7 +546,7 @@ func handleDyeUse(w http.ResponseWriter, r *http.Request) {
 
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
-	acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]
+	acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
 	if acc == nil {
 		shopError(w, r, raw, errUnknown, "unknown session")
 		return
@@ -605,7 +604,7 @@ func handleDyeUse(w http.ResponseWriter, r *http.Request) {
 
 	prev := *acc
 	acc.Dyes, acc.DyeColors = dyes, colors
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(nil, acc); err != nil {
 		*acc = prev
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return

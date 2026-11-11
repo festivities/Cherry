@@ -851,8 +851,8 @@ func handleFriendSearch(w http.ResponseWriter, r *http.Request) {
 		items[0].FriendStatus = strconv.Itoa(relNone)
 	}
 	store.AccountsMu.Lock()
-	byID := make(map[string]friendSearchItem, len(store.Accounts))
-	for _, acc := range store.Accounts {
+	byID := make(map[string]friendSearchItem, store.AccountCountLocked())
+	for _, acc := range store.AllAccountsLocked() {
 		if acc == nil || !store.ValidAvatarID(acc.Aid) || acc.Aid == "0" || acc.Aid == store.FriendAID {
 			continue
 		}

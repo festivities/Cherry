@@ -3,7 +3,6 @@ package economy
 import (
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -19,9 +18,9 @@ func TestAdminGuestCode(t *testing.T) {
 	a := &store.Account{AccessToken: "gc-a", SessionKey: "sk", Aid: "9601"}
 	b := &store.Account{AccessToken: "gc-b", SessionKey: "sk", Aid: "9602"}
 	testutil.InstallAccounts(t, map[string]*store.Account{"gc-a": a, "gc-b": b})
-	path := filepath.Join(t.TempDir(), "accounts.json")
+	testutil.UseDatabase(t)
 	store.AccountsMu.Lock()
-	store.AccountStorePath, store.NextAvatarID = path, 9602
+	store.NextAvatarID = 9602
 	store.AccountsMu.Unlock()
 	post := func(remote, body string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, "/admin/guestcode", strings.NewReader(body))
@@ -45,7 +44,7 @@ func TestAdminGuestCode(t *testing.T) {
 	if rec := post("127.0.0.1:5000", `{"aid":"9602","uniqueCode":"`+code+`"}`); rec.Code != http.StatusConflict || b.GuestCode != "" {
 		t.Fatalf("held code = %d", rec.Code)
 	}
-	if err := store.LoadAccountsFrom(path); err != nil {
+	if err := store.ReloadAccounts(); err != nil {
 		t.Fatal(err)
 	}
 	store.AccountsMu.Lock()

@@ -22,9 +22,7 @@ func fishAccount(t *testing.T, aid string, gems int64, fishing *store.FishingDay
 	testutil.InstallAccounts(t, map[string]*store.Account{"ftok-" + aid: {AccessToken: "ftok-" + aid, SessionKey: "sk", Aid: aid, Name: "Fish", Gems: gems, Fishing: fishing}})
 	testutil.SetLab(t, aid, false)
 	dir := t.TempDir()
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(dir, "accounts.json")
-	store.AccountsMu.Unlock()
+	testutil.UseDatabase(t)
 	return dir
 }
 
@@ -111,9 +109,7 @@ func TestFishCatchSaveFailureRollsBack(t *testing.T) {
 	if err := os.WriteFile(blocker, []byte("file, not a directory"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(blocker, "accounts.json") // MkdirAll fails: the parent is a file
-	store.AccountsMu.Unlock()
+	testutil.FailSaves(t)
 	if credit, ok := FishCatch("9904", ActiveFishing().normal[5], jstAt(11, 12, 0)); ok || credit != 0 {
 		t.Fatalf("failed save = (%d, %v), want (0, false)", credit, ok)
 	}
@@ -123,11 +119,11 @@ func TestFishCatchSaveFailureRollsBack(t *testing.T) {
 }
 
 func TestFishCatchLedgerReason(t *testing.T) {
-	dir := fishAccount(t, "9905", 0, nil)
+	_ = fishAccount(t, "9905", 0, nil)
 	if _, ok := FishCatch("9905", ActiveFishing().normal[5], jstAt(11, 12, 0)); !ok {
 		t.Fatal("catch failed")
 	}
-	b, err := os.ReadFile(filepath.Join(dir, "ledger.jsonl"))
+	b, err := testutil.LedgerText(t)
 	if err != nil {
 		t.Fatal(err)
 	}

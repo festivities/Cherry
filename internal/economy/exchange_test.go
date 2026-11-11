@@ -43,9 +43,7 @@ func exchangeAccount(t *testing.T, aid string, coins int64, inventory []string) 
 	t.Helper()
 	testutil.InstallAccounts(t, map[string]*store.Account{"etok-" + aid: {AccessToken: "etok-" + aid, SessionKey: "sk", Aid: aid, Name: "Exch", BossCoins: coins, InventoryCodes: inventory}})
 	testutil.SetLab(t, aid, false)
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(t.TempDir(), "accounts.json")
-	store.AccountsMu.Unlock()
+	testutil.UseDatabase(t)
 }
 
 // exchangeOwns reports whether aid's account holds code in its clothing or room items.
@@ -221,9 +219,7 @@ func TestExchangeBuyRefusalsChangeNothing(t *testing.T) {
 	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(blocker, "accounts.json") // MkdirAll fails: the parent is a file
-	store.AccountsMu.Unlock()
+	testutil.FailSaves(t)
 	if _, balance, ok := ExchangeBuy("9805", 1001, now); ok || balance != 100 || exchangeOwns(t, "9805", "CUON00059") {
 		t.Fatalf("a failed save changed the account: balance %d ok %v", balance, ok)
 	}

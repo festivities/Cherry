@@ -1,6 +1,7 @@
 package web
 
 import (
+	"cherry/internal/testutil"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -170,10 +171,7 @@ func TestFaceShopPurchaseEquipsAndGrants(t *testing.T) {
 	acc := faceShopSetup(t, "FEMALE",
 		[]string{"CUEY00002", "CUMO00002", "CUEB00001", "CUNO00001", "CUHE0000L", "CUON004TV"},
 		[]string{"CUEY00002", "CUMO00002", "CUEB00001", "CUNO00001", "CUHE0000L", "CUON004TV"})
-	path := filepath.Join(t.TempDir(), "accounts.json")
-	store.AccountsMu.Lock()
-	store.AccountStorePath = path
-	store.AccountsMu.Unlock()
+	testutil.UseDatabase(t)
 
 	body := `{"brandId":"","shopid":"1","price":"0","displayCoinUnit":"G","itemCd":"","cpId":"",` +
 		`"saveItemList":[{"itemCode":"CUEY0030Q","invenSeq":0},{"itemCode":"CUMO001ET"},{"itemCode":"SKN005"},` +
@@ -232,15 +230,13 @@ func TestFaceShopPurchaseEquipsAndGrants(t *testing.T) {
 	}
 
 	// Persisted: reload the store and the faces survive (Garden/Closet/relaunch source).
-	store.AccountsMu.Lock()
-	store.Accounts, store.LatestAcc = map[string]*store.Account{}, nil
-	store.AccountsMu.Unlock()
-	if err := store.LoadAccountsFrom(path); err != nil {
+	testutil.ClearAccounts(t)
+	if err := store.ReloadAccounts(); err != nil {
 		t.Fatal(err)
 	}
 	store.AccountsMu.Lock()
 	var reloaded *store.Account
-	for _, a := range store.Accounts {
+	for _, a := range store.AllAccountsLocked() {
 		reloaded = a
 	}
 	reloadedItems := strings.Join(reloaded.ItemCodes, ",")
@@ -312,9 +308,8 @@ func TestFaceShopSkinPurchase(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			acc := faceShopSetup(t, "FEMALE", c.equipped, c.inventory)
-			path := filepath.Join(t.TempDir(), "accounts.json")
+			testutil.UseDatabase(t)
 			store.AccountsMu.Lock()
-			store.AccountStorePath = path
 			store.AccountsMu.Unlock()
 			code, resp := faceShopReq(t, "ftok", http.MethodPost, faceShopPurchaseURL, c.body)
 			if code != c.status {
@@ -342,15 +337,15 @@ func TestFaceShopSkinPurchase(t *testing.T) {
 				t.Errorf("response skin %q, want %q", out.Result.Skin, c.skin)
 			}
 			// Persisted: reload accounts.json and read the skin back.
+			testutil.ClearAccounts(t)
 			store.AccountsMu.Lock()
-			store.Accounts, store.LatestAcc = map[string]*store.Account{}, nil
 			store.AccountsMu.Unlock()
-			if err := store.LoadAccountsFrom(path); err != nil {
+			if err := store.ReloadAccounts(); err != nil {
 				t.Fatal(err)
 			}
 			store.AccountsMu.Lock()
 			var reloaded *store.Account
-			for _, a := range store.Accounts {
+			for _, a := range store.AllAccountsLocked() {
 				reloaded = a
 			}
 			reloadedSkin, reloadedTickets := reloaded.Skin, reloaded.FaceTickets
@@ -368,9 +363,7 @@ func TestFaceShopSkinRollsBackOnSaveFailure(t *testing.T) {
 	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(blocker, "accounts.json")
-	store.AccountsMu.Unlock()
+	testutil.FailSaves(t)
 	code, _ := faceShopReq(t, "ftok", http.MethodPost, faceShopPurchaseURL, `{"saveItemList":[{"itemCode":"SKN005"}]}`)
 	if code != http.StatusInternalServerError {
 		t.Fatalf("status %d, want 500", code)
@@ -443,9 +436,7 @@ func TestFaceShopPurchaseRollsBackOnSaveFailure(t *testing.T) {
 	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(blocker, "accounts.json")
-	store.AccountsMu.Unlock()
+	testutil.FailSaves(t)
 	code, _ := faceShopReq(t, "ftok", http.MethodPost, faceShopPurchaseURL, `{"saveItemList":[{"itemCode":"CUEY0030Q"}]}`)
 	if code != http.StatusInternalServerError {
 		t.Fatalf("status %d, want 500", code)
@@ -497,10 +488,7 @@ func TestAnimalSaveSkipsBase(t *testing.T) {
 func TestAnimalWearOverHTTP(t *testing.T) {
 	starters := []string{"CAEY00002", "CANO00001", "CAMO00002", "CAEA00001", "CATL00001"}
 	acc := faceShopSetup(t, "ANIMAL", starters, starters)
-	path := filepath.Join(t.TempDir(), "accounts.json")
-	store.AccountsMu.Lock()
-	store.AccountStorePath = path
-	store.AccountsMu.Unlock()
+	testutil.UseDatabase(t)
 
 	code, body := faceShopReq(t, "ftok", http.MethodGet, "/v4/faceshop/v2/shop/1?shopLocation=HOME", "")
 	if code != http.StatusOK {

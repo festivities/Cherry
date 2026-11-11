@@ -263,11 +263,10 @@ func GatherCredit(aid, owner string, kind GatherKind, item int64, now time.Time)
 	}
 	acc.Gather = &next
 	acc.GardenBag = gardenBagChange(acc.GardenBag, item, 1, now)
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(lines, acc); err != nil {
 		*acc = prev
 		return lim, 0, false
 	}
-	store.FlushLedgerLocked(lines)
 	return gatherLimitOf(next, owner, own), gems, true
 }
 
@@ -319,7 +318,7 @@ func GardenBagDelete(aid string, item int64) bool {
 	}
 	prev := *acc
 	acc.GardenBag = slices.Delete(slices.Clone(acc.GardenBag), i, i+1)
-	if err := store.SaveAccountsLocked(); err != nil {
+	if err := store.SaveLocked(nil, acc); err != nil {
 		*acc = prev
 		return false
 	}

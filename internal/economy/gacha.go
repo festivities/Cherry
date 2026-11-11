@@ -704,7 +704,7 @@ func handleGachaPurchase(bundle bool) http.HandlerFunc {
 
 		store.AccountsMu.Lock()
 		defer store.AccountsMu.Unlock()
-		acc := store.Accounts[httpx.CookieValue(r, "AV_AUTH")]
+		acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
 		if acc == nil {
 			httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
 			return
@@ -766,12 +766,11 @@ func handleGachaPurchase(bundle bool) http.HandlerFunc {
 			acc.InventoryCodes = store.AppendUniqueItemCodes(store.AccountInventoryCodes(acc), clothing)
 		}
 		grantRoomItemsLocked(acc, furniture)
-		if err := store.SaveAccountsLocked(); err != nil {
+		if err := store.SaveLocked(lines, acc); err != nil {
 			*acc = previous
 			httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 			return
 		}
-		store.FlushLedgerLocked(lines)
 		TreasureGachaPulled(acc.Aid, int64(len(outcomes))) // Treasure World's secret quest counts the pulls (AccountsMu held)
 
 		logs := make([]gachaRewardLog, len(outcomes))

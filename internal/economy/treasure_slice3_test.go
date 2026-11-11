@@ -290,32 +290,20 @@ func TestTreasureBuffFollowsOutfit(t *testing.T) {
 func TestTreasureBuffWearPersistsOutfit(t *testing.T) {
 	treasureOwner(t, "1001", "CUAH006FG", "CUTO0006W")
 	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Tickets: 10, Charged: treasureNow.UnixMilli()})
-	path := filepath.Join(t.TempDir(), "accounts.json")
-	store.AccountsMu.Lock()
-	store.AccountStorePath = path // restored by the install's cleanup
-	store.AccountsMu.Unlock()
+	testutil.UseDatabase(t)
 	if _, err := TreasureBuffWear("1001", []string{"CUTO0006W", "CUAH006FG"}, treasureNow); err != nil {
 		t.Fatal(err)
 	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	raw := testutil.AccountRowText(t, "1001")
 	var saved struct {
-		Accounts map[string]struct {
-			Aid       string   `json:"aid"`
-			ItemCodes []string `json:"itemCodes"`
-		} `json:"accounts"`
+		ItemCodes []string `json:"itemCodes"`
 	}
 	if err := json.Unmarshal(raw, &saved); err != nil {
 		t.Fatal(err)
 	}
-	for _, acc := range saved.Accounts {
-		if acc.Aid == "1001" && slices.Equal(acc.ItemCodes, []string{"CUTO0006W", "CUAH006FG"}) {
-			return
-		}
+	if !slices.Equal(saved.ItemCodes, []string{"CUTO0006W", "CUAH006FG"}) {
+		t.Fatalf("the account row does not hold the saved outfit: %s", raw)
 	}
-	t.Fatalf("accounts.json does not hold the saved outfit: %s", raw)
 }
 
 // TestTreasureBuffSavedByClosetRule: a Closet save (store.SetAvatarOutfitLocked) that wears the pool item starts the buff, and one
@@ -352,7 +340,7 @@ func TestTreasureBuffWearNeedsOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	store.AccountsMu.Lock()
-	store.Accounts["t-1001"].InventoryCodes = []string{} // nil would fall back to the equipped codes (AccountInventoryCodes)
+	store.AccountByTokenLocked("t-1001").InventoryCodes = []string{} // nil would fall back to the equipped codes (AccountInventoryCodes)
 	store.AccountsMu.Unlock()
 	view, err := TreasureOpen("1001", treasureNow)
 	if err != nil || view.BuffPercent != 0 {

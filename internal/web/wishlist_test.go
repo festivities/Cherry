@@ -1,6 +1,7 @@
 package web
 
 import (
+	"cherry/internal/testutil"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -99,17 +100,14 @@ func TestWishListShape(t *testing.T) {
 // (five codes, a duplicate, a code the shops do not sell, not an array) answer 400 and keep the stored list.
 func TestWishListSaveRoundTrip(t *testing.T) {
 	wishFixture(t)
-	path := filepath.Join(t.TempDir(), "accounts.json")
-	store.AccountsMu.Lock()
-	store.AccountStorePath = path
-	store.AccountsMu.Unlock()
+	testutil.UseDatabase(t)
 
 	if rec := wishSave(t, "wish-me", `["CUTO00001","RUCH00001"]`); rec.Code != http.StatusOK {
 		t.Fatalf("add two = %d %s", rec.Code, rec.Body.String())
 	}
-	saved, err := os.ReadFile(path)
-	if err != nil || !strings.Contains(string(saved), `"wishes":["CUTO00001","RUCH00001"]`) {
-		t.Fatalf("accounts.json does not hold the wish list: %s (%v)", saved, err)
+	saved := testutil.AccountRowText(t, "9501")
+	if !strings.Contains(string(saved), `"wishes":["CUTO00001","RUCH00001"]`) {
+		t.Fatalf("the account row does not hold the wish list: %s", saved)
 	}
 	if got := wishCodes(wishList(t, "wish-me", "9501")); !slices.Equal(got, []string{"CUTO00001", "RUCH00001"}) {
 		t.Fatalf("list after add = %v", got)
@@ -157,9 +155,7 @@ func TestWishListSaveRollback(t *testing.T) {
 	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	store.AccountsMu.Lock()
-	store.AccountStorePath = filepath.Join(blocker, "accounts.json") // its folder is a regular file
-	store.AccountsMu.Unlock()
+	testutil.FailSaves(t)
 	if rec := wishSave(t, "wish-me", `["CUTO00001"]`); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("save into an unwritable store = %d %s, want 500", rec.Code, rec.Body.String())
 	}
@@ -196,7 +192,7 @@ func TestWishListVisibility(t *testing.T) {
 
 	// A stored code the shops do not list keeps its row, with selling false and no effects.
 	store.AccountsMu.Lock()
-	store.Accounts["wish-me"].Wishes = []string{"CUXX00009"}
+	store.AccountByTokenLocked("wish-me").Wishes = []string{"CUXX00009"}
 	store.AccountsMu.Unlock()
 	rows := wishList(t, "wish-me", "9501")
 	if len(rows) != 1 || rows[0]["itemCode"] != "CUXX00009" || rows[0]["selling"] != false || rows[0]["specialEffects"] != "" {
