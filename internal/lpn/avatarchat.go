@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"cherry/internal/economy"
@@ -22,10 +23,11 @@ import (
 // slice-1 minimum in avatarchat-spec.md, section 7.
 //
 // The room registry and its messages survive a restart (chatrooms.json, store/chatrooms.go): each room's id, members, newest
-// serial, each member's last ack and its newest messages, and the next room id. A send is saved before its reply and push,
-// so a restart resumes at the last serial and never hands out a room id or a serial again.
+// serial, each member's last ack and delete mark and its newest messages, and the next room id. A send, a room creation, an
+// ack that moves and a delete are saved before their reply and push, so a restart resumes at the last serial, keeps the
+// unread counts and never hands out a room id or a serial again.
 //
-// ponytail: whole-file rewrite per message. Every send and room creation rewrites chatrooms.json with all rooms' history
+// ponytail: whole-file rewrite per message, ack and delete. Every such change rewrites chatrooms.json with all rooms' history
 // (up to avatarChatHistoryMax messages each), so the write cost grows with the total. Becomes rows in the DB with Roadmap 8
 // storage (8.3b).
 
@@ -60,8 +62,20 @@ const (
 	avatarChatTextMax     = 500 // characters after trimming, as Lounge Chat counts them
 	avatarChatHistoryMax  = 200 // messages kept per room; the oldest go first, the serials keep counting
 	avatarChatRoomsMax    = 200 // rooms per account (a room exists per friend pair)
+	avatarChatBannerMax   = 40  // runes of the arrival banner text
 	avatarChatPushCommand = 13001
 )
+
+// avatarChatListOn: kill switch for the talk list and CHAT count; false serves the empty list again (flip here on a device crash).
+var avatarChatListOn = true
+
+// avatarChatBannerOn: kill switch for the arrival banner text; false sends the silent 13001 refresh push without content.
+var avatarChatBannerOn = true
+
+// avatarChatHereTTL is how long a member counts as in a room after their last command naming it. The client sends no
+// leave command, so a member who left is out of the room this long after their last one. ponytail: a member who leaves
+// and is sent a message within that time gets no banner; the client routes a push for an open room to the chat anyway.
+const avatarChatHereTTL = 30 * time.Second
 
 // avatarChatMsg is one stored message: the serial, the unix seconds, the sender and the text.
 type avatarChatMsg struct {
@@ -72,12 +86,20 @@ type avatarChatMsg struct {
 }
 
 // avatarChatRoom is a room between two friends: a < b, the newest messages (oldest first), the newest serial lastSn (saved
-// with every message, so a restart resumes exactly there) and each member's last acked serial, never above lastSn.
+// with every message, so a restart resumes exactly there) and each member's last acked serial, never above lastSn. hid
+// holds the members who deleted the room from their talk list, each with the serial it had then.
 type avatarChatRoom struct {
 	a, b       uint64
 	msgs       []avatarChatMsg
 	lastSn     int64
 	ackA, ackB int64
+	hid        map[uint64]int64
+}
+
+// avatarChatSeenAt is where a member was last seen: the room and the time of their last command naming it.
+type avatarChatSeenAt struct {
+	room int64
+	at   time.Time
 }
 
 // other is the member of r that is not aid.
@@ -114,6 +136,7 @@ var (
 	avatarChatRooms = map[int64]*avatarChatRoom{}
 	avatarChatPairs = map[[2]uint64]int64{} // members (low, high) -> room id
 	avatarChatNext  = CherryChatRoomFirst
+	avatarChatHere  = map[uint64]avatarChatSeenAt{} // member -> where they were last seen (memory only)
 )
 
 // avatarChatUser is one entry of a memberList or of a talk-list memberList: a userId string.
@@ -166,6 +189,42 @@ type avatarChatTalk struct {
 	MemberList     []avatarChatUser `json:"memberList"`
 }
 
+// avatarChatAvatar is one userList entry of the talk list: the sDataAvatar keys with the types of spec 3, every key present.
+// Only the id, name and sex are filled; the rest is empty (the list cell draws a name and a last message, not the figure).
+type avatarChatAvatar struct {
+	AvatarID                     string `json:"avatarId"`
+	Name                         string `json:"name"`
+	Gender                       string `json:"gender"`
+	Coin                         int    `json:"coin"`
+	HeartCount                   int64  `json:"heartCount"`
+	HaveHeart                    bool   `json:"haveHeart"`
+	HaveHeartBalance             int    `json:"haveHeartBalance"`
+	HaveExtraHeartBalance        int    `json:"haveExtraHeartBalance"`
+	Country                      string `json:"country"`
+	RandVisit                    bool   `json:"randVisit"`
+	SType                        string `json:"sType"`
+	Deleted                      bool   `json:"deleted"`
+	HeadProfile                  string `json:"headProfile"`
+	Profile                      string `json:"profile"`
+	WholeProfile                 string `json:"wholeProfile"`
+	ObsProfileImagePath          string `json:"obsProfileImagePath"`
+	ObsWholeBodyProfileImagePath string `json:"obsWholeBodyProfileImagePath"`
+	Bg                           string `json:"bg"`
+	BadgeIcon                    string `json:"badgeIcon"`
+	Skin                         string `json:"skin"`
+	Clover                       int    `json:"clover"`
+	Intro                        string `json:"intro"`
+	Items                        []any  `json:"items"`
+	PetProfiles                  []any  `json:"petProfiles"`
+}
+
+// avatarChatListed is one room of a talk list before the friend check: the row, the other member and the unread count.
+type avatarChatListed struct {
+	talk   avatarChatTalk
+	friend uint64
+	unread int
+}
+
 // avatarChatOwns reports whether a 0x0A request is a 1:1 chat command. Lounge Chat sends 1001 (join), 3001 (messages in a
 // range) and 3002 (send) as well, so for those the payload decides: a 1:1 create names memberList, a 1:1 send names msg
 // and a 1:1 sync names lastMsgSn. 1004, 1006, 1012, 3003 and 3004 are 1:1 only.
@@ -196,6 +255,9 @@ func avatarChatOwns(cmd int64, payload json.RawMessage) bool {
 func handleAvatarChat(conn *lockedConn, remote string, txn uint64, cmd int64, payload json.RawMessage, logger *log.Logger) bool {
 	aid, bound := sessionAidOf(conn)
 	rep, roomID := avatarChatCall(cmd, payload, aid, bound)
+	if rep.code == 0 && roomID != 0 && cmd != acDelete {
+		avatarChatSeen(aid, roomID)
+	}
 	frame, err := chatReplyFrame(txn, rep)
 	if err != nil {
 		logger.Printf("SESSION avchat remote=%s cmd=%d reply err=%v", remote, cmd, err)
@@ -234,8 +296,10 @@ func avatarChatCall(cmd int64, payload json.RawMessage, aid uint64, bound bool) 
 		return avatarChatMemberReply(req.RoomID, aid, map[string]any{"msgList": []avatarChatRow{}})
 	case acAck:
 		return avatarChatAck(req.RoomID, req.MsgSn, aid)
-	case acDelete, acRoomConfig:
-		// Accepted, nothing stored: the client's delete is local, and the push-on flag is not kept (spec 7.2).
+	case acDelete:
+		return avatarChatDelete(req.RoomID, aid)
+	case acRoomConfig:
+		// Accepted, nothing stored: the push-on flag is not kept (spec 7.2).
 		return avatarChatMemberReply(req.RoomID, aid, map[string]any{})
 	}
 	return avatarChatErr(acInternal), 0
@@ -308,6 +372,12 @@ func avatarChatSaveLocked() error {
 		r := avatarChatRooms[id]
 		a, b := strconv.FormatUint(r.a, 10), strconv.FormatUint(r.b, 10)
 		cr := store.ChatRoom{ID: id, Aids: [2]string{a, b}, Ceil: r.lastSn, Acks: map[string]int64{a: r.ackA, b: r.ackB}}
+		if len(r.hid) > 0 {
+			cr.Hid = map[string]int64{}
+			for aid, sn := range r.hid {
+				cr.Hid[strconv.FormatUint(aid, 10)] = sn
+			}
+		}
 		for _, m := range r.msgs {
 			cr.Msgs = append(cr.Msgs, store.ChatMsg{Sn: m.sn, Sec: m.sec, Sender: strconv.FormatUint(m.sender, 10), Text: m.text})
 		}
@@ -369,6 +439,16 @@ func avatarChatRestore(book store.ChatRoomBook) error {
 				return fmt.Errorf("chat room %d: ack for a non-member %q", cr.ID, s)
 			}
 			*r.ackOf(v) = min(max(ack, 0), r.lastSn)
+		}
+		for s, sn := range cr.Hid {
+			v, err := strconv.ParseUint(s, 10, 64)
+			if err != nil || (v != r.a && v != r.b) || sn < 0 || sn > r.lastSn {
+				return fmt.Errorf("chat room %d: invalid delete mark for %q", cr.ID, s)
+			}
+			if r.hid == nil {
+				r.hid = map[uint64]int64{}
+			}
+			r.hid[v] = sn
 		}
 		rooms[cr.ID] = r
 		pairs[m] = cr.ID
@@ -473,6 +553,7 @@ func avatarChatRange(roomID string, start, end int64, aid uint64) (tcReply, int6
 // session's account, whatever the request names.
 func avatarChatSend(roomID string, msgType int64, msg string, aid uint64) (tcReply, int64) {
 	text := strings.TrimSpace(msg)
+	name := squareAccountName(aid) // read before the lock: no account lookup runs under avatarChatMu
 	avatarChatMu.Lock()
 	defer avatarChatMu.Unlock()
 	r, id := avatarChatRoomOf(roomID, aid)
@@ -492,14 +573,43 @@ func avatarChatSend(roomID string, msgType int64, msg string, aid uint64) (tcRep
 		r.msgs = kept
 		return avatarChatErr(acInternal), id
 	}
+	// A member outside the room gets the banner text with the push; one inside gets the plain 13001 as before.
+	to := r.other(aid)
+	banner := ""
+	if avatarChatBannerOn && !avatarChatInRoomLocked(to, id) {
+		banner = avatarChatBanner(name, text)
+	}
 	return tcReply{
 		result: map[string]any{"msgSn": m.sn, "msgTimeSec": m.sec},
-		pushes: []loungePush{avatarChatPush(id, r.other(aid), aid, m.sn)},
+		pushes: []loungePush{avatarChatPush(id, to, aid, m.sn, banner)},
 	}, id
 }
 
+// avatarChatBanner is the arrival banner text, "<sender name>: <text>" cut to avatarChatBannerMax runes. It is Cherry's own
+// text (not a client string); the name is the sender's account name, or "cherry" when unknown.
+func avatarChatBanner(name, text string) string {
+	s := []rune(strings.Join(strings.Fields(name+": "+text), " "))
+	if len(s) > avatarChatBannerMax {
+		s = s[:avatarChatBannerMax]
+	}
+	return string(s)
+}
+
+// avatarChatSeen marks aid as in room id now (any command of theirs that names the room, except the delete).
+func avatarChatSeen(aid uint64, id int64) {
+	avatarChatMu.Lock()
+	defer avatarChatMu.Unlock()
+	avatarChatHere[aid] = avatarChatSeenAt{room: id, at: time.Now()}
+}
+
+// avatarChatInRoomLocked reports whether aid was seen in room id within avatarChatHereTTL. Caller holds avatarChatMu.
+func avatarChatInRoomLocked(aid uint64, id int64) bool {
+	s, ok := avatarChatHere[aid]
+	return ok && s.room == id && time.Since(s.at) < avatarChatHereTTL
+}
+
 // avatarChatAck records aid's read mark (3004): the room's ack for aid becomes the larger of the old one and msgSn, never
-// past lastSn. It is memory only and reaches the registry with the next save (a message or a room creation).
+// past lastSn. The unread counts depend on it, so a changed ack is saved at once; an unchanged one writes nothing.
 func avatarChatAck(roomID string, msgSn int64, aid uint64) (tcReply, int64) {
 	avatarChatMu.Lock()
 	defer avatarChatMu.Unlock()
@@ -508,14 +618,47 @@ func avatarChatAck(roomID string, msgSn int64, aid uint64) (tcReply, int64) {
 		return avatarChatErr(acRefused), id
 	}
 	p := r.ackOf(aid)
-	*p = max(*p, min(msgSn, r.lastSn))
+	old := *p
+	*p = max(old, min(msgSn, r.lastSn))
+	if *p != old {
+		if err := avatarChatSaveLocked(); err != nil {
+			*p = old
+			return avatarChatErr(acInternal), id
+		}
+	}
 	return tcReply{result: map[string]any{}}, id
 }
 
-// avatarChatPush is the 13001 push that tells the other member a message is in the room (spec 2.1). An open chat with this
-// friend fetches it with 3003; otherwise the client's banner path takes it.
-func avatarChatPush(roomID int64, to, sender uint64, sn int64) loungePush {
-	body, _ := json.Marshal(map[string]any{ // plain values: cannot fail
+// avatarChatDelete is the edit-mode delete of the talk list (1004): the room leaves aid's list until a message newer than
+// now arrives. The other member's list and the room's messages are untouched. Saved like an ack.
+func avatarChatDelete(roomID string, aid uint64) (tcReply, int64) {
+	avatarChatMu.Lock()
+	defer avatarChatMu.Unlock()
+	r, id := avatarChatRoomOf(roomID, aid)
+	if r == nil {
+		return avatarChatErr(acRefused), id
+	}
+	if r.hid == nil {
+		r.hid = map[uint64]int64{}
+	}
+	old, had := r.hid[aid]
+	r.hid[aid] = r.lastSn
+	if err := avatarChatSaveLocked(); err != nil {
+		if had {
+			r.hid[aid] = old
+		} else {
+			delete(r.hid, aid)
+		}
+		return avatarChatErr(acInternal), id
+	}
+	return tcReply{result: map[string]any{}}, id
+}
+
+// avatarChatPush is the 13001 push that tells the other member a message is in the room (spec 2.1). banner, when not
+// empty, is the top-level content that lets the client show a banner (spec B.4a); the client's chat-scene routing ignores
+// it for an open chat with this friend, and an open chat fetches the message with 3003.
+func avatarChatPush(roomID int64, to, sender uint64, sn int64, banner string) loungePush {
+	push := map[string]any{
 		"catg":  "chat",
 		"msgid": strconv.FormatInt(roomID, 10) + "-" + strconv.FormatInt(sn, 10),
 		"params": map[string]any{
@@ -523,50 +666,102 @@ func avatarChatPush(roomID int64, to, sender uint64, sn int64) loungePush {
 			"userId":  strconv.FormatUint(to, 10),
 			"payload": map[string]any{"msgSn": sn, "sndr": strconv.FormatUint(sender, 10)},
 		},
-	})
+	}
+	if banner != "" {
+		push["content"] = banner
+	}
+	body, _ := json.Marshal(push) // plain values: cannot fail
 	return loungePush{to: to, body: body}
 }
 
-// avatarChatRoomList is the requester's rooms for the talk list, by room id. A room is listed for its two members only.
-func avatarChatRoomList(aid uint64) map[string]any {
+// avatarChatListRows is aid's talk list before the response is built: the rooms aid is in that have a message, that aid
+// has not deleted since their newest message, whose other member is still an account and an accepted friend, by room id.
+// The rooms are read under avatarChatMu and the account and friend checks run after it.
+func avatarChatListRows(aid uint64) []avatarChatListed {
+	var cands []avatarChatListed
 	avatarChatMu.Lock()
-	defer avatarChatMu.Unlock()
-	var ids []int64
-	for id, r := range avatarChatRooms {
-		if r.a == aid || r.b == aid {
-			ids = append(ids, id)
-		}
-	}
-	slices.Sort(ids)
-	rows := []avatarChatTalk{}
-	var newest int64
-	for _, id := range ids {
+	for _, id := range slices.Sorted(maps.Keys(avatarChatRooms)) {
 		r := avatarChatRooms[id]
-		row := avatarChatTalk{
-			RoomID:     strconv.FormatInt(id, 10),
-			MemberList: []avatarChatUser{{UserID: strconv.FormatUint(r.other(aid), 10)}},
+		if (r.a != aid && r.b != aid) || len(r.msgs) == 0 {
+			continue
 		}
-		if n := len(r.msgs); n > 0 {
-			last := r.msgs[n-1]
-			row.LastMsg, row.LastMsgType = last.text, avatarChatTypeText
-			row.LastMsgTimeSec, row.LastMsgUserID = last.sec, strconv.FormatUint(last.sender, 10)
-			newest = max(newest, last.sec)
+		if sn, deleted := r.hid[aid]; deleted && r.lastSn <= sn {
+			continue
 		}
-		rows = append(rows, row)
+		friend, ack := r.other(aid), *r.ackOf(aid)
+		unread := 0
+		for _, m := range r.msgs {
+			if m.sender == friend && m.sn > ack {
+				unread++
+			}
+		}
+		last := r.msgs[len(r.msgs)-1]
+		cands = append(cands, avatarChatListed{talk: avatarChatTalk{
+			RoomID: strconv.FormatInt(id, 10), UnreadCnt: unread, LastMsg: last.text, LastMsgType: avatarChatTypeText,
+			LastMsgTimeSec: last.sec, LastMsgUserID: strconv.FormatUint(last.sender, 10),
+			MemberList: []avatarChatUser{{UserID: strconv.FormatUint(friend, 10)}},
+		}, friend: friend, unread: unread})
 	}
-	return map[string]any{"roomList": rows, "userList": []any{}, "lastMsgTimeSec": newest}
+	avatarChatMu.Unlock()
+	self := strconv.FormatUint(aid, 10)
+	var rows []avatarChatListed
+	for _, c := range cands {
+		if friend := strconv.FormatUint(c.friend, 10); avatarChatAccount(friend) && store.AcceptedFriends(self, friend) {
+			rows = append(rows, c)
+		}
+	}
+	return rows
 }
 
-// HandleAvatarChatRoomList serves GET /v4/chat/roomlist/sync/<ts>/<n>: the rooms of the requester, in the talk-list shape.
-// The client caches each friend's room id from it, so CHAT opens the room without 1001. Without a session the list is empty.
+// avatarChatAvatarOf is the userList entry of a friend (see avatarChatAvatar). The friend's account is read by aid.
+func avatarChatAvatarOf(friend uint64) avatarChatAvatar {
+	acc, _ := store.AccountByAvatarID(strconv.FormatUint(friend, 10))
+	return avatarChatAvatar{
+		AvatarID: strconv.FormatUint(friend, 10), Name: acc.Name, Gender: acc.Gender, Items: []any{}, PetProfiles: []any{},
+	}
+}
+
+// avatarChatRoomList is the talk-list reply for aid (avatarChatListRows): one row per room, the friend alone in memberList,
+// and one userList entry per row. A room with no rows is an empty list, never null.
+func avatarChatRoomList(aid uint64) map[string]any {
+	rows := []avatarChatTalk{}
+	users := []avatarChatAvatar{}
+	var newest int64
+	for _, c := range avatarChatListRows(aid) {
+		rows = append(rows, c.talk)
+		users = append(users, avatarChatAvatarOf(c.friend))
+		newest = max(newest, c.talk.LastMsgTimeSec)
+	}
+	return map[string]any{"roomList": rows, "userList": users, "lastMsgTimeSec": newest}
+}
+
+// AvatarChatUnread is the CHAT badge of aid (badge/infos): the unread messages over the rooms its talk list shows. Zero
+// while the talk list is switched off, so the badge never counts a room the list does not show. Call it with no account
+// lock held.
+func AvatarChatUnread(aid uint64) int {
+	if !avatarChatListOn {
+		return 0
+	}
+	n := 0
+	for _, c := range avatarChatListRows(aid) {
+		n += c.unread
+	}
+	return n
+}
+
+// HandleAvatarChatRoomList serves GET /v4/chat/roomlist/sync/<ts>/<n>: the talk list of the AV_AUTH account (never an aid from
+// the path). The client caches each friend's room id from it, so CHAT opens the room without 1001. Without a session, or
+// with avatarChatListOn off, the list is empty.
 func HandleAvatarChatRoomList(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		httpx.ServeNotFound(w)
 		return
 	}
-	// The list is served EMPTY for everyone (aid 0 is in no room). Device 2026-11-11: an app start that got one room in
-	// this list crashed within a second (SIGSEGV/SIGABRT, GLThread), so some part of avatarChatTalk is wrong. With an
-	// empty list CHAT sends 1001 first, which returns the pair's room anyway. Serve avatarChatRoomList(viewer) again only
-	// after the row shape is proven on a device.
-	httpx.WriteObj(w, map[string]any{"result": avatarChatRoomList(0)})
+	list := map[string]any{"roomList": []avatarChatTalk{}, "userList": []avatarChatAvatar{}, "lastMsgTimeSec": 0}
+	if snap, ok := store.AccountForRequest(r); ok && avatarChatListOn {
+		if aid, err := strconv.ParseUint(snap.Aid, 10, 64); err == nil {
+			list = avatarChatRoomList(aid)
+		}
+	}
+	httpx.WriteObj(w, map[string]any{"result": list})
 }

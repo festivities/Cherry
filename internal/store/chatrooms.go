@@ -16,13 +16,15 @@ import (
 
 // ChatRoom is one room. Aids are its two members in ascending order, as decimal strings. Ceil is the room's newest serial
 // as of the save, so a restart resumes there (files from the chunked registry keep a serial ceiling in this field, which
-// a restart resumes at too). Acks maps each member's aid to its last acked serial. Msgs are the newest messages, oldest
-// first; a file without them loads with none.
+// a restart resumes at too). Acks maps each member's aid to its last acked serial. Hid maps a member who deleted the room
+// from their talk list to the newest serial at that time (the room returns to that list at a newer serial). Msgs are the
+// newest messages, oldest first; a file without them loads with none.
 type ChatRoom struct {
 	ID   int64            `json:"id"`
 	Aids [2]string        `json:"aids"`
 	Ceil int64            `json:"ceil"`
 	Acks map[string]int64 `json:"acks,omitempty"`
+	Hid  map[string]int64 `json:"hid,omitempty"`
 	Msgs []ChatMsg        `json:"msgs,omitempty"`
 }
 

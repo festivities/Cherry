@@ -40,6 +40,7 @@ func resetAvatarChat(t *testing.T) {
 	avatarChatRooms = map[int64]*avatarChatRoom{}
 	avatarChatPairs = map[[2]uint64]int64{}
 	avatarChatNext = CherryChatRoomFirst
+	avatarChatHere = map[uint64]avatarChatSeenAt{}
 	store.ResetChatRooms()
 }
 
@@ -433,9 +434,14 @@ func TestAvatarChatRoomListForMembers(t *testing.T) {
 		}
 		return list
 	}
-	if got := get("av-9981"); len(got) != 0 { // the route never lists rooms: a listed room crashed the client at login
-		t.Fatalf("Ann's route list has %d rows, want 0", len(got))
+	if got := get("av-9981"); len(got) != 1 { // the room with a message, for the AV_AUTH account
+		t.Fatalf("Ann's route list has %d rows, want 1", len(got))
 	}
+	avatarChatListOn = false // the kill switch: the route answers the empty list again
+	if got := get("av-9981"); len(got) != 0 {
+		t.Fatalf("switched-off route list has %d rows, want 0", len(got))
+	}
+	avatarChatListOn = true
 	if got := get("av-9983"); len(got) != 0 {
 		t.Fatalf("stranger's route list has %d rows, want 0", len(got))
 	}
@@ -631,9 +637,16 @@ func TestAvatarChatAckClampAndSaves(t *testing.T) {
 	if rep, _ := avatarChatCall(acAck, json.RawMessage(`{"roomId":"1960000000","msgSn":999}`), 9982, true); rep.code != 0 {
 		t.Fatalf("ack code %d", rep.code)
 	}
-	if store.ChatRoomWrites() != before {
-		t.Fatal("an ack wrote the registry")
+	if store.ChatRoomWrites() != before+1 {
+		t.Fatal("a moved ack did not reach the registry")
 	}
+	if rep, _ := avatarChatCall(acAck, json.RawMessage(`{"roomId":"1960000000","msgSn":1}`), 9982, true); rep.code != 0 {
+		t.Fatalf("repeat ack code %d", rep.code)
+	}
+	if store.ChatRoomWrites() != before+1 {
+		t.Fatal("an unchanged ack wrote the registry")
+	}
+	before = store.ChatRoomWrites()
 	rep, _ := avatarChatRoomInfo(room, 9981)
 	if got := rep.result.(map[string]any)["peerAckMsgSn"]; got != int64(1) {
 		t.Fatalf("Ann's peerAckMsgSn = %v, want 1 (the ack clamped to lastSn)", got)
@@ -738,5 +751,251 @@ func TestAvatarChatMemoryOnly(t *testing.T) {
 	rep, _ := avatarChatRoomInfo(room, 9981)
 	if got := rep.result.(map[string]any)["lastMsgSn"]; got != int64(150) {
 		t.Fatalf("lastMsgSn = %v, want 150", got)
+	}
+}
+
+// avRowKinds and avUserKinds are the keys and JSON kinds of a talk-list row and of its userList entry (spec 3, A.2 and the
+// safe complete row of chatlist-badge-spec.md).
+var avRowKinds = map[string]string{
+	"roomId": "string", "roomState": "number", "unreadCnt": "number", "lastMsg": "string", "lastMsgType": "number",
+	"lastMsgTimeSec": "number", "lastMsgUserId": "string", "memberList": "array",
+}
+
+var avUserKinds = map[string]string{
+	"avatarId": "string", "name": "string", "gender": "string", "coin": "number", "heartCount": "number",
+	"haveHeart": "bool", "haveHeartBalance": "number", "haveExtraHeartBalance": "number", "country": "string",
+	"randVisit": "bool", "sType": "string", "deleted": "bool", "headProfile": "string", "profile": "string",
+	"wholeProfile": "string", "obsProfileImagePath": "string", "obsWholeBodyProfileImagePath": "string", "bg": "string",
+	"badgeIcon": "string", "skin": "string", "clover": "number", "intro": "string", "items": "array", "petProfiles": "array",
+}
+
+// avKinds checks that obj has exactly the keys of kinds, each of the JSON kind given.
+func avKinds(t *testing.T, what string, obj map[string]any, kinds map[string]string) {
+	t.Helper()
+	if len(obj) != len(kinds) {
+		t.Fatalf("%s has %d keys, want %d: %v", what, len(obj), len(kinds), obj)
+	}
+	for key, want := range kinds {
+		v, ok := obj[key]
+		if !ok {
+			t.Fatalf("%s lacks %q", what, key)
+		}
+		got := fmt.Sprintf("%T", v)
+		switch v.(type) {
+		case string:
+			got = "string"
+		case float64:
+			got = "number"
+		case bool:
+			got = "bool"
+		case []any:
+			got = "array"
+		}
+		if got != want {
+			t.Fatalf("%s.%s is %s, want %s", what, key, got, want)
+		}
+	}
+}
+
+// avWireList is a talk-list reply as the client reads it: the JSON of avatarChatRoomList(aid), decoded.
+func avWireList(t *testing.T, aid uint64) map[string]any {
+	t.Helper()
+	raw, err := json.Marshal(avatarChatRoomList(aid))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire map[string]any
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		t.Fatal(err)
+	}
+	return wire
+}
+
+// avRows is the number of rows in aid's talk list.
+func avRows(aid uint64) int { return len(avatarChatRoomList(aid)["roomList"].([]avatarChatTalk)) }
+
+// TestAvatarChatTalkListShape: the talk list keeps the rooms with a message that the requester has not deleted and whose
+// friend is still one. Its row and userList entry have every key of the spec with its JSON kind. The unread count and the
+// CHAT badge are the other member's messages above the requester's ack, follow the acks and survive a restart; the switch
+// off empties both.
+func TestAvatarChatTalkListShape(t *testing.T) {
+	avSetup(t)
+	setAvatarFriends(t, [2]string{"9981", "9983"})
+	path := filepath.Join(t.TempDir(), "chatrooms.json")
+	avRestart(t, path)
+	t.Cleanup(store.ResetChatRooms)
+	room := avOpen(t, "9981", "9982")
+	avSend(t, "9982", room, "one")
+	avSend(t, "9982", room, "two")
+	avOpen(t, "9981", "9983") // no message: left out
+
+	if raw, _ := json.Marshal(avatarChatRoomList(9983)); string(raw) != `{"lastMsgTimeSec":0,"roomList":[],"userList":[]}` {
+		t.Fatalf("Cy's list = %s, want the empty shape", raw)
+	}
+	wire := avWireList(t, 9981)
+	rows := wire["roomList"].([]any)
+	if len(rows) != 1 {
+		t.Fatalf("Ann's list has %d rows, want 1", len(rows))
+	}
+	row := rows[0].(map[string]any)
+	avKinds(t, "row", row, avRowKinds)
+	if row["roomId"] != "1960000000" || row["lastMsg"] != "two" || row["lastMsgUserId"] != "9982" ||
+		row["lastMsgType"] != float64(1) || row["unreadCnt"] != float64(2) {
+		t.Fatalf("row = %v", row)
+	}
+	if member := row["memberList"].([]any); len(member) != 1 || member[0].(map[string]any)["userId"] != "9982" {
+		t.Fatalf("memberList = %v, want the friend alone", member)
+	}
+	users := wire["userList"].([]any)
+	if len(users) != 1 {
+		t.Fatalf("userList has %d entries, want 1", len(users))
+	}
+	user := users[0].(map[string]any)
+	avKinds(t, "userList[0]", user, avUserKinds)
+	if user["avatarId"] != "9982" || user["name"] != "Ben" {
+		t.Fatalf("userList[0] = %v", user)
+	}
+	if n := AvatarChatUnread(9981); n != 2 {
+		t.Fatalf("Ann's CHAT = %d, want 2", n)
+	}
+	if n := AvatarChatUnread(9982); n != 0 {
+		t.Fatalf("Ben's CHAT = %d, want 0", n)
+	}
+
+	if rep, _ := avatarChatCall(acAck, json.RawMessage(fmt.Sprintf(`{"roomId":%q,"msgSn":2}`, room)), 9981, true); rep.code != 0 {
+		t.Fatalf("ack code %d", rep.code)
+	}
+	if n := AvatarChatUnread(9981); n != 0 {
+		t.Fatalf("CHAT after the ack = %d, want 0", n)
+	}
+	avSend(t, "9982", room, "three")
+	avRestart(t, path)
+	if n := AvatarChatUnread(9981); n != 1 {
+		t.Fatalf("CHAT after a restart = %d, want 1", n)
+	}
+	if got := avWireList(t, 9981)["roomList"].([]any)[0].(map[string]any)["unreadCnt"]; got != float64(1) {
+		t.Fatalf("unreadCnt after a restart = %v, want 1", got)
+	}
+
+	avatarChatListOn = false
+	if n := AvatarChatUnread(9981); n != 0 || avRows(9981) != 1 {
+		t.Fatalf("switched off: CHAT %d (want 0)", n)
+	}
+	avatarChatListOn = true
+
+	// A friend who is no longer one leaves the list and the count.
+	store.SocialMu.Lock()
+	saved := store.Friendships
+	store.Friendships = nil
+	store.SocialMu.Unlock()
+	if n, rows := AvatarChatUnread(9981), avRows(9981); n != 0 || rows != 0 {
+		t.Fatalf("after unfriending: CHAT %d, rows %d, want 0 and 0", n, rows)
+	}
+	store.SocialMu.Lock()
+	store.Friendships = saved
+	store.SocialMu.Unlock()
+}
+
+// TestAvatarChatDeleteHidesUntilNewMessage: a delete (1004) takes the room off the deleter's talk list and out of their
+// CHAT count, leaves the other member's list alone and lasts across a restart until a newer message arrives. A stranger's
+// delete is refused.
+func TestAvatarChatDeleteHidesUntilNewMessage(t *testing.T) {
+	avSetup(t)
+	path := filepath.Join(t.TempDir(), "chatrooms.json")
+	avRestart(t, path)
+	t.Cleanup(store.ResetChatRooms)
+	avOpen(t, "9981", "9982")
+	avSend(t, "9982", "1960000000", "one")
+
+	if rep, _ := avatarChatCall(acDelete, json.RawMessage(`{"roomId":"1960000000"}`), 9983, true); rep.code != acRefused {
+		t.Fatalf("stranger's delete code %d, want %d", rep.code, acRefused)
+	}
+	if rep, _ := avatarChatCall(acDelete, json.RawMessage(`{"roomId":"1960000000"}`), 9981, true); rep.code != 0 {
+		t.Fatalf("delete code %d", rep.code)
+	}
+	if rows, n := avRows(9981), AvatarChatUnread(9981); rows != 0 || n != 0 {
+		t.Fatalf("after the delete: rows %d, CHAT %d, want 0 and 0", rows, n)
+	}
+	if rows := avRows(9982); rows != 1 {
+		t.Fatalf("the other member's rows = %d, want 1", rows)
+	}
+	avRestart(t, path)
+	if rows := avRows(9981); rows != 0 {
+		t.Fatalf("after a restart the deleted room is back: %d rows", rows)
+	}
+	avSend(t, "9982", "1960000000", "two")
+	if rows, n := avRows(9981), AvatarChatUnread(9981); rows != 1 || n != 2 {
+		t.Fatalf("a newer message did not bring the room back: rows %d, CHAT %d, want 1 and 2", rows, n)
+	}
+}
+
+// TestAvatarChatArrivalPush: a message to a member outside the room is a 13001 with the banner text as content; to a member
+// inside the room it is the plain 13001. The banner switch off drops the content everywhere.
+func TestAvatarChatArrivalPush(t *testing.T) {
+	ann, ben, _ := avSetup(t)
+	avOpen(t, "9981", "9982")
+	_, _, body := tcCall(t, ann, 1, acSyncRoom, `{"roomId":"1960000000","msgCnt":0}`) // Ann is in the room now
+	if code, _ := tcReplyOf(t, body); code != 0 {
+		t.Fatalf("sync resultCode = %d", code)
+	}
+	_, _, body = tcCall(t, ben, 2, acSend, `{"roomId":"1960000000","msgType":1,"msg":"inside","msgFilter":0}`)
+	if code, _ := tcReplyOf(t, body); code != 0 {
+		t.Fatalf("send resultCode = %d", code)
+	}
+	_, _, push := readLOPush(t, ann)
+	if _, has := avPushContent(t, push); has {
+		t.Fatalf("the push to a member in the room carries content: %s", push)
+	}
+
+	avatarChatMu.Lock()
+	delete(avatarChatHere, 9981) // Ann leaves: no leave command exists, so her mark lapses
+	avatarChatMu.Unlock()
+	_, _, body = tcCall(t, ben, 3, acSend, `{"roomId":"1960000000","msgType":1,"msg":"outside","msgFilter":0}`)
+	if code, _ := tcReplyOf(t, body); code != 0 {
+		t.Fatalf("send resultCode = %d", code)
+	}
+	_, _, push = readLOPush(t, ann)
+	if content, has := avPushContent(t, push); !has || content != "Ben: outside" {
+		t.Fatalf("the push to a member outside the room: content %q (present %v), want %q", content, has, "Ben: outside")
+	}
+	if to, payload := avPushOf(t, push); to != "9981" || payload["sndr"] != "9982" {
+		t.Fatalf("push to %s payload %v", to, payload)
+	}
+
+	avatarChatBannerOn = false
+	t.Cleanup(func() { avatarChatBannerOn = true })
+	_, _, body = tcCall(t, ben, 4, acSend, `{"roomId":"1960000000","msgType":1,"msg":"silent","msgFilter":0}`)
+	if code, _ := tcReplyOf(t, body); code != 0 {
+		t.Fatalf("send resultCode = %d", code)
+	}
+	_, _, push = readLOPush(t, ann)
+	if _, has := avPushContent(t, push); has {
+		t.Fatalf("banner switched off, but the push carries content: %s", push)
+	}
+	if _, payload := avPushOf(t, push); payload["msgSn"] != float64(3) {
+		t.Fatalf("silent push payload %v, want msgSn 3", payload)
+	}
+}
+
+// avPushContent is the top-level content of a 13001 push body, and whether the key is there.
+func avPushContent(t *testing.T, body []byte) (string, bool) {
+	t.Helper()
+	var got map[string]any
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("push %s: %v", body, err)
+	}
+	c, has := got["content"]
+	s, _ := c.(string)
+	return s, has
+}
+
+// TestAvatarChatBannerText: the banner is "<name>: <text>" with the whitespace collapsed and cut to 40 runes.
+func TestAvatarChatBannerText(t *testing.T) {
+	if got := avatarChatBanner("Ben", "hi\n  there"); got != "Ben: hi there" {
+		t.Fatalf("banner = %q", got)
+	}
+	long := avatarChatBanner("Ben", strings.Repeat("あ", 60))
+	if n := len([]rune(long)); n != avatarChatBannerMax || !strings.HasPrefix(long, "Ben: ") {
+		t.Fatalf("long banner = %d runes %q", n, long)
 	}
 }

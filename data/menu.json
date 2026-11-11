@@ -56,7 +56,8 @@
     "goSomewhere(loungeChat)": "Lounge Chat",
     "goSomewhere(colorantBaseShop)": "Dye Base Shop",
     "goSomewhere(circle)": "Circle",
-    "goSomewhere(treasureWorld)": "Treasure World"
+    "goSomewhere(treasureWorld)": "Treasure World",
+    "goSomewhere(avatarChat)": "Chat"
   },
   "icons": {
     "goSomewhere(closet)": "shirt.png",
@@ -113,6 +114,7 @@
     "goSomewhere(loungeChat)": "messages.png",
     "goSomewhere(colorantBaseShop)": "palette.png",
     "goSomewhere(circle)": "circles.png",
-    "goSomewhere(treasureWorld)": "barrel.png"
+    "goSomewhere(treasureWorld)": "barrel.png",
+    "goSomewhere(avatarChat)": "messages.png"
   }
 }

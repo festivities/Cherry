@@ -617,10 +617,10 @@ func TestDyeBaseShopAnimalsAndBuy(t *testing.T) {
 	}
 }
 
-// TestDyeBaseShopMenuRow: the Dye Base Shop row is the third from last (Circle and Treasure World follow), labelled and pictured.
+// TestDyeBaseShopMenuRow: the Dye Base Shop row is the fourth from last (Circle, Treasure World and Chat follow), labelled and pictured.
 func TestDyeBaseShopMenuRow(t *testing.T) {
 	rows := homeIconRows()
-	last := rows[len(rows)-3] // Circle and Treasure World come after it
+	last := rows[len(rows)-4] // Circle, Treasure World and Chat come after it
 	if last.LinkType != "goSomewhere(colorantBaseShop)" || last.Name != "Dye Base Shop" || last.Image != "cherry/menu/palette.png" {
 		t.Fatalf("last menu row = %+v", last)
 	}

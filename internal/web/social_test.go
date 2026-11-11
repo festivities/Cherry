@@ -622,6 +622,7 @@ func TestInviteScreenRoutes(t *testing.T) {
 		{http.MethodGet, "/v4/friends/invitation/mission/info", inviteMissionBody},
 		{http.MethodGet, "/v4/friends/invitation/list?lastSeq=-1&size=100", inviteListBody},
 		{http.MethodPost, "/v4/badge/IFRD/0", badgeSetAckBody},
+		{http.MethodPost, "/v4/badge/nopush/CHAT/3", badgeSetAckBody},
 	} {
 		if rec := serveRequest(t, httptest.NewRequest(c.method, c.target, nil)); rec.Code != http.StatusOK || rec.Body.String() != c.want {
 			t.Fatalf("%s %s: status = %d, body = %q", c.method, c.target, rec.Code, rec.Body.String())
