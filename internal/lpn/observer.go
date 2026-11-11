@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"cherry/internal/economy"
+	"cherry/internal/metrics"
 )
 
 // GatewayAddr is the gateway's listen address. main sets it from config (listen.gateway) before ListenObserver:
@@ -61,6 +62,8 @@ func observeConn(conn net.Conn, addr string, logger *log.Logger) {
 			logger.Printf("OBS %s banner remote=%s err=%v", addr, remote, err)
 			return
 		}
+		metrics.GatewayConns.Add(1)
+		defer metrics.GatewayConns.Add(-1)
 		observeGatewayFrames(&lockedConn{Conn: conn}, addr, remote, logger)
 		return
 	}

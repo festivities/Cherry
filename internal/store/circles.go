@@ -12,6 +12,9 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+	"time"
+
+	"cherry/internal/metrics"
 )
 
 // Circles (player clubs, economy/circle.go): the circles, their members and their pending applications and invites. The
@@ -206,6 +209,7 @@ func cloneCircleSeasons(in []CircleSeason) []CircleSeason {
 // comparison is what names the change, and the safety net checks the rows written. The new circle at the end of the list
 // goes to the end of the table. Without an attached database nothing is written. Caller holds CirclesMu.
 func SaveCirclesLocked(prev, next CircleBook) error {
+	defer metrics.SaveSince(time.Now())
 	d := attachedDB()
 	if d == nil {
 		return nil

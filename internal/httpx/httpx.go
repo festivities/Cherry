@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"cherry/internal/metrics"
 )
 
 const NotFoundBody = `{"errorCode":"404","errorMessage":"cherry: unknown route"}`
@@ -107,6 +109,7 @@ func (rec *statusRecorder) Write(b []byte) (int, error) {
 func WithLogging(next http.Handler, logger *log.Logger) http.Handler {
 	var seq atomic.Uint64
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		metrics.Requests.Add(1)
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w}
 		next.ServeHTTP(rec, r)

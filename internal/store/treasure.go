@@ -10,6 +10,9 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"time"
+
+	"cherry/internal/metrics"
 )
 
 // Treasure World board state (economy/treasure.go): each account's season, token position, tickets and their refill
@@ -172,6 +175,7 @@ func TreasureSnapshot() map[string]TreasureRecord {
 func UpdateTreasure(aid string, fn func(*TreasureRecord)) (TreasureRecord, error) {
 	TreasureMu.Lock()
 	defer TreasureMu.Unlock()
+	defer metrics.SaveSince(time.Now())
 	prev, had := TreasureAccounts[aid]
 	rec := prev
 	fn(&rec)

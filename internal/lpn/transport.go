@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"sync"
 
+	"cherry/internal/metrics"
 	"cherry/internal/store"
 )
 
@@ -57,6 +58,8 @@ func ServeSession(ln net.Listener, logger *log.Logger) {
 func serveSessionConn(conn net.Conn, logger *log.Logger) {
 	remote := conn.RemoteAddr().String()
 	logger.Printf("SESSION connect remote=%s", remote)
+	metrics.SessionConns.Add(1)
+	defer metrics.SessionConns.Add(-1)
 	c := &lockedConn{Conn: conn} // pushes from other connections' goroutines write through the same lock
 	defer func() {
 		themeChatUnbound(unbindSession(c), logger)

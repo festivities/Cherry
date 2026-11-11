@@ -13,6 +13,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	"cherry/internal/metrics"
 )
 
 type StoredAccount struct {
@@ -304,6 +307,7 @@ func SaveLocked(lines []LedgerLine, accs ...*Account) error {
 // commitLocked writes the named accounts, their pending tokens, the lines and the scalars in one transaction, and deletes
 // the row removeID when it is not 0 (DeleteAccountLocked).
 func commitLocked(lines []LedgerLine, named []*Account, removeID int64, site string) error {
+	defer metrics.SaveSince(time.Now())
 	var rows []*Account
 	for _, acc := range named {
 		if accountRows[acc] == nil {

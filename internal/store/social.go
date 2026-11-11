@@ -10,8 +10,10 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+	"time"
 
 	"cherry/internal/httpx"
+	"cherry/internal/metrics"
 )
 
 type SavedGuestbookEntry struct {
@@ -352,6 +354,7 @@ func parseSocialFile(path string) (savedSocial, error) {
 // end of its entry); any other place is refused, so the saved order never differs from memory. In test builds the database
 // is read back and compared with memory after the write (dbnet.go).
 func SaveSocialLocked(c SocialChange) error {
+	defer metrics.SaveSince(time.Now())
 	d := attachedDB()
 	if d == nil {
 		return nil

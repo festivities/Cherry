@@ -5,6 +5,7 @@ package economy
 
 import (
 	"encoding/json"
+	"expvar"
 	"fmt"
 	"io"
 	"log"
@@ -315,7 +316,20 @@ func NewAdminMux() *http.ServeMux {
 	mux.HandleFunc("/admin/season", handleAdminSeason)
 	mux.HandleFunc("/admin/garden", handleAdminGarden)
 	mux.HandleFunc("/admin/guestcode", handleAdminGuestCode)
+	mux.Handle("/debug/vars", debugVars(expvar.Handler())) // the counters of metrics; this mux is the only one that serves them
 	return mux
+}
+
+// debugVars serves the expvar counters to loopback GET requests only.
+func debugVars(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if ip := net.ParseIP(host); err != nil || ip == nil || !ip.IsLoopback() || r.Method != http.MethodGet {
+			httpx.ServeNotFound(w)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func handleAdminGrant(w http.ResponseWriter, r *http.Request) {

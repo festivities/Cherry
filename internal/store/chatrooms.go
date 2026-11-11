@@ -9,6 +9,9 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+	"time"
+
+	"cherry/internal/metrics"
 )
 
 // Chat rooms (1:1 friend chat, lpn/avatarchat.go): the room registry in the cherry.db tables chat_rooms, chat_messages and
@@ -115,6 +118,7 @@ func ChatRoomWrites() int {
 // stays taken, so no serial is ever handed out twice. memory returns the registry as lpn holds it after the change; test
 // builds compare the database with it (dbnet.go), production never calls it.
 func SaveChatRoomLocked(ch ChatChange, memory func() ChatRoomBook) error {
+	defer metrics.SaveSince(time.Now())
 	d := attachedDB()
 	if d == nil {
 		return nil
