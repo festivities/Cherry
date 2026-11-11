@@ -1,6 +1,6 @@
 // Package opdata loads Cherry's operator-editable data files (the values Cherry invents, see AGENTS.md
 // "Operator-editable fabricated content"). The defaults are embedded from data/. An operator file
-// with the same name in %LOCALAPPDATA%\Cherry\config (os.UserCacheDir) replaces the default
+// with the same name in the config folder of the data directory (%LOCALAPPDATA%\Cherry\config by default) replaces the default
 // entirely. Files decode strictly (unknown keys are an error) and are validated once at startup;
 // a bad file stops Cherry before its listeners open, with an error naming the file and the entry.
 package opdata
@@ -16,12 +16,14 @@ import (
 	"os"
 	"path/filepath"
 	"sync/atomic"
+
+	"cherry/internal/config"
 )
 
-// Dir is the operator config directory ("" when the user cache directory is unknown).
+// Dir is the operator config directory: config under the state directory ("" when that is unknown).
 func Dir() string {
-	if dir, err := os.UserCacheDir(); err == nil {
-		return filepath.Join(dir, "Cherry", "config")
+	if dir, err := config.DataDir(); err == nil {
+		return filepath.Join(dir, "config")
 	}
 	return ""
 }

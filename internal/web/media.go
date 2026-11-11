@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 
+	"cherry/internal/config"
 	"cherry/internal/store"
 )
 
@@ -161,14 +162,14 @@ func defaultRoomMediaDir() (string, error) {
 }
 
 func defaultDiaryMediaDir() (string, error) {
-	cacheDir, err := os.UserCacheDir()
+	dataDir, err := config.DataDir()
 	if err != nil {
 		return "", err
 	}
-	if cacheDir == "" {
-		return "", errors.New("empty user cache directory")
+	if dataDir == "" {
+		return "", errors.New("empty data directory")
 	}
-	return filepath.Join(cacheDir, "Cherry", "diary-media"), nil
+	return filepath.Join(dataDir, "diary-media"), nil
 }
 
 // The At handlers take an explicit directory so tests can use disposable storage.

@@ -14,8 +14,11 @@ import (
 	"cherry/internal/economy"
 )
 
+// GatewayAddr is the gateway's listen address. main sets it from config (listen.gateway) before ListenObserver:
+// observeConn tells the gateway from the other observer by it. Tests use the default.
+var GatewayAddr = ":10000"
+
 const (
-	GatewayAddr        = ":10000"
 	observerTTL        = 30 * time.Second
 	gatewayTTL         = 5 * time.Minute
 	observerMax        = 512

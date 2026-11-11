@@ -262,8 +262,6 @@ func handleVoucherPurchase(w http.ResponseWriter, r *http.Request) {
 
 // ---- staff grant tool ----
 
-const adminAddr = "127.0.0.1:8099"
-
 // POST /admin/guestcode binds a device's guest uniqueCode (its UUID, from the device's "Start as Guest") to
 // an existing account, so that device's next guest login returns that account. A code another account
 // holds is refused with 409; aid "0" (no avatar yet) is refused because it names no single account.
@@ -393,14 +391,15 @@ func handleAdminGrant(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, string(body))
 }
 
-// ServeAdmin starts the loopback listener; a busy port is logged, not fatal.
-func ServeAdmin(logger *log.Logger) {
-	ln, err := net.Listen("tcp", adminAddr)
+// ServeAdmin starts the staff listener on addr (config listen.admin, default 127.0.0.1:8099); a busy port is logged,
+// not fatal. adminLoopback still checks each request's remote address.
+func ServeAdmin(addr string, logger *log.Logger) {
+	ln, err := net.Listen("tcp", addr)
 	if err != nil {
-		logger.Printf("cherry: admin listener unavailable on %s: %v", adminAddr, err)
+		logger.Printf("cherry: admin listener unavailable on %s: %v", addr, err)
 		return
 	}
-	logger.Printf("cherry: admin grant listening addr=%s", adminAddr)
+	logger.Printf("cherry: admin grant listening addr=%s", addr)
 	srv := &http.Server{Handler: NewAdminMux(), ReadHeaderTimeout: 5 * time.Second}
 	go func() { _ = srv.Serve(ln) }()
 }

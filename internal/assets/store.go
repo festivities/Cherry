@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"cherry/data"
+	"cherry/internal/config"
 	"cherry/internal/opdata"
 )
 
@@ -125,12 +126,15 @@ func Open() (*Store, error) {
 	if err := flagFile.Load(); err != nil {
 		return nil, err
 	}
-	base, err := os.UserCacheDir()
+	dataDir, err := config.DataDir()
 	if err != nil {
 		return nil, err
 	}
-	dir := filepath.Join(base, "Cherry")
-	cfgPath := filepath.Join(dir, "cloudflare.json")
+	cacheDir, err := config.CacheDir()
+	if err != nil {
+		return nil, err
+	}
+	cfgPath := filepath.Join(dataDir, "cloudflare.json")
 	if _, err := os.Stat(cfgPath); err != nil {
 		if flagFile.Get().Enabled {
 			log.Printf("cherry: streaming is enabled but %s is not readable; original assets are unavailable", cfgPath)
@@ -141,7 +145,7 @@ func Open() (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := New(cfg, filepath.Join(dir, "static"))
+	s := New(cfg, filepath.Join(cacheDir, "static"))
 	s.streaming = flagFile.Get().Enabled
 	log.Printf("cherry: R2 bucket %s, streaming %v", cfg.Bucket, s.streaming)
 	return s, nil

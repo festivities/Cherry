@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"cherry/data"
+	"cherry/internal/config"
 	"cherry/internal/httpx"
 	"cherry/internal/opdata"
 )
@@ -161,11 +162,11 @@ func (ix *ItemIndex) IDs(kind string) []int64 {
 var GeneratedItemRoot = defaultGeneratedItemRoot()
 
 func defaultGeneratedItemRoot() string {
-	base, err := os.UserCacheDir()
+	base, err := config.DataDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(base, "Cherry", "generated", "item")
+	return filepath.Join(base, "generated", "item")
 }
 
 // itemconvFlag is itemconv.json: the operator switch for the converted items (embedded default on).

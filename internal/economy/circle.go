@@ -335,6 +335,9 @@ func checkCircleRules(c *CircleData) error {
 
 // verifyCircleData runs at load (not for the embedded default alone): every picture must be in the archive.
 func verifyCircleData(c *CircleData) error {
+	if !artVerifiable() {
+		return nil
+	}
 	for _, a := range append(append([]CircleArt(nil), c.Logos...), c.Backgrounds...) {
 		if _, err := fs.Stat(circleArtFS, a.Art); err != nil {
 			return fmt.Errorf("art %s is not in the archive", a.Art)

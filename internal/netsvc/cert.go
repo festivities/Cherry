@@ -10,6 +10,7 @@ import (
 	"crypto/x509/pkix"
 	"errors"
 	"math/big"
+	"slices"
 	"strings"
 	"time"
 )
@@ -33,15 +34,21 @@ var certDNSNames = []string{
 	"tx.lbg.play.naver.jp",
 	"gws.play.naver.net",
 	"fapi.play.naver.net",
+	"terms.line.me",
+	"notice2.line.me",
+	"help2.line.me",
 }
 
-func GenerateCerts() ([]tls.Certificate, error) {
+// GenerateCerts makes the RSA and ECDSA certificates for every name in certDNSNames plus hostnames (config
+// server.hostnames). The SNI filter (DenyBlockedSNI) admits every name except lan3rd.line.me.
+func GenerateCerts(hostnames ...string) ([]tls.Certificate, error) {
 	now := time.Now()
+	names := slices.Concat(certDNSNames, hostnames)
 	rsaKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return nil, err
 	}
-	rsaCert, err := selfSign(&rsaKey.PublicKey, rsaKey, now)
+	rsaCert, err := selfSign(&rsaKey.PublicKey, rsaKey, now, names)
 	if err != nil {
 		return nil, err
 	}
@@ -49,14 +56,14 @@ func GenerateCerts() ([]tls.Certificate, error) {
 	if err != nil {
 		return nil, err
 	}
-	ecCert, err := selfSign(&ecKey.PublicKey, ecKey, now)
+	ecCert, err := selfSign(&ecKey.PublicKey, ecKey, now, names)
 	if err != nil {
 		return nil, err
 	}
 	return []tls.Certificate{rsaCert, ecCert}, nil
 }
 
-func selfSign(pub, priv any, now time.Time) (tls.Certificate, error) {
+func selfSign(pub, priv any, now time.Time, names []string) (tls.Certificate, error) {
 	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
 	if err != nil {
 		return tls.Certificate{}, err
@@ -70,7 +77,7 @@ func selfSign(pub, priv any, now time.Time) (tls.Certificate, error) {
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
 		IsCA:                  true,
-		DNSNames:              certDNSNames,
+		DNSNames:              names,
 	}
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, pub, priv)
 	if err != nil {

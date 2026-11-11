@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+
+	"cherry/internal/config"
 )
 
 // Circles (player clubs, economy/circle.go): the circles, their members and their pending applications and invites,
@@ -99,11 +101,11 @@ var (
 
 // LoadCircles reads %LOCALAPPDATA%\Cherry\circles.json (none is not an error).
 func LoadCircles() error {
-	dir, err := os.UserCacheDir()
+	dir, err := config.DataDir()
 	if err != nil {
 		return err
 	}
-	return LoadCirclesFrom(filepath.Join(dir, "Cherry", "circles.json"))
+	return LoadCirclesFrom(filepath.Join(dir, "circles.json"))
 }
 
 // LoadCirclesFrom loads the book at path; a missing file is an empty book.

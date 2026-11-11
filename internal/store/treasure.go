@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+
+	"cherry/internal/config"
 )
 
 // Treasure World board state (economy/treasure.go): each account's season, token position, tickets and their refill
@@ -106,11 +108,11 @@ var (
 
 // LoadTreasure reads %LOCALAPPDATA%\Cherry\treasure.json (none is not an error).
 func LoadTreasure() error {
-	dir, err := os.UserCacheDir()
+	dir, err := config.DataDir()
 	if err != nil {
 		return err
 	}
-	return LoadTreasureFrom(filepath.Join(dir, "Cherry", "treasure.json"))
+	return LoadTreasureFrom(filepath.Join(dir, "treasure.json"))
 }
 
 // LoadTreasureFrom loads the board state at path; a missing file is an empty book.

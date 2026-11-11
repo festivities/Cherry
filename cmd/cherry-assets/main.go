@@ -35,6 +35,7 @@ import (
 	"strings"
 
 	"cherry/internal/assets"
+	"cherry/internal/config"
 )
 
 // defaultDataset is the santi backup, the first root: the bulk categories come from it alone.
@@ -500,6 +501,14 @@ func main() {
 		fmt.Fprintln(os.Stderr, "usage: cherry-assets plan|upload|verify|migrate-manifests [flags]")
 		os.Exit(2)
 	}
+	// The same resolver as the server: CHERRY_DATA_DIR and CHERRY_CACHE_DIR, else the lab folder.
+	cfg, err := config.Load(nil, os.LookupEnv)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "cherry-assets:", err)
+		os.Exit(2)
+	}
+	config.Activate(cfg)
+	assets.GeneratedItemRoot = filepath.Join(cfg.DataDir, "generated", "item")
 	cmd, args := os.Args[1], os.Args[2:]
 	flags := flag.NewFlagSet(cmd, flag.ExitOnError)
 	concurrency := flags.Int("concurrency", 8, "parallel R2 requests (upload)")
@@ -577,13 +586,13 @@ func runMigrate(ctx context.Context) error {
 	return assets.MigrateManifests(ctx, assets.NewClient(cfg), func(msg string) { fmt.Println(msg) })
 }
 
-// credsPath is %LOCALAPPDATA%\Cherry\cloudflare.json.
+// credsPath is cloudflare.json in the data directory (%LOCALAPPDATA%\Cherry\cloudflare.json by default).
 func credsPath() (string, error) {
-	base, err := os.UserCacheDir()
+	base, err := config.DataDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(base, "Cherry", "cloudflare.json"), nil
+	return filepath.Join(base, "cloudflare.json"), nil
 }
 
 func loadR2() (assets.Config, error) {

@@ -13,7 +13,6 @@ import (
 )
 
 const (
-	dnsListenAddr   = ":53"
 	dnsUpstreamAddr = "1.1.1.1:53"
 	dnsSinkAddr     = "10.0.2.2"
 	dnsRelayTimeout = 4 * time.Second
@@ -28,6 +27,9 @@ var (
 	dnsSinkExact = map[string]bool{
 		"ads.play.naver.jp": true,
 		"lan3rd.line.me":    true,
+		"terms.line.me":     true,
+		"notice2.line.me":   true,
+		"help2.line.me":     true,
 	}
 	dnsSinkA    = net.ParseIP(dnsSinkAddr).To4()
 	dnsGatewayA = lanIP()
@@ -62,15 +64,19 @@ var hostOwnIPs = sync.OnceValue(func() map[string]bool {
 	return own
 })
 
-// ListenDNS opens the UDP sink/relay socket. Failure is not fatal to Cherry:
+// ListenDNS opens the UDP sink/relay socket on addr (config listen.dns). Failure is not fatal to Cherry:
 // the caller logs it and keeps serving.
-func ListenDNS(logger *log.Logger) (*net.UDPConn, error) {
-	conn, err := net.ListenUDP("udp", &net.UDPAddr{Port: 53})
+func ListenDNS(addr string, logger *log.Logger) (*net.UDPConn, error) {
+	ua, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		return nil, err
+	}
+	conn, err := net.ListenUDP("udp", ua)
 	if err != nil {
 		return nil, err
 	}
 	go serveDNS(conn, logger)
-	logger.Printf("cherry: dns listening addr=%s upstream=%s sink=%s lan=%s", dnsListenAddr, dnsUpstreamAddr, dnsSinkAddr, dnsGatewayA)
+	logger.Printf("cherry: dns listening addr=%s upstream=%s sink=%s lan=%s", addr, dnsUpstreamAddr, dnsSinkAddr, dnsGatewayA)
 	return conn, nil
 }
 

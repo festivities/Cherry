@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"errors"
+	"flag"
 	"log"
 	"net"
 	"net/http"
@@ -14,31 +16,52 @@ import (
 	"time"
 
 	"cherry/internal/assets"
+	"cherry/internal/config"
 	"cherry/internal/economy"
 	"cherry/internal/httpx"
 	"cherry/internal/lpn"
 	"cherry/internal/netsvc"
 	"cherry/internal/room"
 	"cherry/internal/store"
+	"cherry/internal/thumbs"
 	"cherry/internal/web"
 )
 
-const (
-	httpsAddr   = ":443"
-	sessionAddr = ":10123"
-)
+// activate hands the configuration to the packages once, before anything reads a path. Most packages resolve their
+// folders through config on each use; the thumbnail cache and the converted-item root are package variables set at
+// init, and the gateway address decides how its observer frames, so they are assigned here.
+func activate(c config.Config) {
+	config.Activate(c)
+	thumbs.DpCacheDir = filepath.Join(c.CacheDir, "dp-cache")
+	assets.GeneratedItemRoot = filepath.Join(c.DataDir, "generated", "item")
+	lpn.GatewayAddr = c.Gateway
+}
 
 func main() {
 	logger := log.New(os.Stdout, "", log.LstdFlags|log.Lmicroseconds)
+	cfg, err := config.Load(os.Args[1:], os.LookupEnv)
+	if errors.Is(err, flag.ErrHelp) {
+		os.Exit(0)
+	}
+	if err != nil {
+		logger.Fatalf("cherry: %v", err)
+	}
+	activate(cfg)
+	dns := cfg.DNS
+	if dns == "" {
+		dns = "off"
+	}
+	logger.Printf("cherry: config https=%s http=%s session=%s gateway=%s dns=%s admin=%s data=%s cache=%s public=%t auth=%s",
+		cfg.HTTPS, cfg.HTTP, cfg.Session, cfg.Gateway, dns, cfg.Admin, cfg.DataDir, cfg.CacheDir, cfg.Public, cfg.AuthMode)
 	// CHERRY_FAKE_NOW (RFC 3339) moves the game clock (economy.NowFunc) for season tests. Records written meanwhile
-	// carry the moved dates, so it runs only on a copy of the data: LOCALAPPDATA must point away from the real folder.
+	// carry the moved dates, so it runs only on a copy of the data: the data directory must not be the real folder.
 	if v := os.Getenv("CHERRY_FAKE_NOW"); v != "" {
 		t, err := time.Parse(time.RFC3339, v)
 		if err != nil {
 			logger.Fatalf("cherry: CHERRY_FAKE_NOW: %v", err)
 		}
-		if dir, _ := os.UserCacheDir(); strings.EqualFold(filepath.Clean(dir), filepath.Join(os.Getenv("USERPROFILE"), "AppData", "Local")) {
-			logger.Fatalf("cherry: CHERRY_FAKE_NOW refused on the real data folder %s; set LOCALAPPDATA to a copy", dir)
+		if dir, _ := config.DataDir(); strings.EqualFold(filepath.Clean(dir), filepath.Join(os.Getenv("USERPROFILE"), "AppData", "Local", "Cherry")) {
+			logger.Fatalf("cherry: CHERRY_FAKE_NOW refused on the real data folder %s; set LOCALAPPDATA or -data-dir to a copy", dir)
 		}
 		off := time.Until(t)
 		economy.NowFunc = func() time.Time { return time.Now().Add(off) }
@@ -79,13 +102,13 @@ func main() {
 		logger.Printf("cherry: butler roster migration skipped: %v", err)
 	}
 
-	certs, err := netsvc.GenerateCerts()
+	certs, err := netsvc.GenerateCerts(cfg.Hostnames...)
 	if err != nil {
 		logger.Fatalf("cherry: generate certs: %v", err)
 	}
 
 	srv := &http.Server{
-		Addr:              httpsAddr,
+		Addr:              cfg.HTTPS,
 		Handler:           httpx.WithLogging(web.NewMux(), logger),
 		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -111,11 +134,11 @@ func main() {
 		},
 	}
 
-	httpsLn, err := net.Listen("tcp", httpsAddr)
+	httpsLn, err := net.Listen("tcp", cfg.HTTPS)
 	if err != nil {
 		logger.Fatalf("cherry: listen https: %v", err)
 	}
-	httpLn, err := net.Listen("tcp", ":80")
+	httpLn, err := net.Listen("tcp", cfg.HTTP)
 	if err != nil {
 		logger.Fatalf("cherry: listen http: %v", err)
 	}
@@ -123,26 +146,29 @@ func main() {
 	if err != nil {
 		logger.Fatalf("cherry: listen observer %s: %v", lpn.GatewayAddr, err)
 	}
-	sessionLn, err := net.Listen("tcp", sessionAddr)
+	sessionLn, err := net.Listen("tcp", cfg.Session)
 	if err != nil {
-		logger.Fatalf("cherry: listen session %s: %v", sessionAddr, err)
+		logger.Fatalf("cherry: listen session %s: %v", cfg.Session, err)
 	}
 	go lpn.ServeSession(sessionLn, logger)
 
-	dnsConn, err := netsvc.ListenDNS(logger)
-	if err != nil {
-		logger.Printf("cherry: dns unavailable, continuing without sink: %v", err)
+	var dnsConn *net.UDPConn
+	if cfg.DNS != "" {
+		dnsConn, err = netsvc.ListenDNS(cfg.DNS, logger)
+		if err != nil {
+			logger.Printf("cherry: dns unavailable, continuing without sink: %v", err)
+		}
 	}
 
-	economy.ServeAdmin(logger)
-	logger.Printf("cherry: https listening addr=%s", httpsAddr)
+	economy.ServeAdmin(cfg.Admin, logger)
+	logger.Printf("cherry: https listening addr=%s", cfg.HTTPS)
 
 	errc := make(chan error, 2)
 	go func() {
 		errc <- srv.ServeTLS(httpsLn, "", "")
 	}()
 	httpSrv := &http.Server{
-		Addr:              ":80",
+		Addr:              cfg.HTTP,
 		Handler:           httpx.WithLogging(web.NewMux(), logger),
 		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout:      30 * time.Second,

@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"sync"
 
+	"cherry/internal/config"
 	"cherry/internal/httpx"
 )
 
@@ -185,11 +186,11 @@ var (
 )
 
 func LoadSocial() error {
-	dir, err := os.UserCacheDir()
+	dir, err := config.DataDir()
 	if err != nil {
 		return err
 	}
-	return LoadSocialFrom(filepath.Join(dir, "Cherry", "social.json"))
+	return LoadSocialFrom(filepath.Join(dir, "social.json"))
 }
 
 // LoadSocialFrom reads social.json. Files written before comments, likes and guestbook replies existed load

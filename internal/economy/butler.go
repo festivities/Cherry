@@ -217,6 +217,9 @@ func checkButlers(b *Butlers) error {
 // in the archive. No outfit slot is required: an archive without an item for a slot leaves it empty. The archive is read
 // here, as the shop catalog reads it.
 func verifyButlers(b *Butlers) error {
+	if !artVerifiable() { // no asset store: nothing has art, Cherry still starts (isolated instances, a host before its bucket)
+		return nil
+	}
 	fashion := map[string]bool{}
 	for _, it := range loadCatalog().fashion {
 		fashion[it.Code] = true

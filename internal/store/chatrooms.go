@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"cherry/internal/config"
 )
 
 // Chat rooms (1:1 friend chat, lpn/avatarchat.go): the room registry in %LOCALAPPDATA%\Cherry\chatrooms.json beside
@@ -58,11 +60,11 @@ var (
 
 // LoadChatRooms reads %LOCALAPPDATA%\Cherry\chatrooms.json (none is not an error) and returns the registry.
 func LoadChatRooms() (ChatRoomBook, error) {
-	dir, err := os.UserCacheDir()
+	dir, err := config.DataDir()
 	if err != nil {
 		return ChatRoomBook{}, err
 	}
-	return LoadChatRoomsFrom(filepath.Join(dir, "Cherry", "chatrooms.json"))
+	return LoadChatRoomsFrom(filepath.Join(dir, "chatrooms.json"))
 }
 
 // LoadChatRoomsFrom reads the registry at path and makes path the save target. A missing file is an empty registry; a

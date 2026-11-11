@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+
+	"cherry/internal/config"
 )
 
 type StoredAccount struct {
@@ -75,11 +77,11 @@ type savedAccounts struct {
 }
 
 func LoadAccounts() error {
-	dir, err := os.UserCacheDir()
+	dir, err := config.DataDir()
 	if err != nil {
 		return err
 	}
-	return LoadAccountsFrom(filepath.Join(dir, "Cherry", "accounts.json"))
+	return LoadAccountsFrom(filepath.Join(dir, "accounts.json"))
 }
 
 func LoadAccountsFrom(path string) error {

@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"cherry/internal/assets"
+	"cherry/internal/config"
 	"cherry/internal/httpx"
 )
 
@@ -39,11 +40,11 @@ import (
 var DpCacheDir = dpDefaultCacheDir()
 
 func dpDefaultCacheDir() string {
-	base, err := os.UserCacheDir()
+	base, err := config.CacheDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(base, "Cherry", "dp-cache")
+	return filepath.Join(base, "dp-cache")
 }
 
 // ParseDpPath accepts only the two observed dp.png request shapes.
