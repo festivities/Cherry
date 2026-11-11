@@ -28,6 +28,13 @@ const (
 	AuthDevFake  = "dev-fake"
 )
 
+// Sign-up modes (auth.signup): who may get an account for the first time (CONTRACT §3, PLAN P6).
+const (
+	SignupOpen      = "open"
+	SignupAllowlist = "allowlist"
+	SignupClosed    = "closed"
+)
+
 // Config is the effective configuration. A listen address is a net.Listen address; DNS "" means the sink is off.
 type Config struct {
 	HTTPS, HTTP, Session, Gateway, DNS, Admin string
@@ -35,6 +42,7 @@ type Config struct {
 	Public                                    bool
 	Hostnames                                 []string
 	AuthMode                                  string
+	Signup, AllowlistFile                     string // resolved by parse: Signup is never "" there (DefaultSignup)
 	DiscordClientID, DiscordSecretFile        string // the secret itself is read from the file, never a setting
 	DiscordRedirect                           string
 	ServerName                                string
@@ -57,6 +65,8 @@ var settings = []setting{
 	{"server.public", "false", "public server: needs auth.mode discord, no DNS sink"},
 	{"server.hostnames", "", "operator hostnames, added to the certificate names (comma-separated)"},
 	{"auth.mode", AuthLabGuest, "lab-guest, discord or dev-fake"},
+	{"auth.signup", "", "open, allowlist or closed: who may make a new account (empty = allowlist in discord mode, open otherwise; lab-guest ignores it)"},
+	{"auth.allowlist-file", "", "text file of Discord ids allowed to make a new account (auth.signup allowlist): one per line, discord:<id> or <id>, # comments"},
 	{"auth.discord.client-id", "", "Discord application client id (auth.mode discord)"},
 	{"auth.discord.secret-file", "", "file holding the Discord client secret; mode 0600 off Windows; the secret is never a value"},
 	{"auth.discord.redirect", "", "the exact OAuth callback URL registered with Discord (https)"},
@@ -124,8 +134,12 @@ func parse(args []string, lookup func(string) (string, bool)) (Config, error) {
 		HTTPS: values["listen.https"], HTTP: values["listen.http"], Session: values["listen.session"],
 		Gateway: values["listen.gateway"], DNS: values["listen.dns"], Admin: values["listen.admin"],
 		AuthMode: values["auth.mode"], File: file,
+		Signup: values["auth.signup"], AllowlistFile: values["auth.allowlist-file"],
 		DiscordClientID: values["auth.discord.client-id"], DiscordSecretFile: values["auth.discord.secret-file"],
 		DiscordRedirect: values["auth.discord.redirect"], ServerName: strings.TrimSpace(values["server.name"]),
+	}
+	if c.Signup == "" {
+		c.Signup = DefaultSignup(c.AuthMode)
 	}
 	var err error
 	if c.Public, err = strconv.ParseBool(values["server.public"]); err != nil {
@@ -186,6 +200,15 @@ func (c Config) check() error {
 		if err := checkSecretFile(c.DiscordSecretFile); err != nil {
 			return fmt.Errorf("config: auth.discord.secret-file: %v", err)
 		}
+	}
+	switch c.Signup {
+	case SignupOpen, SignupClosed:
+	case SignupAllowlist:
+		if c.AuthMode != AuthLabGuest && c.AllowlistFile == "" {
+			return errors.New("config: auth.signup allowlist needs auth.allowlist-file")
+		}
+	default:
+		return fmt.Errorf("config: auth.signup %q is unknown (open, allowlist or closed)", c.Signup)
 	}
 	return nil
 }
@@ -295,6 +318,22 @@ func Activate(c Config) {
 // Current is the configuration Activate was given. Before that (tests) it is the zero value: AuthMode "" is lab-guest.
 func Current() Config { return active.cfg }
 
+// DefaultSignup is the sign-up mode an empty auth.signup means: allowlist for discord (the operator opens it on purpose),
+// open otherwise.
+func DefaultSignup(mode string) string {
+	if mode == AuthDiscord {
+		return SignupAllowlist
+	}
+	return SignupOpen
+}
+
+// IsIdentity reports whether mode signs players in with provider identities (discord, dev-fake) rather than the lab's
+// device guests (lab-guest). The one place that decides it.
+func IsIdentity(mode string) bool { return mode == AuthDiscord || mode == AuthDevFake }
+
+// IdentityMode is IsIdentity for the activated configuration; false before Activate (tests run lab-guest).
+func IdentityMode() bool { return IsIdentity(active.cfg.AuthMode) }
+
 // DataDir is the state directory: stores, media, config, secrets and converted items. It must survive a cache wipe.
 func DataDir() (string, error) {
 	if active.data != "" {
@@ -332,6 +371,8 @@ func shown(s setting) string {
 		return s.def
 	case s.key == "data.dir" || s.key == "cache.dir":
 		return "user cache dir\\Cherry"
+	case s.key == "auth.signup":
+		return "mode default"
 	}
 	return "(none)"
 }

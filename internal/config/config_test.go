@@ -150,8 +150,12 @@ func discordArgs(t *testing.T, mode os.FileMode) []string {
 	if err := os.WriteFile(file, []byte("not-a-real-secret\n"), mode); err != nil {
 		t.Fatal(err)
 	}
+	allow := filepath.Join(t.TempDir(), "allow.txt") // auth.signup defaults to allowlist in discord mode: the file is required
+	if err := os.WriteFile(allow, []byte("discord:123456789012345678\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	return []string{"-auth-mode=discord", "-auth-discord-client-id=123", "-auth-discord-secret-file=" + file,
-		"-auth-discord-redirect=https://cherry.example/auth/v1/discord/callback"}
+		"-auth-discord-redirect=https://cherry.example/auth/v1/discord/callback", "-auth-allowlist-file=" + allow}
 }
 
 func TestDiscordStartsWithItsSettings(t *testing.T) {
@@ -160,8 +164,37 @@ func TestDiscordStartsWithItsSettings(t *testing.T) {
 	if err != nil || c.AuthMode != AuthDiscord || c.DiscordClientID != "123" || c.DiscordRedirect == "" || c.DiscordSecretFile == "" {
 		t.Fatalf("Load = %+v, %v; want discord with its settings", c, err)
 	}
+	if c.Signup != SignupAllowlist || c.AllowlistFile == "" {
+		t.Fatalf("discord signup = %q file %q; want allowlist with its file", c.Signup, c.AllowlistFile)
+	}
 	if c.ServerName != "Cherry" {
 		t.Fatalf("server name = %q, want the default Cherry", c.ServerName)
+	}
+}
+
+// TestSignupDefaultsAndChecks: auth.signup is allowlist in discord mode and open otherwise (an empty value is the default),
+// an allowlist needs its file outside lab-guest, an unknown value is refused, and lab-guest accepts and ignores it.
+func TestSignupDefaultsAndChecks(t *testing.T) {
+	args := discordArgs(t, 0o600)
+	if _, err := Load(args[:len(args)-1], none); err == nil || !strings.Contains(err.Error(), "auth.allowlist-file") {
+		t.Fatalf("discord allowlist without its file: %v", err)
+	}
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"-auth-mode=dev-fake"}, SignupOpen},
+		{nil, SignupOpen},
+		{[]string{"-auth-mode=dev-fake", "-auth-signup=closed"}, SignupClosed},
+		{[]string{"-auth-signup=allowlist"}, SignupAllowlist}, // lab-guest: accepted, the file is not needed
+	} {
+		c, err := Load(tc.args, none)
+		if err != nil || c.Signup != tc.want {
+			t.Errorf("%v: signup %q, %v; want %s", tc.args, c.Signup, err, tc.want)
+		}
+	}
+	if _, err := Load([]string{"-auth-mode=dev-fake", "-auth-signup=maybe"}, none); err == nil || !strings.Contains(err.Error(), "auth.signup") {
+		t.Fatalf("unknown signup value: %v", err)
 	}
 }
 
@@ -263,5 +296,22 @@ func TestResolverFollowsActivate(t *testing.T) {
 	}
 	if got, err := CacheDir(); err != nil || got != cache {
 		t.Errorf("CacheDir = %q, %v; want %q", got, err, cache)
+	}
+}
+
+// TestIdentityModeFollowsActivate: discord and dev-fake are identity modes; lab-guest and the zero value are not.
+func TestIdentityModeFollowsActivate(t *testing.T) {
+	if IdentityMode() {
+		t.Fatal("before Activate the mode is lab-guest")
+	}
+	for mode, want := range map[string]bool{AuthLabGuest: false, AuthDiscord: true, AuthDevFake: true, "": false} {
+		if IsIdentity(mode) != want {
+			t.Errorf("IsIdentity(%q) = %v, want %v", mode, !want, want)
+		}
+	}
+	Activate(Config{AuthMode: AuthDevFake})
+	t.Cleanup(func() { Activate(Config{}) })
+	if !IdentityMode() {
+		t.Fatal("dev-fake is not an identity mode")
 	}
 }

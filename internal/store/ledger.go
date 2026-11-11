@@ -4,11 +4,17 @@ import (
 	"fmt"
 	"slices"
 	"time"
+
+	"cherry/internal/config"
 )
 
 // ponytail: lab accounts keep their showcase grants (room furniture, pets); every
 // other account starts fresh. Hard-coded aids; move to a store flag if more are needed.
 var LabAids = map[string]bool{"1001": true, "1002": true}
+
+// IsLab reports whether aid is a lab account: the showcase grants (CuratedGrantCodes, the room and pet showcases) apply to
+// it. Lab accounts exist only in lab-guest; in identity mode no account is one.
+func IsLab(aid string) bool { return !config.IdentityMode() && LabAids[aid] }
 
 // MaxBalance keeps every balance inside the client's int32 asInt.
 const MaxBalance = 1 << 30

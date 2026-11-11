@@ -738,7 +738,7 @@ func handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		httpx.ServeNotFound(w)
 		return
 	}
-	acc := store.CurrentAccount(r)
+	acc := store.CurrentAccount(r) // identity mode: nil without a known token (no fallback)
 	if acc == nil {
 		httpx.ServeNotFound(w)
 		return
@@ -936,7 +936,11 @@ func handleCreateAvatar(w http.ResponseWriter, r *http.Request) {
 	acc.Gender = gender
 	acc.Skin = skin
 	acc.Country = req.NationCode
-	acc.InventoryCodes = store.AppendUniqueItemCodes(store.AccountInventoryCodes(acc), itemCodes)
+	owned := store.AccountInventoryCodes(acc)
+	acc.InventoryCodes = store.AppendUniqueItemCodes(owned, itemCodes)
+	if config.IdentityMode() { // the creation items are granted on every creation, and are gifts: they sell for nothing
+		acc.PaidPrices = creationGifts(acc.PaidPrices, owned, itemCodes)
+	}
 	acc.ItemCodes = append([]string(nil), itemCodes...)
 	aid, sessionKey := acc.Aid, acc.SessionKey
 	token := store.AddAliasLocked(acc)
@@ -964,6 +968,22 @@ func handleCreateAvatar(w http.ResponseWriter, r *http.Request) {
 		PetProfiles: []string{},
 	}})
 	httpx.WriteJSON(w, http.StatusOK, string(payload))
+}
+
+// creationGifts returns paid with store.GiftPaid set for each of codes the account did not own before the creation
+// (copy-on-write: the rollback of a failed save keeps the old map). Owned codes keep the price they were paid.
+func creationGifts(paid map[string]int64, owned, codes []string) map[string]int64 {
+	next := maps.Clone(paid)
+	for _, c := range codes {
+		if slices.Contains(owned, c) {
+			continue
+		}
+		if next == nil {
+			next = map[string]int64{}
+		}
+		next[c] = store.GiftPaid
+	}
+	return next
 }
 
 // skinColorString accepts only a scalar string or number (or absent/null);

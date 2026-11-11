@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"cherry/internal/config"
 	"cherry/internal/httpx"
 	"cherry/internal/store"
 )
@@ -124,12 +125,13 @@ func Balances(aid string) (gems, cash int64, ok bool) {
 // forever on 404 and shows a network-error dialog + retry on status:false, so this always
 // answers status:true. The 300 Gems are credited once per account; repeats and an unknown
 // requester get rewardCoin 0. The request directly follows create/avatar, so without an
-// AV_AUTH match the newest account is the requester.
+// AV_AUTH match the newest account is the requester in lab-guest. In identity mode there is no
+// fallback: a request without a known token gets the same noGift reply and acts on no account.
 func HandleWelcomeGift(w http.ResponseWriter, r *http.Request) {
 	const noGift = `{"result":{"status":true,"rewardCoin":0}}`
 	store.AccountsMu.Lock()
 	acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
-	if acc == nil {
+	if acc == nil && !config.IdentityMode() {
 		acc = store.LatestAcc
 	}
 	if acc == nil || acc.Welcomed {

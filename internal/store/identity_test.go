@@ -90,7 +90,7 @@ func TestMintIdentityCodeCapsAndLogsIn(t *testing.T) {
 	codes := make([]string, maxCodeHashes+1)
 	for i := range codes {
 		codes[i] = fmt.Sprintf("00000000-0000-4000-8000-%012d", i)
-		aid, isNew, err := MintIdentityCode(identity, CodeHash(codes[i]))
+		aid, isNew, err := MintIdentityCode(identity, CodeHash(codes[i]), true)
 		if err != nil {
 			t.Fatalf("mint %d: %v", i, err)
 		}
@@ -144,7 +144,7 @@ func TestMintFailureLeavesNothing(t *testing.T) {
 	if err := d.Close(); err != nil { // every save from now on fails: the transaction cannot begin
 		t.Fatal(err)
 	}
-	if _, _, err := MintIdentityCode("dev-x", CodeHash("a")); err == nil {
+	if _, _, err := MintIdentityCode("dev-x", CodeHash("a"), true); err == nil {
 		t.Fatal("mint with a failing save succeeded")
 	}
 	AccountsMu.Lock()
@@ -159,7 +159,7 @@ func TestMintFailureLeavesNothing(t *testing.T) {
 // keeps the one account.
 func TestDuplicateIdentityIsRefused(t *testing.T) {
 	attachTestDB(t)
-	if _, _, err := MintIdentityCode("dev-same", CodeHash("one")); err != nil {
+	if _, _, err := MintIdentityCode("dev-same", CodeHash("one"), true); err != nil {
 		t.Fatal(err)
 	}
 	second := newRecord("")

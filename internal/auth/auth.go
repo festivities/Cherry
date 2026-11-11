@@ -61,7 +61,9 @@ type Service struct {
 	Now func() time.Time
 
 	mode, clientID, redirect, secret string
-	info                             []byte // the discovery body, built once
+	signup                           string     // auth.signup: open, allowlist or closed
+	allow                            *allowlist // set when signup is allowlist
+	info                             []byte     // the discovery body, built once
 	logger                           *log.Logger
 
 	mu       sync.Mutex
@@ -97,6 +99,17 @@ func New(cfg config.Config, logger *log.Logger) (*Service, error) {
 		startHour:      newLimiter(startPerHour, time.Hour),
 		exchangeMinute: newLimiter(exchangePerMinute, time.Minute),
 		infoMinute:     newLimiter(infoPerMinute, time.Minute),
+		signup:         cfg.Signup,
+	}
+	if s.signup == "" {
+		s.signup = config.DefaultSignup(cfg.AuthMode)
+	}
+	if config.IsIdentity(cfg.AuthMode) && s.signup == config.SignupAllowlist {
+		al, err := loadAllowlist(cfg.AllowlistFile, logger)
+		if err != nil {
+			return nil, err
+		}
+		s.allow = al
 	}
 	if cfg.AuthMode == config.AuthDiscord {
 		if cfg.DiscordClientID == "" || cfg.DiscordRedirect == "" {
@@ -362,6 +375,11 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, a, failure)
 		return
 	}
+	if !s.mayCreate(identity) && !store.IdentityExists(identity) { // refused here, before any ticket exists; exchange checks again
+		s.logger.Printf("cherry: auth sign-up refused identity=%s at=callback", maskIdentity(identity))
+		redirect(w, a.ret+"?error="+codeDenied+"&state="+url.QueryEscape(a.state))
+		return
+	}
 	s.mu.Lock()
 	s.purgeLocked(now)
 	if len(s.tickets) >= maxTickets {
@@ -373,6 +391,28 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 	s.tickets[tok] = &ticket{identity: identity, challenge: a.challenge, created: now}
 	s.mu.Unlock()
 	redirect(w, a.ret+"?ticket="+url.QueryEscape(tok)+"&state="+url.QueryEscape(a.state))
+}
+
+// mayCreate reports whether identity may make its first account under auth.signup. It depends on the identity and the
+// allowlist file only; store.MintIdentityCode makes the final decision under the store lock.
+func (s *Service) mayCreate(identity string) bool {
+	switch s.signup {
+	case config.SignupOpen:
+		return true
+	case config.SignupAllowlist:
+		return s.allow.has(identity)
+	}
+	return false
+}
+
+// maskIdentity is an identity as a log line names it: a Discord id keeps its last four digits; anything else is the test
+// provider's name.
+func maskIdentity(identity string) string {
+	id, ok := strings.CutPrefix(identity, "discord:")
+	if !ok {
+		return identity
+	}
+	return "discord:…" + id[max(0, len(id)-4):]
 }
 
 // fail sends a sign-in error to the app. Only the code travels; the log names the code too.
@@ -446,7 +486,12 @@ func (s *Service) handleExchange(w http.ResponseWriter, r *http.Request) {
 	}
 
 	code := newUUID()
-	aid, isNew, err := store.MintIdentityCode(tk.identity, store.CodeHash(code))
+	aid, isNew, err := store.MintIdentityCode(tk.identity, store.CodeHash(code), s.mayCreate(tk.identity))
+	if errors.Is(err, store.ErrSignupClosed) {
+		s.logger.Printf("cherry: auth exchange refused reason=signup_closed identity=%s", maskIdentity(tk.identity))
+		httpx.WriteJSON(w, http.StatusForbidden, `{"error":"signup_closed"}`)
+		return
+	}
 	if err != nil {
 		s.logger.Printf("cherry: auth exchange: save failed: %v", err)
 		httpx.WriteJSON(w, http.StatusInternalServerError, `{"error":"server"}`)

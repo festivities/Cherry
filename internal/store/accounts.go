@@ -337,6 +337,11 @@ func commitLocked(lines []LedgerLine, named []*Account, removeID int64, site str
 				} else if sums[i], err = updateAccountRowTx(tx, rs.id, acc); err != nil {
 					return err
 				}
+				if rs.revoke { // ResetIdentityLocked: every token row of the account goes before the pending ones are written
+					if _, err := tx.Exec(`DELETE FROM tokens WHERE account_id = ?`, rs.id); err != nil {
+						return err
+					}
+				}
 				for _, p := range pendingTokens {
 					if p.acc == acc {
 						if err := addTokenRowTx(tx, rs.id, p); err != nil {
@@ -375,6 +380,7 @@ func commitLocked(lines []LedgerLine, named []*Account, removeID int64, site str
 	}
 	for i, acc := range rows {
 		accountRows[acc].sum = sums[i]
+		accountRows[acc].revoke = false
 	}
 	pendingTokens = slices.DeleteFunc(pendingTokens, func(p pendingToken) bool { return slices.Contains(rows, p.acc) })
 	savedLatest, savedNext = LatestAcc, NextAvatarID

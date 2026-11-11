@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"cherry/internal/config"
 	"cherry/internal/httpx"
 	"cherry/internal/store"
 )
@@ -126,10 +127,12 @@ type deletedBackup struct {
 	GuestbookRead uint64 `json:"guestbookRead"`
 }
 
-// deleteAccount removes acc, all its token aliases and its social rows. A full backup line is
+// deleteAccount removes acc's avatar, its token aliases and its social rows. A full backup line is
 // appended to deleted-accounts.jsonl first. Friends keep a "removed" friendship so their native
 // caches (upsert-only) get a status -1 row on the next sync. The aid is never reused:
 // nextAvatarID only grows. A deleted lab aid stays in labAids, which is harmless for that reason.
+// In identity mode the account is not removed: it is reset to its identity and once-only grants
+// (store.ResetIdentityLocked), so the same Discord identity signs in again to a fresh avatar.
 // Lock order: accountsMu, then socialMu.
 func deleteAccount(acc *store.Account) error {
 	store.AccountsMu.Lock()
@@ -140,6 +143,9 @@ func deleteAccount(acc *store.Account) error {
 	tokens := store.AccountTokenHashesLocked(acc)
 	if len(tokens) == 0 {
 		return fmt.Errorf("account already gone")
+	}
+	if config.IdentityMode() && acc.Aid == "0" {
+		return fmt.Errorf("no avatar to delete") // an identity without an avatar: nothing to remove
 	}
 	aid := acc.Aid
 	var posts []store.DiaryPost
@@ -190,7 +196,16 @@ func deleteAccount(acc *store.Account) error {
 		return err
 	}
 
-	undo, err := store.DeleteAccountLocked(acc, []store.LedgerLine{{Time: time.Now().UTC().Format(time.RFC3339), Aid: aid, Reason: "account deleted"}})
+	lines := []store.LedgerLine{{Time: time.Now().UTC().Format(time.RFC3339), Aid: aid, Reason: "account deleted"}}
+	var (
+		undo func() error
+		err  error
+	)
+	if config.IdentityMode() {
+		undo, err = store.ResetIdentityLocked(acc, lines)
+	} else {
+		undo, err = store.DeleteAccountLocked(acc, lines)
+	}
 	if err != nil {
 		return err
 	}

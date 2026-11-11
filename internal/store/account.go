@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"cherry/internal/config"
 	"cherry/internal/httpx"
 )
 
@@ -40,7 +41,7 @@ func AccountOwnedCodes(acc *Account) []string {
 	if acc == nil {
 		return nil
 	}
-	if !LabAids[acc.Aid] { // economy: new players own only what they create, earn or buy
+	if !IsLab(acc.Aid) { // economy: new players own only what they create, earn or buy
 		return AccountInventoryCodes(acc)
 	}
 	return AppendUniqueItemCodes(AccountInventoryCodes(acc), CuratedGrantCodes())
@@ -203,8 +204,9 @@ var (
 // rowState is what the database holds for one account: its row id (0 = no row yet) and the checksum of the row as last
 // written or read. It sits beside the account, not in it, so a handler's `*acc = previous` cannot undo a row a save wrote.
 type rowState struct {
-	id  int64
-	sum string
+	id     int64
+	sum    string
+	revoke bool // the next save deletes every token row of the account before writing its pending ones (ResetIdentityLocked)
 }
 
 // pendingToken is an access token or alias that resolves to acc and whose row the database does not have yet.
@@ -454,6 +456,55 @@ func DeleteAccountLocked(acc *Account, lines []LedgerLine) (undo func() error, e
 	return undo, nil
 }
 
+// ResetIdentityLocked is Delete Avatar in identity mode (discord, dev-fake). acc keeps its identity (Identity, CodeHashes),
+// Welcomed and the once-only grants (BossBook, the butler free hire) and loses every other field: aid becomes "0" and the
+// session key changes. Every token of the account ends, its own and its aliases, in memory and in the database: the save
+// deletes the account's token rows first (rowState.revoke) in the same transaction, then writes the fresh own token that
+// acc gets here. The same identity signs in again through exchange and guest/generate, which mints an alias. The undo puts
+// the account, its previous tokens and their rows back. On error acc is as it was. Caller holds AccountsMu.
+func ResetIdentityLocked(acc *Account, lines []LedgerLine) (undo func() error, err error) {
+	rs := accountRows[acc]
+	if rs == nil {
+		return nil, errors.New("account is not in the store")
+	}
+	prev, prevRS, prevPending := *acc, *rs, slices.Clone(pendingTokens)
+	prevHashes := AccountTokenHashesLocked(acc)
+	for _, h := range prevHashes {
+		delete(accountsByHash, h)
+	}
+	pendingTokens = slices.DeleteFunc(pendingTokens, func(p pendingToken) bool { return p.acc == acc })
+	own := RandomToken(32)
+	*acc = Account{
+		AccessToken: own, SessionKey: RandomToken(32), Mid: prev.Mid, AvatarUserID: prev.AvatarUserID, Aid: "0",
+		Identity: prev.Identity, CodeHashes: prev.CodeHashes, Welcomed: prev.Welcomed, BossBook: prev.BossBook,
+	}
+	if b := prev.Butlers; b != nil && (b.FreeUsed || len(b.Free) > 0) {
+		acc.Butlers = &ButlerBook{FreeUsed: true}
+	}
+	addTokenLocked(acc, own, true)
+	rs.revoke = true
+	if err := SaveLocked(lines, acc); err != nil {
+		*acc, *rs, pendingTokens = prev, prevRS, prevPending
+		for _, h := range prevHashes {
+			accountsByHash[h] = acc
+		}
+		dropTokenLocked(CodeHash(own))
+		return nil, err
+	}
+	return func() error {
+		dropTokenLocked(CodeHash(acc.AccessToken)) // the fresh own token goes with the reset
+		*acc = prev
+		for _, h := range prevHashes {
+			// A reload leaves prev.AccessToken "" (clear tokens are not stored), so such a token comes back as an alias: the
+			// database keeps at most one own row per account (tokens_own) and nothing reads the kind otherwise.
+			accountsByHash[h] = acc
+			pendingTokens = append(pendingTokens, pendingToken{acc: acc, hash: h, own: prev.AccessToken != "" && h == CodeHash(prev.AccessToken)})
+		}
+		rs.revoke = true // the reset's rows are deleted, then the previous tokens are written
+		return SaveLocked([]LedgerLine{{Time: time.Now().UTC().Format(time.RFC3339), Aid: prev.Aid, Reason: "account reset rolled back"}}, acc)
+	}, nil
+}
+
 // highestAidLocked is the account with the highest aid (the first on a tie), or nil. Caller holds AccountsMu.
 func highestAidLocked() *Account {
 	var latest *Account
@@ -481,6 +532,9 @@ func CurrentAccount(r *http.Request) *Account {
 	}
 	if token != "" {
 		return AccountByTokenLocked(token)
+	}
+	if config.IdentityMode() { // no newest-account fallback: a request without a token acts on no account
+		return nil
 	}
 	return LatestAcc
 }

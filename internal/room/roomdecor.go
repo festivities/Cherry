@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"cherry/internal/config"
 	"cherry/internal/httpx"
 	"cherry/internal/store"
 )
@@ -115,13 +116,19 @@ func EnsureRoomLocked(acc *store.Account) error {
 	items := slices.Clone(acc.RoomItems)
 	seq := max(acc.NextRoomSeq, store.FirstRoomSeq)
 	codes := ActiveStarter().StarterCodes // new accounts: the default floor, wall, door and diary (starter.json)
-	if store.LabAids[acc.Aid] {
+	if store.IsLab(acc.Aid) {
 		codes = RoomShowcaseCodes
+	}
+	// Identity mode: a starter kit item is a gift (store.GiftPaid), so it recycles for nothing. Every new avatar gets the kit
+	// again, so no delete-and-recreate loop sells it for Gems. Lab-guest marks nothing.
+	var kitPaid int64
+	if config.IdentityMode() {
+		kitPaid = store.GiftPaid
 	}
 	for _, cd := range codes {
 		// Seed only an empty room: re-granting missing codes would refill sold items (sell-back loop).
 		if _, ok := owned[cd]; !ok && fresh {
-			items = append(items, store.RoomItem{Seq: seq, Cd: cd})
+			items = append(items, store.RoomItem{Seq: seq, Cd: cd, Paid: kitPaid})
 			owned[cd] = seq
 			seq++
 		}

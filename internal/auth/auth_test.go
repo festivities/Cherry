@@ -76,11 +76,18 @@ func discordConfig(t *testing.T) config.Config {
 	if err := os.WriteFile(file, []byte(testSecret+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// auth.signup defaults to allowlist in discord mode: the test identity of the round trips is listed.
+	allow := filepath.Join(t.TempDir(), "allow.txt")
+	if err := os.WriteFile(allow, []byte("discord:123456789012345678\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	c := ports()
 	c.AuthMode = config.AuthDiscord
 	c.DiscordClientID = "123"
 	c.DiscordSecretFile = file
 	c.DiscordRedirect = testRedirect
+	c.AllowlistFile = allow
+	c.Signup = config.SignupAllowlist
 	return c
 }
 

@@ -17,6 +17,9 @@ const maxCodeHashes = 10
 // ErrUnknownCode means no account holds the hash of the presented uniqueCode.
 var ErrUnknownCode = errors.New("unknown unique code")
 
+// ErrSignupClosed means the identity has no account and auth.signup does not let it make one (MintIdentityCode).
+var ErrSignupClosed = errors.New("sign-up closed for this identity")
+
 // CodeHash is the stored form of a uniqueCode: lowercase hex SHA-256.
 func CodeHash(code string) string {
 	sum := sha256.Sum256([]byte(code))
@@ -37,14 +40,26 @@ func IdentityAccountLocked(identity string) *Account {
 	return nil
 }
 
+// IdentityExists reports whether a provider identity already has an account (the sign-up gate at callback time).
+func IdentityExists(identity string) bool {
+	AccountsMu.Lock()
+	defer AccountsMu.Unlock()
+	return IdentityAccountLocked(identity) != nil
+}
+
 // MintIdentityCode is the exchange step: the identity's account, created with aid "0" when it has none, gets the hash of a
 // new uniqueCode (the oldest hash is dropped beyond maxCodeHashes). It reports the account's aid and whether the account
-// has no avatar yet. A failed save leaves the account as it was.
-func MintIdentityCode(identity, codeHash string) (aid string, isNew bool, err error) {
+// has no avatar yet. An identity with no account is created only when mayCreate says auth.signup lets it (else
+// ErrSignupClosed, nothing written); the check runs under the lock, so two exchanges cannot both create one. A failed
+// save leaves the account as it was.
+func MintIdentityCode(identity, codeHash string, mayCreate bool) (aid string, isNew bool, err error) {
 	AccountsMu.Lock()
 	defer AccountsMu.Unlock()
 	acc := IdentityAccountLocked(identity)
 	if acc == nil {
+		if !mayCreate {
+			return "", false, ErrSignupClosed
+		}
 		rec := newRecord("")
 		rec.Identity = identity
 		rec.CodeHashes = []string{codeHash}

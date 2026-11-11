@@ -92,8 +92,9 @@ func itemGrantLocked(acc *store.Account, code string) (sellBack int64, err error
 }
 
 // giftPaid is the paid marker of an item a player sent through the Gift Shop (store.Account.PaidPrices,
-// store.RoomItem.Paid): negative, so soldPrice pays nothing for it when it is recycled.
-const giftPaid = -1
+// store.RoomItem.Paid): negative, so soldPrice pays nothing for it when it is recycled. The constant lives in store
+// (store.GiftPaid) so the room and web packages, which economy imports, can mark kit items the same way.
+const giftPaid = store.GiftPaid
 
 // grantNewItemLocked grants code unless acc already has it or an ANIMAL cannot wear it (itemcode.HumanOnly),
 // and reports whether it granted. gift marks a granted item as a player's gift (giftPaid).

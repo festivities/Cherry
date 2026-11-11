@@ -68,10 +68,15 @@ type PetItem struct {
 	Room string `json:"room,omitempty"` // "LEVEL_n" when arranged on that My Room floor
 }
 
+// GiftPaid is the paid marker of an item the player did not pay for: a Gift Shop gift, and in identity mode the creation
+// and starter kits. Negative, so soldPrice pays nothing for it when it is recycled (economy/deals.go). It sits on
+// Account.PaidPrices (clothing) and RoomItem.Paid (furniture).
+const GiftPaid int64 = -1
+
 type RoomItem struct {
 	Seq  int64  `json:"seq"`
 	Cd   string `json:"cd"`
-	Paid int64  `json:"paid,omitempty"` // economy/deals.go: >0 the Gems paid at a daily deal, <0 a player's gift (sells for nothing), 0 no record; sell-back pays it
+	Paid int64  `json:"paid,omitempty"` // economy/deals.go: >0 the Gems paid at a daily deal, <0 a player's gift (sells for nothing, GiftPaid), 0 no record; sell-back pays it
 }
 
 type RoomPlaced struct {
