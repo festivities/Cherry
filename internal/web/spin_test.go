@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"cherry/internal/store"
+	"cherry/internal/testutil"
 	"cherry/internal/thumbs"
 )
 
@@ -186,6 +187,7 @@ func TestSpinJackpotListShape(t *testing.T) {
 // TestSpinListFreeChanceFollowsTheCounter: the free play shows until a game day's free Lucky Spin is used; a reply with
 // no account offers none.
 func TestSpinListFreeChanceFollowsTheCounter(t *testing.T) {
+	testutil.RequireArchive(t) // the free play may win an item (3 of 8 slots), which cannot be granted without the item archive
 	spinCacheTemp(t)
 	ecoSetup(t, 500, 0, 0)
 	free := func(rec *httptest.ResponseRecorder) float64 {
@@ -211,6 +213,7 @@ func TestSpinListFreeChanceFollowsTheCounter(t *testing.T) {
 // TestSpinPlayReplyKeepsBothBalances: a play answers with both balances, one history row, and never bill/prod/spot/gem
 // (the real-money upsell stays empty).
 func TestSpinPlayReplyKeepsBothBalances(t *testing.T) {
+	testutil.RequireArchive(t) // a play may win an item, which cannot be granted without the item archive
 	spinCacheTemp(t)
 	acc, _ := ecoSetup(t, 500, 25, 0)
 	rec := decorReq(t, "etok", http.MethodPost, "/v4/luckyspin/purchasenplay",
