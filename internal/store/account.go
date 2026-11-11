@@ -127,6 +127,8 @@ type Account struct {
 	DyeColors      map[string][]DyeColor // colours of dyed garments by item code (economy/dye.go); replaced, never edited in place
 	LuckySpinDay   int64                 // game day (economy.AttendDayKey) of the last free Lucky Spin (economy/spin.go); 0 = none
 	GuestCode      string                // device uniqueCode bound by the guest login (GuestLogin); "" = none
+	Identity       string                // provider identity ("discord:<id>" or "dev-<name>"), discord and dev-fake modes (identity.go); "" = none
+	CodeHashes     []string              // SHA-256 hex of the uniqueCodes minted for Identity, oldest first, at most maxCodeHashes (identity.go)
 }
 
 // FishingGear is the Square fishing gear an account bought (economy/fishing_shop.go): the item IDs
@@ -194,7 +196,12 @@ func NewAccount() (*Account, error) {
 
 // newAccountLocked creates an account bound to guestCode ("" = none); caller holds AccountsMu.
 func newAccountLocked(guestCode string) (*Account, error) {
-	acc := &Account{
+	return insertAccountLocked(newRecord(guestCode))
+}
+
+// newRecord is a fresh account with no avatar yet (aid "0") and new credentials; it is not in Accounts.
+func newRecord(guestCode string) *Account {
+	return &Account{
 		AccessToken:  RandomToken(32),
 		SessionKey:   RandomToken(32),
 		Mid:          "1",
@@ -202,6 +209,10 @@ func newAccountLocked(guestCode string) (*Account, error) {
 		Aid:          "0",
 		GuestCode:    guestCode,
 	}
+}
+
+// insertAccountLocked adds a new record and saves; a failed save leaves no account behind. Caller holds AccountsMu.
+func insertAccountLocked(acc *Account) (*Account, error) {
 	Accounts[acc.AccessToken] = acc
 	previous := LatestAcc
 	LatestAcc = acc
@@ -259,6 +270,12 @@ func GuestLogin(code string) (string, error) {
 		}
 		return created.AccessToken, nil
 	}
+	return aliasLocked(acc)
+}
+
+// aliasLocked returns an access token for acc: its own token the first time, a new alias after that (the credential
+// createSession reads as cc). Caller holds AccountsMu.
+func aliasLocked(acc *Account) (string, error) {
 	if Accounts[acc.AccessToken] == acc { // the account's own access token: the shape the client got at its first guest login
 		LatestAcc = acc
 		return acc.AccessToken, nil

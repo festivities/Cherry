@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"cherry/internal/assets"
+	"cherry/internal/auth"
 	"cherry/internal/config"
 	"cherry/internal/economy"
 	"cherry/internal/httpx"
@@ -107,9 +108,14 @@ func main() {
 		logger.Fatalf("cherry: generate certs: %v", err)
 	}
 
+	// The sign-in and discovery routes exist on the HTTPS game port only; the plain HTTP port serves the game mux.
+	svc, err := auth.New(cfg, logger)
+	if err != nil {
+		logger.Fatalf("cherry: auth: %v", err)
+	}
 	srv := &http.Server{
 		Addr:              cfg.HTTPS,
-		Handler:           httpx.WithLogging(web.NewMux(), logger),
+		Handler:           httpx.WithLogging(web.NewGameMux(svc), logger),
 		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       120 * time.Second,

@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -118,8 +119,17 @@ func WithLogging(next http.Handler, logger *log.Logger) http.Handler {
 			sni = r.TLS.ServerName
 		}
 		logger.Printf("REQ #%d remote=%s sni=%q host=%q method=%s url=%q status=%d duration=%s headers=%s",
-			seq.Add(1), r.RemoteAddr, sni, r.Host, r.Method, r.URL.RequestURI(), status, time.Since(start), FormatHeaders(r.Header))
+			seq.Add(1), r.RemoteAddr, sni, r.Host, r.Method, logURL(r.URL), status, time.Since(start), FormatHeaders(r.Header))
 	})
+}
+
+// logURL is the request target as the log shows it. An /auth/ query carries OAuth codes, tickets and server state, so
+// only its path is kept.
+func logURL(u *url.URL) string {
+	if strings.HasPrefix(u.Path, "/auth/") && u.RawQuery != "" {
+		return u.Path + "?[redacted]"
+	}
+	return u.RequestURI()
 }
 
 func FormatHeaders(h http.Header) string {
@@ -132,7 +142,8 @@ func FormatHeaders(h http.Header) string {
 	for _, name := range names {
 		for _, value := range h[name] {
 			lower := strings.ToLower(name)
-			if lower == "cookie" || strings.Contains(lower, "auth") || strings.Contains(lower, "token") || strings.Contains(lower, "secret") || lower == "x-lineplay-acnt" {
+			// A referer can carry an /auth/ query (the server state of a sign-in), so it is redacted like a credential.
+			if lower == "cookie" || lower == "referer" || strings.Contains(lower, "auth") || strings.Contains(lower, "token") || strings.Contains(lower, "secret") || lower == "x-lineplay-acnt" {
 				value = "[redacted]"
 			}
 			fmt.Fprintf(&b, "%s=%q ", name, value)

@@ -9,14 +9,19 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"text/tabwriter"
+	"unicode"
+	"unicode/utf8"
 )
 
-// Auth modes (auth.mode). lab-guest is today's device-bound guest login; discord and dev-fake are not built yet.
+// Auth modes (auth.mode). lab-guest is today's device-bound guest login; discord signs players in through Discord;
+// dev-fake replaces Discord with a test provider (CONTRACT §3, §9).
 const (
 	AuthLabGuest = "lab-guest"
 	AuthDiscord  = "discord"
@@ -30,6 +35,9 @@ type Config struct {
 	Public                                    bool
 	Hostnames                                 []string
 	AuthMode                                  string
+	DiscordClientID, DiscordSecretFile        string // the secret itself is read from the file, never a setting
+	DiscordRedirect                           string
+	ServerName                                string
 	File                                      string // the JSON file read, "" when none
 }
 
@@ -49,6 +57,10 @@ var settings = []setting{
 	{"server.public", "false", "public server: needs auth.mode discord, no DNS sink"},
 	{"server.hostnames", "", "operator hostnames, added to the certificate names (comma-separated)"},
 	{"auth.mode", AuthLabGuest, "lab-guest, discord or dev-fake"},
+	{"auth.discord.client-id", "", "Discord application client id (auth.mode discord)"},
+	{"auth.discord.secret-file", "", "file holding the Discord client secret; mode 0600 off Windows; the secret is never a value"},
+	{"auth.discord.redirect", "", "the exact OAuth callback URL registered with Discord (https)"},
+	{"server.name", "Cherry", "operator display name in discovery (1 to 64 characters)"},
 }
 
 // Load resolves the configuration and checks it. args are the command-line flags, lookup reads the environment
@@ -112,6 +124,8 @@ func parse(args []string, lookup func(string) (string, bool)) (Config, error) {
 		HTTPS: values["listen.https"], HTTP: values["listen.http"], Session: values["listen.session"],
 		Gateway: values["listen.gateway"], DNS: values["listen.dns"], Admin: values["listen.admin"],
 		AuthMode: values["auth.mode"], File: file,
+		DiscordClientID: values["auth.discord.client-id"], DiscordSecretFile: values["auth.discord.secret-file"],
+		DiscordRedirect: values["auth.discord.redirect"], ServerName: strings.TrimSpace(values["server.name"]),
 	}
 	var err error
 	if c.Public, err = strconv.ParseBool(values["server.public"]); err != nil {
@@ -134,7 +148,7 @@ func parse(args []string, lookup func(string) (string, bool)) (Config, error) {
 	return c, nil
 }
 
-// check refuses the combinations that must not start. Discord and dev-fake are accepted names, not built yet.
+// check refuses the combinations that must not start, each with one line that names the setting.
 func (c Config) check() error {
 	switch c.AuthMode {
 	case AuthLabGuest, AuthDiscord, AuthDevFake:
@@ -149,8 +163,57 @@ func (c Config) check() error {
 			return errors.New("config: server.public=true turns the DNS sink off; set listen.dns to an empty value")
 		}
 	}
-	if c.AuthMode == AuthDiscord || c.AuthMode == AuthDevFake {
-		return fmt.Errorf("config: auth.mode %s is not built yet (slice 8.6a)", c.AuthMode)
+	if n := utf8.RuneCountInString(c.ServerName); n == 0 || n > 64 || strings.IndexFunc(c.ServerName, unicode.IsControl) >= 0 {
+		return errors.New("config: server.name must be 1 to 64 printable characters")
+	}
+	if c.AuthMode == AuthDiscord {
+		var missing []string
+		if c.DiscordClientID == "" {
+			missing = append(missing, "auth.discord.client-id")
+		}
+		if c.DiscordSecretFile == "" {
+			missing = append(missing, "auth.discord.secret-file")
+		}
+		if c.DiscordRedirect == "" {
+			missing = append(missing, "auth.discord.redirect")
+		}
+		if len(missing) > 0 {
+			return fmt.Errorf("config: auth.mode discord needs %s", strings.Join(missing, ", "))
+		}
+		if err := checkRedirect(c.DiscordRedirect); err != nil {
+			return fmt.Errorf("config: auth.discord.redirect: %v", err)
+		}
+		if err := checkSecretFile(c.DiscordSecretFile); err != nil {
+			return fmt.Errorf("config: auth.discord.secret-file: %v", err)
+		}
+	}
+	return nil
+}
+
+// checkRedirect: the callback is an absolute https URL with no user info or fragment; Discord matches it exactly.
+func checkRedirect(raw string) error {
+	u, err := url.Parse(raw)
+	switch {
+	case err != nil:
+		return errors.New("not a URL")
+	case u.Scheme != "https" || u.Host == "":
+		return errors.New("must be an absolute https URL")
+	case u.User != nil || u.Fragment != "" || u.RawFragment != "":
+		return errors.New("must not carry user info or a fragment")
+	}
+	return nil
+}
+
+// checkSecretFile: a regular file; off Windows no group or other access (the file is never read here).
+func checkSecretFile(path string) error {
+	info, err := os.Stat(path)
+	switch {
+	case err != nil:
+		return errors.New("cannot read the file")
+	case !info.Mode().IsRegular():
+		return errors.New("not a regular file")
+	case runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0:
+		return errors.New("readable by group or others; chmod 600 it")
 	}
 	return nil
 }
@@ -219,10 +282,18 @@ func dirValue(v, key string) (string, error) {
 
 // The directories the packages use. Activate sets them once at startup. Until then (tests, and tools that did not call
 // it) they are the defaults, resolved on every call so that a test's LocalAppData or XDG_CACHE_HOME takes effect.
-var active struct{ data, cache string }
+var active struct {
+	data, cache string
+	cfg         Config
+}
 
-// Activate makes c's directories the ones DataDir and CacheDir return.
-func Activate(c Config) { active.data, active.cache = c.DataDir, c.CacheDir }
+// Activate makes c the configuration Current returns and its directories the ones DataDir and CacheDir return.
+func Activate(c Config) {
+	active.data, active.cache, active.cfg = c.DataDir, c.CacheDir, c
+}
+
+// Current is the configuration Activate was given. Before that (tests) it is the zero value: AuthMode "" is lab-guest.
+func Current() Config { return active.cfg }
 
 // DataDir is the state directory: stores, media, config, secrets and converted items. It must survive a cache wipe.
 func DataDir() (string, error) {
@@ -252,7 +323,7 @@ func defaultDir() (string, error) {
 func flagName(key string) string { return strings.ReplaceAll(key, ".", "-") }
 
 func envName(key string) string {
-	return "CHERRY_" + strings.ToUpper(strings.ReplaceAll(key, ".", "_"))
+	return "CHERRY_" + strings.ToUpper(strings.NewReplacer(".", "_", "-", "_").Replace(key))
 }
 
 func shown(s setting) string {

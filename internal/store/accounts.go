@@ -66,6 +66,8 @@ type StoredAccount struct {
 	DyeColors      map[string][]DyeColor `json:"dyeColors,omitempty"`
 	LuckySpinDay   int64                 `json:"luckySpinDay,omitempty"`
 	GuestCode      string                `json:"guestCode,omitempty"`
+	Identity       string                `json:"identity,omitempty"`
+	CodeHashes     []string              `json:"codeHashes,omitempty"`
 }
 
 type savedAccounts struct {
@@ -127,7 +129,7 @@ func LoadAccountsFrom(path string) error {
 				Racing:  saved.Racing, GardenMap: saved.GardenMap, Landscapes: saved.Landscapes,
 				Pins: saved.Pins, DiaryProfile: saved.DiaryProfile, Wishes: saved.Wishes, Butlers: saved.Butlers,
 				Dyes: saved.Dyes, DyeColors: saved.DyeColors, LuckySpinDay: saved.LuckySpinDay,
-				GuestCode: saved.GuestCode,
+				GuestCode: saved.GuestCode, Identity: saved.Identity, CodeHashes: saved.CodeHashes,
 			}
 		}
 		for token, id := range state.Aliases {
@@ -137,10 +139,15 @@ func LoadAccountsFrom(path string) error {
 			}
 			aliases[token] = acc
 		}
+		identities := make(map[string]bool, len(byID))
 		for id, acc := range byID {
 			if aliases[id] != acc {
 				return fmt.Errorf("missing guest account alias")
 			}
+			if acc.Identity != "" && identities[acc.Identity] {
+				return fmt.Errorf("duplicate identity") // one provider identity maps to one account
+			}
+			identities[acc.Identity] = true
 		}
 		if state.Latest != "" {
 			latest = byID[state.Latest]
@@ -221,7 +228,7 @@ func StoredFrom(acc *Account) StoredAccount {
 		Racing: acc.Racing, GardenMap: acc.GardenMap, Landscapes: acc.Landscapes, Pins: acc.Pins,
 		DiaryProfile: acc.DiaryProfile, Wishes: acc.Wishes, Butlers: acc.Butlers,
 		Dyes: acc.Dyes, DyeColors: acc.DyeColors, LuckySpinDay: acc.LuckySpinDay,
-		GuestCode: acc.GuestCode,
+		GuestCode: acc.GuestCode, Identity: acc.Identity, CodeHashes: acc.CodeHashes,
 	}
 }
 

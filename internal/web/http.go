@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -22,6 +23,8 @@ import (
 
 	"cherry/data"
 	"cherry/internal/assets"
+	"cherry/internal/auth"
+	"cherry/internal/config"
 	"cherry/internal/economy"
 	"cherry/internal/httpx"
 	"cherry/internal/itemcode"
@@ -326,8 +329,17 @@ func loadArtsStrings() []byte {
 
 // NewMux returns the routes. ServeMux redirects a path with a ".." segment to its cleaned form before any route
 // runs, so a streamed map pack request in the un-normalised form is answered first.
-func NewMux() http.Handler {
+// NewMux is the game mux without the sign-in and discovery routes: the plain HTTP port and the tests use it.
+func NewMux() http.Handler { return newMux(nil) }
+
+// NewGameMux is the game HTTPS mux: NewMux plus the sign-in and discovery routes of svc (CONTRACT §3, §4).
+func NewGameMux(svc *auth.Service) http.Handler { return newMux(svc) }
+
+func newMux(svc *auth.Service) http.Handler {
 	mux := http.NewServeMux()
+	if svc != nil {
+		svc.Register(mux)
+	}
 	mux.HandleFunc("/v4/account/guest/generate", handleGuestGenerate)
 	mux.HandleFunc("/v4/createSession", handleCreateSession)
 	mux.HandleFunc("/v4/checkSession", handleCheckSession)
@@ -692,12 +704,27 @@ func handleGuestGenerate(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
 	}
-	token, err := store.GuestLogin(req.UniqueCode)
+	token, err := guestToken(req.UniqueCode)
+	if errors.Is(err, store.ErrUnknownCode) {
+		log.Printf("cherry: guest generate refused")
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
 	if err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, `{"result":{"provider":"lineplay","accessToken":"`+token+`"}}`)
+}
+
+// guestToken is the account token for a device code. In discord and dev-fake only a code the sign-in minted is accepted
+// (store.ErrUnknownCode for any other); lab-guest keeps the device-bound guests.
+func guestToken(code string) (string, error) {
+	switch config.Current().AuthMode {
+	case config.AuthDiscord, config.AuthDevFake:
+		return store.CodeLogin(code)
+	}
+	return store.GuestLogin(code)
 }
 
 func guestHeaderOK(r *http.Request, uniqueCode string) bool {

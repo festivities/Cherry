@@ -4,6 +4,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -24,10 +25,10 @@ func TestDefaultsAreTodaysConstants(t *testing.T) {
 	}
 	want := Config{
 		HTTPS: ":443", HTTP: ":80", Session: ":10123", Gateway: ":10000", DNS: ":53", Admin: "127.0.0.1:8099",
-		AuthMode: AuthLabGuest,
+		AuthMode: AuthLabGuest, ServerName: "Cherry",
 	}
 	if c.HTTPS != want.HTTPS || c.HTTP != want.HTTP || c.Session != want.Session || c.Gateway != want.Gateway ||
-		c.DNS != want.DNS || c.Admin != want.Admin || c.AuthMode != want.AuthMode || c.Public || len(c.Hostnames) != 0 {
+		c.DNS != want.DNS || c.Admin != want.Admin || c.AuthMode != want.AuthMode || c.ServerName != want.ServerName || c.Public || len(c.Hostnames) != 0 {
 		t.Fatalf("defaults = %+v, want listeners %+v", c, want)
 	}
 	base, err := os.UserCacheDir()
@@ -122,10 +123,13 @@ func TestValidationErrors(t *testing.T) {
 		{"public with dev-fake", []string{"-server-public=true", "-auth-mode=dev-fake"}, nil, "server.public=true refuses auth.mode dev-fake"},
 		{"public with an explicit DNS address", []string{"-server-public=true", "-auth-mode=discord", "-listen-dns=:53"}, nil, "turns the DNS sink off"},
 		{"public from the environment", nil, map[string]string{"CHERRY_SERVER_PUBLIC": "true"}, "server.public=true refuses auth.mode lab-guest"},
-		{"discord", []string{"-auth-mode=discord"}, nil, "auth.mode discord is not built yet (slice 8.6a)"},
-		{"public discord", []string{"-server-public=true", "-auth-mode=discord"}, nil, "auth.mode discord is not built yet (slice 8.6a)"},
-		{"dev-fake", []string{"-auth-mode", "dev-fake"}, nil, "auth.mode dev-fake is not built yet (slice 8.6a)"},
+		{"discord alone", []string{"-auth-mode=discord"}, nil, "auth.mode discord needs auth.discord.client-id, auth.discord.secret-file, auth.discord.redirect"},
+		{"public discord", []string{"-server-public=true", "-auth-mode=discord"}, nil, "auth.mode discord needs"},
+		{"public dev-fake", []string{"-server-public=true", "-auth-mode", "dev-fake"}, nil, "server.public=true refuses auth.mode dev-fake"},
 		{"unknown mode", []string{"-auth-mode=oauth"}, nil, `auth.mode "oauth" is unknown`},
+		{"empty server name", []string{"-server-name="}, nil, "server.name must be 1 to 64"},
+		{"long server name", []string{"-server-name=" + strings.Repeat("n", 65)}, nil, "server.name must be 1 to 64"},
+		{"control character in server name", []string{"-server-name=a\tb"}, nil, "server.name must be 1 to 64"},
 		{"bad boolean", []string{"-server-public=maybe"}, nil, "server.public: \"maybe\" is not true or false"},
 		{"unexpected argument", []string{"stray"}, nil, "unexpected argument"},
 	}
@@ -136,6 +140,80 @@ func TestValidationErrors(t *testing.T) {
 				t.Fatalf("err = %v, want it to contain %q", err, tc.want)
 			}
 		})
+	}
+}
+
+// discordArgs returns a complete discord setting set; the secret file is private to the test.
+func discordArgs(t *testing.T, mode os.FileMode) []string {
+	t.Helper()
+	file := filepath.Join(t.TempDir(), "discord.secret")
+	if err := os.WriteFile(file, []byte("not-a-real-secret\n"), mode); err != nil {
+		t.Fatal(err)
+	}
+	return []string{"-auth-mode=discord", "-auth-discord-client-id=123", "-auth-discord-secret-file=" + file,
+		"-auth-discord-redirect=https://cherry.example/auth/v1/discord/callback"}
+}
+
+func TestDiscordStartsWithItsSettings(t *testing.T) {
+	args := discordArgs(t, 0o600)
+	c, err := Load(args, none)
+	if err != nil || c.AuthMode != AuthDiscord || c.DiscordClientID != "123" || c.DiscordRedirect == "" || c.DiscordSecretFile == "" {
+		t.Fatalf("Load = %+v, %v; want discord with its settings", c, err)
+	}
+	if c.ServerName != "Cherry" {
+		t.Fatalf("server name = %q, want the default Cherry", c.ServerName)
+	}
+}
+
+func TestDevFakeStarts(t *testing.T) {
+	c, err := Load([]string{"-auth-mode=dev-fake"}, none)
+	if err != nil || c.AuthMode != AuthDevFake {
+		t.Fatalf("Load = %+v, %v; want dev-fake to start", c, err)
+	}
+}
+
+func TestDiscordRefusesBadSettings(t *testing.T) {
+	ok := discordArgs(t, 0o600)
+	badRedirect := append([]string{}, ok...)
+	badRedirect[3] = "-auth-discord-redirect=http://cherry.example/auth/v1/discord/callback"
+	openSecret := discordArgs(t, 0o644)
+	missingFile := append([]string{}, ok...)
+	missingFile[2] = "-auth-discord-secret-file=" + filepath.Join(t.TempDir(), "absent")
+	cases := map[string]struct {
+		args []string
+		want string
+	}{
+		"http redirect":   {badRedirect, "auth.discord.redirect: must be an absolute https URL"},
+		"missing file":    {missingFile, "auth.discord.secret-file: cannot read the file"},
+		"no client id":    {append(append([]string{}, ok[:1]...), ok[2:]...), "auth.mode discord needs auth.discord.client-id"},
+		"secret in a dir": {[]string{"-auth-mode=discord", "-auth-discord-client-id=1", "-auth-discord-secret-file=" + t.TempDir(), "-auth-discord-redirect=https://a.example/cb"}, "not a regular file"},
+	}
+	for name, tc := range cases {
+		_, err := Load(tc.args, none)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want it to contain %q", name, err, tc.want)
+		}
+	}
+	if runtime.GOOS == "windows" {
+		return // Windows has no mode bits to check; the file is still read by the server.
+	}
+	if _, err := Load(openSecret, none); err == nil || !strings.Contains(err.Error(), "readable by group or others") {
+		t.Fatalf("0644 secret: err = %v, want a refusal", err)
+	}
+}
+
+func TestCurrentFollowsActivate(t *testing.T) {
+	if Current().AuthMode != "" {
+		t.Fatalf("Current before Activate = %+v, want the zero value", Current())
+	}
+	c, err := Load([]string{"-auth-mode=dev-fake"}, none)
+	if err != nil {
+		t.Fatal(err)
+	}
+	Activate(c)
+	t.Cleanup(func() { Activate(Config{}) })
+	if Current().AuthMode != AuthDevFake {
+		t.Fatalf("Current = %+v, want dev-fake", Current())
 	}
 }
 
