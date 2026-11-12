@@ -18,6 +18,19 @@ type document struct {
 	hasArt   bool
 	validate func(raw []byte) error
 	apply    func(raw []byte, where string, u use) error
+	embedded []byte // the default in data/ (Embedded)
+}
+
+// Embedded returns the default body of document name as built into the binary (the staff UI prefills a draft with it).
+// The bytes are shared: a caller reads them, never changes them.
+func Embedded(name string) ([]byte, bool) {
+	mu.Lock()
+	defer mu.Unlock()
+	d, ok := documents[name]
+	if !ok {
+		return nil, false
+	}
+	return d.embedded, true
 }
 
 // use is where a document's value came from: "embedded default", "config file" or "database vN".

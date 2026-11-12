@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"cherry/internal/admin"
 	"cherry/internal/assets"
 	"cherry/internal/auth"
 	"cherry/internal/config"
@@ -119,6 +120,11 @@ func main() {
 	if err != nil {
 		logger.Fatalf("cherry: auth: %v", err)
 	}
+	// The staff UI listens on its own address and hostname (PLAN P4). listen.staff empty (the lab) starts nothing.
+	staff, err := admin.Start(cfg, logger)
+	if err != nil {
+		logger.Fatalf("cherry: staff UI: %v", err)
+	}
 	srv := &http.Server{
 		Addr:              cfg.HTTPS,
 		Handler:           httpx.WithLogging(web.NewGameMux(svc), logger),
@@ -204,6 +210,11 @@ func main() {
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Printf("cherry: https shutdown: %v", err)
+	}
+	if staff != nil {
+		if err := staff.Shutdown(shutdownCtx); err != nil {
+			logger.Printf("cherry: staff UI shutdown: %v", err)
+		}
 	}
 	_ = gatewayLn.Close()
 	_ = sessionLn.Close()

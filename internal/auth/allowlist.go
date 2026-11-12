@@ -8,50 +8,63 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"cherry/internal/config"
 )
 
-// allowlist is auth.allowlist-file: the identities that may make an account for the first time (auth.signup allowlist).
-// It is read at start and again when the file's modification time or size changes (one stat per check, no watcher). A
-// file that cannot be read or parsed later admits no new identity (fail closed) and is logged once per change; an identity
-// that already has an account always signs in (MintIdentityCode).
-type allowlist struct {
-	path   string
-	logger *log.Logger
+// Allowlist is an allowlist file of identities: auth.allowlist-file (the identities that may make an account for the first
+// time, auth.signup allowlist) and staff.allowlist-file (the other staff of the staff UI). It is read at start and again
+// when the file's modification time or size changes (one stat per check, no watcher). A file that cannot be read or
+// parsed later admits no identity (fail closed) and is logged once per change; a player whose identity already has an
+// account always signs in (MintIdentityCode).
+type Allowlist struct {
+	path     string
+	devNames bool // dev-<name> lines are accepted: the dev-fake provider, staff file only
+	logger   *log.Logger
 
 	mu   sync.Mutex
 	mod  time.Time
 	size int64
-	ids  map[string]bool // "discord:<id>"
+	ids  map[string]bool // "discord:<id>" or "dev-<name>"
 }
 
-// loadAllowlist reads the file once; an error refuses the start.
-func loadAllowlist(path string, logger *log.Logger) (*allowlist, error) {
+// LoadAllowlist reads the file once; an error refuses the start. devNames accepts dev-<name> lines (dev-fake only, so the
+// caller decides). logger gets one line per refused re-read and never a value.
+func LoadAllowlist(path string, devNames bool, logger *log.Logger) (*Allowlist, error) {
 	if path == "" {
-		return nil, errors.New("auth: auth.signup allowlist needs auth.allowlist-file")
+		return nil, errors.New("auth: allowlist file is not set")
 	}
-	a := &allowlist{path: path, logger: logger}
+	if logger == nil {
+		logger = log.Default()
+	}
+	a := &Allowlist{path: path, devNames: devNames, logger: logger}
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if err := a.reload(); err != nil {
 		return nil, err
 	}
 	return a, nil
 }
 
-// has reports whether identity may make its first account now.
-func (a *allowlist) has(identity string) bool {
+// Has reports whether identity is on the list now. A nil list holds nobody.
+func (a *Allowlist) Has(identity string) bool {
+	if a == nil {
+		return false
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if info, err := os.Stat(a.path); err == nil && info.ModTime().Equal(a.mod) && info.Size() == a.size {
 		return a.ids[identity]
 	}
 	if err := a.reload(); err != nil {
-		a.logger.Printf("cherry: auth allowlist: %v; no new identity is admitted until it is fixed", err)
+		a.logger.Printf("cherry: allowlist: %v; no new identity is admitted until it is fixed", err)
 	}
 	return a.ids[identity]
 }
 
 // reload reads the file now and keeps its stat, so the same change is not read again. On an error no identity is admitted.
-// Caller holds a.mu (or is loadAllowlist).
-func (a *allowlist) reload() error {
+// Caller holds a.mu (or is LoadAllowlist before the value is shared).
+func (a *Allowlist) reload() error {
 	info, err := os.Stat(a.path)
 	if err != nil {
 		a.ids = nil
@@ -63,7 +76,7 @@ func (a *allowlist) reload() error {
 		a.ids = nil
 		return fmt.Errorf("allowlist file: %w", err)
 	}
-	ids, err := parseAllowlist(raw)
+	ids, err := parseAllowlistFor(raw, a.devNames)
 	a.ids = ids
 	if err != nil {
 		return fmt.Errorf("allowlist file: %w", err)
@@ -71,9 +84,12 @@ func (a *allowlist) reload() error {
 	return nil
 }
 
-// parseAllowlist reads one identity per line: "discord:<id>" or a bare numeric id (stored as discord:<id>); "#" starts a
-// comment. An error names the line number, never the line.
-func parseAllowlist(raw []byte) (map[string]bool, error) {
+// parseAllowlist reads the players' form: one identity per line.
+func parseAllowlist(raw []byte) (map[string]bool, error) { return parseAllowlistFor(raw, false) }
+
+// parseAllowlistFor reads one identity per line: "discord:<id>" or a bare numeric id (stored as discord:<id>), and with
+// devNames "dev-<name>"; "#" starts a comment. An error names the line number, never the line.
+func parseAllowlistFor(raw []byte, devNames bool) (map[string]bool, error) {
 	ids := map[string]bool{}
 	for n, line := range strings.Split(string(raw), "\n") {
 		if i := strings.IndexByte(line, '#'); i >= 0 {
@@ -81,6 +97,13 @@ func parseAllowlist(raw []byte) (map[string]bool, error) {
 		}
 		line = strings.TrimSpace(line)
 		if line == "" {
+			continue
+		}
+		if devNames && strings.HasPrefix(line, "dev-") {
+			if !config.ValidDevName(strings.TrimPrefix(line, "dev-")) {
+				return nil, fmt.Errorf("line %d is not discord:<id>, a numeric id or dev-<name>", n+1)
+			}
+			ids[line] = true
 			continue
 		}
 		id, ok := strings.CutPrefix(line, "discord:")

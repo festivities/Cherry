@@ -26,3 +26,10 @@ func init() {
 		return fi.Size()
 	})
 }
+
+// AccountCount is the number of accounts in memory (the staff dashboard). It takes AccountsMu itself.
+func AccountCount() int {
+	AccountsMu.Lock()
+	defer AccountsMu.Unlock()
+	return AccountCountLocked()
+}

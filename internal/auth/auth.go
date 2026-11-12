@@ -62,7 +62,7 @@ type Service struct {
 
 	mode, clientID, redirect, secret string
 	signup                           string     // auth.signup: open, allowlist or closed
-	allow                            *allowlist // set when signup is allowlist
+	allow                            *Allowlist // set when signup is allowlist
 	info                             []byte     // the discovery body, built once
 	logger                           *log.Logger
 
@@ -70,7 +70,7 @@ type Service struct {
 	attempts map[string]*attempt // by server state
 	tickets  map[string]*ticket  // by ticket
 
-	startMinute, startHour, exchangeMinute, infoMinute *limiter
+	startMinute, startHour, exchangeMinute, infoMinute *Limiter
 }
 
 // attempt is one open sign-in: the client's challenge, its return address and state, and where it came from.
@@ -95,17 +95,17 @@ func New(cfg config.Config, logger *log.Logger) (*Service, error) {
 		Now: time.Now, mode: cfg.AuthMode, logger: logger,
 		attempts:       make(map[string]*attempt),
 		tickets:        make(map[string]*ticket),
-		startMinute:    newLimiter(startPerMinute, time.Minute),
-		startHour:      newLimiter(startPerHour, time.Hour),
-		exchangeMinute: newLimiter(exchangePerMinute, time.Minute),
-		infoMinute:     newLimiter(infoPerMinute, time.Minute),
+		startMinute:    NewLimiter(startPerMinute, time.Minute),
+		startHour:      NewLimiter(startPerHour, time.Hour),
+		exchangeMinute: NewLimiter(exchangePerMinute, time.Minute),
+		infoMinute:     NewLimiter(infoPerMinute, time.Minute),
 		signup:         cfg.Signup,
 	}
 	if s.signup == "" {
 		s.signup = config.DefaultSignup(cfg.AuthMode)
 	}
 	if config.IsIdentity(cfg.AuthMode) && s.signup == config.SignupAllowlist {
-		al, err := loadAllowlist(cfg.AllowlistFile, logger)
+		al, err := LoadAllowlist(cfg.AllowlistFile, false, logger)
 		if err != nil {
 			return nil, err
 		}
@@ -115,7 +115,7 @@ func New(cfg config.Config, logger *log.Logger) (*Service, error) {
 		if cfg.DiscordClientID == "" || cfg.DiscordRedirect == "" {
 			return nil, errors.New("auth: discord mode needs a client id and a redirect (config checks these at start)")
 		}
-		secret, err := readSecret(cfg.DiscordSecretFile)
+		secret, err := ReadSecret(cfg.DiscordSecretFile)
 		if err != nil {
 			return nil, err
 		}
@@ -129,8 +129,8 @@ func New(cfg config.Config, logger *log.Logger) (*Service, error) {
 	return s, nil
 }
 
-// readSecret returns the client secret from its file. The error names the file, never its content.
-func readSecret(path string) (string, error) {
+// ReadSecret returns the Discord client secret from its file. The error names the file, never its content.
+func ReadSecret(path string) (string, error) {
 	if path == "" {
 		return "", errors.New("auth: discord secret file is not set")
 	}
@@ -251,7 +251,7 @@ func (s *Service) handleStart(w http.ResponseWriter, r *http.Request) {
 	}
 	ip := clientIP(r)
 	now := s.Now()
-	if !s.startMinute.allow(ip, now) || !s.startHour.allow(ip, now) {
+	if !s.startMinute.Allow(ip, now) || !s.startHour.Allow(ip, now) {
 		s.logger.Printf("cherry: auth start rate limited")
 		page(w, http.StatusTooManyRequests, textRateLimited)
 		return
@@ -294,7 +294,7 @@ func (s *Service) handleStart(w http.ResponseWriter, r *http.Request) {
 		redirect(w, "/auth/v1/discord/callback?code=dev:"+as+"&state="+serverState)
 		return
 	}
-	redirect(w, authorizeURL(s.clientID, s.redirect, serverState))
+	redirect(w, AuthorizeURL(s.clientID, s.redirect, serverState, false))
 }
 
 // exactly reports whether q holds each required key once and nothing but the required and optional keys.
@@ -376,7 +376,7 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.mayCreate(identity) && !store.IdentityExists(identity) { // refused here, before any ticket exists; exchange checks again
-		s.logger.Printf("cherry: auth sign-up refused identity=%s at=callback", maskIdentity(identity))
+		s.logger.Printf("cherry: auth sign-up refused identity=%s at=callback", MaskIdentity(identity))
 		redirect(w, a.ret+"?error="+codeDenied+"&state="+url.QueryEscape(a.state))
 		return
 	}
@@ -400,14 +400,14 @@ func (s *Service) mayCreate(identity string) bool {
 	case config.SignupOpen:
 		return true
 	case config.SignupAllowlist:
-		return s.allow.has(identity)
+		return s.allow.Has(identity)
 	}
 	return false
 }
 
-// maskIdentity is an identity as a log line names it: a Discord id keeps its last four digits; anything else is the test
+// MaskIdentity is an identity as a log line names it: a Discord id keeps its last four digits; anything else is the test
 // provider's name.
-func maskIdentity(identity string) string {
+func MaskIdentity(identity string) string {
 	id, ok := strings.CutPrefix(identity, "discord:")
 	if !ok {
 		return identity
@@ -451,7 +451,7 @@ func (s *Service) handleExchange(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := s.Now()
-	if !s.exchangeMinute.allow(clientIP(r), now) {
+	if !s.exchangeMinute.Allow(clientIP(r), now) {
 		s.logger.Printf("cherry: auth exchange refused reason=rate_limited")
 		httpx.WriteJSON(w, http.StatusTooManyRequests, `{"error":"rate_limited"}`)
 		return
@@ -488,7 +488,7 @@ func (s *Service) handleExchange(w http.ResponseWriter, r *http.Request) {
 	code := newUUID()
 	aid, isNew, err := store.MintIdentityCode(tk.identity, store.CodeHash(code), s.mayCreate(tk.identity))
 	if errors.Is(err, store.ErrSignupClosed) {
-		s.logger.Printf("cherry: auth exchange refused reason=signup_closed identity=%s", maskIdentity(tk.identity))
+		s.logger.Printf("cherry: auth exchange refused reason=signup_closed identity=%s", MaskIdentity(tk.identity))
 		httpx.WriteJSON(w, http.StatusForbidden, `{"error":"signup_closed"}`)
 		return
 	}
@@ -512,17 +512,11 @@ func (s *Service) handleInfo(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusMethodNotAllowed, `{"error":"invalid_request"}`)
 		return
 	}
-	if !s.infoMinute.allow(clientIP(r), s.Now()) {
+	if !s.infoMinute.Allow(clientIP(r), s.Now()) {
 		httpx.WriteJSON(w, http.StatusTooManyRequests, `{"error":"rate_limited"}`)
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, string(s.info))
-}
-
-// authorizeURL is Discord's authorize page with the contract's parameters, in the contract's order. prompt is left out.
-func authorizeURL(clientID, redirectURI, state string) string {
-	return DiscordBase + "/oauth2/authorize?response_type=code&client_id=" + url.QueryEscape(clientID) +
-		"&scope=identify&redirect_uri=" + url.QueryEscape(redirectURI) + "&state=" + url.QueryEscape(state)
 }
 
 // randomToken returns n CSPRNG bytes as base64url without padding.
@@ -561,8 +555,8 @@ func validTicket(t string) bool { return len(t) == 43 && onlyChars(t, "-_") }
 // validVerifier: RFC 7636's 43 to 128 unreserved characters.
 func validVerifier(v string) bool { return len(v) >= 43 && len(v) <= 128 && onlyChars(v, "-._~") }
 
-// validDevName: a short name for the test provider's identity dev-<name>.
-func validDevName(n string) bool { return len(n) >= 1 && len(n) <= 24 && onlyChars(n, "-_") }
+// validDevName: a short name for the test provider's identity dev-<name> (config owns the rule: the staff UI checks it too).
+func validDevName(n string) bool { return config.ValidDevName(n) }
 
 // onlyChars reports whether s is letters and digits plus the extra characters.
 func onlyChars(s, extra string) bool {
@@ -592,21 +586,22 @@ func validReturn(ret string) bool {
 	return err == nil && strconv.Itoa(n) == port && n >= 1024 && n <= 65535
 }
 
-// limiter allows limit hits per key in any window of the given length (a sliding log). Keys are capped: a new key over
-// the cap is refused until old keys age out.
-type limiter struct {
+// Limiter allows limit hits per key in any window of the given length (a sliding log). Keys are capped: a new key over
+// the cap is refused until old keys age out. Shared with the staff UI (internal/admin).
+type Limiter struct {
 	mu     sync.Mutex
 	limit  int
 	window time.Duration
 	hits   map[string][]time.Time
 }
 
-func newLimiter(limit int, window time.Duration) *limiter {
-	return &limiter{limit: limit, window: window, hits: make(map[string][]time.Time)}
+// NewLimiter makes a limiter that allows limit hits per key in each window.
+func NewLimiter(limit int, window time.Duration) *Limiter {
+	return &Limiter{limit: limit, window: window, hits: make(map[string][]time.Time)}
 }
 
-// allow records a hit for key at now and reports whether it is within the limit.
-func (l *limiter) allow(key string, now time.Time) bool {
+// Allow records a hit for key at now and reports whether it is within the limit.
+func (l *Limiter) Allow(key string, now time.Time) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	cutoff := now.Add(-l.window)
@@ -631,7 +626,7 @@ func (l *limiter) allow(key string, now time.Time) bool {
 }
 
 // sweep forgets the keys whose hits have all aged out. Caller holds l.mu.
-func (l *limiter) sweep(cutoff time.Time) {
+func (l *Limiter) sweep(cutoff time.Time) {
 	for key, hits := range l.hits {
 		if len(hits) == 0 || !hits[len(hits)-1].After(cutoff) {
 			delete(l.hits, key)

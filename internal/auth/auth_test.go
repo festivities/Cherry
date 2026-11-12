@@ -540,21 +540,21 @@ func TestRateLimitsTrip(t *testing.T) {
 // TestLimiterWindowAndKeyCap: a limit resets as its window slides, and a new key beyond the cap is refused until old
 // keys age out.
 func TestLimiterWindowAndKeyCap(t *testing.T) {
-	l := newLimiter(2, time.Minute)
+	l := NewLimiter(2, time.Minute)
 	now := time.Unix(1000, 0)
-	if !l.allow("a", now) || !l.allow("a", now) || l.allow("a", now) {
+	if !l.Allow("a", now) || !l.Allow("a", now) || l.Allow("a", now) {
 		t.Fatal("two hits allowed, the third refused")
 	}
-	if !l.allow("a", now.Add(time.Minute)) {
+	if !l.Allow("a", now.Add(time.Minute)) {
 		t.Fatal("the window did not slide")
 	}
 	for i := 0; i < maxLimiterKeys; i++ {
 		l.hits[fmt.Sprint("k", i)] = []time.Time{now}
 	}
-	if l.allow("new", now) {
+	if l.Allow("new", now) {
 		t.Fatal("a new key beyond the cap was admitted")
 	}
-	if !l.allow("new", now.Add(2*time.Minute)) {
+	if !l.Allow("new", now.Add(2*time.Minute)) {
 		t.Fatal("old keys did not age out at the cap")
 	}
 }

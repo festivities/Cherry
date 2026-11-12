@@ -1,0 +1,90 @@
+:root {
+  color-scheme: light dark;
+  --fg: #1d1d1f;
+  --bg: #fafafa;
+  --muted: #6e6e73;
+  --line: #d2d2d7;
+  --accent: #8a1c3b;
+  --warn: #8a5a00;
+  --ok: #17652f;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --fg: #f2f2f2;
+    --bg: #161618;
+    --muted: #a1a1a6;
+    --line: #3a3a3c;
+    --accent: #e07a97;
+    --warn: #f0b429;
+    --ok: #7fd49a;
+  }
+}
+:root[data-theme="dark"] {
+  --fg: #f2f2f2;
+  --bg: #161618;
+  --muted: #a1a1a6;
+  --line: #3a3a3c;
+  --accent: #e07a97;
+  --warn: #f0b429;
+  --ok: #7fd49a;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font: 15px/1.5 system-ui, sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+}
+a { color: var(--accent); }
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.25rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--line);
+}
+.brand { font-weight: 600; }
+.server { font-weight: 400; color: var(--muted); }
+nav { display: flex; gap: 1rem; }
+.who { margin-left: auto; color: var(--muted); }
+main { max-width: 64rem; margin: 0 auto; padding: 1rem; }
+h1 { font-size: 1.5rem; margin: 0.5rem 0; }
+h2 { font-size: 1.15rem; margin-top: 1.5rem; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+.detail, .body, textarea { font: 13px/1.4 ui-monospace, Consolas, monospace; }
+.body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  padding: 0.75rem;
+  max-height: 70vh;
+  overflow: auto;
+}
+textarea { width: 100%; min-height: 24rem; }
+input[type="text"] { width: 100%; max-width: 32rem; font: inherit; }
+label { display: block; margin: 0.75rem 0; }
+button, .button {
+  font: inherit;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+}
+.inline { display: inline; }
+.actions form { display: inline-block; margin: 0 0.5rem 0.5rem 0; }
+.notice, .ok { color: var(--ok); }
+.warn { color: var(--warn); }
+.muted { color: var(--muted); }
+dl.facts { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; }
+dl.facts dd { margin: 0; }
+@media (max-width: 600px) {
+  main { padding: 0.75rem; }
+  .who { margin-left: 0; }
+}

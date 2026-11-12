@@ -66,7 +66,7 @@ type File[T any] struct {
 // failure). verify runs at Load, LoadFrom and Validate. A name declared twice panics.
 func New[T any](name string, embedded []byte, check, verify func(*T) error) *File[T] {
 	f := newFile(name, embedded, check, verify)
-	register(&document{name: name, hasArt: verify != nil, validate: f.validate, apply: f.apply})
+	register(&document{name: name, embedded: embedded, hasArt: verify != nil, validate: f.validate, apply: f.apply})
 	return f
 }
 

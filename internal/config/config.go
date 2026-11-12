@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -37,6 +38,9 @@ const (
 
 // Config is the effective configuration. A listen address is a net.Listen address; DNS "" means the sink is off.
 type Config struct {
+	// The staff UI (listen.staff and staff.*; internal/admin). Empty Staff means the staff UI is off.
+	Staff, StaffHostname, StaffCert, StaffKey, StaffOwner, StaffAllowlistFile, StaffRedirect string
+
 	HTTPS, HTTP, Session, Gateway, DNS, Admin string
 	DataDir, CacheDir                         string
 	Public                                    bool
@@ -71,6 +75,13 @@ var settings = []setting{
 	{"auth.discord.secret-file", "", "file holding the Discord client secret; mode 0600 off Windows; the secret is never a value"},
 	{"auth.discord.redirect", "", "the exact OAuth callback URL registered with Discord (https)"},
 	{"server.name", "Cherry", "operator display name in discovery (1 to 64 characters)"},
+	{"listen.staff", "", "staff UI listener (HTTPS, own hostname, Discord sign-in); empty turns the staff UI off"},
+	{"staff.hostname", "", "staff UI hostname: required with listen.staff when server.public is true; the Host header must match it"},
+	{"staff.tls-cert-file", "", "PEM certificate chain for the staff hostname (required when public; reloaded when the file changes); empty = self-signed for local use"},
+	{"staff.tls-key-file", "", "PEM private key for staff.tls-cert-file"},
+	{"staff.owner", "", "the owner's Discord user id (required with listen.staff in discord mode; dev-<name> in dev-fake)"},
+	{"staff.allowlist-file", "", "text file of other staff: Discord ids, one per line, same format as auth.allowlist-file (dev-<name> in dev-fake); re-read on change, fail closed"},
+	{"staff.discord.redirect", "", "the exact staff OAuth callback registered with Discord: https://<staff.hostname>[:port]/auth/callback (the client id and secret are auth.discord.*)"},
 }
 
 // Load resolves the configuration and checks it. args are the command-line flags, lookup reads the environment
@@ -137,6 +148,10 @@ func parse(args []string, lookup func(string) (string, bool)) (Config, error) {
 		Signup: values["auth.signup"], AllowlistFile: values["auth.allowlist-file"],
 		DiscordClientID: values["auth.discord.client-id"], DiscordSecretFile: values["auth.discord.secret-file"],
 		DiscordRedirect: values["auth.discord.redirect"], ServerName: strings.TrimSpace(values["server.name"]),
+		Staff: values["listen.staff"], StaffHostname: strings.ToLower(strings.TrimSpace(values["staff.hostname"])),
+		StaffCert: values["staff.tls-cert-file"], StaffKey: values["staff.tls-key-file"],
+		StaffOwner: strings.TrimSpace(values["staff.owner"]), StaffAllowlistFile: values["staff.allowlist-file"],
+		StaffRedirect: strings.TrimSpace(values["staff.discord.redirect"]),
 	}
 	if c.Signup == "" {
 		c.Signup = DefaultSignup(c.AuthMode)
@@ -201,6 +216,9 @@ func (c Config) check() error {
 			return fmt.Errorf("config: auth.discord.secret-file: %v", err)
 		}
 	}
+	if err := c.checkStaff(); err != nil {
+		return err
+	}
 	switch c.Signup {
 	case SignupOpen, SignupClosed:
 	case SignupAllowlist:
@@ -239,6 +257,150 @@ func checkSecretFile(path string) error {
 		return errors.New("readable by group or others; chmod 600 it")
 	}
 	return nil
+}
+
+// checkStaff refuses the staff UI settings that cannot start, each with one line that names the setting (PLAN P4). With
+// listen.staff empty the staff settings must be empty too: a setting that would be silently ignored looks like a staff UI
+// that is there when it is not.
+func (c Config) checkStaff() error {
+	if c.Staff == "" {
+		for _, s := range []struct{ key, value string }{
+			{"staff.hostname", c.StaffHostname}, {"staff.tls-cert-file", c.StaffCert}, {"staff.tls-key-file", c.StaffKey},
+			{"staff.owner", c.StaffOwner}, {"staff.allowlist-file", c.StaffAllowlistFile}, {"staff.discord.redirect", c.StaffRedirect},
+		} {
+			if s.value != "" {
+				return fmt.Errorf("config: %s needs listen.staff", s.key)
+			}
+		}
+		return nil
+	}
+	host, port, err := net.SplitHostPort(c.Staff)
+	if err != nil {
+		return fmt.Errorf("config: listen.staff %q is not host:port", c.Staff)
+	}
+	if c.AuthMode == AuthLabGuest {
+		return errors.New("config: listen.staff refuses auth.mode lab-guest: the staff UI signs staff in with Discord (dev-fake for tests)")
+	}
+	// The test provider signs anyone in as any dev name, so its staff UI listens on loopback only.
+	if c.AuthMode == AuthDevFake && !loopbackHost(host) {
+		return errors.New("config: listen.staff with auth.mode dev-fake must bind a loopback address (the test provider signs anyone in)")
+	}
+	if c.StaffHostname != "" && !validHostname(c.StaffHostname) {
+		return fmt.Errorf("config: staff.hostname %q is not a host name", c.StaffHostname)
+	}
+	if (c.StaffCert == "") != (c.StaffKey == "") {
+		return errors.New("config: staff.tls-cert-file and staff.tls-key-file must be set together")
+	}
+	if c.Public {
+		if c.StaffHostname == "" {
+			return errors.New("config: server.public=true with listen.staff needs staff.hostname")
+		}
+		if c.StaffCert == "" {
+			return errors.New("config: server.public=true with listen.staff needs staff.tls-cert-file and staff.tls-key-file (a publicly trusted certificate)")
+		}
+	}
+	if c.AuthMode == AuthDiscord {
+		if c.StaffOwner == "" {
+			return errors.New("config: auth.mode discord with listen.staff needs staff.owner (the owner's Discord user id)")
+		}
+		if c.StaffRedirect == "" {
+			return errors.New("config: auth.mode discord with listen.staff needs staff.discord.redirect")
+		}
+	}
+	if c.StaffOwner != "" && !validStaffOwner(c.StaffOwner, c.AuthMode) {
+		return errors.New("config: staff.owner must be a Discord user id (or dev-<name> in dev-fake)")
+	}
+	if c.StaffRedirect != "" {
+		if err := checkStaffRedirect(c.StaffRedirect, c.StaffHostname, port); err != nil {
+			return fmt.Errorf("config: staff.discord.redirect: %v", err)
+		}
+	}
+	return nil
+}
+
+// checkStaffRedirect: the staff callback is https://<hostname>[:port]/auth/callback with no user info, query or fragment;
+// Discord matches it exactly, so the port must be the one listen.staff serves.
+func checkStaffRedirect(raw, hostname, listenPort string) error {
+	u, err := url.Parse(raw)
+	switch {
+	case err != nil:
+		return errors.New("not a URL")
+	case u.Scheme != "https" || u.Host == "":
+		return errors.New("must be an absolute https URL")
+	case u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.RawFragment != "":
+		return errors.New("must not carry user info, a query or a fragment")
+	case u.Path != "/auth/callback":
+		return errors.New("must end in /auth/callback")
+	case hostname != "" && strings.ToLower(u.Hostname()) != hostname:
+		return errors.New("must name staff.hostname")
+	}
+	port := u.Port()
+	if port == "" {
+		port = "443"
+	}
+	if port != listenPort {
+		return errors.New("must use the port of listen.staff")
+	}
+	return nil
+}
+
+// loopbackHost: localhost or a loopback address (an empty host listens on every interface, so it is not one).
+func loopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// validHostname: LDH labels of 1 to 63 characters, no leading or trailing hyphen, 253 characters at most (IPv4 literals
+// pass too: they are digits and dots).
+func validHostname(h string) bool {
+	if len(h) == 0 || len(h) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(h, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for i := 0; i < len(label); i++ {
+			c := label[i]
+			if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// validStaffOwner: a Discord user id (1 to 20 digits); dev-fake also takes dev-<name>, its test identity.
+func validStaffOwner(owner, mode string) bool {
+	if name, ok := strings.CutPrefix(owner, "dev-"); ok && mode == AuthDevFake {
+		return ValidDevName(name)
+	}
+	if len(owner) < 1 || len(owner) > 20 {
+		return false
+	}
+	for i := 0; i < len(owner); i++ {
+		if owner[i] < '0' || owner[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// ValidDevName reports whether n is a dev-fake provider name: 1 to 24 letters, digits, '-' or '_' (the identity is dev-<n>).
+func ValidDevName(n string) bool {
+	if len(n) < 1 || len(n) > 24 {
+		return false
+	}
+	for i := 0; i < len(n); i++ {
+		c := n[i]
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 // readFile reads a JSON object of the table's keys. Unknown keys are errors, so a typo cannot pass silently. A value is

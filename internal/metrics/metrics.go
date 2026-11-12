@@ -74,3 +74,6 @@ func init() {
 func publish(name string, v *atomic.Int64) {
 	expvar.Publish("cherry."+name, expvar.Func(func() any { return v.Load() }))
 }
+
+// Saves is the number of store saves so far (the staff dashboard reads it).
+func Saves() int64 { return saves.Load() }
