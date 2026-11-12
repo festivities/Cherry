@@ -2,7 +2,7 @@
 
 For agents helping someone **host their own Cherry**. Cherry ships no game assets. The LINE PLAY client needs a lot of files (item art, UI, sounds, map packs, the string table…), and Cherry serves them from an S3-style bucket. The original lab used two device backups ("santi" and "lpbackup") plus a donor's pet folders ("miaw", 2026-11-07); see AGENTS "Policies" (R2 layout). Another host will have a different collection. This file explains how to turn that collection into the bucket layout Cherry expects. Rules that apply everywhere are in [AGENTS.md](AGENTS.md) "Policies".
 
-**Paths (2026-11-10):** `%LOCALAPPDATA%\Cherry\…` below is today's Windows layout, the only one the code knows (`os.UserCacheDir()`). PLAN Roadmap 8 slice 8.3a makes the data directory a setting and separates state from the re-downloadable caches (`static\`, `dp-cache\`) for Linux hosts; until that lands, a Linux host gets `$XDG_CACHE_HOME/Cherry` or `~/.cache/Cherry`.
+**Paths (2026-11-10):** `%LOCALAPPDATA%\Cherry\…` below is the default layout (the user cache directory + `Cherry`; on Linux `$XDG_CACHE_HOME/Cherry` or `~/.cache/Cherry`). Since slice 8.3a (2026-11-11) the data directory is a setting: `-data-dir` / `CHERRY_DATA_DIR` holds the state (`cherry.db`, media, `config\`, `cloudflare.json`, `generated\`) and `-cache-dir` / `CHERRY_CACHE_DIR` the re-downloadable caches (`static\`, `dp-cache\`); read every `%LOCALAPPDATA%\Cherry\…` below as "the data directory" or, for `static\`, "the cache directory".
 
 ## 1. What Cherry needs at runtime (and what it never does)
 
@@ -56,5 +56,5 @@ Two top-level trees. They never mix (AGENTS "R2/D1 layout"):
 - Never commit game assets, credentials, account stores or logs (AGENTS "Policies"). The repository is public.
 - Never put a Cherry-made file under `static/`, or an original under `cherry/`.
 - Never let Cherry read the user's archive folder at runtime. Everything goes through the bucket.
-- Never restore a live `accounts.json` wholesale from an older backup while devices are logged in (it drops their rotated login tokens; AGENTS "Policies"). This file is about assets, but bucket work often comes with restarts and store backups.
+- Never restore the live account data (`cherry.db` since 2026-11-11, `accounts.json` before) wholesale from an older backup while devices are logged in (it drops their rotated login tokens; AGENTS "Policies"). This file is about assets, but bucket work often comes with restarts and store backups.
 - Dataset work never modifies the client or an APK. Client patching is a separate job with its own rules (AGENTS "Policies", Client modifications: the Raspberry repo, since 2026-11-09), and no patched or original binary ever goes into the bucket or into Git.

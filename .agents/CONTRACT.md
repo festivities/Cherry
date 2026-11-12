@@ -1,6 +1,6 @@
 # Cherry ⇄ Raspberry contract — server half (CONTRACT.md)
 
-The interface between a Cherry server and a client patched by **Raspberry** (`D:\Dev\projects\Raspberry`, GitHub `festivities/Raspberry`, public; its own Claude Code session since 2026-11-09). **This file is authoritative for the server half and for the shared definitions** (host set, endpoint, auth endpoints, discovery, modes). The client half is `D:\Dev\projects\Raspberry\.agents\CONTRACT.md` (read-only for the Cherry session). Status: **contract 0 — draft proposed 2026-11-09 by the handoff author**; Raspberry's S1 spike and the first auth slice turn it into **contract 1**. Every rule is **proposed** until both files say **agreed**, and **implemented** only after a device run.
+The interface between a Cherry server and a client patched by **Raspberry** (`D:\Dev\projects\Raspberry`, GitHub `festivities/Raspberry`, public; its own Claude Code session since 2026-11-09). **This file is authoritative for the server half and for the shared definitions** (host set, endpoint, auth endpoints, discovery, modes). The client half is `D:\Dev\projects\Raspberry\.agents\CONTRACT.md` (read-only for the Cherry session). Status (2026-11-12): **contract 1 proposed by the server half** — §2.1, §3 (endpoints, modes, sign-up gate), §4 and §9 are IMPLEMENTED on the server (`dev-fake` walked with curl on an isolated instance; `discord` only against a fake Discord in tests), and §10 holds three Cherry entries of 2026-11-11/12 that Raspberry has not answered yet. It started as contract 0, a draft of 2026-11-09 by the handoff author. Every rule is **proposed** until both files say **agreed**, and **implemented** only after a device run.
 
 ## How the two sessions use this
 
@@ -17,7 +17,7 @@ The interface between a Cherry server and a client patched by **Raspberry** (`D:
 
 ## 2 Redirect: what the server must do
 
-1. Listen on the four client-facing ports of the port map (HTTPS, HTTP, session, gateway) and, separately, the admin port; all configurable (flags/environment/config file), none hard-coded. (Today they are constants: slice 8.3a.)
+1. Listen on the four client-facing ports of the port map (HTTPS, HTTP, session, gateway) and, separately, the admin port; all configurable (flags/environment/config file), none hard-coded. (Done in slice 8.3a, 2026-11-11: `listen.*` settings; §10 has the flag and environment names.)
 2. **Keep every reply unchanged:** names and ports in `setInitConf` and every other reply stay the originals (`session.play.naver.jp:10123`, `gws.play.naver.jp` and so on). The patched client maps them; the server never rewrites addresses for it. The DNS sink and `sinkIPFor`/`lanIP` logic stay lab-only and are never enabled on a public host.
 3. **Keep routing on Host/SNI as today,** with per-SNI self-signed certificates for the host set (the native client does not verify). The SNI filter must also admit the operator hostname(s).
 4. Plain HTTP on the mapped port 80 must keep serving `GET /img/read/notice/*`, `/img/read/arts_item_*` and `notice2.line.me /v1/lineplay/android` (the client uses them; notices answer 404 today).
