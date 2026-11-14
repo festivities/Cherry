@@ -201,6 +201,10 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /players/{id}/grant", s.action(true, maxBodySmall, s.handleGrant))
 	mux.HandleFunc("POST /players/{id}/ban", s.action(true, maxBodySmall, s.handleBan))
 	mux.HandleFunc("POST /players/{id}/unban", s.action(true, maxBodySmall, s.handleUnban))
+	mux.HandleFunc("POST /players/{id}/rename", s.action(true, maxBodySmall, s.handleRename))
+	mux.HandleFunc("POST /players/{id}/posts/{no}/remove", s.action(true, maxBodySmall, s.removal(store.RemovePlayerPost)))
+	mux.HandleFunc("POST /players/{id}/guestbook/{no}/remove", s.action(true, maxBodySmall, s.removal(store.RemovePlayerGuestbookEntry)))
+	mux.HandleFunc("POST /players/{id}/comments/{no}/remove", s.action(true, maxBodySmall, s.removal(store.RemovePlayerComment)))
 	// A state change reached by GET gets 405: a literal path beats the {version} wildcard of the GET page.
 	mux.HandleFunc("GET /docs/{name}/draft", methodNotAllowed("POST"))
 	mux.HandleFunc("GET /docs/{name}/rollback", methodNotAllowed("POST"))

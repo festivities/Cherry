@@ -120,6 +120,8 @@ func main() {
 	if err != nil {
 		logger.Fatalf("cherry: auth: %v", err)
 	}
+	// A staff ban ends the banned account's live connections (store.OnBan, slice 8.7 part 2b).
+	store.OnBan = lpn.CloseBannedAid
 	// The staff UI listens on its own address and hostname (PLAN P4). listen.staff empty (the lab) starts nothing.
 	staff, err := admin.Start(cfg, logger)
 	if err != nil {

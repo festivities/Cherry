@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -234,7 +236,7 @@ func TestPostPathsRefuseGET(t *testing.T) {
 	c := fx.client()
 	c.signInDev("owner")
 	id := seedPlayer(t, "dev-m1", "7001", "Get", 3)
-	for _, action := range []string{"grant", "ban", "unban"} {
+	for _, action := range []string{"grant", "ban", "unban", "rename"} {
 		if r := c.get(playerURL(id) + "/" + action); r.StatusCode != http.StatusMethodNotAllowed {
 			t.Errorf("GET /players/%d/%s: status %d, want 405", id, action, r.StatusCode)
 		}
@@ -277,5 +279,192 @@ func TestPlayerPageShowsNewestLedgerLines(t *testing.T) {
 	zero := seedPlayer(t, "dev-l0", "0", "", 0)
 	if !strings.Contains(c.get(playerURL(zero)).body, "This account has none yet") {
 		t.Fatal("an account with aid 0 does not say it has no ledger lines")
+	}
+}
+
+// seedPost appends a diary post by aid to the social store, as the game saves it, and returns its number. photo gives it a
+// picture.
+func seedPost(t *testing.T, aid, content string, photo bool) string {
+	t.Helper()
+	store.SocialMu.Lock()
+	defer store.SocialMu.Unlock()
+	store.NextDiaryNo++
+	no := strconv.FormatUint(store.NextDiaryNo, 10)
+	post := store.DiaryPost{DiaryNo: no, AvatarID: aid, Nickname: "Pat", RegDate: "1700000000000", Content: content, Images: []store.DiaryImage{}}
+	if photo {
+		post.Images = []store.DiaryImage{{ImageURL: "/lineplay/d/photo.png"}}
+	}
+	store.DiaryPosts = append([]store.DiaryPost{post}, store.DiaryPosts...)
+	if err := store.SaveSocialLocked(store.SocialChange{Posts: []string{no}, Scalars: true}); err != nil {
+		t.Fatal(err)
+	}
+	return no
+}
+
+// seedEntry appends a guestbook entry that guest wrote in host's guestbook and returns its number.
+func seedEntry(t *testing.T, host, guest, content string) string {
+	t.Helper()
+	store.SocialMu.Lock()
+	defer store.SocialMu.Unlock()
+	store.NextGuestHistNo++
+	no := strconv.FormatUint(store.NextGuestHistNo, 10)
+	entry := store.SavedGuestbookEntry{HostAvtNo: host, GuestHistNo: no, GuestAvtNo: guest, GuestNickname: "Pat", Content: content, RegYmdt: "1700000000000"}
+	store.GuestbookEntries = append([]store.SavedGuestbookEntry{entry}, store.GuestbookEntries...)
+	if err := store.SaveSocialLocked(store.SocialChange{Entries: []string{no}, Scalars: true}); err != nil {
+		t.Fatal(err)
+	}
+	return no
+}
+
+// seedComment appends a comment by writer on the post of owner (number post) and returns its comment number.
+func seedComment(t *testing.T, owner, post, writer, content string) string {
+	t.Helper()
+	store.SocialMu.Lock()
+	defer store.SocialMu.Unlock()
+	store.NextCommentNo++
+	no := strconv.FormatUint(store.NextCommentNo, 10)
+	store.DiaryComments = append(store.DiaryComments, store.DiaryComment{CommentNo: no, DiaryNo: post, OwnerAvatarID: owner, CommentAvatarID: writer, Content: content, Date: "1700000000000"})
+	if err := store.SaveSocialLocked(store.SocialChange{Comments: []string{no}, Scalars: true}); err != nil {
+		t.Fatal(err)
+	}
+	return no
+}
+
+// postExists, entryExists and commentExists report whether the social store still holds the row with number no.
+func postExists(no string) bool {
+	store.SocialMu.Lock()
+	defer store.SocialMu.Unlock()
+	return slices.ContainsFunc(store.DiaryPosts, func(p store.DiaryPost) bool { return p.DiaryNo == no })
+}
+
+func entryExists(no string) bool {
+	store.SocialMu.Lock()
+	defer store.SocialMu.Unlock()
+	return slices.ContainsFunc(store.GuestbookEntries, func(e store.SavedGuestbookEntry) bool { return e.GuestHistNo == no })
+}
+
+func commentExists(no string) bool {
+	store.SocialMu.Lock()
+	defer store.SocialMu.Unlock()
+	return slices.ContainsFunc(store.DiaryComments, func(c store.DiaryComment) bool { return c.CommentNo == no })
+}
+
+// TestRenameFromThePage: the rename applies the game's nickname rule (a refused name changes nothing), needs the CSRF token
+// and a fresh sign-in, and writes its audit row with the old and new name.
+func TestRenameFromThePage(t *testing.T) {
+	store.ResetSocial()
+	fx := newFixture(t, devConfig())
+	c := fx.client()
+	c.signInDev("owner")
+	id := seedPlayer(t, "dev-rn1", "9001", "Old", 0)
+	rename := playerURL(id) + "/rename"
+	for _, name := range []string{"", "   ", strings.Repeat("n", 21), "tab\there"} {
+		expect(t, c.post(rename, url.Values{"csrf": {c.csrf()}, "name": {name}, "reason": {"x"}}), http.StatusBadRequest)
+	}
+	expect(t, c.post(rename, url.Values{"name": {"Nope"}, "reason": {"x"}}), http.StatusForbidden)
+	expect(t, c.post(rename, url.Values{"csrf": {c.csrf()}, "name": {"Fine"}, "reason": {"   "}}), http.StatusBadRequest)
+	if p := playerOf(t, id); p.Name != "Old" {
+		t.Fatalf("refused renames changed the name to %q", p.Name)
+	}
+
+	r := c.post(rename, url.Values{"csrf": {c.csrf()}, "name": {"Newname"}, "reason": {"impersonation"}})
+	expect(t, r, http.StatusSeeOther)
+	if loc := r.Header.Get("Location"); loc != playerURL(id) {
+		t.Fatalf("rename redirects to %q", loc)
+	}
+	if p := playerOf(t, id); p.Name != "Newname" {
+		t.Fatalf("name %q, want Newname", p.Name)
+	}
+	rows := auditRows(t)
+	if !hasAudit(rows, "dev-owner", "rename", `"old":"Old"`) || !hasAudit(rows, "dev-owner", "rename", `"new":"Newname"`) {
+		t.Fatal("the rename has no audit row with the old and new name")
+	}
+
+	fx.clk.advance(6 * time.Minute)
+	stale := c.post(rename, url.Values{"csrf": {c.csrf()}, "name": {"Late"}, "reason": {"x"}})
+	expect(t, stale, http.StatusForbidden)
+	if !strings.Contains(stale.body, "needs a Discord sign-in") {
+		t.Fatal("the stale rename does not ask for a fresh sign-in")
+	}
+	if p := playerOf(t, id); p.Name != "Newname" {
+		t.Fatalf("a stale rename changed the name to %q", p.Name)
+	}
+}
+
+// TestWritingRemovalsFromThePage: the player page lists the player's newest posts, guestbook entries and comments with a
+// remove form each; a removal takes its cascade, writes its audit row (number and reason, never the text) and refuses a
+// number the player does not own, a wrong number, a GET, a missing CSRF token and a stale sign-in.
+func TestWritingRemovalsFromThePage(t *testing.T) {
+	store.ResetSocial()
+	fx := newFixture(t, devConfig())
+	c := fx.client()
+	c.signInDev("owner")
+	writer := seedPlayer(t, "dev-wr1", "9021", "Writer", 0)
+	other := seedPlayer(t, "dev-wr2", "9022", "Other", 0)
+	post := seedPost(t, "9021", "the writer's post text", true)
+	cut := seedPost(t, "9021", strings.Repeat("y", 80)+"CUTOFF", false)
+	theirs := seedPost(t, "9022", "not the writer's post", false)
+	entry := seedEntry(t, "9022", "9021", "a note in the other guestbook")
+	comment := seedComment(t, "9022", theirs, "9021", "a comment by the writer")
+	onPost := seedComment(t, "9021", post, "9022", "a comment by the other player on the writer's post")
+
+	page := c.get(playerURL(writer)).body
+	for _, want := range []string{
+		"/posts/" + post + "/remove", "/posts/" + cut + "/remove", "/guestbook/" + entry + "/remove",
+		"/comments/" + comment + "/remove", "the writer&#39;s post text", strings.Repeat("y", 80),
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the player page does not show %q", want)
+		}
+	}
+	if strings.Contains(page, "CUTOFF") || strings.Contains(page, "not the writer") {
+		t.Error("the player page shows a text past 80 characters or another player's post")
+	}
+
+	base := playerURL(writer)
+	expect(t, c.post(base+"/posts/"+theirs+"/remove", url.Values{"csrf": {c.csrf()}, "reason": {"x"}}), http.StatusNotFound)
+	expect(t, c.post(base+"/posts/999999/remove", url.Values{"csrf": {c.csrf()}, "reason": {"x"}}), http.StatusNotFound)
+	expect(t, c.post(playerURL(other)+"/guestbook/"+entry+"/remove", url.Values{"csrf": {c.csrf()}, "reason": {"x"}}), http.StatusNotFound)
+	expect(t, c.post(base+"/comments/"+comment+"/remove", url.Values{"reason": {"x"}}), http.StatusForbidden)
+	expect(t, c.post(base+"/comments/"+comment+"/remove", url.Values{"csrf": {c.csrf()}, "reason": {" "}}), http.StatusBadRequest)
+	for _, path := range []string{"/posts/" + post + "/remove", "/guestbook/" + entry + "/remove", "/comments/" + comment + "/remove", "/rename"} {
+		if r := c.get(base + path); r.StatusCode != http.StatusMethodNotAllowed {
+			t.Errorf("GET %s: status %d, want 405", path, r.StatusCode)
+		}
+	}
+	if !postExists(post) || !entryExists(entry) || !commentExists(comment) || !commentExists(onPost) {
+		t.Fatal("a refused removal changed the social rows")
+	}
+
+	expect(t, c.post(base+"/posts/"+post+"/remove", url.Values{"csrf": {c.csrf()}, "reason": {"spam"}}), http.StatusSeeOther)
+	if postExists(post) || commentExists(onPost) || !postExists(cut) {
+		t.Fatal("removing the post did not take its comment, or took more")
+	}
+	expect(t, c.post(base+"/guestbook/"+entry+"/remove", url.Values{"csrf": {c.csrf()}, "reason": {"tidy up"}}), http.StatusSeeOther)
+	if entryExists(entry) {
+		t.Fatal("the guestbook entry was not removed")
+	}
+	expect(t, c.post(base+"/comments/"+comment+"/remove", url.Values{"csrf": {c.csrf()}, "reason": {"rude"}}), http.StatusSeeOther)
+	if commentExists(comment) || !postExists(theirs) {
+		t.Fatal("the comment was not removed alone")
+	}
+
+	rows := auditRows(t)
+	for _, want := range []struct{ action, detail string }{
+		{"remove-post", `"number":"` + post + `"`}, {"remove-guestbook", `"number":"` + entry + `"`},
+		{"remove-comment", `"number":"` + comment + `"`},
+	} {
+		if !hasAudit(rows, "dev-owner", want.action, want.detail) {
+			t.Errorf("no %s audit row with %s", want.action, want.detail)
+		}
+	}
+	if hasAudit(rows, "dev-owner", "remove-post", "the writer") {
+		t.Fatal("a removal's audit row names the removed text")
+	}
+
+	fx.clk.advance(6 * time.Minute)
+	expect(t, c.post(base+"/posts/"+cut+"/remove", url.Values{"csrf": {c.csrf()}, "reason": {"x"}}), http.StatusForbidden)
+	if !postExists(cut) {
+		t.Fatal("a stale removal removed the post")
 	}
 }

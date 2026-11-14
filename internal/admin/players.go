@@ -4,19 +4,37 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"cherry/internal/store"
 )
 
-// The player pages (PLAN P4, P11; slice 8.7 part 2a): a search over the accounts, one player with its newest ledger lines,
-// and the grant, ban and unban actions. A player is addressed by its store row id, which stays with the account; the avatar
-// id is "0" until the avatar is made.
+// The player pages (PLAN P4, P11; slices 8.7 parts 2a and 2b): a search over the accounts, one player with its newest ledger
+// lines and its own writing, the grant, ban and unban actions, the rename, and the removal of a post, guestbook entry or
+// comment the player wrote. A player is addressed by its store row id, which stays with the account; the avatar id is "0"
+// until the avatar is made.
 
 const (
 	playerQueryMax = 100 // characters of a search
 	ledgerPage     = 20  // ledger lines on a player page
+	writingPage    = 20  // posts, guestbook entries and comments of each kind on a player page
+	writingText    = 80  // characters of a post's or comment's text in a list
 )
+
+// playerPost, playerEntry and playerComment are the rows of the player page's lists: the text cut, the time shown in UTC.
+type playerPost struct {
+	No, Date, Text string
+	Photo          bool
+}
+
+type playerEntry struct {
+	No, Host, Date, Text string
+}
+
+type playerComment struct {
+	No, Host, Post, Date, Text string
+}
 
 // playerPath is the page of one player.
 func playerPath(id int64) string { return "/players/" + strconv.FormatInt(id, 10) }
@@ -44,7 +62,7 @@ func (s *Server) handlePlayers(w http.ResponseWriter, r *http.Request, sess sess
 	s.render(w, http.StatusOK, "players", v)
 }
 
-// handlePlayer: one player, its newest ledger lines and the actions on it.
+// handlePlayer: one player, its newest ledger lines, its own writing and the actions on it.
 func (s *Server) handlePlayer(w http.ResponseWriter, r *http.Request, sess session) {
 	id, ok := s.playerID(w, r)
 	if !ok {
@@ -60,9 +78,49 @@ func (s *Server) handlePlayer(w http.ResponseWriter, r *http.Request, sess sessi
 		s.storeError(w, err)
 		return
 	}
+	writing, err := store.PlayerWritingOf(id, writingPage)
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
 	v := s.base(sess, "Player")
 	v.Player, v.Ledger = p, lines
+	v.Posts, v.Entries, v.Comments = writingRows(writing)
 	s.render(w, http.StatusOK, "player", v)
+}
+
+// writingRows turns the player's own writing into the rows of the page.
+func writingRows(w store.PlayerWriting) ([]playerPost, []playerEntry, []playerComment) {
+	posts := []playerPost{}
+	for _, p := range w.Posts {
+		posts = append(posts, playerPost{No: p.DiaryNo, Date: msDate(p.RegDate), Text: cutText(p.Content, writingText), Photo: len(p.Images) > 0})
+	}
+	entries := []playerEntry{}
+	for _, e := range w.Guestbook {
+		entries = append(entries, playerEntry{No: e.GuestHistNo, Host: e.HostAvtNo, Date: msDate(e.RegYmdt), Text: cutText(e.Content, writingText)})
+	}
+	comments := []playerComment{}
+	for _, c := range w.Comments {
+		comments = append(comments, playerComment{No: c.CommentNo, Host: c.OwnerAvatarID, Post: c.DiaryNo, Date: msDate(c.Date), Text: cutText(c.Content, writingText)})
+	}
+	return posts, entries, comments
+}
+
+// msDate shows a stored time (Unix milliseconds, as the game writes it) in UTC; a value that is not a number is shown as it is.
+func msDate(ms string) string {
+	n, err := strconv.ParseInt(ms, 10, 64)
+	if err != nil {
+		return ms
+	}
+	return time.UnixMilli(n).UTC().Format("2006-01-02 15:04")
+}
+
+// cutText is the first n characters of s.
+func cutText(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n])
+	}
+	return s
 }
 
 // handleGrant: POST /players/{id}/grant (privileged). The form: currency (gems or cash), delta (a signed whole number) and
@@ -108,4 +166,33 @@ func (s *Server) handleUnban(w http.ResponseWriter, r *http.Request, sess sessio
 		return
 	}
 	redirect(w, http.StatusSeeOther, playerPath(id))
+}
+
+// handleRename: POST /players/{id}/rename (privileged). The form: name (the in-game nickname rule) and reason.
+func (s *Server) handleRename(w http.ResponseWriter, r *http.Request, sess session) {
+	id, ok := s.playerID(w, r)
+	if !ok {
+		return
+	}
+	if err := store.RenamePlayer(id, r.PostFormValue("name"), r.PostFormValue("reason"), sess.identity); err != nil {
+		s.storeError(w, err)
+		return
+	}
+	redirect(w, http.StatusSeeOther, playerPath(id))
+}
+
+// removal is the handler of one removal of the player's own writing (POST /players/{id}/posts/{no}/remove and its
+// siblings): the number is the route's {no}, the form is the reason.
+func (s *Server) removal(remove func(id int64, no, reason, actor string) error) handler {
+	return func(w http.ResponseWriter, r *http.Request, sess session) {
+		id, ok := s.playerID(w, r)
+		if !ok {
+			return
+		}
+		if err := remove(id, r.PathValue("no"), r.PostFormValue("reason"), sess.identity); err != nil {
+			s.storeError(w, err)
+			return
+		}
+		redirect(w, http.StatusSeeOther, playerPath(id))
+	}
 }

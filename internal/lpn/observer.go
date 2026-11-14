@@ -109,6 +109,7 @@ func observeConn(conn net.Conn, addr string, logger *log.Logger) {
 }
 
 func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Logger) {
+	defer unbindGatewayLogins(conn)
 	sq := &squareSession{rooms: defaultSquares, conn: conn, logger: logger}
 	defer sq.close()
 	var tlupSession [8]byte // the latest agent-5 TLUP D session on this connection
@@ -339,6 +340,7 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 					continue
 				}
 				gardenLoginAid = aid
+				bindGatewayLogin(conn, aid)
 				reply := make([]byte, 20)
 				binary.BigEndian.PutUint32(reply, 16)
 				reply[4], reply[5] = 'G', frame[1]

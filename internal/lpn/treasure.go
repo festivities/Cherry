@@ -237,6 +237,7 @@ func (s *treasureSession) login(frame, data []byte) error {
 		return s.reply(frame, treasureRcLogin, treasureOK)
 	}
 	s.loggedIn, s.entered, s.aid = true, false, aid
+	bindGatewayLogin(s.conn, aid)
 	s.logger.Printf("TREASURE msgid=0 login aid=%d result=0", aid)
 	return s.reply(frame, treasureRcLogin, treasureOK)
 }

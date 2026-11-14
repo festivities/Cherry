@@ -1,11 +1,14 @@
 package store
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"slices"
 	"strings"
+	"testing"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -23,10 +26,16 @@ type Ban struct {
 }
 
 var (
-	ErrNoPlayer      = errors.New("no such player")
-	ErrAlreadyBanned = errors.New("the player is already banned")
-	ErrNotBanned     = errors.New("the player is not banned")
+	ErrNoPlayer       = errors.New("no such player")
+	ErrAlreadyBanned  = errors.New("the player is already banned")
+	ErrNotBanned      = errors.New("the player is not banned")
+	ErrNoItem         = errors.New("the player has no such diary post, guestbook entry or comment")
+	ErrNicknameCopies = errors.New("the nickname is saved, but its diary and guestbook copies are not; repeat the rename to write them")
 )
+
+// OnBan is called once a ban is saved, with the banned account's avatar id ("0" when it has none). cmd/cherry sets it to
+// lpn.CloseBannedAid, which ends the account's live connections. It runs after AccountsMu is released. Nil does nothing.
+var OnBan func(aid string)
 
 const (
 	playerSearchMax = 50      // rows of a search; a search that has more says so
@@ -212,20 +221,29 @@ func GrantPlayer(id int64, currency string, delta int64, reason, actor string) e
 // BanPlayer bans the account with row id. Its record gets the ban; every token of the account stops resolving (its own and
 // its aliases, in memory and, in the same save, in the token rows); and its session key is replaced, so the gateway logins
 // that check it fail. A session key is replaced, not emptied: after an unban the sign-in hands out the key again, and an
-// empty one would be a broken login. On error nothing changes.
+// empty one would be a broken login. Then OnBan ends the account's live connections. On error nothing changes.
 func BanPlayer(id int64, reason, actor string) error {
+	aid, err := banPlayer(id, reason, actor)
+	if err == nil && OnBan != nil {
+		OnBan(aid)
+	}
+	return err
+}
+
+// banPlayer is the save of BanPlayer; it returns the banned avatar id.
+func banPlayer(id int64, reason, actor string) (string, error) {
 	reason, err := cleanReason(reason)
 	if err != nil {
-		return err
+		return "", err
 	}
 	AccountsMu.Lock()
 	defer AccountsMu.Unlock()
 	acc := playerLocked(id)
 	if acc == nil {
-		return ErrNoPlayer
+		return "", ErrNoPlayer
 	}
 	if acc.Ban != nil {
-		return ErrAlreadyBanned
+		return "", ErrAlreadyBanned
 	}
 	rs := accountRows[acc]
 	prev, prevRS, prevPending := *acc, *rs, slices.Clone(pendingTokens)
@@ -243,9 +261,9 @@ func BanPlayer(id int64, reason, actor string) error {
 		for _, h := range prevHashes {
 			accountsByHash[h] = acc
 		}
-		return err
+		return "", err
 	}
-	return nil
+	return acc.Aid, nil
 }
 
 // UnbanPlayer lifts the ban of the account with row id. The account's tokens stay revoked: the player signs in again
@@ -266,6 +284,253 @@ func UnbanPlayer(id int64, actor string) error {
 	if err := saveAuditedLocked(audit, nil, acc); err != nil {
 		*acc = prev
 		return err
+	}
+	return nil
+}
+
+// PlayerWriting is what the player page lists of the player's own writing, newest first, at most a page of each: the diary
+// posts the player wrote, the guestbook entries the player wrote in other players' guestbooks, and the diary comments the
+// player wrote.
+type PlayerWriting struct {
+	Posts     []DiaryPost
+	Guestbook []SavedGuestbookEntry
+	Comments  []DiaryComment
+}
+
+// PlayerWritingOf returns the newest limit posts, entries and comments the player with row id wrote. An account with aid
+// "0" has none. ErrNoPlayer for an unknown id.
+func PlayerWritingOf(id int64, limit int) (PlayerWriting, error) {
+	AccountsMu.Lock()
+	defer AccountsMu.Unlock()
+	acc := playerLocked(id)
+	if acc == nil {
+		return PlayerWriting{}, ErrNoPlayer
+	}
+	w := PlayerWriting{Posts: []DiaryPost{}, Guestbook: []SavedGuestbookEntry{}, Comments: []DiaryComment{}}
+	if acc.Aid == "0" {
+		return w, nil
+	}
+	SocialMu.Lock()
+	defer SocialMu.Unlock()
+	// Posts and entries are kept newest first (a new one goes to the front), comments oldest first (to the back).
+	for _, p := range DiaryPosts {
+		if len(w.Posts) < limit && p.AvatarID == acc.Aid {
+			w.Posts = append(w.Posts, p)
+		}
+	}
+	for _, e := range GuestbookEntries {
+		if len(w.Guestbook) < limit && e.GuestAvtNo == acc.Aid {
+			w.Guestbook = append(w.Guestbook, e)
+		}
+	}
+	for i := len(DiaryComments) - 1; i >= 0 && len(w.Comments) < limit; i-- {
+		if c := DiaryComments[i]; c.CommentAvatarID == acc.Aid {
+			w.Comments = append(w.Comments, c)
+		}
+	}
+	return w, nil
+}
+
+// nicknameMaxRunes is the creation limit (NaCreateLayer::CheckValidNickName 0x1828498 rejects more than 20 characters,
+// error 48). ValidNickname is the one nickname rule, for the in-game edit (web/profileedit.go) and the staff rename: not
+// empty and not only spaces (IsEmptyNickName 0x18282d8 looks at spaces only), at most 20 characters, valid UTF-8 with no
+// control characters.
+const nicknameMaxRunes = 20
+
+func ValidNickname(s string) bool {
+	if strings.Trim(s, " ") == "" || !utf8.ValidString(s) || utf8.RuneCountInString(s) > nicknameMaxRunes {
+		return false
+	}
+	return !slices.ContainsFunc([]rune(s), unicode.IsControl)
+}
+
+// RenamePlayer sets the nickname of the player with row id to name, which must pass the in-game nickname rule. The account
+// row and its audit row (old and new name, reason) are one save. Then the diary posts and guestbook entries the player wrote
+// take the new name, as after an in-game rename; that second save can fail alone, and then the error is ErrNicknameCopies
+// (repeating the rename writes the copies). Any other error changes nothing.
+func RenamePlayer(id int64, name, reason, actor string) error {
+	reason, err := cleanReason(reason)
+	if err != nil {
+		return err
+	}
+	if !ValidNickname(name) {
+		return fmt.Errorf("%w: the nickname is 1 to %d characters, not only spaces, with no control characters", ErrBadInput, nicknameMaxRunes)
+	}
+	AccountsMu.Lock()
+	defer AccountsMu.Unlock()
+	acc := playerLocked(id)
+	if acc == nil {
+		return ErrNoPlayer
+	}
+	prev, old := *acc, acc.Name
+	acc.Name = name
+	audit := staffAudit{actor, "rename", playerTarget(id), map[string]any{"aid": acc.Aid, "old": old, "new": name, "reason": reason}}
+	if err := saveAuditedLocked(audit, nil, acc); err != nil {
+		*acc = prev
+		return err
+	}
+	if err := renameCopiesLocked(acc.Aid, name); err != nil {
+		return ErrNicknameCopies
+	}
+	return nil
+}
+
+// renameCopiesLocked writes name into the diary posts and guestbook entries aid wrote: the copies an in-game rename rewrites
+// (web/profileedit.go renameSocialCopies). Caller holds AccountsMu. A failed save puts the rows back.
+func renameCopiesLocked(aid, name string) error {
+	SocialMu.Lock()
+	defer SocialMu.Unlock()
+	var change SocialChange
+	prevPosts, prevEntries := slices.Clone(DiaryPosts), slices.Clone(GuestbookEntries)
+	for i := range DiaryPosts {
+		if DiaryPosts[i].AvatarID == aid && DiaryPosts[i].Nickname != name {
+			DiaryPosts[i].Nickname = name
+			change.Posts = append(change.Posts, DiaryPosts[i].DiaryNo)
+		}
+	}
+	for i := range GuestbookEntries {
+		if GuestbookEntries[i].GuestAvtNo == aid && GuestbookEntries[i].GuestNickname != name {
+			GuestbookEntries[i].GuestNickname = name
+			change.Entries = append(change.Entries, GuestbookEntries[i].GuestHistNo)
+		}
+	}
+	if len(change.Posts)+len(change.Entries) == 0 {
+		return nil
+	}
+	if err := SaveSocialLocked(change); err != nil {
+		DiaryPosts, GuestbookEntries = prevPosts, prevEntries
+		return err
+	}
+	return nil
+}
+
+// RemovePlayerPost removes diary post number of the player with row id, with the comments and likes on it. That is the
+// cascade of the owner's in-game delete (web/social.go handleDiaryErase; keep the two in step). Media files are not touched,
+// as in the in-game delete. The post, its cascade and the audit row (number, reason) are one save. ErrNoItem when the post is
+// not the player's.
+func RemovePlayerPost(id int64, no, reason, actor string) error {
+	reason, err := cleanReason(reason)
+	if err != nil {
+		return err
+	}
+	AccountsMu.Lock()
+	defer AccountsMu.Unlock()
+	acc := playerLocked(id)
+	if acc == nil {
+		return ErrNoPlayer
+	}
+	SocialMu.Lock()
+	defer SocialMu.Unlock()
+	i := slices.IndexFunc(DiaryPosts, func(p DiaryPost) bool { return p.DiaryNo == no && p.AvatarID == acc.Aid })
+	if i < 0 {
+		return ErrNoItem
+	}
+	prevPosts, prevComments, prevLikes := DiaryPosts, DiaryComments, DiaryLikes
+	var comments, likes []string
+	keptComments := []DiaryComment{}
+	for _, c := range prevComments {
+		if c.OwnerAvatarID == acc.Aid && c.DiaryNo == no {
+			comments = append(comments, c.CommentNo)
+		} else {
+			keptComments = append(keptComments, c)
+		}
+	}
+	keptLikes := []DiaryLike{}
+	for _, l := range prevLikes {
+		if l.OwnerAvatarID == acc.Aid && l.DiaryNo == no {
+			likes = append(likes, l.LikeNo)
+		} else {
+			keptLikes = append(keptLikes, l)
+		}
+	}
+	DiaryPosts, DiaryComments, DiaryLikes = slices.Delete(slices.Clone(prevPosts), i, i+1), keptComments, keptLikes
+	audit := staffAudit{actor, "remove-post", playerTarget(id), map[string]any{"aid": acc.Aid, "number": no, "reason": reason}}
+	if err := saveSocialAuditedLocked(SocialChange{Posts: []string{no}, Comments: comments, Likes: likes}, audit); err != nil {
+		DiaryPosts, DiaryComments, DiaryLikes = prevPosts, prevComments, prevLikes
+		return err
+	}
+	return nil
+}
+
+// RemovePlayerGuestbookEntry removes guestbook entry number that the player with row id wrote, with its replies (the in-game
+// erase, web/guestbook.go handleGuestbookErase; the replies go with the entry's row). One save with the audit row (number,
+// host, reason). ErrNoItem when the entry is not the player's.
+func RemovePlayerGuestbookEntry(id int64, no, reason, actor string) error {
+	reason, err := cleanReason(reason)
+	if err != nil {
+		return err
+	}
+	AccountsMu.Lock()
+	defer AccountsMu.Unlock()
+	acc := playerLocked(id)
+	if acc == nil {
+		return ErrNoPlayer
+	}
+	SocialMu.Lock()
+	defer SocialMu.Unlock()
+	i := slices.IndexFunc(GuestbookEntries, func(e SavedGuestbookEntry) bool { return e.GuestHistNo == no && e.GuestAvtNo == acc.Aid })
+	if i < 0 {
+		return ErrNoItem
+	}
+	host := GuestbookEntries[i].HostAvtNo
+	prev := GuestbookEntries
+	GuestbookEntries = slices.Delete(slices.Clone(prev), i, i+1)
+	audit := staffAudit{actor, "remove-guestbook", playerTarget(id), map[string]any{"aid": acc.Aid, "number": no, "host": host, "reason": reason}}
+	if err := saveSocialAuditedLocked(SocialChange{Entries: []string{no}}, audit); err != nil {
+		GuestbookEntries = prev
+		return err
+	}
+	return nil
+}
+
+// RemovePlayerComment removes diary comment number that the player with row id wrote. Nothing hangs off a comment. One save
+// with the audit row (number, host = the post's owner, reason). ErrNoItem when the comment is not the player's.
+func RemovePlayerComment(id int64, no, reason, actor string) error {
+	reason, err := cleanReason(reason)
+	if err != nil {
+		return err
+	}
+	AccountsMu.Lock()
+	defer AccountsMu.Unlock()
+	acc := playerLocked(id)
+	if acc == nil {
+		return ErrNoPlayer
+	}
+	SocialMu.Lock()
+	defer SocialMu.Unlock()
+	i := slices.IndexFunc(DiaryComments, func(c DiaryComment) bool { return c.CommentNo == no && c.CommentAvatarID == acc.Aid })
+	if i < 0 {
+		return ErrNoItem
+	}
+	host := DiaryComments[i].OwnerAvatarID
+	prev := DiaryComments
+	DiaryComments = slices.Delete(slices.Clone(prev), i, i+1)
+	audit := staffAudit{actor, "remove-comment", playerTarget(id), map[string]any{"aid": acc.Aid, "number": no, "host": host, "reason": reason}}
+	if err := saveSocialAuditedLocked(SocialChange{Comments: []string{no}}, audit); err != nil {
+		DiaryComments = prev
+		return err
+	}
+	return nil
+}
+
+// saveSocialAuditedLocked is SaveSocialLocked with one audit row in the same transaction, so a staff removal that cannot be
+// recorded does not happen. Without an attached database it fails with ErrNoDatabase. Caller holds SocialMu.
+func saveSocialAuditedLocked(c SocialChange, audit staffAudit) error {
+	d := attachedDB()
+	if d == nil {
+		return ErrNoDatabase
+	}
+	site := callerSite()
+	if err := d.Update(func(tx *sql.Tx) error {
+		if err := saveSocialRowsTx(tx, c); err != nil {
+			return err
+		}
+		return auditTx(tx, audit.actor, audit.action, audit.target, audit.detail)
+	}); err != nil {
+		return err
+	}
+	if testing.Testing() {
+		netCheckSocial(d, site)
 	}
 	return nil
 }

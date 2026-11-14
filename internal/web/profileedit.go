@@ -52,15 +52,8 @@ func profileIntro(acc store.AccountSnapshot) string {
 	return acc.DiaryProfile.StatusMessage
 }
 
-// nicknameMaxRunes is the creation limit (NaCreateLayer::CheckValidNickName 0x1828498 rejects more than 20
-// characters, error 48). The server applies the same rule to a later edit.
-const nicknameMaxRunes = 20
-
-// validNickname applies the creation rules: not empty and not only spaces (IsEmptyNickName 0x18282d8 looks at
-// spaces only), at most nicknameMaxRunes characters, valid UTF-8 with no control characters.
-func validNickname(s string) bool {
-	return strings.Trim(s, " ") != "" && profileTextOK(s, nicknameMaxRunes)
-}
+// validNickname is the creation rule, shared with the staff rename (store.ValidNickname).
+func validNickname(s string) bool { return store.ValidNickname(s) }
 
 // renameSocialCopies rewrites the nickname copied into aid's diary posts and guestbook rows at write time, so an
 // edited nickname shows there too. Callers hold AccountsMu (lock order AccountsMu → SocialMu). A failed social save

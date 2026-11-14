@@ -483,6 +483,7 @@ func (s *roomPartySession) handleData(frame []byte) error {
 		}
 		s.close()
 		s.aid, s.loggedIn = aid, true
+		bindGatewayLogin(s.conn, aid)
 		s.pm = &partyMember{aid: aid, conn: s.conn, b1: frame[1]}
 		copy(s.pm.sid[:], frame[2:10])
 		h := s.h()

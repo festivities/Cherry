@@ -486,6 +486,7 @@ func (s *circleSession) login(frame, data []byte) error {
 		return s.reply(frame, circleRcLogin, pbVar(nil, 1, 0))
 	}
 	s.aid, s.loggedIn = aid, true
+	bindGatewayLogin(s.conn, aid)
 	s.logger.Printf("CIRCLE login aid=%d result=%d", aid, circleLoginResult)
 	return s.reply(frame, circleRcLogin, pbVar(nil, 1, circleLoginResult))
 }

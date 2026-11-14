@@ -470,6 +470,7 @@ func (s *squareSession) handleData(frame []byte) error {
 			return nil
 		}
 		s.aid, s.loggedIn = aid, true
+		bindGatewayLogin(s.conn, aid)
 		s.logger.Printf("SQUARE login aid=%d result=%d", aid, squareLoginResult)
 		return s.reply(frame, 0, pbVar(nil, 1, squareLoginResult))
 	}

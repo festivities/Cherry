@@ -58,11 +58,14 @@ type view struct {
 	Older int64
 
 	// players
-	Query   string
-	Players []store.Player
-	More    bool
-	Player  store.Player
-	Ledger  []store.LedgerLine
+	Query    string
+	Players  []store.Player
+	More     bool
+	Player   store.Player
+	Ledger   []store.LedgerLine
+	Posts    []playerPost
+	Entries  []playerEntry
+	Comments []playerComment
 }
 
 func serveCSS(w http.ResponseWriter, r *http.Request) {
@@ -122,8 +125,10 @@ func (s *Server) storeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, store.ErrNoDatabase):
 		s.fail(w, http.StatusServiceUnavailable, "The database is not available.")
-	case errors.Is(err, store.ErrNotDocument), errors.Is(err, store.ErrNoVersion), errors.Is(err, store.ErrNoPlayer):
+	case errors.Is(err, store.ErrNotDocument), errors.Is(err, store.ErrNoVersion), errors.Is(err, store.ErrNoPlayer), errors.Is(err, store.ErrNoItem):
 		s.fail(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, store.ErrNicknameCopies):
+		s.fail(w, http.StatusInternalServerError, err.Error())
 	case errors.Is(err, store.ErrAlreadyBanned), errors.Is(err, store.ErrNotBanned):
 		s.fail(w, http.StatusConflict, err.Error())
 	case errors.Is(err, store.ErrInvalidDocument):
@@ -521,7 +526,44 @@ const pagesHTML = `
 {{else}}<form method="post" action="/players/{{.Player.ID}}/ban"><input type="hidden" name="csrf" value="{{.CSRF}}">
 <label>Reason <input type="text" name="reason" maxlength="200" required></label>
 <button type="submit">Ban this identity</button></form>{{end}}
-<p class="muted">Grants and bans need a Discord sign-in in the last five minutes. A ban ends the identity's sessions and refuses its next sign-in; it follows the identity through Delete Avatar.</p>
+<p class="muted">Grants and bans need a Discord sign-in in the last five minutes. A ban ends the identity's sessions and refuses its next sign-in; it follows the identity through Delete Avatar. It also ends the player's live connections.</p>
+<h2>Rename</h2>
+<form method="post" action="/players/{{.Player.ID}}/rename"><input type="hidden" name="csrf" value="{{.CSRF}}">
+<label>Nickname <input type="text" name="name" maxlength="20" required></label>
+<label>Reason <input type="text" name="reason" maxlength="200" required></label>
+<button type="submit">Rename</button></form>
+<p class="muted">The game's rule: 1 to 20 characters, not only spaces, no control characters. The player's diary posts and guestbook entries take the new name.</p>
+<h2>Diary posts (newest 20)</h2>
+<div class="scroll"><table>
+<thead><tr><th>Post</th><th>Date (UTC)</th><th>Text (first 80 characters)</th><th>Photo</th><th>Remove</th></tr></thead>
+<tbody>
+{{range .Posts}}<tr><td>{{.No}}</td><td>{{.Date}}</td><td>{{.Text}}</td><td>{{if .Photo}}yes{{else}}no{{end}}</td><td>
+<form method="post" action="/players/{{$.Player.ID}}/posts/{{.No}}/remove"><input type="hidden" name="csrf" value="{{$.CSRF}}">
+<input type="text" name="reason" maxlength="200" placeholder="Reason" required> <button type="submit">Remove</button></form></td></tr>
+{{else}}<tr><td colspan="5">No diary posts.</td></tr>{{end}}
+</tbody>
+</table></div>
+<h2>Guestbook entries the player wrote (newest 20)</h2>
+<div class="scroll"><table>
+<thead><tr><th>Entry</th><th>In the guestbook of</th><th>Date (UTC)</th><th>Text (first 80 characters)</th><th>Remove</th></tr></thead>
+<tbody>
+{{range .Entries}}<tr><td>{{.No}}</td><td>{{.Host}}</td><td>{{.Date}}</td><td>{{.Text}}</td><td>
+<form method="post" action="/players/{{$.Player.ID}}/guestbook/{{.No}}/remove"><input type="hidden" name="csrf" value="{{$.CSRF}}">
+<input type="text" name="reason" maxlength="200" placeholder="Reason" required> <button type="submit">Remove</button></form></td></tr>
+{{else}}<tr><td colspan="5">No guestbook entries.</td></tr>{{end}}
+</tbody>
+</table></div>
+<h2>Diary comments the player wrote (newest 20)</h2>
+<div class="scroll"><table>
+<thead><tr><th>Comment</th><th>Post</th><th>Owner of the post</th><th>Date (UTC)</th><th>Text (first 80 characters)</th><th>Remove</th></tr></thead>
+<tbody>
+{{range .Comments}}<tr><td>{{.No}}</td><td>{{.Post}}</td><td>{{.Host}}</td><td>{{.Date}}</td><td>{{.Text}}</td><td>
+<form method="post" action="/players/{{$.Player.ID}}/comments/{{.No}}/remove"><input type="hidden" name="csrf" value="{{$.CSRF}}">
+<input type="text" name="reason" maxlength="200" placeholder="Reason" required> <button type="submit">Remove</button></form></td></tr>
+{{else}}<tr><td colspan="6">No diary comments.</td></tr>{{end}}
+</tbody>
+</table></div>
+<p class="muted">Renames and removals need a Discord sign-in in the last five minutes. A removal's audit row names the number and the reason, never the removed text.</p>
 <h2>Newest ledger lines</h2>
 {{if eq .Player.Aid "0"}}<p class="muted">Ledger lines are kept by avatar id. This account has none yet, so none are shown.</p>{{end}}
 <div class="scroll"><table>
