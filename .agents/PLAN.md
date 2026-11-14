@@ -90,6 +90,16 @@ The host clock is UTC+8 (the emulators run UTC). The game day resets at 06:00 JS
 - **A forced season defeats the calendar restart** and is process-local (`/admin/season`); it was forced to Halloween for a test on 2026-11-11 and reset by the next restart.
 - **Two sessions share one machine:** one adb server (never `adb kill-server`), the host ports 443/80/10000/10123/53 (the lab holds them), `%TEMP%\opencode\` (Cherry: `cherry\`, Raspberry: `raspberry\`), IDA copies (separate names, per-job copies of the pristine database only).
 
+### HANDOFF ACCEPTED — 2026-11-15 ~02:15 host time (Claude Code, new Cherry session)
+
+Context loaded: AGENTS, PLAN, TESTING, CONTRACT, DATASET and JICAMA in full, REFERENCE's first sections (the rest by section, as AGENTS says), HISTORY not read; Raspberry's CONTRACT §4. State corrections against the snapshot above (each observed 2026-11-15 ~02:10–02:15):
+- **The host rebooted on 2026-11-14 12:48.** Cherry was down (its last log line 2026-11-12 19:21) and the leftover isolated instance PID 3864 is gone with the reboot. Both AVDs were already running: `emulator-5554` = Cherry, `emulator-5556` = Jerry (names checked); AVD Raspberry is not running.
+- **Lab brought back up, same build:** `cherry.db` + `-wal` + `-shm` copied first to `%TEMP%\opencode\cherry\pre-relaunch-20261115\`; repo-root `cherry.exe` (`B09C704F5E549A6F`, `684c9b2`, unchanged) launched 02:13: **PID 44612**, log `%TEMP%\opencode\cherry\cherry-20261115-relaunch-private.log`, defaults, `auth=lab-guest`. Both apps relaunched: `checkSession` 200 twice, `garden-login` and `garden-room-enter` for both, `SESSION bind` 1001 and 1006, no `refused`, no `status=500`.
+- **LAN IP is now 192.168.1.4** (was .7; `dns listening … lan=192.168.1.4`). Nothing hard-codes it.
+- YunDetectService is PID 33236 now (never stop it).
+- Repo: `main` clean at `565af34`, level with origin; CI green on it; local `prototype` still `91c52c2` (22 behind, as noted). `config\` holds only `streaming.json`. `.opencode\line-play-artifacts`: the seven entries, ignored at `.gitignore:35`.
+- Raspberry's CONTRACT §4 has entries up to 2026-11-12 (outgoing handoff): it read the 2026-11-11 replies, still wants a browser-trusted `dev-fake` peer (needs the user's certificate setup), asks for no Cherry change. Nothing new to answer.
+
 ## Status (2026-11-12)
 
 | Milestone | Scope | Status |
