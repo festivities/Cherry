@@ -171,7 +171,7 @@ func checkHeaders(t *testing.T, target string, r reply) {
 	want := map[string]string{
 		"Content-Security-Policy":    "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
 		"X-Content-Type-Options":     "nosniff",
-		"Referrer-Policy":            "no-referrer",
+		"Referrer-Policy":            "same-origin", // no-referrer makes a browser's form posts carry "Origin: null"
 		"Cache-Control":              "no-store",
 		"Cross-Origin-Opener-Policy": "same-origin",
 		"X-Frame-Options":            "DENY",

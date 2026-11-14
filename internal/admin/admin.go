@@ -226,7 +226,9 @@ func (s *Server) wrap(next http.Handler) http.Handler {
 		h := w.Header()
 		h.Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 		h.Set("X-Content-Type-Options", "nosniff")
-		h.Set("Referrer-Policy", "no-referrer")
+		// same-origin, not no-referrer: under no-referrer a browser sends "Origin: null" on its own form posts, and the
+		// Origin check of every action then refuses them (seen in Chrome, 2026-11-15). Nothing is sent cross-origin.
+		h.Set("Referrer-Policy", "same-origin")
 		h.Set("Cache-Control", "no-store")
 		h.Set("Cross-Origin-Opener-Policy", "same-origin")
 		h.Set("X-Frame-Options", "DENY")
