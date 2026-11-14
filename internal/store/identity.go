@@ -20,6 +20,9 @@ var ErrUnknownCode = errors.New("unknown unique code")
 // ErrSignupClosed means the identity has no account and auth.signup does not let it make one (MintIdentityCode).
 var ErrSignupClosed = errors.New("sign-up closed for this identity")
 
+// ErrBanned means the account is banned: no uniqueCode is minted for it and no token is given (CONTRACT §3).
+var ErrBanned = errors.New("account is banned")
+
 // CodeHash is the stored form of a uniqueCode: lowercase hex SHA-256.
 func CodeHash(code string) string {
 	sum := sha256.Sum256([]byte(code))
@@ -40,6 +43,14 @@ func IdentityAccountLocked(identity string) *Account {
 	return nil
 }
 
+// IdentityBanned reports whether a provider identity's account is banned (the callback refuses it before any ticket).
+func IdentityBanned(identity string) bool {
+	AccountsMu.Lock()
+	defer AccountsMu.Unlock()
+	acc := IdentityAccountLocked(identity)
+	return acc != nil && acc.Ban != nil
+}
+
 // IdentityExists reports whether a provider identity already has an account (the sign-up gate at callback time).
 func IdentityExists(identity string) bool {
 	AccountsMu.Lock()
@@ -56,6 +67,9 @@ func MintIdentityCode(identity, codeHash string, mayCreate bool) (aid string, is
 	AccountsMu.Lock()
 	defer AccountsMu.Unlock()
 	acc := IdentityAccountLocked(identity)
+	if acc != nil && acc.Ban != nil {
+		return "", false, ErrBanned
+	}
 	if acc == nil {
 		if !mayCreate {
 			return "", false, ErrSignupClosed

@@ -19,10 +19,10 @@ import (
 //go:embed static/staff.css
 var staffCSS []byte
 
-// link is one entry of the navigation. Part 2 adds players, bans, reports and season tools here.
+// link is one entry of the navigation. Part 2 adds reports and season tools here.
 type link struct{ Href, Label string }
 
-var navLinks = []link{{"/", "Dashboard"}, {"/docs", "Documents"}, {"/audit", "Audit"}}
+var navLinks = []link{{"/", "Dashboard"}, {"/docs", "Documents"}, {"/players", "Players"}, {"/audit", "Audit"}}
 
 // check is a validation result shown on a version page.
 type check struct {
@@ -56,6 +56,13 @@ type view struct {
 	// audit
 	Rows  []store.AuditRow
 	Older int64
+
+	// players
+	Query   string
+	Players []store.Player
+	More    bool
+	Player  store.Player
+	Ledger  []store.LedgerLine
 }
 
 func serveCSS(w http.ResponseWriter, r *http.Request) {
@@ -115,8 +122,10 @@ func (s *Server) storeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, store.ErrNoDatabase):
 		s.fail(w, http.StatusServiceUnavailable, "The database is not available.")
-	case errors.Is(err, store.ErrNotDocument), errors.Is(err, store.ErrNoVersion):
+	case errors.Is(err, store.ErrNotDocument), errors.Is(err, store.ErrNoVersion), errors.Is(err, store.ErrNoPlayer):
 		s.fail(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, store.ErrAlreadyBanned), errors.Is(err, store.ErrNotBanned):
+		s.fail(w, http.StatusConflict, err.Error())
 	case errors.Is(err, store.ErrInvalidDocument):
 		s.fail(w, http.StatusUnprocessableEntity, err.Error())
 	case errors.Is(err, store.ErrDocumentState):
@@ -470,6 +479,59 @@ const pagesHTML = `
 <form method="post" action="/docs/{{.DocName}}/rollback"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Roll back</button></form>
 </div>
 <p class="muted">Publish and roll back need a Discord sign-in in the last five minutes. A published version applies at the next restart.</p>
+{{template "bottom" .}}{{end}}
+
+{{define "players"}}{{template "top" .}}
+<h1>Players</h1>
+<form method="get" action="/players" class="search">
+<label>Search <input type="search" name="q" value="{{.Query}}" maxlength="100"></label>
+<button type="submit">Search</button>
+</form>
+<p class="muted">The avatar id (exact), the Discord identity (exact) or part of the name (any case). At most 50 rows.</p>
+{{if .Query}}<div class="scroll"><table>
+<thead><tr><th>Player</th><th>Avatar id</th><th>Name</th><th>Identity</th><th>Gems</th><th>Cash</th><th>Banned</th></tr></thead>
+<tbody>
+{{range .Players}}<tr><td><a href="/players/{{.ID}}">#{{.ID}}</a></td><td>{{.Aid}}</td><td>{{.Name}}</td><td>{{.Identity}}</td><td>{{.Gems}}</td><td>{{.Cash}}</td><td>{{if .Ban}}yes{{else}}no{{end}}</td></tr>
+{{else}}<tr><td colspan="7">No player matches.</td></tr>{{end}}
+</tbody>
+</table></div>
+{{if .More}}<p class="notice">Only the first 50 matches are shown. Narrow the search.</p>{{end}}{{end}}
+{{template "bottom" .}}{{end}}
+
+{{define "player"}}{{template "top" .}}
+<h1>Player #{{.Player.ID}}</h1>
+<dl class="facts">
+<dt>Name</dt><dd>{{if .Player.Name}}{{.Player.Name}}{{else}}none yet{{end}}</dd>
+<dt>Avatar id</dt><dd>{{.Player.Aid}}{{if eq .Player.Aid "0"}} (no avatar yet){{end}}</dd>
+<dt>Identity</dt><dd>{{if .Player.Identity}}{{.Player.Identity}}{{else}}none (lab account){{end}}</dd>
+<dt>Gems</dt><dd>{{.Player.Gems}}</dd>
+<dt>Cash</dt><dd>{{.Player.Cash}}</dd>
+<dt>Ban</dt><dd>{{with .Player.Ban}}banned on {{.At}} by {{.By}}: {{.Reason}}{{else}}not banned{{end}}</dd>
+</dl>
+<h2>Grant or take away</h2>
+<form method="post" action="/players/{{.Player.ID}}/grant">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<label>Currency <select name="currency"><option value="gems">Gems</option><option value="cash">Cash</option></select></label>
+<label>Amount (a negative number takes away) <input type="text" name="delta" inputmode="numeric" required></label>
+<label>Reason <input type="text" name="reason" maxlength="200" required></label>
+<button type="submit">Apply</button>
+</form>
+<h2>Ban</h2>
+{{if .Player.Ban}}<form method="post" action="/players/{{.Player.ID}}/unban"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Lift the ban</button></form>
+{{else}}<form method="post" action="/players/{{.Player.ID}}/ban"><input type="hidden" name="csrf" value="{{.CSRF}}">
+<label>Reason <input type="text" name="reason" maxlength="200" required></label>
+<button type="submit">Ban this identity</button></form>{{end}}
+<p class="muted">Grants and bans need a Discord sign-in in the last five minutes. A ban ends the identity's sessions and refuses its next sign-in; it follows the identity through Delete Avatar.</p>
+<h2>Newest ledger lines</h2>
+{{if eq .Player.Aid "0"}}<p class="muted">Ledger lines are kept by avatar id. This account has none yet, so none are shown.</p>{{end}}
+<div class="scroll"><table>
+<thead><tr><th>Time (UTC)</th><th>Currency</th><th>Change</th><th>Balance after</th><th>Reason</th></tr></thead>
+<tbody>
+{{range .Ledger}}<tr><td>{{.Time}}</td><td>{{.Currency}}</td><td>{{.Delta}}</td><td>{{.Balance}}</td><td>{{.Reason}}</td></tr>
+{{else}}<tr><td colspan="5">No ledger lines.</td></tr>{{end}}
+</tbody>
+</table></div>
+<p><a href="/audit">Audit log</a></p>
 {{template "bottom" .}}{{end}}
 
 {{define "audit"}}{{template "top" .}}

@@ -71,6 +71,7 @@ type StoredAccount struct {
 	GuestCode      string                `json:"guestCode,omitempty"`
 	Identity       string                `json:"identity,omitempty"`
 	CodeHashes     []string              `json:"codeHashes,omitempty"`
+	Ban            *Ban                  `json:"ban,omitempty"`
 }
 
 // accountFile is the account part of a legacy accounts.json, parsed without touching the store. Only cmd/cherry-import
@@ -276,7 +277,7 @@ func AttachDB(d *DB) error {
 		pendingTokens = append(pendingTokens, pendingToken{acc: acc, hash: h, own: acc.AccessToken != "" && h == CodeHash(acc.AccessToken)})
 	}
 	savedLatest, savedNext = nil, 0
-	if err := commitLocked(nil, accountList, 0, callerSite()); err != nil {
+	if err := commitLocked(nil, accountList, 0, callerSite(), nil); err != nil {
 		database.Store(nil)
 		return err
 	}
@@ -301,13 +302,16 @@ func DetachDB() {
 // attached database the save succeeds and writes nothing. In test builds it also checks that no account that was not
 // named differs from its last saved form (checkNotMissed).
 func SaveLocked(lines []LedgerLine, accs ...*Account) error {
-	return commitLocked(lines, accs, 0, callerSite())
+	return commitLocked(lines, accs, 0, callerSite(), nil)
 }
 
 // commitLocked writes the named accounts, their pending tokens, the lines and the scalars in one transaction, and deletes
-// the row removeID when it is not 0 (DeleteAccountLocked).
-func commitLocked(lines []LedgerLine, named []*Account, removeID int64, site string) error {
+// the row removeID when it is not 0 (DeleteAccountLocked). audit, when set, is written in the same transaction.
+func commitLocked(lines []LedgerLine, named []*Account, removeID int64, site string, audit *staffAudit) error {
 	defer metrics.SaveSince(time.Now())
+	if audit != nil && database.Load() == nil {
+		return ErrNoDatabase
+	}
 	var rows []*Account
 	for _, acc := range named {
 		if accountRows[acc] == nil {
@@ -357,6 +361,11 @@ func commitLocked(lines []LedgerLine, named []*Account, removeID int64, site str
 			}
 			if err := AppendLedgerTx(tx, lines); err != nil {
 				return err
+			}
+			if audit != nil {
+				if err := auditTx(tx, audit.actor, audit.action, audit.target, audit.detail); err != nil {
+					return err
+				}
 			}
 			if LatestAcc != savedLatest || NextAvatarID != savedNext {
 				var latestID int64
@@ -445,7 +454,7 @@ func StoredFrom(acc *Account) StoredAccount {
 		Racing: acc.Racing, GardenMap: acc.GardenMap, Landscapes: acc.Landscapes, Pins: acc.Pins,
 		DiaryProfile: acc.DiaryProfile, Wishes: acc.Wishes, Butlers: acc.Butlers,
 		Dyes: acc.Dyes, DyeColors: acc.DyeColors, LuckySpinDay: acc.LuckySpinDay,
-		Identity: acc.Identity, CodeHashes: acc.CodeHashes,
+		Identity: acc.Identity, CodeHashes: acc.CodeHashes, Ban: acc.Ban,
 	}
 }
 
@@ -472,7 +481,7 @@ func accountFromStored(saved StoredAccount) *Account {
 		Racing:  saved.Racing, GardenMap: saved.GardenMap, Landscapes: saved.Landscapes,
 		Pins: saved.Pins, DiaryProfile: saved.DiaryProfile, Wishes: saved.Wishes, Butlers: saved.Butlers,
 		Dyes: saved.Dyes, DyeColors: saved.DyeColors, LuckySpinDay: saved.LuckySpinDay,
-		GuestCode: saved.GuestCode, Identity: saved.Identity, CodeHashes: saved.CodeHashes,
+		GuestCode: saved.GuestCode, Identity: saved.Identity, CodeHashes: saved.CodeHashes, Ban: saved.Ban,
 	}
 }
 
@@ -543,7 +552,7 @@ func SwapAccountsForTest(entries map[string]*Account) (restore func(), err error
 		}
 		savedLatest, savedNext = nil, 0
 	}
-	if err := commitLocked(nil, accountList, 0, callerSite()); err != nil {
+	if err := commitLocked(nil, accountList, 0, callerSite(), nil); err != nil {
 		prev.restoreLocked()
 		return nil, err
 	}

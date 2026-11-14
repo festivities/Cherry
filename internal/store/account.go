@@ -136,6 +136,7 @@ type Account struct {
 	Identity       string                // provider identity ("discord:<id>" or "dev-<name>"), discord and dev-fake modes (identity.go); "" = none
 	CodeHashes     []string              // SHA-256 hex of the uniqueCodes minted for Identity, oldest first, at most maxCodeHashes (identity.go)
 	GuestCodeHash  string                // SHA-256 hex of the guest uniqueCode (bindGuest); the lookups use it, GuestCode is "" after a reload
+	Ban            *Ban                  // staff ban (staff.go); nil = not banned. A banned account resolves to no token and mints none
 }
 
 // FishingGear is the Square fishing gear an account bought (economy/fishing_shop.go): the item IDs
@@ -293,7 +294,10 @@ func AccountByTokenLocked(token string) *Account {
 	if token == "" {
 		return nil
 	}
-	return accountsByHash[CodeHash(token)]
+	if acc := accountsByHash[CodeHash(token)]; acc != nil && acc.Ban == nil {
+		return acc
+	}
+	return nil
 }
 
 // AllAccountsLocked returns every account once, in creation order (a copy). Caller holds AccountsMu.
@@ -373,8 +377,12 @@ func GuestLogin(code string) (string, error) {
 	return loginAliasLocked(acc)
 }
 
-// loginAliasLocked gives acc a new alias and makes it the latest account, as a login does. Caller holds AccountsMu.
+// loginAliasLocked gives acc a new alias and makes it the latest account, as a login does. Caller holds AccountsMu. A banned
+// account gets ErrBanned and no alias.
 func loginAliasLocked(acc *Account) (string, error) {
+	if acc.Ban != nil {
+		return "", ErrBanned
+	}
 	previous := LatestAcc
 	LatestAcc = acc
 	token, err := MintAliasLocked(acc)
@@ -429,7 +437,7 @@ func DeleteAccountLocked(acc *Account, lines []LedgerLine) (undo func() error, e
 	if LatestAcc == acc {
 		LatestAcc = highestAidLocked()
 	}
-	if err := commitLocked(lines, nil, prevRow.id, callerSite()); err != nil {
+	if err := commitLocked(lines, nil, prevRow.id, callerSite(), nil); err != nil {
 		accountList, pendingTokens, LatestAcc = prevList, prevPending, prevLatest
 		accountRows[acc] = rs
 		for _, h := range hashes {
@@ -476,7 +484,7 @@ func ResetIdentityLocked(acc *Account, lines []LedgerLine) (undo func() error, e
 	own := RandomToken(32)
 	*acc = Account{
 		AccessToken: own, SessionKey: RandomToken(32), Mid: prev.Mid, AvatarUserID: prev.AvatarUserID, Aid: "0",
-		Identity: prev.Identity, CodeHashes: prev.CodeHashes, Welcomed: prev.Welcomed, BossBook: prev.BossBook,
+		Identity: prev.Identity, CodeHashes: prev.CodeHashes, Welcomed: prev.Welcomed, BossBook: prev.BossBook, Ban: prev.Ban,
 	}
 	if b := prev.Butlers; b != nil && (b.FreeUsed || len(b.Free) > 0) {
 		acc.Butlers = &ButlerBook{FreeUsed: true}
@@ -534,6 +542,9 @@ func CurrentAccount(r *http.Request) *Account {
 		return AccountByTokenLocked(token)
 	}
 	if config.IdentityMode() { // no newest-account fallback: a request without a token acts on no account
+		return nil
+	}
+	if LatestAcc != nil && LatestAcc.Ban != nil { // a banned account is not the fallback either
 		return nil
 	}
 	return LatestAcc

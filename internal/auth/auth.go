@@ -53,6 +53,7 @@ const (
 	codeDenied  = "denied"
 	codeExpired = "expired"
 	codeServer  = "server"
+	codeBanned  = "banned"
 )
 
 // Service holds the sign-in state of one server. Build it once with New and mount it with Register.
@@ -375,6 +376,10 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, a, failure)
 		return
 	}
+	if store.IdentityBanned(identity) { // a banned identity gets no ticket, whatever its sign-up state
+		s.fail(w, a, codeBanned)
+		return
+	}
 	if !s.mayCreate(identity) && !store.IdentityExists(identity) { // refused here, before any ticket exists; exchange checks again
 		s.logger.Printf("cherry: auth sign-up refused identity=%s at=callback", MaskIdentity(identity))
 		redirect(w, a.ret+"?error="+codeDenied+"&state="+url.QueryEscape(a.state))
@@ -490,6 +495,11 @@ func (s *Service) handleExchange(w http.ResponseWriter, r *http.Request) {
 	if errors.Is(err, store.ErrSignupClosed) {
 		s.logger.Printf("cherry: auth exchange refused reason=signup_closed identity=%s", MaskIdentity(tk.identity))
 		httpx.WriteJSON(w, http.StatusForbidden, `{"error":"signup_closed"}`)
+		return
+	}
+	if errors.Is(err, store.ErrBanned) {
+		s.logger.Printf("cherry: auth exchange refused reason=banned identity=%s", MaskIdentity(tk.identity))
+		httpx.WriteJSON(w, http.StatusForbidden, `{"error":"banned"}`)
 		return
 	}
 	if err != nil {

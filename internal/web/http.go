@@ -705,7 +705,7 @@ func handleGuestGenerate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token, err := guestToken(req.UniqueCode)
-	if errors.Is(err, store.ErrUnknownCode) {
+	if errors.Is(err, store.ErrUnknownCode) || errors.Is(err, store.ErrBanned) {
 		log.Printf("cherry: guest generate refused")
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
