@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"cherry/internal/metrics"
 	"cherry/internal/opdata"
@@ -211,7 +212,9 @@ func (s *Server) handleDocHistory(w http.ResponseWriter, r *http.Request, sess s
 // handleDraft: POST /docs/{name}/draft stores the body as the next draft. The audit row names the actor and the hash.
 func (s *Server) handleDraft(w http.ResponseWriter, r *http.Request, sess session) {
 	name := r.PathValue("name")
-	dv, err := store.SaveDraft(name, []byte(r.PostFormValue("body")), sess.identity, r.PostFormValue("note"))
+	// Browsers submit textarea line breaks as CRLF; drafts are stored with LF so hashes do not depend on the staff machine (user, 2026-11-15).
+	body := strings.ReplaceAll(r.PostFormValue("body"), "\r\n", "\n")
+	dv, err := store.SaveDraft(name, []byte(body), sess.identity, r.PostFormValue("note"))
 	if err != nil {
 		s.storeError(w, err)
 		return

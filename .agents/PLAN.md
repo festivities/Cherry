@@ -333,7 +333,8 @@ Older commit-by-commit evidence (M3 entry errors, keepalives, preload fixtures) 
    - Confirm the endpoint hostname (proposed `cherry.<their domain>`; private file).
    - The Discord application (created by the user) and the owner's Discord user id: the code of 8.6a and 8.7 part 1 is waiting for them (settings `auth.discord.*`, `staff.owner`, `staff.discord.redirect`).
    - The private R2 bucket and token for Litestream: the last open part of 8.3b.
-   - `synchronous=NORMAL` or `FULL` for `cherry.db`, and whether staff drafts are normalised to LF (told to the user 2026-11-11/12, no answer yet; the defaults stand).
+   - ~~`synchronous=NORMAL` or `FULL` for `cherry.db`, and whether staff drafts are normalised to LF~~ **Decided (user, 2026-11-15): `synchronous` stays NORMAL; staff drafts are stored with LF** (`admin` `handleDraft` turns CRLF into LF).
+   - The user asked on 2026-11-15 to be guided through the setup checklist below (nothing of it is done yet); the step-by-step was given in that session's chat. The staff Discord callback path is `/auth/callback` on the staff hostname and port (the private file was corrected).
    - Whether the gateway/session ports 10000/10123 should also be random (default: unchanged).
    - Confirm the admin hostname (decided: there is one, round 3; the name itself goes in the private file). Needed by 8.7.
    - The six questions the 2026-11-10 revision raised are answered: "User decisions, round 3".
