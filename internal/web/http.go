@@ -332,8 +332,9 @@ func loadArtsStrings() []byte {
 // NewMux is the game mux without the sign-in and discovery routes: the plain HTTP port and the tests use it.
 func NewMux() http.Handler { return newMux(nil) }
 
-// NewGameMux is the game HTTPS mux: NewMux plus the sign-in and discovery routes of svc (CONTRACT §3, §4).
-func NewGameMux(svc *auth.Service) http.Handler { return newMux(svc) }
+// NewGameMux is the game HTTPS mux: NewMux plus the sign-in and discovery routes of svc (CONTRACT §3, §4), behind the
+// request limits of config limits.* (edge.go).
+func NewGameMux(svc *auth.Service) http.Handler { return newLimited(newMux(svc), config.Current()) }
 
 func newMux(svc *auth.Service) http.Handler {
 	mux := http.NewServeMux()
@@ -750,7 +751,7 @@ func handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
 		return
 	}
-	w.Header().Add("Set-Cookie", avAuthSetCookie(token))
+	w.Header().Add("Set-Cookie", avAuthSetCookie(token, r))
 	httpx.WriteJSON(w, http.StatusOK, `{"result":`+sessionResultBody(acc)+`}`)
 }
 
@@ -772,7 +773,7 @@ func handleCheckSession(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
 		return
 	}
-	w.Header().Add("Set-Cookie", avAuthSetCookie(token))
+	w.Header().Add("Set-Cookie", avAuthSetCookie(token, r))
 	httpx.WriteJSON(w, http.StatusOK, fmt.Sprintf(`{"Timestamp":"%d","result":%s}`, time.Now().Unix(), sessionResultBody(acc)))
 }
 
@@ -904,6 +905,13 @@ func handleCreateAvatar(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
 	}
+	if unknown := unlistedCreationCodes(itemCodes); unknown > 0 && config.IdentityMode() {
+		// Identity modes grant only codes the creation catalogue serves (a creation's items are gifts there, so any other
+		// code would be a free item); a code outside it gets the same 400 as any other malformed creation. The lab keeps any code.
+		logCreateAvatarReject("itemCodes", len(raw), fmt.Sprintf("count=%d unlisted=%d", len(itemCodes), unknown))
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
 	itemCodes = fitSpecies(gender, itemCodes)
 	skin, ok := skinColorString(req.SkinColor)
 	if !ok {
@@ -955,7 +963,7 @@ func handleCreateAvatar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Add("Set-Cookie", avAuthSetCookie(token))
+	w.Header().Add("Set-Cookie", avAuthSetCookie(token, r))
 	payload, _ := json.Marshal(struct {
 		Result store.AvatarResult `json:"result"`
 	}{store.AvatarResult{
@@ -1256,6 +1264,15 @@ func guestLineID(aid string) string {
 	return fmt.Sprintf("cherry-guest-%010s-%s", aid, strings.Repeat("0", 40))
 }
 
-func avAuthSetCookie(token string) string {
-	return `AV_AUTH="` + token + `"; Path=/`
+// avAuthSetCookie is the AV_AUTH Set-Cookie of an answer to r. HttpOnly keeps script in a WebView from reading it;
+// SameSite=Lax keeps a cross-site subresource request from carrying it (the GET writes of the guestbook and pins need
+// the same origin or a top-level navigation); Secure is set only on a TLS request, so the plain port never sends one.
+// Whether the native parser stops at the closing quote (it already tolerates "; Path=/") is not verified here: the
+// device test of PLAN 8.6b part 4 must confirm sign-in after the change.
+func avAuthSetCookie(token string, r *http.Request) string {
+	c := `AV_AUTH="` + token + `"; Path=/; HttpOnly; SameSite=Lax`
+	if r.TLS != nil {
+		c += "; Secure"
+	}
+	return c
 }

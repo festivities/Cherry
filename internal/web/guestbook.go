@@ -164,8 +164,12 @@ func handleGuestbookCountClear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actor, ok := store.AccountForRequest(r)
+	if !ok { // a GET that moves the marker needs a session, as the other guestbook writes do (PLAN 8.6b part 4)
+		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
+		return
+	}
 	store.SocialMu.Lock()
-	if !ok || actor.Aid != host {
+	if actor.Aid != host {
 		count := unreadLocked(host)
 		store.SocialMu.Unlock()
 		writeGuestbookCount(w, host, count)

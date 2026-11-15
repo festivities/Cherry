@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"cherry/internal/httpx"
 	"cherry/internal/store"
 	"cherry/internal/testutil"
 )
@@ -387,11 +388,14 @@ func TestSessionRebindRules(t *testing.T) {
 	}
 }
 
-// TestRemoteConnectionCap: one host may hold maxConnsPerRemote connections; the next is refused until one is released.
-// Other hosts are not affected.
+// TestRemoteConnectionCap: one host may hold as many connections as the per-address limit (1,024 here); the next is
+// refused until one is released. Other hosts are not affected.
 func TestRemoteConnectionCap(t *testing.T) {
 	const host = "203.0.113.9" // documentation address (TEST-NET-3)
+	const maxConnsPerRemote = 1024
+	httpx.Conns.Set(maxConnsPerRemote, 0)
 	t.Cleanup(func() {
+		httpx.Conns.Set(1024, 4096)
 		for i := 0; i < maxConnsPerRemote; i++ {
 			releaseRemote(host + ":1")
 		}

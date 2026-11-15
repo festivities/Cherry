@@ -10,6 +10,7 @@ import (
 
 	"cherry/data"
 	"cherry/internal/httpx"
+	"cherry/internal/itemcode"
 	"cherry/internal/opdata"
 	"cherry/internal/store"
 )
@@ -230,6 +231,54 @@ func dressItems(codes []string) []dressItem {
 		items = append(items, dressItem{CD: cd})
 	}
 	return items
+}
+
+// nativeBaseItems are the clothes the client's InitAvatarBaseItem (@0x29a7f84) adds to an avatar: REFERENCE, the
+// PUT /v4/avatar/save/v2 entry, lists them. They are not in the catalogue, so they are granted here by name.
+var nativeBaseItems = []string{"CUTO0011X", "CUPA000LO", "CUSH0009Q", "CUHA00001", "CUHA00004"}
+
+// creationCodes is the set of item codes the creation flow serves: every code /v4/create/all/items lists (the categories,
+// the DRESS tab and the look sets of M, F and A) and the look-set codes of /v4/create/face/setitems/roll, plus
+// nativeBaseItems. It is read from the same operator data those handlers serve. The sex is not checked: the catalogue is
+// one list, and fitSpecies still drops the codes a species cannot wear.
+func creationCodes() map[string]bool {
+	allowed := make(map[string]bool)
+	for _, look := range []*Look{&dressupCurrent().Male, &dressupCurrent().Female, &dressupCurrent().Animal} {
+		for _, codes := range look.Categories {
+			for _, code := range codes {
+				allowed[code] = true
+			}
+		}
+		for _, code := range look.Dress {
+			allowed[code] = true
+		}
+		for _, s := range look.Sets {
+			allowed[s.CD] = true
+			for _, code := range s.Elements {
+				allowed[code] = true
+			}
+		}
+	}
+	for _, code := range nativeBaseItems {
+		allowed[code] = true
+	}
+	return allowed
+}
+
+// unlistedCreationCodes counts the codes of a creation that the creation catalogue does not serve (see creationCodes).
+func unlistedCreationCodes(codes []string) int {
+	allowed := creationCodes()
+	n := 0
+	for _, code := range codes {
+		// Face parts are not in the catalogue: the client picks them itself (production aid 11's creation held CUEB00001,
+		// CUEY00002, CUHE0000L, CUMO00002, CUNO00001). Creation items recycle for nothing in identity mode, so a face code
+		// gains nothing to sell. ponytail: any human or animal face/ear/tail code passes; narrow to the client's own face
+		// list once it is extracted.
+		if !allowed[code] && !store.IsBasicFaceItemCode(code) && !itemcode.AnimalOnly(code) {
+			n++
+		}
+	}
+	return n
 }
 
 // humanCatalog builds one M/F sex object for /v4/create/all/items. MFACE and

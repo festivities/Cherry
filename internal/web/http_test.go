@@ -659,7 +659,8 @@ func avAuthValue(t *testing.T, rec *httptest.ResponseRecorder) string {
 	t.Helper()
 	setCookie := rec.Header().Get("Set-Cookie")
 	const prefix = `AV_AUTH="`
-	const suffix = `"; Path=/`
+	// The attributes are HttpOnly and SameSite=Lax (PLAN 8.6b part 4), and Secure only over TLS (the tests are plain).
+	const suffix = `"; Path=/; HttpOnly; SameSite=Lax`
 	if !strings.HasPrefix(setCookie, prefix) || !strings.HasSuffix(setCookie, suffix) {
 		t.Fatalf("Set-Cookie = %q, want %s<token>%s", setCookie, prefix, suffix)
 	}

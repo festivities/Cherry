@@ -422,8 +422,38 @@ func handleAdminGrant(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, string(body))
 }
 
-// ServeAdmin starts the staff listener on addr (config listen.admin, default 127.0.0.1:8099); a busy port is logged,
-// not fatal. adminLoopback still checks each request's remote address.
+// AdminHandler is NewAdminMux behind a Host check: the tool answers only to a loopback Host name. A page on another name
+// that resolves to 127.0.0.1 (DNS rebinding) reaches the socket with a remote address the loopback checks accept, so
+// the Host header is what keeps it out (PLAN 8.6b part 4). NewAdminMux itself stays the mux the tests drive.
+func AdminHandler() http.Handler {
+	mux := NewAdminMux()
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !loopbackHostName(r.Host) {
+			httpx.ServeNotFound(w)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
+}
+
+// loopbackHostName reports whether a Host header names this machine: localhost or a loopback address, with or without
+// a port.
+func loopbackHostName(h string) bool {
+	host := h
+	if name, _, err := net.SplitHostPort(h); err == nil {
+		host = name
+	}
+	host = strings.Trim(host, "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// ServeAdmin starts the staff listener on addr (config listen.admin, default 127.0.0.1:8099; config refuses any other
+// host); a busy port is logged, not fatal. adminLoopback still checks each request's remote address, and AdminHandler
+// checks the Host name.
 func ServeAdmin(addr string, logger *log.Logger) {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -431,6 +461,6 @@ func ServeAdmin(addr string, logger *log.Logger) {
 		return
 	}
 	logger.Printf("cherry: admin grant listening addr=%s", addr)
-	srv := &http.Server{Handler: NewAdminMux(), ReadHeaderTimeout: 5 * time.Second}
+	srv := &http.Server{Handler: AdminHandler(), ReadHeaderTimeout: 5 * time.Second}
 	go func() { _ = srv.Serve(ln) }()
 }

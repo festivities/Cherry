@@ -209,6 +209,16 @@ func takeMoneySync(aid uint64) bool {
 	return pending
 }
 
+// creditGardenVisit is the room-enter's visit credit. An owner aid with no avatar is not a visit: it earns nothing, so a
+// made-up aid cannot farm the visit quest (PLAN 8.6b part 4). It reports whether the visit counted.
+func creditGardenVisit(viewer, owner uint64) bool {
+	if !gardenOwnerExists(owner) {
+		return false
+	}
+	gardenQuestVisit(viewer, owner)
+	return true
+}
+
 // gardenQuestVisit marks the Garden visit quest for a room-enter: the viewer's own Garden or
 // a friend's.
 func gardenQuestVisit(viewer, owner uint64) {

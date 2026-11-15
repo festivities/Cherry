@@ -52,6 +52,13 @@ type Config struct {
 	DiscordRedirect                           string
 	ServerName                                string
 	File                                      string // the JSON file read, "" when none
+	// Limits (internal/httpx): connections per address and in all across the game listeners, and token buckets for game
+	// requests per address and per account (rate a second, burst). A rate of 0 is off. GuestPerMinute caps guest/generate.
+	ConnsPerAddress, ConnsTotal                  int
+	APIRate, APIBurst, AccountRate, AccountBurst int
+	GuestPerMinute                               int
+	// Retention (PLAN 8.6b part 4): days a deleted account keeps its personal fields, and days an alias token may stay unused.
+	DeletedDays, IdleTokenDays int
 }
 
 // setting is one row of the table. The flag is the key with dashes for dots, the environment name is CHERRY_ plus the
@@ -85,6 +92,24 @@ var settings = []setting{
 	{"staff.owner", "", "the owner's Discord user id (required with listen.staff in discord mode; dev-<name> in dev-fake)"},
 	{"staff.allowlist-file", "", "text file of other staff: Discord ids, one per line, same format as auth.allowlist-file (dev-<name> in dev-fake); re-read on change, fail closed"},
 	{"staff.discord.redirect", "", "the exact staff OAuth callback registered with Discord: https://<staff.hostname>[:port]/auth/callback (the client id and secret are auth.discord.*)"},
+	{"limits.conns-per-address", "1024", "open connections from one address across the game listeners (identity modes: 64)"},
+	{"limits.conns-total", "4096", "open connections in all across the game listeners (identity modes: 1024)"},
+	{"limits.api-rate", "0", "game requests a second an address earns, token bucket; static asset GETs are exempt (identity modes: 30; 0 = off)"},
+	{"limits.api-burst", "0", "game requests an address may send at once (identity modes: 400)"},
+	{"limits.account-rate", "0", "game requests a second an account earns, token bucket per AV_AUTH account (identity modes: 10; 0 = off)"},
+	{"limits.account-burst", "0", "game requests an account may send at once (identity modes: 200)"},
+	{"limits.guest-per-minute", "0", "guest/generate calls an address may make a minute (identity modes: 20; 0 = off)"},
+	{"retention.deleted-days", "30", "days a deleted avatar keeps its personal fields in deleted-accounts.jsonl; then only its aid and time remain"},
+	{"retention.idle-token-days", "30", "days an alias token may go unused before it is pruned; the device then signs in again"},
+}
+
+// identityDefaults are the limit settings' defaults in identity modes (discord, dev-fake); lab-guest keeps the table's
+// values, which are off. A value the operator sets is kept in every mode.
+var identityDefaults = map[string]string{
+	"limits.conns-per-address": "64", "limits.conns-total": "1024",
+	"limits.api-rate": "30", "limits.api-burst": "400",
+	"limits.account-rate": "10", "limits.account-burst": "200",
+	"limits.guest-per-minute": "20",
 }
 
 // Load resolves the configuration and checks it. args are the command-line flags, lookup reads the environment
@@ -143,6 +168,13 @@ func parse(args []string, lookup func(string) (string, bool)) (Config, error) {
 	for k, v := range flagVals {
 		values[k], set[k] = v, true
 	}
+	if IsIdentity(values["auth.mode"]) {
+		for k, def := range identityDefaults {
+			if !set[k] {
+				values[k] = def
+			}
+		}
+	}
 
 	c := Config{
 		HTTPS: values["listen.https"], HTTP: values["listen.http"], Session: values["listen.session"],
@@ -178,6 +210,22 @@ func parse(args []string, lookup func(string) (string, bool)) (Config, error) {
 			c.Hostnames = append(c.Hostnames, h)
 		}
 	}
+	for _, n := range []struct {
+		key string
+		dst *int
+	}{
+		{"limits.conns-per-address", &c.ConnsPerAddress}, {"limits.conns-total", &c.ConnsTotal},
+		{"limits.api-rate", &c.APIRate}, {"limits.api-burst", &c.APIBurst},
+		{"limits.account-rate", &c.AccountRate}, {"limits.account-burst", &c.AccountBurst},
+		{"limits.guest-per-minute", &c.GuestPerMinute},
+		{"retention.deleted-days", &c.DeletedDays}, {"retention.idle-token-days", &c.IdleTokenDays},
+	} {
+		v, err := strconv.Atoi(values[n.key])
+		if err != nil || v < 0 {
+			return Config{}, fmt.Errorf("config: %s: %q is not a whole number of zero or more", n.key, values[n.key])
+		}
+		*n.dst = v
+	}
 	return c, nil
 }
 
@@ -187,6 +235,19 @@ func (c Config) check() error {
 	case AuthLabGuest, AuthDiscord, AuthDevFake:
 	default:
 		return fmt.Errorf("config: auth.mode %q is unknown (lab-guest, discord or dev-fake)", c.AuthMode)
+	}
+	// The loopback staff tool trusts its clients by address only (economy.adminLoopback), so its socket must be loopback
+	// too; an empty host would listen on every interface.
+	if host, _, err := net.SplitHostPort(c.Admin); err != nil || !loopbackHost(host) {
+		return fmt.Errorf("config: listen.admin %q must name a loopback address (127.0.0.1, ::1 or localhost)", c.Admin)
+	}
+	for _, l := range []struct {
+		name        string
+		rate, burst int
+	}{{"api", c.APIRate, c.APIBurst}, {"account", c.AccountRate, c.AccountBurst}} {
+		if l.rate > 0 && l.burst < 1 {
+			return fmt.Errorf("config: limits.%s-rate needs limits.%s-burst of at least 1", l.name, l.name)
+		}
 	}
 	if c.Public {
 		if c.AuthMode == AuthLabGuest || c.AuthMode == AuthDevFake {

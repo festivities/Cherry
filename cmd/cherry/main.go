@@ -34,9 +34,17 @@ import (
 // init, and the gateway address decides how its observer frames, so they are assigned here.
 func activate(c config.Config) {
 	config.Activate(c)
+	httpx.Conns.Set(c.ConnsPerAddress, c.ConnsTotal)
 	thumbs.DpCacheDir = filepath.Join(c.CacheDir, "dp-cache")
 	assets.GeneratedItemRoot = filepath.Join(c.DataDir, "generated", "item")
 	lpn.GatewayAddr = c.Gateway
+}
+
+// refusedLogger logs the connections a listener's cap turned away (httpx.ConnLimits).
+func refusedLogger(logger *log.Logger, listener string) func(string) {
+	return func(remote string) {
+		logger.Printf("cherry: %s refused remote=%s: connection cap (limits.conns-per-address / limits.conns-total)", listener, remote)
+	}
 }
 
 // loadOperatorData loads every operator document (opdata) in the order the packages need. A config file that fails its
@@ -66,6 +74,8 @@ func main() {
 	}
 	logger.Printf("cherry: config https=%s http=%s session=%s gateway=%s dns=%s admin=%s data=%s cache=%s public=%t auth=%s",
 		cfg.HTTPS, cfg.HTTP, cfg.Session, cfg.Gateway, dns, cfg.Admin, cfg.DataDir, cfg.CacheDir, cfg.Public, cfg.AuthMode)
+	logger.Printf("cherry: limits conns=%d/address %d total; api=%d/s burst %d; account=%d/s burst %d; guest=%d/min; retention deleted=%dd idle-tokens=%dd",
+		cfg.ConnsPerAddress, cfg.ConnsTotal, cfg.APIRate, cfg.APIBurst, cfg.AccountRate, cfg.AccountBurst, cfg.GuestPerMinute, cfg.DeletedDays, cfg.IdleTokenDays)
 	// CHERRY_FAKE_NOW (RFC 3339) moves the game clock (economy.NowFunc) for season tests. Records written meanwhile
 	// carry the moved dates, so it runs only on a copy of the data: the data directory must not be the real folder.
 	if v := os.Getenv("CHERRY_FAKE_NOW"); v != "" {
@@ -175,6 +185,9 @@ func main() {
 	if err != nil {
 		logger.Fatalf("cherry: listen http: %v", err)
 	}
+	// The HTTP listeners take the connection caps here; the LPN listeners take them in their accept loops (admitRemote).
+	httpsLn = httpx.Conns.Listener(httpsLn, refusedLogger(logger, "https"))
+	httpLn = httpx.Conns.Listener(httpLn, refusedLogger(logger, "http"))
 	gatewayLn, err := lpn.ListenObserver(lpn.GatewayAddr, logger)
 	if err != nil {
 		logger.Fatalf("cherry: listen observer %s: %v", lpn.GatewayAddr, err)
@@ -202,7 +215,7 @@ func main() {
 	}()
 	httpSrv := &http.Server{
 		Addr:              cfg.HTTP,
-		Handler:           httpx.WithLogging(web.NewMux(), logger),
+		Handler:           httpx.WithLogging(web.NewPlainMux(), logger), // client port 80: the paths the client asks for, nothing else
 		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       120 * time.Second,
@@ -213,6 +226,9 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	maintCtx, maintStop := context.WithCancel(ctx)
+	defer maintStop()
+	go maintain(maintCtx, logger, cfg)
 
 	select {
 	case err := <-errc:
@@ -236,6 +252,10 @@ func main() {
 	_ = httpLn.Close()
 	if dnsConn != nil {
 		_ = dnsConn.Close()
+	}
+	maintStop()
+	if err := store.FlushTokenUse(); err != nil { // the last-use times the batch has not written yet
+		logger.Printf("cherry: token last-use write at shutdown: %v", err)
 	}
 	if err := store.CloseStore(); err != nil {
 		logger.Printf("cherry: close database: %v", err)

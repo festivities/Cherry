@@ -11,6 +11,7 @@ import (
 
 	"cherry/internal/auth"
 	"cherry/internal/config"
+	"cherry/internal/httpx"
 	"cherry/internal/store"
 )
 
@@ -180,7 +181,8 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, http.StatusServiceUnavailable, textUnavailable)
 		return
 	}
-	if err := store.Audit(identity, "login", "staff", map[string]any{"ip": ip}); err != nil {
+	// The audit row keeps the network only (/24 or /48): the full address lives in the session and the process log (PLAN 8.6b part 4).
+	if err := store.Audit(identity, "login", "staff", map[string]any{"ip": httpx.TruncateAddr(ip)}); err != nil {
 		s.dropSession(id)
 		s.logger.Printf("cherry: staff sign-in not recorded: %v", err)
 		s.fail(w, http.StatusServiceUnavailable, textUnavailable)
@@ -257,7 +259,7 @@ func (s *Server) refuse(w http.ResponseWriter, ip, identity, reason string, audi
 		if actor == "" {
 			actor = "unknown"
 		}
-		if err := store.Audit(actor, "login-refused", "staff", map[string]any{"reason": reason, "ip": ip}); err != nil {
+		if err := store.Audit(actor, "login-refused", "staff", map[string]any{"reason": reason, "ip": httpx.TruncateAddr(ip)}); err != nil {
 			s.logger.Printf("cherry: refused sign-in not recorded: %v", err)
 		}
 	}

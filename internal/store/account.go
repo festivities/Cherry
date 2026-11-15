@@ -294,7 +294,9 @@ func AccountByTokenLocked(token string) *Account {
 	if token == "" {
 		return nil
 	}
-	if acc := accountsByHash[CodeHash(token)]; acc != nil && acc.Ban == nil {
+	h := CodeHash(token)
+	if acc := accountsByHash[h]; acc != nil && acc.Ban == nil {
+		tokenUsed[h] = time.Now() // written in a batch by FlushTokenUse (tokens.go), not per request
 		return acc
 	}
 	return nil

@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"sync"
 
+	"cherry/internal/httpx"
 	"cherry/internal/metrics"
 	"cherry/internal/store"
 )
@@ -70,49 +71,13 @@ func ServeSession(ln net.Listener, logger *log.Logger) {
 	}
 }
 
-// maxConnsPerRemote caps the open gateway and session connections of one remote host. ponytail: the lab's emulators and
-// phone share one or two addresses and cmd/cherry-load runs its whole population from one (up to 600 players, 900
-// connections), so the cap is generous. Carrier NAT can put many players behind one address: raise it, or make it
-// configurable, before any public deploy.
-const maxConnsPerRemote = 1024
-
-var (
-	remoteConnsMu sync.Mutex
-	remoteConns   = map[string]int{}
-)
-
-// remoteHost is the host part of a remote address ("ip:port"); the whole string when it has no port.
-func remoteHost(remote string) string {
-	if host, _, err := net.SplitHostPort(remote); err == nil {
-		return host
-	}
-	return remote
-}
-
-// admitRemote counts one more open connection from remote's host and reports false, counting nothing, when that host is
-// at maxConnsPerRemote. Every true result is paired with releaseRemote(remote).
-func admitRemote(remote string) bool {
-	host := remoteHost(remote)
-	remoteConnsMu.Lock()
-	defer remoteConnsMu.Unlock()
-	if remoteConns[host] >= maxConnsPerRemote {
-		return false
-	}
-	remoteConns[host]++
-	return true
-}
+// admitRemote counts one more open connection from remote's address against the process-wide limit (httpx.Conns: per
+// address and in all, shared with the HTTP listeners; config limits.conns-per-address). False means refuse and close.
+// Every true result is paired with releaseRemote(remote).
+func admitRemote(remote string) bool { return httpx.Conns.Admit(remote) }
 
 // releaseRemote undoes one admitRemote for remote.
-func releaseRemote(remote string) {
-	host := remoteHost(remote)
-	remoteConnsMu.Lock()
-	defer remoteConnsMu.Unlock()
-	if remoteConns[host] <= 1 {
-		delete(remoteConns, host)
-		return
-	}
-	remoteConns[host]--
-}
+func releaseRemote(remote string) { httpx.Conns.Release(remote) }
 
 func serveSessionConn(conn net.Conn, logger *log.Logger) {
 	remote := conn.RemoteAddr().String()

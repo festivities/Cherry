@@ -1,0 +1,98 @@
+package web
+
+import (
+	"net/http"
+	"strings"
+	"time"
+
+	"cherry/internal/config"
+	"cherry/internal/httpx"
+	"cherry/internal/store"
+)
+
+// What the listeners let through before a handler runs (PLAN 8.6b part 4): the plain HTTP port serves a short list of
+// paths, and game requests spend tokens from their address's and account's buckets. Static asset GETs are exempt: the
+// first download is thousands of them (about 2,400 in 2.5 minutes from one client in production), and the connection
+// caps in internal/httpx bound them instead.
+
+// plainPathAllowed reports whether the plain HTTP listener (client port 80) answers path. The client asks for these over
+// plain HTTP and nothing else: item art under http://play-static.line-scdn.net/img/read/ (IDA host table, live index 15),
+// the notice requests of the Java and native notice stacks (notice2.line.me, index 22/23, and /img/read/notice/, which
+// answer 404 as before). The lab logs of 2026-10 to 2026-11 (17 files, 482 plain requests: sni empty) show only these
+// shapes: notice2 /v1/lineplay/android and /img/read/notice/notice.json2 (all 404), and /img/read/arts_item_* (2026-10-03).
+func plainPathAllowed(path string) bool {
+	return strings.HasPrefix(path, "/img/read/arts_item_") || strings.HasPrefix(path, "/img/read/notice/") || path == "/v1/lineplay/android"
+}
+
+// NewPlainMux is the handler of the plain HTTP listener: the allowed paths of the game mux, nothing else (404).
+func NewPlainMux() http.Handler {
+	game := newLimited(NewMux(), config.Current())
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !plainPathAllowed(r.URL.Path) {
+			httpx.ServeNotFound(w)
+			return
+		}
+		game.ServeHTTP(w, r)
+	})
+}
+
+// staticPrefixes are the GET paths that serve files: the asset store, the Cherry pictures and the profile and diary
+// pictures. Everything else is a game request.
+var staticPrefixes = []string{"/arts_", "/img/read/", "/notice/", "/cherry/", "/web/", "/lineplay/", "/r/lineplay/", "/v4/resource/splash/"}
+
+// isStaticGET reports whether r is a file read the limits exempt: a GET or HEAD of a static prefix, or a map pack ("/../").
+func isStaticGET(r *http.Request) bool {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+	p := r.URL.Path
+	if strings.Contains(p, "/../") {
+		return true
+	}
+	for _, pre := range staticPrefixes {
+		if strings.HasPrefix(p, pre) {
+			return true
+		}
+	}
+	return false
+}
+
+// newLimited wraps next with the request limits of cfg: a token bucket per remote address (config limits.api-*), one per
+// account that the AV_AUTH token names (limits.account-*), and guest/generate per address a minute (limits.guest-per-minute).
+// A rate of zero is off, which is the lab's setting. Over a limit the answer is 429 with a body the client reads as an error.
+func newLimited(next http.Handler, cfg config.Config) http.Handler {
+	address := httpx.NewBucket(float64(cfg.APIRate), cfg.APIBurst)
+	account := httpx.NewBucket(float64(cfg.AccountRate), cfg.AccountBurst)
+	guest := httpx.NewBucket(float64(cfg.GuestPerMinute)/60, cfg.GuestPerMinute)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isStaticGET(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		now := time.Now()
+		addr := httpx.RemoteHost(r.RemoteAddr)
+		if !address.Allow(addr, now) {
+			refuseRateLimited(w)
+			return
+		}
+		if r.URL.Path == "/v4/account/guest/generate" && !guest.Allow(addr, now) {
+			refuseRateLimited(w)
+			return
+		}
+		if account.On() { // the lookup takes the account lock: only when the account limit is on (the lab's is off)
+			if aid := store.AidForToken(httpx.CookieValue(r, "AV_AUTH")); aid != "" && !account.Allow("aid:"+aid, now) {
+				refuseRateLimited(w)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// refuseRateLimited answers 429. [I] The stock client is assumed to treat any non-200 answer as a failed call (its error
+// callbacks; not checked in the native code, and not device-tested). A burst past the limit is not expected in play: the
+// sizing is in the slice 8.6b part 4 report, measured on the lab logs.
+func refuseRateLimited(w http.ResponseWriter) {
+	w.Header().Set("Retry-After", "1")
+	httpx.WriteJSON(w, http.StatusTooManyRequests, httpx.RateLimitedBody)
+}
