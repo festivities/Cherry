@@ -1,9 +1,11 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	_ "modernc.org/sqlite" // pure-Go SQLite driver (the one approved module; builds with CGO_ENABLED=0)
 )
@@ -96,6 +98,19 @@ func (d *DB) View(fn func(q Querier) error) error {
 	}
 	defer tx.Rollback()
 	return fn(tx)
+}
+
+// Ping answers a trivial query on the attached database (the health endpoint). It returns ErrNoDatabase when none is
+// attached, and an error when the query fails or takes more than 2 s.
+func Ping() error {
+	d := attachedDB()
+	if d == nil {
+		return ErrNoDatabase
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var one int
+	return d.read.QueryRowContext(ctx, "SELECT 1").Scan(&one)
 }
 
 // Querier is what the read functions take: a View snapshot or a write transaction.

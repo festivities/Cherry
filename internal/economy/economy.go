@@ -326,6 +326,7 @@ func NewAdminMux() *http.ServeMux {
 	mux.HandleFunc("POST /admin/docs/{name}/{version}/publish", docsLoopback(handleDocsPublish))
 	mux.HandleFunc("POST /admin/docs/{name}/rollback", docsLoopback(handleDocsRollback))
 	mux.Handle("/debug/vars", debugVars(expvar.Handler())) // the counters of metrics; this mux is the only one that serves them
+	mux.HandleFunc("GET /healthz", docsLoopback(handleHealthz))
 	return mux
 }
 
@@ -339,6 +340,17 @@ func debugVars(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// handleHealthz answers "ok" while the database answers a trivial query, and 503 otherwise. Loopback only, on the admin
+// listener (the host's own probe).
+func handleHealthz(w http.ResponseWriter, r *http.Request) {
+	if err := store.Ping(); err != nil {
+		http.Error(w, "store unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	io.WriteString(w, "ok\n")
 }
 
 func handleAdminGrant(w http.ResponseWriter, r *http.Request) {
