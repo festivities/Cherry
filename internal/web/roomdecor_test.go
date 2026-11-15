@@ -467,7 +467,9 @@ func TestRoomPresetList(t *testing.T) {
 }
 
 func TestRoomPresetSaveListRemove(t *testing.T) {
+	testutil.UseDatabase(t)
 	acc := decorSetup(t)
+	recordPicture(t, store.MediaRoom, acc.Aid, "u1", "5", "o1")
 	decorReq(t, "dtok", http.MethodGet, "/v4/inven/interior/items/all", "") // seeds the showcase
 	chair := seqOf(t, acc, "RUCH0011X")
 	wall := seqOf(t, acc, "RUWA000IC")
@@ -541,6 +543,7 @@ func TestRoomPresetSaveListRemove(t *testing.T) {
 }
 
 func TestRoomImageUploadDownload(t *testing.T) {
+	testutil.UseDatabase(t)
 	dir := filepath.Join(t.TempDir(), "room-media")
 	const userID, ctime, oid = "u1", "1760000000", "abc_def" // oid need not be userid_ctime
 	params, _ := json.Marshal(diaryImageUploadParams{Version: "1.0", Type: "image", Name: oid, UserID: userID, OID: oid, CTime: ctime})
@@ -570,7 +573,9 @@ func TestRoomImageUploadDownload(t *testing.T) {
 }
 
 func TestRoomPresetSecondFloorDefaults(t *testing.T) {
+	testutil.UseDatabase(t)
 	acc := decorSetup(t)
+	recordPicture(t, store.MediaRoom, acc.Aid, "9101", "1", "x")
 	decorReq(t, "dtok", http.MethodGet, "/v4/inven/interior/items/all", "")
 	chair := seqOf(t, acc, "RUCH0011X")
 	// Floor 2 keeps the client's default wall/floor, sent as seq 0 rows.

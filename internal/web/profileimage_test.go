@@ -9,11 +9,13 @@ import (
 	"testing"
 
 	"cherry/internal/store"
+	"cherry/internal/testutil"
 )
 
 // TestProfilePictureFlow follows the client: two OBS uploads, then avatar/profile/image,
 // then the paths come back in the profile row and the friend sync, and download works.
 func TestProfilePictureFlow(t *testing.T) {
+	testutil.UseDatabase(t)
 	t.Setenv("LocalAppData", t.TempDir()) // UserCacheDir on Windows
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	acc := &store.Account{Aid: "9601", Name: "Pic"}

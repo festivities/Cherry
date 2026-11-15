@@ -120,7 +120,7 @@ type Querier interface {
 }
 
 // migrations[i] takes the database from schema version i to i+1. Append only: a shipped step is never edited.
-var migrations = []string{schemaV1, schemaV2, schemaV3}
+var migrations = []string{schemaV1, schemaV2, schemaV3, schemaV4}
 
 // migrate applies the missing steps, each in its own transaction together with its user_version bump.
 func migrate(db *sql.DB) error { return migrateTo(db, len(migrations)) }
@@ -337,6 +337,20 @@ CREATE TABLE audit (
 	detail TEXT NOT NULL DEFAULT ''
 ) STRICT;
 CREATE INDEX audit_target ON audit(target, id);
+`
+
+// schemaV4 records every stored player picture (web/media.go) with the avatar id of the account that uploaded it, so a quota
+// counts one account's pictures and a removal finds the files that go with a post or a player. Only a new table.
+const schemaV4 = `
+CREATE TABLE media_files (
+	id      INTEGER PRIMARY KEY,
+	kind    TEXT NOT NULL CHECK (kind IN ('diary', 'room', 'profile')),
+	owner   TEXT NOT NULL,
+	file    TEXT NOT NULL UNIQUE,
+	size    INTEGER NOT NULL CHECK (size > 0),
+	created TEXT NOT NULL
+) STRICT;
+CREATE INDEX media_files_owner ON media_files(owner, kind, id);
 `
 
 // Path is the file the database was opened from.

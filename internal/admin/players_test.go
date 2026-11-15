@@ -1,9 +1,12 @@
 package admin
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -466,5 +469,83 @@ func TestWritingRemovalsFromThePage(t *testing.T) {
 	expect(t, c.post(base+"/posts/"+cut+"/remove", url.Values{"csrf": {c.csrf()}, "reason": {"x"}}), http.StatusForbidden)
 	if !postExists(cut) {
 		t.Fatal("a stale removal removed the post")
+	}
+}
+
+// TestPictureRemovalFromThePage: the player page lists the player's newest pictures; a removal takes the picture's row and file
+// and the reference in the player's post (the post keeps its text) in one save, with a reasoned audit row that never names the
+// picture. Refused removals change nothing.
+func TestPictureRemovalFromThePage(t *testing.T) {
+	store.ResetSocial()
+	fx := newFixture(t, devConfig())
+	c := fx.client()
+	c.signInDev("owner")
+	pic := seedPlayer(t, "dev-pic", "9031", "Snap", 0)
+	file := store.MediaFileName("9031", "1760000700", "9031_1760000700")
+	dir, err := store.MediaDir(store.MediaDiary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, file), []byte("snap"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddMediaFile(store.MediaFile{Kind: store.MediaDiary, Owner: "9031", File: file, Size: 4}); err != nil {
+		t.Fatal(err)
+	}
+	row, found, err := store.MediaRowByFile(file)
+	if err != nil || !found {
+		t.Fatalf("row of the picture: found=%t err=%v", found, err)
+	}
+	store.SocialMu.Lock()
+	store.NextDiaryNo++
+	no := strconv.FormatUint(store.NextDiaryNo, 10)
+	store.DiaryPosts = append([]store.DiaryPost{{DiaryNo: no, AvatarID: "9031", Nickname: "Snap", RegDate: "1700000000000", Title: "snap",
+		Content: "still here", OpenState: "public", ImageTypeKind: "obs", ImageLocationType: "obs",
+		Images: []store.DiaryImage{{ImageURL: "/lineplay/d/download.nhn?oid=9031_1760000700&ctime=1760000700&userid=9031"}}}}, store.DiaryPosts...)
+	store.SocialMu.Unlock()
+	if err := store.SaveSocialLocked(store.SocialChange{Posts: []string{no}, Scalars: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	base := playerURL(pic)
+	rowID := strconv.FormatInt(row.ID, 10)
+	mediaRemove := base + "/media/" + rowID + "/remove"
+	if page := c.get(base).body; !strings.Contains(page, mediaRemove) {
+		t.Fatalf("the player page does not offer %s", mediaRemove)
+	}
+	expect(t, c.post(mediaRemove, url.Values{"reason": {"x"}}), http.StatusForbidden)
+	expect(t, c.post(mediaRemove, url.Values{"csrf": {c.csrf()}, "reason": {" "}}), http.StatusBadRequest)
+	expect(t, c.post(base+"/media/999999/remove", url.Values{"csrf": {c.csrf()}, "reason": {"x"}}), http.StatusNotFound)
+	if r := c.get(mediaRemove); r.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("GET of the removal: status %d, want 405", r.StatusCode)
+	}
+	if _, found, _ := store.MediaRowByFile(file); !found {
+		t.Fatal("a refused removal deleted the row")
+	}
+
+	expect(t, c.post(mediaRemove, url.Values{"csrf": {c.csrf()}, "reason": {"stolen photo"}}), http.StatusSeeOther)
+	if _, found, _ := store.MediaRowByFile(file); found {
+		t.Fatal("the removed picture's row remains")
+	}
+	if _, err := os.Stat(filepath.Join(dir, file)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the removed picture's file remains: %v", err)
+	}
+	store.SocialMu.Lock()
+	post := store.DiaryPosts[0]
+	store.SocialMu.Unlock()
+	if len(post.Images) != 0 || post.Content != "still here" || post.ImageLocationType != "none" {
+		t.Fatalf("post after the removal: %d images, location %q, content %q", len(post.Images), post.ImageLocationType, post.Content)
+	}
+	rows := auditRows(t)
+	if !hasAudit(rows, "dev-owner", "remove-media", "stolen photo") {
+		t.Fatal("no remove-media audit row with the reason")
+	}
+	for _, r := range rows {
+		if r.Action == "remove-media" && strings.Contains(r.Detail, "download.nhn") {
+			t.Fatal("the audit row names the picture's address")
+		}
 	}
 }

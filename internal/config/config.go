@@ -51,6 +51,9 @@ type Config struct {
 	DiscordClientID, DiscordSecretFile        string // the secret itself is read from the file, never a setting
 	DiscordRedirect                           string
 	ServerName                                string
+	UploadsOff                                bool   // uploads.enabled = false; the zero value is on (tests, an unactivated config)
+	UploadQuotaBytes                          int64  // uploads.quota-bytes: per account and picture kind; 0 takes the default
+	UploadQuotaFiles                          int    // uploads.quota-files: per account and picture kind; 0 takes the default
 	File                                      string // the JSON file read, "" when none
 }
 
@@ -85,6 +88,9 @@ var settings = []setting{
 	{"staff.owner", "", "the owner's Discord user id (required with listen.staff in discord mode; dev-<name> in dev-fake)"},
 	{"staff.allowlist-file", "", "text file of other staff: Discord ids, one per line, same format as auth.allowlist-file (dev-<name> in dev-fake); re-read on change, fail closed"},
 	{"staff.discord.redirect", "", "the exact staff OAuth callback registered with Discord: https://<staff.hostname>[:port]/auth/callback (the client id and secret are auth.discord.*)"},
+	{"uploads.enabled", "true", "picture uploads (diary photos, My Room thumbnails, profile pictures); false refuses new uploads with 503, reads still serve"},
+	{"uploads.quota-bytes", "209715200", "bytes of pictures each account may hold per kind (default 200 MiB; 1 MiB to 1 GiB)"},
+	{"uploads.quota-files", "2000", "pictures each account may hold per kind (default 2000; 1 to 100000)"},
 }
 
 // Load resolves the configuration and checks it. args are the command-line flags, lookup reads the environment
@@ -144,7 +150,20 @@ func parse(args []string, lookup func(string) (string, bool)) (Config, error) {
 		values[k], set[k] = v, true
 	}
 
+	uploadsOn, err := strconv.ParseBool(values["uploads.enabled"])
+	if err != nil {
+		return Config{}, fmt.Errorf("config: uploads.enabled: %q is not true or false", values["uploads.enabled"])
+	}
+	quotaBytes, err := strconv.ParseInt(values["uploads.quota-bytes"], 10, 64)
+	if err != nil {
+		return Config{}, fmt.Errorf("config: uploads.quota-bytes: %q is not a whole number", values["uploads.quota-bytes"])
+	}
+	quotaFiles, err := strconv.Atoi(values["uploads.quota-files"])
+	if err != nil {
+		return Config{}, fmt.Errorf("config: uploads.quota-files: %q is not a whole number", values["uploads.quota-files"])
+	}
 	c := Config{
+		UploadsOff: !uploadsOn, UploadQuotaBytes: quotaBytes, UploadQuotaFiles: quotaFiles,
 		HTTPS: values["listen.https"], HTTP: values["listen.http"], Session: values["listen.session"],
 		Gateway: values["listen.gateway"], DNS: values["listen.dns"], Admin: values["listen.admin"],
 		AuthMode: values["auth.mode"], File: file,
@@ -160,7 +179,6 @@ func parse(args []string, lookup func(string) (string, bool)) (Config, error) {
 	if c.Signup == "" {
 		c.Signup = DefaultSignup(c.AuthMode)
 	}
-	var err error
 	if c.Public, err = strconv.ParseBool(values["server.public"]); err != nil {
 		return Config{}, fmt.Errorf("config: server.public: %q is not true or false", values["server.public"])
 	}
@@ -231,6 +249,12 @@ func (c Config) check() error {
 	}
 	if err := c.checkStaff(); err != nil {
 		return err
+	}
+	if c.UploadQuotaBytes < 1<<20 || c.UploadQuotaBytes > 1<<30 {
+		return errors.New("config: uploads.quota-bytes must be 1 MiB to 1 GiB")
+	}
+	if c.UploadQuotaFiles < 1 || c.UploadQuotaFiles > 100000 {
+		return errors.New("config: uploads.quota-files must be 1 to 100000")
 	}
 	switch c.Signup {
 	case SignupOpen, SignupClosed:
@@ -508,6 +532,28 @@ func IsIdentity(mode string) bool { return mode == AuthDiscord || mode == AuthDe
 
 // IdentityMode is IsIdentity for the activated configuration; false before Activate (tests run lab-guest).
 func IdentityMode() bool { return IsIdentity(active.cfg.AuthMode) }
+
+// Default per-account picture quotas (uploads.quota-bytes, uploads.quota-files).
+const (
+	DefaultUploadQuotaBytes int64 = 200 << 20
+	DefaultUploadQuotaFiles       = 2000
+)
+
+// UploadsOn is the uploads.enabled switch: false refuses new picture uploads (reads still serve).
+func UploadsOn() bool { return !active.cfg.UploadsOff }
+
+// UploadLimits are the bytes and the files one account may hold of each picture kind. A zero setting (an unactivated
+// configuration) takes the default.
+func UploadLimits() (int64, int) {
+	bytes, files := active.cfg.UploadQuotaBytes, active.cfg.UploadQuotaFiles
+	if bytes == 0 {
+		bytes = DefaultUploadQuotaBytes
+	}
+	if files == 0 {
+		files = DefaultUploadQuotaFiles
+	}
+	return bytes, files
+}
 
 // DataDir is the state directory: stores, media, config, secrets and converted items. It must survive a cache wipe.
 func DataDir() (string, error) {

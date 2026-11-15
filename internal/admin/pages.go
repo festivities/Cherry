@@ -66,6 +66,7 @@ type view struct {
 	Posts    []playerPost
 	Entries  []playerEntry
 	Comments []playerComment
+	Media    []playerMedia
 }
 
 func serveCSS(w http.ResponseWriter, r *http.Request) {
@@ -564,6 +565,17 @@ const pagesHTML = `
 </tbody>
 </table></div>
 <p class="muted">Renames and removals need a Discord sign-in in the last five minutes. A removal's audit row names the number and the reason, never the removed text.</p>
+<h2>Pictures the player uploaded (newest 20)</h2>
+<div class="scroll"><table>
+<thead><tr><th>Picture</th><th>Kind</th><th>Size (KiB)</th><th>Uploaded (UTC)</th><th>Remove</th></tr></thead>
+<tbody>
+{{range .Media}}<tr><td>{{.ID}}</td><td>{{.Kind}}</td><td>{{.KiB}}</td><td>{{.Date}}</td><td>
+<form method="post" action="/players/{{$.Player.ID}}/media/{{.ID}}/remove"><input type="hidden" name="csrf" value="{{$.CSRF}}">
+<input type="text" name="reason" maxlength="200" placeholder="Reason" required> <button type="submit">Remove</button></form></td></tr>
+{{else}}<tr><td colspan="5">No pictures.</td></tr>{{end}}
+</tbody>
+</table></div>
+<p class="muted">Removing a picture deletes the file and clears every post, profile or room thumbnail that names it (a post keeps its text). The audit row names the picture's number and the reason, never the picture.</p>
 <h2>Newest ledger lines</h2>
 {{if eq .Player.Aid "0"}}<p class="muted">Ledger lines are kept by avatar id. This account has none yet, so none are shown.</p>{{end}}
 <div class="scroll"><table>

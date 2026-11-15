@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -555,7 +556,21 @@ func SessionAccountLocked(r *http.Request) *Account {
 }
 
 func AccountForRequest(r *http.Request) (AccountSnapshot, bool) {
-	token := httpx.CookieValue(r, "AV_AUTH")
+	return accountForToken(httpx.CookieValue(r, "AV_AUTH"))
+}
+
+// AccountForUpload is AccountForRequest for the picture uploads. The stock client sends AV_AUTH two ways: as the AV_AUTH header
+// (My Room thumbnails, captured 2026-10-06/07) and as a Cookie (diary photos, profile pictures). The header wins when both are sent.
+func AccountForUpload(r *http.Request) (AccountSnapshot, bool) {
+	token := strings.Trim(r.Header.Get("AV_AUTH"), `"`)
+	if token == "" {
+		token = httpx.CookieValue(r, "AV_AUTH")
+	}
+	return accountForToken(token)
+}
+
+// accountForToken is the snapshot of the account an AV_AUTH value resolves to: an account with an avatar, never aid "0".
+func accountForToken(token string) (AccountSnapshot, bool) {
 	if token == "" {
 		return AccountSnapshot{}, false
 	}

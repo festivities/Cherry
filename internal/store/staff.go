@@ -404,10 +404,9 @@ func renameCopiesLocked(aid, name string) error {
 	return nil
 }
 
-// RemovePlayerPost removes diary post number of the player with row id, with the comments and likes on it. That is the
-// cascade of the owner's in-game delete (web/social.go handleDiaryErase; keep the two in step). Media files are not touched,
-// as in the in-game delete. The post, its cascade and the audit row (number, reason) are one save. ErrNoItem when the post is
-// not the player's.
+// RemovePlayerPost removes diary post number of the player with row id, with the comments and likes on it: the owner's in-game
+// delete (erasePostLocked, the one cascade), which also deletes the pictures only the post named. The post, its cascade, those
+// file rows and the audit row (number, reason) are one save. ErrNoItem when the post is not the player's.
 func RemovePlayerPost(id int64, no, reason, actor string) error {
 	reason, err := cleanReason(reason)
 	if err != nil {
@@ -421,33 +420,13 @@ func RemovePlayerPost(id int64, no, reason, actor string) error {
 	}
 	SocialMu.Lock()
 	defer SocialMu.Unlock()
-	i := slices.IndexFunc(DiaryPosts, func(p DiaryPost) bool { return p.DiaryNo == no && p.AvatarID == acc.Aid })
-	if i < 0 {
-		return ErrNoItem
-	}
-	prevPosts, prevComments, prevLikes := DiaryPosts, DiaryComments, DiaryLikes
-	var comments, likes []string
-	keptComments := []DiaryComment{}
-	for _, c := range prevComments {
-		if c.OwnerAvatarID == acc.Aid && c.DiaryNo == no {
-			comments = append(comments, c.CommentNo)
-		} else {
-			keptComments = append(keptComments, c)
-		}
-	}
-	keptLikes := []DiaryLike{}
-	for _, l := range prevLikes {
-		if l.OwnerAvatarID == acc.Aid && l.DiaryNo == no {
-			likes = append(likes, l.LikeNo)
-		} else {
-			keptLikes = append(keptLikes, l)
-		}
-	}
-	DiaryPosts, DiaryComments, DiaryLikes = slices.Delete(slices.Clone(prevPosts), i, i+1), keptComments, keptLikes
-	audit := staffAudit{actor, "remove-post", playerTarget(id), map[string]any{"aid": acc.Aid, "number": no, "reason": reason}}
-	if err := saveSocialAuditedLocked(SocialChange{Posts: []string{no}, Comments: comments, Likes: likes}, audit); err != nil {
-		DiaryPosts, DiaryComments, DiaryLikes = prevPosts, prevComments, prevLikes
+	audit := &staffAudit{actor, "remove-post", playerTarget(id), map[string]any{"aid": acc.Aid, "number": no, "reason": reason}}
+	found, err := erasePostLocked(acc.Aid, no, audit)
+	if err != nil {
 		return err
+	}
+	if !found {
+		return ErrNoItem
 	}
 	return nil
 }

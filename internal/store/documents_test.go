@@ -91,8 +91,8 @@ func TestMigrationV2ToV3KeepsRows(t *testing.T) {
 	defer d.Close()
 	var version int
 	var kept string
-	if err := d.write.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 3 {
-		t.Fatalf("user_version = %d (err %v), want 3", version, err)
+	if err := d.write.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != len(migrations) {
+		t.Fatalf("user_version = %d (err %v), want %d", version, err, len(migrations))
 	}
 	if err := d.write.QueryRow("SELECT value FROM meta WHERE key = 'probe'").Scan(&kept); err != nil || kept != "kept" {
 		t.Fatalf("v2 row after migration = %q (err %v)", kept, err)

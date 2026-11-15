@@ -210,8 +210,16 @@ func TestAvatarProfileStatusSaveGetRoundTrip(t *testing.T) {
 }
 
 func TestProfilePhotoSaveRoundTrip(t *testing.T) {
+	testutil.UseDatabase(t)
 	profileEditFixture(t)
-	body := `[{"imageId":"7","imageUrl":"https://obs.line-scdn.net/x.jpg","mainImage":true}]` + "\x00"
+	// The photo is one account 1201 uploaded; a picture another account uploaded is refused.
+	own := "/lineplay/d/download.nhn?oid=1201_1760000000&ctime=1760000000&userid=1201"
+	recordPicture(t, store.MediaDiary, "1201", "1201", "1760000000", "1201_1760000000")
+	foreign := `[{"imageId":"8","imageUrl":"/lineplay/d/download.nhn?oid=1202_1760000001&ctime=1760000001&userid=1202","mainImage":false}]` + "\x00"
+	if rec := socialTestRequestAs(t, "dp-owner", http.MethodPost, "/v4/profile/image", foreign); rec.Code != http.StatusBadRequest {
+		t.Fatalf("foreign photo save = %d, want 400", rec.Code)
+	}
+	body := `[{"imageId":"7","imageUrl":"` + own + `","mainImage":true}]` + "\x00"
 	if rec := socialTestRequestAs(t, "dp-owner", http.MethodPost, "/v4/profile/image", body); rec.Code != http.StatusOK {
 		t.Fatalf("photo save = %d %s", rec.Code, rec.Body.String())
 	}

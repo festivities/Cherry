@@ -240,6 +240,13 @@ func handleProfilePhotoSave(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
 		return
 	}
+	for _, p := range photos {
+		// A photo must be one the account uploaded; an empty URL names nothing.
+		if p.ImageURL != "" && !store.MediaOwnedBy(p.ImageURL, acc.Aid) {
+			httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+			return
+		}
+	}
 	previous := acc.DiaryProfile
 	next := store.DiaryProfile{}
 	if previous != nil {

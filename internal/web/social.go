@@ -601,8 +601,9 @@ func handleDiaryWrite(w http.ResponseWriter, r *http.Request) {
 	// A text-only post still carries images:[{"imageUrl":""}] (runtime 2026-10-11); drop empty rows.
 	req.Images = slices.DeleteFunc(req.Images, func(image store.DiaryImage) bool { return image.ImageURL == "" })
 	for _, image := range req.Images {
-		if !store.ValidDiaryImage(image) {
-			log.Printf("cherry: diary write reject aid=%s invalid image %+v", actor.Aid, image)
+		// A picture must be one the poster uploaded (its row names the poster): a modified client may name anyone's URL.
+		if !store.ValidDiaryImage(image) || !store.MediaOwnedBy(image.ImageURL, actor.Aid) {
+			log.Printf("cherry: diary write reject aid=%s invalid or foreign image", actor.Aid)
 			httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 			return
 		}
@@ -774,31 +775,8 @@ func handleDiaryErase(w http.ResponseWriter, r *http.Request) {
 	}
 	rest := strings.Trim(strings.TrimPrefix(r.URL.Path, "/v4/diary2/erase/"), "/")
 	diaryNo, _, _ := strings.Cut(rest, "/")
-	store.SocialMu.Lock()
-	prev := append([]store.DiaryPost(nil), store.DiaryPosts...)
-	prevComments, prevLikes := store.DiaryComments, store.DiaryLikes
-	kept, dropped := splitIf(store.DiaryPosts, func(post store.DiaryPost) bool {
-		return post.DiaryNo == diaryNo && post.AvatarID == actor.Aid
-	})
-	var err error
-	if len(dropped) > 0 {
-		// The post's comments and likes go with it.
-		var droppedComments []store.DiaryComment
-		var droppedLikes []store.DiaryLike
-		store.DiaryPosts = kept
-		store.DiaryComments, droppedComments = splitIf(prevComments, func(c store.DiaryComment) bool {
-			return c.OwnerAvatarID == actor.Aid && c.DiaryNo == diaryNo
-		})
-		store.DiaryLikes, droppedLikes = splitIf(prevLikes, func(l store.DiaryLike) bool {
-			return l.OwnerAvatarID == actor.Aid && l.DiaryNo == diaryNo
-		})
-		err = store.SaveSocialLocked(store.SocialChange{Posts: []string{diaryNo}, Comments: commentNos(droppedComments), Likes: likeNos(droppedLikes)})
-	}
-	if err != nil {
-		store.DiaryPosts, store.DiaryComments, store.DiaryLikes = prev, prevComments, prevLikes
-	}
-	store.SocialMu.Unlock()
-	if err != nil {
+	// The post, its comments and likes, and the pictures only it named go in one save (store.EraseDiaryPost).
+	if err := store.EraseDiaryPost(actor.Aid, diaryNo); err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
 	}

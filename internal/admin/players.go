@@ -19,6 +19,7 @@ const (
 	playerQueryMax = 100 // characters of a search
 	ledgerPage     = 20  // ledger lines on a player page
 	writingPage    = 20  // posts, guestbook entries and comments of each kind on a player page
+	mediaPage      = 20  // pictures on a player page
 	writingText    = 80  // characters of a post's or comment's text in a list
 )
 
@@ -34,6 +35,13 @@ type playerEntry struct {
 
 type playerComment struct {
 	No, Host, Post, Date, Text string
+}
+
+// playerMedia is a row of the player's pictures: the kind and the size in KiB; the picture itself is never shown.
+type playerMedia struct {
+	ID         int64
+	Kind, Date string
+	KiB        int64
 }
 
 // playerPath is the page of one player.
@@ -83,10 +91,34 @@ func (s *Server) handlePlayer(w http.ResponseWriter, r *http.Request, sess sessi
 		s.storeError(w, err)
 		return
 	}
+	pictures, err := store.PlayerMedia(id, mediaPage)
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
 	v := s.base(sess, "Player")
 	v.Player, v.Ledger = p, lines
 	v.Posts, v.Entries, v.Comments = writingRows(writing)
+	v.Media = mediaRows(pictures)
 	s.render(w, http.StatusOK, "player", v)
+}
+
+// mediaRows turns the player's pictures into the rows of the page.
+func mediaRows(files []store.MediaFile) []playerMedia {
+	rows := []playerMedia{}
+	for _, f := range files {
+		rows = append(rows, playerMedia{ID: f.ID, Kind: f.Kind, KiB: (f.Size + 1023) / 1024, Date: rfcDate(f.Created)})
+	}
+	return rows
+}
+
+// rfcDate shows a stored RFC 3339 time in UTC; a value that does not parse is shown as it is.
+func rfcDate(s string) string {
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return s
+	}
+	return t.UTC().Format("2006-01-02 15:04")
 }
 
 // writingRows turns the player's own writing into the rows of the page.
@@ -175,6 +207,25 @@ func (s *Server) handleRename(w http.ResponseWriter, r *http.Request, sess sessi
 		return
 	}
 	if err := store.RenamePlayer(id, r.PostFormValue("name"), r.PostFormValue("reason"), sess.identity); err != nil {
+		s.storeError(w, err)
+		return
+	}
+	redirect(w, http.StatusSeeOther, playerPath(id))
+}
+
+// handleMediaRemove: POST /players/{id}/media/{mid}/remove (privileged). The form: reason. The store clears every reference to the
+// picture, deletes its row and file, and writes the audit row in one save.
+func (s *Server) handleMediaRemove(w http.ResponseWriter, r *http.Request, sess session) {
+	id, ok := s.playerID(w, r)
+	if !ok {
+		return
+	}
+	mid, err := strconv.ParseInt(r.PathValue("mid"), 10, 64)
+	if err != nil || mid < 1 {
+		s.fail(w, http.StatusBadRequest, "The picture number is not valid.")
+		return
+	}
+	if err := store.RemovePlayerMedia(id, mid, r.PostFormValue("reason"), sess.identity); err != nil {
 		s.storeError(w, err)
 		return
 	}

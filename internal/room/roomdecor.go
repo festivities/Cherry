@@ -548,6 +548,11 @@ func HandleRoomPresetSave(w http.ResponseWriter, r *http.Request) {
 	req.DeleteItems, req.ModifiedItems = nil, nil
 	// An unchanged default wall/floor (floors 2+) comes as seq 0: keep it as the default.
 	req.AdditionItems = slices.DeleteFunc(req.AdditionItems, func(row roomSaveRow) bool { return row.Seq == 0 })
+	// The thumbnail must be a picture this account uploaded (none is the stock default).
+	if req.RepresentImagePath != "" && !store.MediaOwnedBy(req.RepresentImagePath, acc.Aid) {
+		httpx.WriteJSON(w, http.StatusOK, RoomSaveFalse)
+		return
+	}
 	lay, ok := applyRoomSave(&shadow, req.roomSaveReq)
 	if !ok {
 		httpx.WriteJSON(w, http.StatusOK, RoomSaveFalse)

@@ -59,6 +59,8 @@ func TestDiaryCheckExistGate(t *testing.T) {
 }
 
 func TestDiaryVisibilityUsesOpenStateAndKnownViewer(t *testing.T) {
+	testutil.UseDatabase(t)
+	recordPicture(t, store.MediaDiary, "1", "1", "1710000000", "1_1710000000")
 	installSocialTestAccounts(t, map[string]*store.Account{
 		"social-test-token": {AccessToken: "social-test-token", Aid: "1", Name: "Cherry"},
 		"other-token":       {AccessToken: "other-token", Aid: "3", Name: "Other"},
@@ -70,7 +72,7 @@ func TestDiaryVisibilityUsesOpenStateAndKnownViewer(t *testing.T) {
 		t.Helper()
 		request := map[string]any{"avatarId": "1", "title": title, "content": title, "openState": openState}
 		if title == "private" {
-			request["images"] = []store.DiaryImage{{ImageURL: "/lineplay/d/download.nhn?oid=42_1710000000&ctime=1710000000&userid=42"}}
+			request["images"] = []store.DiaryImage{{ImageURL: "/lineplay/d/download.nhn?oid=1_1710000000&ctime=1710000000&userid=1"}}
 		}
 		body, err := json.Marshal(request)
 		if err != nil {
@@ -356,7 +358,9 @@ func TestFriendSearchPaginationAndDiaryPhotoMetadata(t *testing.T) {
 	}
 
 	testutil.UseDatabase(t)
-	imageURL := "/lineplay/d/download.nhn?oid=42_1710000000&ctime=1710000000&userid=42"
+	// The photo is one aid 1 uploaded (a row names its owner), so the post may name it.
+	imageURL := "/lineplay/d/download.nhn?oid=1_1710000000&ctime=1710000000&userid=1"
+	recordPicture(t, store.MediaDiary, "1", "1", "1710000000", "1_1710000000")
 	if !store.ValidDiaryImage(store.DiaryImage{ImageURL: "lineplay/d/download.nhn?userid=42&ctime=1710000000&oid=42_1710000000&tid=306x0.r"}) {
 		t.Fatal("valid media tuple with optional tid rejected")
 	}

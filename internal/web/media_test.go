@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"cherry/internal/store"
+	"cherry/internal/testutil"
 )
 
 func TestDiaryImageUploadDownloadRoundTrip(t *testing.T) {
@@ -28,6 +29,7 @@ func TestDiaryImageUploadDownloadRoundTrip(t *testing.T) {
 		{"png", "image/jpeg", "Filedata"}, // Native upload MIME may say JPEG while the bytes are PNG.
 	} {
 		t.Run(tc.format, func(t *testing.T) {
+			testutil.UseDatabase(t) // each subtest has its own database: both write the same key
 			dir := filepath.Join(t.TempDir(), "diary-media")
 			const userID, ctime = "session-user_42", "1760000000"
 			oid := userID + "_" + ctime
@@ -67,6 +69,7 @@ func TestDiaryImageUploadDownloadRoundTrip(t *testing.T) {
 }
 
 func TestDiaryImageUploadRejectsMultipleFileParts(t *testing.T) {
+	testutil.UseDatabase(t)
 	dir := filepath.Join(t.TempDir(), "diary-media")
 	const userID, ctime = "aid1", "1760000006"
 	data := diaryTestImage(t, "png", 2, 2, 20)
@@ -79,6 +82,7 @@ func TestDiaryImageUploadRejectsMultipleFileParts(t *testing.T) {
 }
 
 func TestDiaryImageDuplicateTuple(t *testing.T) {
+	testutil.UseDatabase(t)
 	dir := filepath.Join(t.TempDir(), "diary-media")
 	const userID, ctime = "aid1", "1760000001"
 	oid := userID + "_" + ctime
@@ -105,6 +109,7 @@ func TestDiaryImageDuplicateTuple(t *testing.T) {
 }
 
 func TestDiaryMediaStorageQuota(t *testing.T) {
+	testutil.UseDatabase(t)
 	dir := filepath.Join(t.TempDir(), "diary-media")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
@@ -146,6 +151,7 @@ func TestDiaryMediaStorageQuota(t *testing.T) {
 }
 
 func TestDiaryImageUploadRejectsMalformedAndUnsafeRequests(t *testing.T) {
+	testutil.UseDatabase(t)
 	const userID, ctime = "member-7", "1760000002"
 	oid := userID + "_" + ctime
 	imageBytes := diaryTestImage(t, "jpeg", 2, 2, 90)
@@ -195,6 +201,7 @@ func TestDiaryImageUploadRejectsMalformedAndUnsafeRequests(t *testing.T) {
 }
 
 func TestDiaryImageUploadRejectsHeaderOnlyPNG(t *testing.T) {
+	testutil.UseDatabase(t)
 	const userID, ctime = "aid-header", "1760000007"
 	dir := filepath.Join(t.TempDir(), "diary-media")
 	valid := diaryTestImage(t, "png", 2, 2, 30)
@@ -217,6 +224,7 @@ func TestDiaryImageUploadRejectsHeaderOnlyPNG(t *testing.T) {
 }
 
 func TestDiaryImageUploadLimits(t *testing.T) {
+	testutil.UseDatabase(t)
 	t.Run("file size", func(t *testing.T) {
 		const userID, ctime = "aid2", "1760000003"
 		dir := filepath.Join(t.TempDir(), "diary-media")
@@ -274,6 +282,14 @@ func TestDiaryImageDownloadRejectsMalformedQueries(t *testing.T) {
 		if rec.Code != tc.status {
 			t.Errorf("GET %s status = %d, want %d", tc.target, rec.Code, tc.status)
 		}
+	}
+}
+
+// recordPicture records a stored picture of owner under the key tuple, as a successful upload would, for the reference tests.
+func recordPicture(t *testing.T, kind, owner, userID, ctime, oid string) {
+	t.Helper()
+	if err := store.AddMediaFile(store.MediaFile{Kind: kind, Owner: owner, File: store.MediaFileName(userID, ctime, oid), Size: 1}); err != nil {
+		t.Fatalf("record picture: %v", err)
 	}
 }
 
