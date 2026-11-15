@@ -227,7 +227,7 @@ func TestDeleteAvatarKeepsOnceGrantsForTheIdentity(t *testing.T) {
 		t.Fatal("the second sign-in did not reach the identity's account")
 	}
 	av2 := avAuthValue(t, createSession(t, tok2))
-	second := createAvatarID(t, av2, `{"name":"Ida2","avatarType":"FEMALE","nationCode":"JP","skinColor":"1","itemCodes":["CUAE00B9R"]}`)
+	second := createAvatarID(t, av2, `{"name":"Ida2","avatarType":"FEMALE","nationCode":"JP","skinColor":"1","itemCodes":["CUON001CH"]}`)
 	if second == first || second == "0" {
 		t.Fatalf("the fresh avatar's aid = %s (the deleted one was %s)", second, first)
 	}
@@ -240,8 +240,8 @@ func TestDeleteAvatarKeepsOnceGrantsForTheIdentity(t *testing.T) {
 			t.Fatalf("the starter room was not granted to the fresh avatar: %v, %d items", err, len(acc.RoomItems))
 		}
 	})
-	freshGiftsWorthNothing(t, tok2, "CUAE00B9R")
-	if balance := recycleCloset(t, tok2, "CUAE00B9R"); balance != 0 {
+	freshGiftsWorthNothing(t, tok2, "CUON001CH")
+	if balance := recycleCloset(t, tok2, "CUON001CH"); balance != 0 {
 		t.Fatalf("selling a re-granted creation item paid %v, want 0", balance)
 	}
 	welcome := 0

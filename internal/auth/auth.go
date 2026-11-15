@@ -43,6 +43,8 @@ const (
 	startPerHour      = 60
 	exchangePerMinute = 20
 	infoPerMinute     = 30
+	// callbackPerMinute: Discord's redirect hop is one per sign-in attempt, so 60 a minute an address is ample.
+	callbackPerMinute = 60
 	maxLimiterKeys    = 65536 // client addresses tracked per limiter; a new one beyond this is refused
 	maxExchangeBody   = 4 << 10
 	maxCodeLen        = 512 // the callback's code parameter
@@ -71,7 +73,7 @@ type Service struct {
 	attempts map[string]*attempt // by server state
 	tickets  map[string]*ticket  // by ticket
 
-	startMinute, startHour, exchangeMinute, infoMinute *Limiter
+	startMinute, startHour, exchangeMinute, infoMinute, callbackMinute *Limiter
 }
 
 // attempt is one open sign-in: the client's challenge, its return address and state, and where it came from.
@@ -100,6 +102,7 @@ func New(cfg config.Config, logger *log.Logger) (*Service, error) {
 		startHour:      NewLimiter(startPerHour, time.Hour),
 		exchangeMinute: NewLimiter(exchangePerMinute, time.Minute),
 		infoMinute:     NewLimiter(infoPerMinute, time.Minute),
+		callbackMinute: NewLimiter(callbackPerMinute, time.Minute),
 		signup:         cfg.Signup,
 	}
 	if s.signup == "" {
@@ -344,6 +347,11 @@ func (s *Service) purgeLocked(now time.Time) {
 func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		page(w, http.StatusMethodNotAllowed, textMethod)
+		return
+	}
+	if !s.callbackMinute.Allow(clientIP(r), s.Now()) {
+		s.logger.Printf("cherry: auth callback rate limited")
+		page(w, http.StatusTooManyRequests, textRateLimited)
 		return
 	}
 	q := r.URL.Query()

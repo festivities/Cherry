@@ -374,7 +374,7 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 					return
 				}
 				logger.Printf("OBS %s garden-room-enter remote=%s result=197377 map=%s", addr, remote, mapStem)
-				gardenQuestVisit(gardenLoginAid, ownerAid)
+				creditGardenVisit(gardenLoginAid, ownerAid)
 				gardenLeaveIfOtherOwner(gardenLoginAid, ownerAid, logger)
 				ClearRoomVisit(gardenLoginAid)
 				gardenOwnerAid = ownerAid

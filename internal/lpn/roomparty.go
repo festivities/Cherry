@@ -588,7 +588,11 @@ func (s *roomPartySession) inviteCancel(frame, data []byte) error {
 	}
 	h := s.h()
 	h.mu.Lock()
-	if r := h.rooms[host]; r != nil {
+	// Only the room's host cancels its invitations: a member who joined another room would otherwise edit its host's
+	// Waiting list. The refreshed list still answers, as for any cancel; nothing changes for a non-host.
+	if host != s.aid {
+		s.logger.Printf("ROOMPARTY invite-cancel refused aid=%d: not the host of room %d", s.aid, host)
+	} else if r := h.rooms[host]; r != nil {
 		for _, a := range aids {
 			delete(r.invited, a)
 		}

@@ -246,8 +246,12 @@ func TestSessionBadHelloKeepsReading(t *testing.T) {
 }
 
 func TestGatewayObserverBannerHello(t *testing.T) {
-	// The Garden login below presents key "K" for aid 1: that account must exist for the login to be accepted.
-	testutil.InstallAccounts(t, map[string]*store.Account{"banner-1": {AccessToken: "banner-1", SessionKey: "K", Aid: "1", Name: "Banner"}})
+	// The Garden login below presents key "K" for aid 1: that account must exist for the login to be accepted. The room
+	// enter below visits owner 42, which must exist too: a visit to an aid with no avatar earns no quest credit.
+	testutil.InstallAccounts(t, map[string]*store.Account{
+		"banner-1":  {AccessToken: "banner-1", SessionKey: "K", Aid: "1", Name: "Banner"},
+		"banner-42": {AccessToken: "banner-42", SessionKey: "owner-42", Aid: "42", Name: "Owner"},
+	})
 	server, client := net.Pipe()
 	cleared := make(chan struct{}, 1)
 	var output bytes.Buffer

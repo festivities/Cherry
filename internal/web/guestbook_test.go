@@ -143,9 +143,11 @@ func TestGuestbookCountClearBadge(t *testing.T) {
 	count(`"count":1`)
 	clearAs("guest-token", `"count":1`) // not the host: the unread count, no change
 	count(`"count":1`)
-	if rec := serve(t, http.MethodGet, "/v4/guestbookcount/clear/1"); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"count":1`) {
-		t.Fatalf("clear without a session = %d %s, want the unread count", rec.Code, rec.Body.String())
+	// Without a session the GET that moves the marker is refused (PLAN 8.6b part 4); the count is unchanged.
+	if rec := serve(t, http.MethodGet, "/v4/guestbookcount/clear/1"); rec.Code != http.StatusNotFound {
+		t.Fatalf("clear without a session = %d %s, want 404", rec.Code, rec.Body.String())
 	}
+	count(`"count":1`)
 	if rec := serve(t, http.MethodGet, "/v4/guestbookcount/clear/999"); rec.Code != http.StatusNotFound {
 		t.Fatalf("clear of an unknown host = %d, want 404", rec.Code)
 	}

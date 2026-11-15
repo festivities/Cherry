@@ -25,6 +25,9 @@ const UnknownSessionBody = `{"errorCode":"404","errorMessage":"cherry: unknown s
 
 const BadRequestBody = `{"errorCode":"400","errorMessage":"cherry: bad request"}`
 
+// RateLimitedBody answers a request over a token-bucket limit (429, internal/web edge.go).
+const RateLimitedBody = `{"errorCode":"429","errorMessage":"cherry: rate limited"}`
+
 func HandleJSONBody(body string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
