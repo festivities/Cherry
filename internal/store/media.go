@@ -323,9 +323,41 @@ func saveSocialMediaLocked(c SocialChange, media []MediaFile, audit *staffAudit)
 	return nil
 }
 
-// removeMediaFiles deletes the files of rows that a committed save removed. A failed delete is logged: the row is gone, so the
+// AccountMediaLocked returns every picture row owner uploaded, for Delete Avatar, which takes all of them. Nil without a
+// database. Caller holds AccountsMu.
+func AccountMediaLocked(owner string) ([]MediaFile, error) {
+	d := attachedDB()
+	if d == nil {
+		return nil, nil
+	}
+	var out []MediaFile
+	err := d.View(func(q Querier) error {
+		r, err := q.Query(`SELECT id, kind, owner, file, size, created FROM media_files WHERE owner = ? ORDER BY id`, owner)
+		if err != nil {
+			return err
+		}
+		defer r.Close()
+		for r.Next() {
+			var f MediaFile
+			if err := r.Scan(&f.ID, &f.Kind, &f.Owner, &f.File, &f.Size, &f.Created); err != nil {
+				return err
+			}
+			out = append(out, f)
+		}
+		return r.Err()
+	})
+	return out, err
+}
+
+// SaveSocialMedia is SaveSocialLocked with the picture rows media removed in the same transaction (Delete Avatar). The files
+// are deleted by RemoveMediaFiles after this returns nil. Caller holds SocialMu.
+func SaveSocialMedia(c SocialChange, media []MediaFile) error {
+	return saveSocialMediaLocked(c, media, nil)
+}
+
+// RemoveMediaFiles deletes the files of rows that a committed save removed. A failed delete is logged: the row is gone, so the
 // file is an orphan that the folder's disk safety net still counts.
-func removeMediaFiles(files []MediaFile) {
+func RemoveMediaFiles(files []MediaFile) {
 	for _, f := range files {
 		dir, err := MediaDir(f.Kind)
 		if err != nil || !mediaFileOK(f.File) {
@@ -385,7 +417,7 @@ func erasePostLocked(aid, no string, audit *staffAudit) (found bool, err error) 
 		DiaryPosts, DiaryComments, DiaryLikes = prevPosts, prevComments, prevLikes
 		return true, err
 	}
-	removeMediaFiles(media)
+	RemoveMediaFiles(media)
 	return true, nil
 }
 
@@ -531,6 +563,6 @@ func RemovePlayerMedia(id, mediaID int64, reason, actor string) error {
 		checkNotMissed(changedAccs, site)
 		netCheckSocial(d, site)
 	}
-	removeMediaFiles([]MediaFile{row})
+	RemoveMediaFiles([]MediaFile{row})
 	return nil
 }

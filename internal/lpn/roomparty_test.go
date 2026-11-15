@@ -268,6 +268,12 @@ func TestPartyRosterRelaysExit(t *testing.T) {
 	b.send(8, pbLen(nil, 1, mb))
 	a.expect(11, pbLen(pbVar(nil, 1, 12), 2, mb))
 	b.none()
+	// PLAN 8.6b part 5: a move or an action over maxRelayPayload goes to nobody
+	big := bytes.Repeat([]byte{0x08, 0x01}, maxRelayPayload/2+1)
+	b.send(8, pbLen(nil, 1, big))
+	b.send(10, pbLen(nil, 1, big))
+	a.none()
+	b.none()
 	// chat: everyone incl. sender, serial counts
 	b.send(9, pbLen(nil, 1, []byte("hi")))
 	want = pbVar(pbLen(pbVar(pbVar(nil, 1, 12), 2, 1), 3, []byte("hi")), 4, 0)

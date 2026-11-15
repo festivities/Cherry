@@ -445,6 +445,12 @@ func TestCircleRoomRelayAndLeave(t *testing.T) {
 	if cirVar(bodyB, 1) != 1101 || !bytes.Equal(cirBytes(bodyB, 2), action) {
 		t.Fatalf("action relay = %x", bodyB)
 	}
+	// PLAN 8.6b part 5: a move or an action over maxRelayPayload goes to nobody.
+	big := bytes.Repeat([]byte{0x08, 0x01}, maxRelayPayload/2+1)
+	a.send(circleCsPlayerMove, pbLen(nil, 1, big))
+	a.send(circleCsPlayerAction, pbLen(nil, 1, big))
+	b.none()
+	c.none()
 
 	// chat: everyone in the room, the sender included; a text that is not UTF-8 is dropped
 	a.send(circleCsChat, pbLen(pbVar(nil, 2, 0), 1, []byte("hello")))
@@ -536,6 +542,15 @@ func TestCircleMembersAndRoles(t *testing.T) {
 	// a plain member cannot promote; the leader can, and the room hears it (the leader is the actor, so it is skipped)
 	c.send(circleCsAuthority, pbVar(nil, 2, 1))
 	c.expect(circleRcAuthority, pbVar(nil, 1, circleRefused))
+	// PLAN 8.6b part 5: more aids than the circle's member cap (30) is refused, and nothing changes.
+	var over []byte
+	for i := range 31 {
+		over = pbVar(over, 1, uint64(1200+i))
+	}
+	a.send(circleCsAuthority, pbVar(over, 2, 1))
+	a.expect(circleRcAuthority, pbVar(nil, 1, circleRefused))
+	a.send(circleCsFire, over)
+	a.expect(circleRcFire, pbVar(nil, 1, circleRefused))
 	a.send(circleCsAuthority, pbVar(pbVar(nil, 1, 1103), 2, 1))
 	res := a.expectID(circleRcAuthority)
 	if cirVar(res, 1) != 0 || len(cirList(res, 2)) != 1 || cirMembers(cirList(res, 2))[0] != (cirMember{aid: 1103, role: 1, online: true}) {

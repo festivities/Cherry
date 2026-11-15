@@ -48,6 +48,10 @@ var craftExts = []string{".png", ".aniproj"}
 // missTTL is how long a 404 from R2 is remembered, so a missing dp.png is not fetched on every request.
 const missTTL = 10 * time.Minute
 
+// maxMissing bounds the 404 memory (PLAN 8.6b part 5): a flood of distinct missing paths must not grow the process without
+// limit. Over the cap, expired entries go first; a miss that still finds no room is simply asked of R2 again.
+const maxMissing = 65536
+
 type streamingFlag struct {
 	Enabled bool `json:"enabled"`
 }
@@ -65,8 +69,9 @@ type Store struct {
 	streaming    bool                // streaming.json: the patcher is told about R2 and the streamed routes answer
 	state        atomic.Pointer[state]
 	loadMu       sync.Mutex
-	missing      sync.Map // R2 key -> time.Time until which the key counts as absent
-	legacyLogged sync.Map // index file -> true once its legacy manifest/ fallback has been logged
+	missMu       sync.Mutex
+	missing      map[string]time.Time // R2 key -> until which the key counts as absent (missTTL; at most maxMissing)
+	legacyLogged sync.Map             // index file -> true once its legacy manifest/ fallback has been logged
 	itemsMu      sync.Mutex
 	items        *ItemIndex // the originals index (Items); nil until read
 	itemsFailed  time.Time  // when reading the index last failed; retried after missTTL
@@ -490,12 +495,12 @@ func (s *Store) fetch(ctx context.Context, key string) (string, error) {
 	if fi, err := os.Stat(local); err == nil && fi.Mode().IsRegular() {
 		return local, nil
 	}
-	if until, ok := s.missing.Load(key); ok && time.Now().Before(until.(time.Time)) {
+	if s.missed(key) {
 		return "", ErrNotFound
 	}
 	resp, err := s.client.Get(ctx, key)
 	if errors.Is(err, ErrNotFound) {
-		s.missing.Store(key, time.Now().Add(missTTL))
+		s.rememberMiss(key)
 		return "", err
 	}
 	if err != nil {
@@ -506,6 +511,35 @@ func (s *Store) fetch(ctx context.Context, key string) (string, error) {
 		return "", err
 	}
 	return local, nil
+}
+
+// missed reports whether R2 answered 404 for key within missTTL.
+func (s *Store) missed(key string) bool {
+	s.missMu.Lock()
+	defer s.missMu.Unlock()
+	until, ok := s.missing[key]
+	return ok && time.Now().Before(until)
+}
+
+// rememberMiss records R2's 404 for key for missTTL, unless the memory is full of live entries.
+func (s *Store) rememberMiss(key string) {
+	s.missMu.Lock()
+	defer s.missMu.Unlock()
+	now := time.Now()
+	if len(s.missing) >= maxMissing {
+		for k, until := range s.missing {
+			if !now.Before(until) {
+				delete(s.missing, k)
+			}
+		}
+		if len(s.missing) >= maxMissing {
+			return
+		}
+	}
+	if s.missing == nil {
+		s.missing = map[string]time.Time{}
+	}
+	s.missing[key] = now.Add(missTTL)
 }
 
 // writeCopy stores a downloaded body at local. It is checked against Content-Length and, for single-part

@@ -15,7 +15,9 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"time"
 
+	"cherry/internal/config"
 	"cherry/internal/httpx"
 	"cherry/internal/metrics"
 	"cherry/internal/store"
@@ -109,6 +111,9 @@ func serveSessionConn(conn net.Conn, logger *log.Logger) {
 	}
 
 	authed := false // the connection has an account bound; until then only sendInit-sized frames are read
+	// The stock 1:1 chat sends AVCHAT 3003 range requests at ~250/s in bursts (lab 2026-11-11): the session socket gets 4x
+	// the gateway allowance so a dropped request cannot stall the chat.
+	meter := newFrameMeter("SESSION", remote, logger, 4*config.Current().FrameRate, 4*config.Current().FrameBurst)
 	for {
 		var prefix [4]byte
 		if _, err := io.ReadFull(conn, prefix[:]); err != nil {
@@ -130,6 +135,12 @@ func serveSessionConn(conn net.Conn, logger *log.Logger) {
 		if _, err := io.ReadFull(conn, payload); err != nil {
 			logger.Printf("SESSION frame remote=%s len=%d err=%v", remote, length, err)
 			return
+		}
+		if dispatch, closeConn := meter.admit(time.Now()); !dispatch {
+			if closeConn {
+				return
+			}
+			continue
 		}
 		if !handleSessionFrame(c, remote, payload, logger) {
 			return

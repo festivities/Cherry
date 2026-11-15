@@ -309,6 +309,10 @@ type faceShopPurchaseResult struct {
 	Cash int `json:"cash"`
 }
 
+// faceShopMaxList bounds saveItemList and invenItemList of one purchase: a face has a part per category (under twenty), and the
+// skin and the wear slots are a few more. A longer list is refused as a malformed request.
+const faceShopMaxList = 64
+
 func HandleFaceShopPurchase(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		httpx.ServeNotFound(w)
@@ -320,7 +324,7 @@ func HandleFaceShopPurchase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req faceShopPurchaseReq
-	if _, err := httpx.UnmarshalNativeJSON(raw, &req); err != nil || req.SaveItemList == nil {
+	if _, err := httpx.UnmarshalNativeJSON(raw, &req); err != nil || req.SaveItemList == nil || len(req.SaveItemList) > faceShopMaxList || len(req.InvenItemList) > faceShopMaxList {
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
 	}

@@ -575,6 +575,10 @@ func (s *squareSession) handleData(frame []byte) error {
 			s.logger.Printf("SQUARE move invalid")
 			return nil
 		}
+		if len(move) > maxRelayPayload {
+			s.logger.Printf("SQUARE move over %d bytes ignored", maxRelayPayload)
+			return nil
+		}
 		s.room.mu.Lock()
 		s.player.x, s.player.y, s.player.d = tx, ty, dir
 		s.player.seat = nil // walking stands up: rc_player_move_all removes the seat on the others
@@ -625,6 +629,10 @@ func (s *squareSession) handleData(frame []byte) error {
 		action, found, ok := pbBytesField(data, 1)
 		if !ok || !found {
 			s.logger.Printf("SQUARE action invalid")
+			return nil
+		}
+		if len(action) > maxRelayPayload {
+			s.logger.Printf("SQUARE action over %d bytes ignored", maxRelayPayload)
 			return nil
 		}
 		s.logger.Printf("SQUARE action aid=%d fields=%s", s.aid, pbSummary(action))

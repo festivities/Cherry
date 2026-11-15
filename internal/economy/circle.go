@@ -1016,9 +1016,11 @@ func circleBookTx(write bool, op func(b *store.CircleBook) error) error {
 
 // uniqueAids returns aids without repeats, in order.
 func uniqueAids(aids []string) []string {
-	out := []string{}
+	out := make([]string, 0, len(aids))
+	seen := make(map[string]bool, len(aids))
 	for _, a := range aids {
-		if !slices.Contains(out, a) {
+		if !seen[a] {
+			seen[a] = true
 			out = append(out, a)
 		}
 	}

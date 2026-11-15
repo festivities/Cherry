@@ -324,6 +324,12 @@ func TestSquareRosterAndBroadcasts(t *testing.T) {
 	b.expect(12, pbLen(pbVar(nil, 1, 11), 2, act))
 	a.none()
 
+	// PLAN 8.6b part 5: a move or an action over maxRelayPayload goes to nobody.
+	big := bytes.Repeat([]byte{0x08, 0x01}, maxRelayPayload/2+1)
+	a.send(6, pbLen(nil, 1, big))
+	a.send(9, pbLen(nil, 1, big))
+	b.none()
+
 	// Late joiner sees A at its last move target.
 	c := newSqClient(t, room, 3)
 	rc := c.join(33)

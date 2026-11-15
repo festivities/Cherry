@@ -45,6 +45,11 @@ func handleGuestbookWrite(w http.ResponseWriter, r *http.Request) {
 	}
 
 	store.SocialMu.Lock()
+	if capsOn() && entriesToday(actor.Aid, todayKey()) >= maxEntriesPerDay {
+		store.SocialMu.Unlock()
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
 	if store.NextGuestHistNo == ^uint64(0) {
 		store.SocialMu.Unlock()
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)

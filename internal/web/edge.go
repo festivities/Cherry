@@ -10,10 +10,10 @@ import (
 	"cherry/internal/store"
 )
 
-// What the listeners let through before a handler runs (PLAN 8.6b part 4): the plain HTTP port serves a short list of
-// paths, and game requests spend tokens from their address's and account's buckets. Static asset GETs are exempt: the
-// first download is thousands of them (about 2,400 in 2.5 minutes from one client in production), and the connection
-// caps in internal/httpx bound them instead.
+// What the listeners let through before a handler runs (PLAN 8.6b parts 4 and 5): the plain HTTP port serves a short list
+// of paths, and game requests spend tokens from their address's and account's buckets. Static GETs (asset files, which
+// can cost an R2 read or a generated picture) have their own bucket per address, sized for a fresh install (see
+// newLimited); they are exempt from the game buckets, since the first download is thousands of them.
 
 // plainPathAllowed reports whether the plain HTTP listener (client port 80) answers path. The client asks for these over
 // plain HTTP and nothing else: item art under http://play-static.line-scdn.net/img/read/ (IDA host table, live index 15),
@@ -58,19 +58,31 @@ func isStaticGET(r *http.Request) bool {
 }
 
 // newLimited wraps next with the request limits of cfg: a token bucket per remote address (config limits.api-*), one per
-// account that the AV_AUTH token names (limits.account-*), and guest/generate per address a minute (limits.guest-per-minute).
-// A rate of zero is off, which is the lab's setting. Over a limit the answer is 429 with a body the client reads as an error.
+// account that the AV_AUTH token names (limits.account-*), guest/generate per address a minute (limits.guest-per-minute),
+// and static GETs per address (limits.static-*). A rate of zero is off, which is the lab's setting. Over a limit the answer
+// is 429 with a body the client reads as an error.
+//
+// Static sizing (PLAN 8.6b part 5, measured on the lab's request logs, 2026-11-16): a fresh install made 13,255 static GETs
+// in one log, with peaks of 195 in a second, 1,791 in ten seconds and 8,761 in a minute; 150 a second with a burst of 836
+// covers it, and 200 a second needs no burst at all in the three fresh-install logs measured. The burst of 5,000 covers
+// the ten-second peak with room. The bucket is per address, so a carrier NAT shares one bucket among its users; watch the
+// 429 counts before tightening it.
 func newLimited(next http.Handler, cfg config.Config) http.Handler {
 	address := httpx.NewBucket(float64(cfg.APIRate), cfg.APIBurst)
 	account := httpx.NewBucket(float64(cfg.AccountRate), cfg.AccountBurst)
 	guest := httpx.NewBucket(float64(cfg.GuestPerMinute)/60, cfg.GuestPerMinute)
+	static := httpx.NewBucket(float64(cfg.StaticRate), cfg.StaticBurst)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		now := time.Now()
+		addr := httpx.RemoteHost(r.RemoteAddr)
 		if isStaticGET(r) {
+			if !static.Allow(addr, now) {
+				refuseRateLimited(w)
+				return
+			}
 			next.ServeHTTP(w, r)
 			return
 		}
-		now := time.Now()
-		addr := httpx.RemoteHost(r.RemoteAddr)
 		if !address.Allow(addr, now) {
 			refuseRateLimited(w)
 			return

@@ -238,7 +238,14 @@ func deleteAccount(acc *store.Account) error {
 	for _, f := range rels {
 		change.Friends = append(change.Friends, [2]string{f.A, f.B})
 	}
-	if err := store.SaveSocialLocked(change); err != nil {
+	// The pictures go with the avatar (PLAN 8.6b part 5): their rows in the same transaction as the social rows, their files
+	// after that commit. A picture of another player that a legacy post still names is left as a dead link, as it is for a
+	// post the owner deletes.
+	media, err := store.AccountMediaLocked(aid)
+	if err == nil {
+		err = store.SaveSocialMedia(change, media)
+	}
+	if err != nil {
 		store.DiaryPosts, store.GuestbookEntries, store.Friendships = prevPosts, prevBook, prevFriends
 		store.DiaryComments, store.DiaryLikes = prevComments, prevLikes
 		store.GuestbookRead = prevRead
@@ -247,6 +254,7 @@ func deleteAccount(acc *store.Account) error {
 		}
 		return err
 	}
+	store.RemoveMediaFiles(media)
 	return nil
 }
 

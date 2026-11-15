@@ -12,7 +12,7 @@ func TestLimitDefaultsByMode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lab.APIRate != 0 || lab.AccountRate != 0 || lab.GuestPerMinute != 0 || lab.ConnsPerAddress != 1024 || lab.ConnsTotal != 4096 {
+	if lab.APIRate != 0 || lab.AccountRate != 0 || lab.GuestPerMinute != 0 || lab.StaticRate != 0 || lab.FrameRate != 0 || lab.ConnsPerAddress != 1024 || lab.ConnsTotal != 4096 {
 		t.Fatalf("lab limits = %+v, want off with the lab connection caps", lab)
 	}
 	if lab.DeletedDays != 30 || lab.IdleTokenDays != 30 {
@@ -24,7 +24,8 @@ func TestLimitDefaultsByMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	if idc.APIRate != 30 || idc.APIBurst != 400 || idc.AccountRate != 10 || idc.AccountBurst != 200 ||
-		idc.GuestPerMinute != 20 || idc.ConnsPerAddress != 64 || idc.ConnsTotal != 1024 {
+		idc.GuestPerMinute != 20 || idc.ConnsPerAddress != 64 || idc.ConnsTotal != 1024 ||
+		idc.StaticRate != 200 || idc.StaticBurst != 5000 || idc.FrameRate != 100 || idc.FrameBurst != 400 {
 		t.Fatalf("identity limits = %+v, want the identityDefaults", idc)
 	}
 

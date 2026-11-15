@@ -905,6 +905,11 @@ func handleCreateAvatar(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
 	}
+	if len(itemCodes) > createAvatarMaxItems {
+		logCreateAvatarReject("itemCodes", len(raw), fmt.Sprintf("count=%d max=%d", len(itemCodes), createAvatarMaxItems))
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
 	if unknown := unlistedCreationCodes(itemCodes); unknown > 0 && config.IdentityMode() {
 		// Identity modes grant only codes the creation catalogue serves (a creation's items are gifts there, so any other
 		// code would be a free item); a code outside it gets the same 400 as any other malformed creation. The lab keeps any code.
@@ -1030,7 +1035,7 @@ func handleAvatarSaveV2(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req []store.AvatarSaveItem
-	if _, err := httpx.UnmarshalNativeJSON(raw, &req); err != nil || req == nil {
+	if _, err := httpx.UnmarshalNativeJSON(raw, &req); err != nil || req == nil || len(req) > avatarSaveMaxItems {
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
 	}

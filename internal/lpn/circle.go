@@ -616,6 +616,10 @@ func (s *circleSession) move(data []byte) {
 		s.logger.Printf("CIRCLE move invalid")
 		return
 	}
+	if len(move) > maxRelayPayload {
+		s.logger.Printf("CIRCLE move over %d bytes ignored", maxRelayPayload)
+		return
+	}
 	s.room.mu.Lock()
 	s.player.x, s.player.y, s.player.d = tx, ty, dir
 	s.room.mu.Unlock()
@@ -632,6 +636,10 @@ func (s *circleSession) action(data []byte) {
 	action, found, ok := pbBytesField(data, 1)
 	if !ok || !found {
 		s.logger.Printf("CIRCLE action invalid")
+		return
+	}
+	if len(action) > maxRelayPayload {
+		s.logger.Printf("CIRCLE action over %d bytes ignored", maxRelayPayload)
 		return
 	}
 	s.room.broadcast(s.logger, s.player, circleRcPlayerAction, pbLen(pbVar(nil, 1, s.aid), 2, action))
@@ -704,7 +712,12 @@ func (s *circleSession) authority(frame, data []byte) error {
 		return s.reply(frame, circleRcAuthority, pbVar(nil, 1, circleRefused))
 	}
 	change, _ := protobufUintField(data, 2)
-	changed, err := economy.CircleChangeAuth(s.aidText(), id, circleAidList(data), change == 1)
+	ids := circleAidList(data)
+	if len(ids) > economy.CircleCapOf(id) { // no more aids than the circle has members at most
+		s.logger.Printf("CIRCLE authority aid=%d refused: %d aids over the member cap", s.aid, len(ids))
+		return s.reply(frame, circleRcAuthority, pbVar(nil, 1, circleRefused))
+	}
+	changed, err := economy.CircleChangeAuth(s.aidText(), id, ids, change == 1)
 	if err != nil {
 		s.logger.Printf("CIRCLE authority aid=%d refused: %v", s.aid, err)
 		return s.reply(frame, circleRcAuthority, pbVar(nil, 1, circleRefused))
@@ -756,7 +769,12 @@ func (s *circleSession) fire(frame, data []byte) error {
 	if !ok {
 		return s.reply(frame, circleRcFire, pbVar(nil, 1, circleRefused))
 	}
-	removed, err := economy.CircleFire(s.aidText(), id, circleAidList(data))
+	ids := circleAidList(data)
+	if len(ids) > economy.CircleCapOf(id) { // no more aids than the circle has members at most
+		s.logger.Printf("CIRCLE fire aid=%d refused: %d aids over the member cap", s.aid, len(ids))
+		return s.reply(frame, circleRcFire, pbVar(nil, 1, circleRefused))
+	}
+	removed, err := economy.CircleFire(s.aidText(), id, ids)
 	if err != nil {
 		s.logger.Printf("CIRCLE fire aid=%d refused: %v", s.aid, err)
 		return s.reply(frame, circleRcFire, pbVar(nil, 1, circleRefused))

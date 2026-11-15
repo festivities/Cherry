@@ -245,6 +245,11 @@ func handleDiaryCommentWrite(w http.ResponseWriter, r *http.Request) {
 		httpx.ServeNotFound(w)
 		return
 	}
+	if capsOn() && commentsToday(actor.Aid, todayKey()) >= maxCommentsPerDay {
+		store.SocialMu.Unlock()
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
 	if store.NextCommentNo == ^uint64(0) {
 		store.SocialMu.Unlock()
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
@@ -420,6 +425,11 @@ func handleDiaryLikeSave(w http.ResponseWriter, r *http.Request) {
 	index := slices.IndexFunc(prev, func(l store.DiaryLike) bool {
 		return l.OwnerAvatarID == owner && l.DiaryNo == diaryNo && l.LikeAvatarID == actor.Aid
 	})
+	if index < 0 && kind > 0 && capsOn() && likesToday(actor.Aid, todayKey()) >= maxLikesPerDay {
+		store.SocialMu.Unlock()
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
 	next := slices.Clone(prev)
 	switch {
 	case kind == 0 && index >= 0:
@@ -431,6 +441,7 @@ func handleDiaryLikeSave(w http.ResponseWriter, r *http.Request) {
 		next = append(next, store.DiaryLike{
 			LikeNo: strconv.FormatUint(store.NextLikeNo, 10), DiaryNo: diaryNo, OwnerAvatarID: owner,
 			LikeAvatarID: actor.Aid, Nickname: nickname, LikeType: kind,
+			Date: strconv.FormatInt(time.Now().UnixMilli(), 10),
 		})
 	}
 	store.DiaryLikes = next

@@ -284,3 +284,34 @@ func TestScrubDeletedBackupsKeepsOnlyAidAndTimeOfOldRecords(t *testing.T) {
 		t.Fatalf("retention off scrubbed %d (err %v)", n, err)
 	}
 }
+
+// TestStaticGETsHaveTheirOwnBucket (PLAN 8.6b part 5): static GETs spend their own bucket per address, the game bucket of
+// that address is not spent by them, and another address has its own static bucket.
+func TestStaticGETsHaveTheirOwnBucket(t *testing.T) {
+	cfg := config.Config{StaticRate: 1, StaticBurst: 2, APIRate: 1, APIBurst: 1}
+	h := newLimited(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }), cfg)
+	get := func(path, remote string) int {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.RemoteAddr = remote
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	for i := range 2 {
+		if c := get("/arts_item_dress_1/dp.png", "192.0.2.40:1"); c != http.StatusOK {
+			t.Fatalf("static GET %d of the burst = %d", i+1, c)
+		}
+	}
+	if c := get("/arts_item_dress_1/dp.png", "192.0.2.40:2"); c != http.StatusTooManyRequests {
+		t.Fatalf("static GET past the burst = %d, want 429", c)
+	}
+	if c := get("/v4/profile/41", "192.0.2.40:3"); c != http.StatusOK {
+		t.Fatalf("the game bucket was spent by static GETs: %d", c)
+	}
+	if c := get("/v4/profile/41", "192.0.2.40:4"); c != http.StatusTooManyRequests {
+		t.Fatalf("second game request = %d, want 429 from the game bucket", c)
+	}
+	if c := get("/arts_item_dress_1/dp.png", "192.0.2.41:1"); c != http.StatusOK {
+		t.Fatalf("another address shares the static bucket: %d", c)
+	}
+}

@@ -103,6 +103,8 @@ type DiaryLike struct {
 	LikeAvatarID  string `json:"likeAvatarId"`
 	Nickname      string `json:"nickname"`
 	LikeType      int    `json:"likeType"`
+	// Date is the millisecond time the like was made (the daily like cap counts by it); empty for likes made before it was kept.
+	Date string `json:"date,omitempty"`
 }
 
 func ValidAvatarID(id string) bool {

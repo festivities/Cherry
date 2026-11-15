@@ -76,12 +76,21 @@ func handlePinAdd(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusOK, `{"result":false}`)
 		return
 	}
+	full := false
 	found, err := editPins(httpx.CookieValue(r, "AV_AUTH"), func(pins []string) []string {
 		if slices.Contains(pins, aid) {
 			return pins
 		}
+		if capsOn() && len(pins) >= maxPins {
+			full = true
+			return pins
+		}
 		return append(slices.Clone(pins), aid)
 	})
+	if full {
+		httpx.WriteJSON(w, http.StatusOK, `{"result":false}`) // the answer for a self or unknown aid: no error popup
+		return
+	}
 	writePinResult(w, found, err)
 }
 

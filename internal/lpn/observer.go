@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"cherry/internal/config"
 	"cherry/internal/economy"
 	"cherry/internal/metrics"
 )
@@ -128,6 +129,7 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 	gather := &gardenGather{}       // this connection's touch state (garden_gather.go)
 	landscape := &gardenLandscape{} // this connection's editor preview (garden_landscape.go)
 	defer func() { gardenLeave(gardenLoginAid, logger) }()
+	meter := newFrameMeter("GATEWAY", remote, logger, config.Current().FrameRate, config.Current().FrameBurst)
 	var prefix [4]byte
 	for {
 		if err := conn.SetDeadline(hard); err != nil {
@@ -163,6 +165,12 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 		if _, err := io.ReadFull(conn, frame); err != nil {
 			logger.Printf("OBS %s frame remote=%s len=%d err=%v", addr, remote, length, err)
 			return
+		}
+		if dispatch, closeConn := meter.admit(time.Now()); !dispatch {
+			if closeConn {
+				return
+			}
+			continue
 		}
 		if frame[0] == 'D' && length >= 18 {
 			agent := int(frame[10])

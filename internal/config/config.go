@@ -60,6 +60,9 @@ type Config struct {
 	ConnsPerAddress, ConnsTotal                  int
 	APIRate, APIBurst, AccountRate, AccountBurst int
 	GuestPerMinute                               int
+	// Static GETs (asset files, pictures) per address, and frames a second per gateway or session connection (PLAN 8.6b
+	// part 5). A frame over the limit is dropped; a connection that sends ten times the rate for long enough is closed.
+	StaticRate, StaticBurst, FrameRate, FrameBurst int
 	// Retention (PLAN 8.6b part 4): days a deleted account keeps its personal fields, and days an alias token may stay unused.
 	DeletedDays, IdleTokenDays int
 }
@@ -105,6 +108,10 @@ var settings = []setting{
 	{"limits.account-rate", "0", "game requests a second an account earns, token bucket per AV_AUTH account (identity modes: 10; 0 = off)"},
 	{"limits.account-burst", "0", "game requests an account may send at once (identity modes: 200)"},
 	{"limits.guest-per-minute", "0", "guest/generate calls an address may make a minute (identity modes: 20; 0 = off)"},
+	{"limits.static-rate", "0", "static GETs (asset files, pictures) an address earns a second, token bucket (identity modes: 200; 0 = off)"},
+	{"limits.static-burst", "0", "static GETs an address may send at once (identity modes: 5000)"},
+	{"limits.frame-rate", "0", "frames a second a gateway or session connection earns, token bucket; over it frames are dropped (identity modes: 100; 0 = off)"},
+	{"limits.frame-burst", "0", "frames a connection may send at once (identity modes: 400); ten times both values close a flooding connection"},
 	{"retention.deleted-days", "30", "days a deleted avatar keeps its personal fields in deleted-accounts.jsonl; then only its aid and time remain"},
 	{"retention.idle-token-days", "30", "days an alias token may go unused before it is pruned; the device then signs in again"},
 }
@@ -116,6 +123,8 @@ var identityDefaults = map[string]string{
 	"limits.api-rate": "30", "limits.api-burst": "400",
 	"limits.account-rate": "10", "limits.account-burst": "200",
 	"limits.guest-per-minute": "20",
+	"limits.static-rate":      "200", "limits.static-burst": "5000",
+	"limits.frame-rate": "100", "limits.frame-burst": "400",
 }
 
 // Load resolves the configuration and checks it. args are the command-line flags, lookup reads the environment
@@ -236,6 +245,8 @@ func parse(args []string, lookup func(string) (string, bool)) (Config, error) {
 		{"limits.api-rate", &c.APIRate}, {"limits.api-burst", &c.APIBurst},
 		{"limits.account-rate", &c.AccountRate}, {"limits.account-burst", &c.AccountBurst},
 		{"limits.guest-per-minute", &c.GuestPerMinute},
+		{"limits.static-rate", &c.StaticRate}, {"limits.static-burst", &c.StaticBurst},
+		{"limits.frame-rate", &c.FrameRate}, {"limits.frame-burst", &c.FrameBurst},
 		{"retention.deleted-days", &c.DeletedDays}, {"retention.idle-token-days", &c.IdleTokenDays},
 	} {
 		v, err := strconv.Atoi(values[n.key])
@@ -262,7 +273,7 @@ func (c Config) check() error {
 	for _, l := range []struct {
 		name        string
 		rate, burst int
-	}{{"api", c.APIRate, c.APIBurst}, {"account", c.AccountRate, c.AccountBurst}} {
+	}{{"api", c.APIRate, c.APIBurst}, {"account", c.AccountRate, c.AccountBurst}, {"static", c.StaticRate, c.StaticBurst}, {"frame", c.FrameRate, c.FrameBurst}} {
 		if l.rate > 0 && l.burst < 1 {
 			return fmt.Errorf("config: limits.%s-rate needs limits.%s-burst of at least 1", l.name, l.name)
 		}

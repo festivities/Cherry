@@ -631,8 +631,14 @@ func handleDiaryWrite(w http.ResponseWriter, r *http.Request) {
 		ImageLocationType: store.DiaryImageLocationType(images), FeelingState: feeling, Images: images,
 	}
 	store.SocialMu.Lock()
-	stored := insertDiaryPostLocked(&post)
+	full := capsOn() && postsToday(actor.Aid, todayKey()) >= maxPostsPerDay
+	stored := !full && insertDiaryPostLocked(&post)
 	store.SocialMu.Unlock()
+	if full {
+		log.Printf("cherry: diary post refused aid=%s: daily limit", actor.Aid)
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
 	if !stored {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
@@ -749,8 +755,14 @@ func handleAchieveWrite(w http.ResponseWriter, r *http.Request) {
 		AchieveData: req.AchieveData, AchieveLinkValue: req.AchieveLinkValue, AchieveDataDetail: req.AchieveDataDetail,
 	}
 	store.SocialMu.Lock()
-	stored := insertDiaryPostLocked(&post)
+	full := capsOn() && postsToday(actor.Aid, todayKey()) >= maxPostsPerDay
+	stored := !full && insertDiaryPostLocked(&post)
 	store.SocialMu.Unlock()
+	if full {
+		log.Printf("cherry: diary post refused aid=%s: daily limit", actor.Aid)
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
 	if !stored {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
@@ -1023,6 +1035,11 @@ func setFriendship(w http.ResponseWriter, actor, other string, accept bool) {
 	store.SocialMu.Lock()
 	prev := append([]store.Friendship(nil), store.Friendships...)
 	i := store.FriendshipIndex(actor, other, "")
+	if capsOn() && friendsFullLocked(actor, other, accept, i) {
+		store.SocialMu.Unlock()
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
 	switch {
 	case accept && (i < 0 || store.Friendships[i].State != "pending" || store.Friendships[i].B != actor):
 		if i >= 0 && store.Friendships[i].State == "accepted" {

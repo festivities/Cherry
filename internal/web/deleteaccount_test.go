@@ -4,6 +4,7 @@ import (
 	"cherry/internal/testutil"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"strconv"
 	"testing"
 
+	"cherry/internal/config"
 	"cherry/internal/httpx"
 	"cherry/internal/store"
 )
@@ -218,5 +220,51 @@ func refuseSocialDeletes(t *testing.T) {
 		return err
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestDeleteAccountRemovesItsPictures (PLAN 8.6b part 5): the avatar's picture rows and files go with it, the files after the
+// save; another player's pictures stay.
+func TestDeleteAccountRemovesItsPictures(t *testing.T) {
+	f := delSetup(t)
+	uploadConfig(t, config.Config{DataDir: f.dir, CacheDir: f.dir})
+	put := func(kind, owner, userID, ctime string) string {
+		t.Helper()
+		oid := userID + "_" + ctime
+		file := store.MediaFileName(userID, ctime, oid)
+		dir := filepath.Join(f.dir, kind+"-media")
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, file), []byte("img"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		recordPicture(t, kind, owner, userID, ctime, oid)
+		return file
+	}
+	mine := put(store.MediaDiary, "9501", "9501", "1760000100")
+	mineProfile := put(store.MediaProfile, "9501", "9501", "1760000200")
+	theirs := put(store.MediaDiary, "9502", "9502", "1760000300")
+
+	if rec := f.del(t, "dtok"); rec.Code != http.StatusOK || rec.Body.String() != `{"result":true}` {
+		t.Fatalf("delete = %d %s", rec.Code, rec.Body.String())
+	}
+	for _, file := range []string{mine, mineProfile} {
+		if _, found, _ := store.MediaRowByFile(file); found {
+			t.Fatalf("the deleted avatar's picture row %s remains", file)
+		}
+		kind := store.MediaDiary
+		if file == mineProfile {
+			kind = store.MediaProfile
+		}
+		if _, err := os.Stat(filepath.Join(f.dir, kind+"-media", file)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("the deleted avatar's picture file remains: %v", err)
+		}
+	}
+	if _, found, _ := store.MediaRowByFile(theirs); !found {
+		t.Fatal("another player's picture row went with the deleted avatar")
+	}
+	if _, err := os.Stat(filepath.Join(f.dir, store.MediaDiary+"-media", theirs)); err != nil {
+		t.Fatalf("another player's picture file: %v", err)
 	}
 }

@@ -126,7 +126,7 @@ func handleSessionStatus(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		_, err = httpx.UnmarshalNativeJSON(raw, &aids)
 	}
-	if err != nil || aids == nil {
+	if err != nil || aids == nil || len(aids) > sessionStatusMax {
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
 	}

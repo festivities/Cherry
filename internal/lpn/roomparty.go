@@ -937,6 +937,10 @@ func (s *roomPartySession) relay(msgid uint16, data []byte) error {
 			s.logger.Printf("ROOMPARTY move invalid")
 			return nil
 		}
+		if len(move) > maxRelayPayload {
+			s.logger.Printf("ROOMPARTY move over %d bytes ignored", maxRelayPayload)
+			return nil
+		}
 		h.mu.Lock()
 		s.pm.move = append([]byte(nil), move...)
 		s.pm.nmov++
@@ -976,6 +980,10 @@ func (s *roomPartySession) relay(msgid uint16, data []byte) error {
 		action, found, ok := pbBytesField(data, 1)
 		if !ok || !found {
 			s.logger.Printf("ROOMPARTY action invalid")
+			return nil
+		}
+		if len(action) > maxRelayPayload {
+			s.logger.Printf("ROOMPARTY action over %d bytes ignored", maxRelayPayload)
 			return nil
 		}
 		h.mu.Lock()
