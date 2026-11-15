@@ -114,6 +114,16 @@ func main() {
 	if err != nil {
 		logger.Fatalf("cherry: generate certs: %v", err)
 	}
+	// The operator's pair (tls.cert-file) serves the server.hostnames names; every other name keeps the self-signed pair.
+	var operator *netsvc.PEMStore
+	if cfg.TLSCert != "" {
+		if operator, err = netsvc.NewPEMStore(cfg.TLSCert, cfg.TLSKey, time.Now, logger, "game"); err != nil {
+			logger.Fatalf("cherry: %v", err)
+		}
+		logger.Printf("cherry: game certificate: operator PEM %s for %s; other names get the self-signed pair", cfg.TLSCert, strings.Join(cfg.Hostnames, ", "))
+	} else {
+		logger.Printf("cherry: game certificate: self-signed only (tls.cert-file is empty)")
+	}
 
 	// The sign-in and discovery routes exist on the HTTPS game port only; the plain HTTP port serves the game mux.
 	svc, err := auth.New(cfg, logger)
@@ -135,7 +145,10 @@ func main() {
 		IdleTimeout:       120 * time.Second,
 		TLSNextProto:      map[string]func(*http.Server, *tls.Conn, http.Handler){},
 		TLSConfig: &tls.Config{
-			Certificates:       certs,
+			Certificates: certs,
+			GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+				return netsvc.OperatorCert(hello.ServerName, cfg.Hostnames, operator), nil
+			},
 			MinVersion:         tls.VersionTLS12,
 			NextProtos:         []string{"http/1.1"},
 			GetConfigForClient: netsvc.DenyBlockedSNI,

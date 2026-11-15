@@ -54,6 +54,7 @@ The patched client swaps only the authority of LINE web URLs (`event.play.naver.
 ## 6 TLS and certificates
 
 - The operator hostname uses an **RSA** certificate obtained by an external ACME client (DNS-01) and supplied as PEM files; Cherry reloads them without restart. No ACME client inside Cherry.
+- **Built (2026-11-15):** settings `tls.cert-file` / `tls.key-file` serve the `server.hostnames` names on the game HTTPS listener, chosen by SNI (case-insensitive, one trailing dot ignored); every other name keeps the per-SNI self-signed pair; the pair reloads within 30 s of a file change (`netsvc.PEMStore`, shared with the staff UI); `server.public=true` requires it.
 - Native-client listeners keep the static-RSA cipher suites (explicit `CipherSuites`, the client's old OpenSSL needs them); browsers and WebView also get modern suites. The admin listener offers modern suites only.
 - Per-SNI self-signed certificates for the host set stay as today; SNI `lan3rd.line.me` stays blocked.
 
@@ -101,3 +102,4 @@ The stock-client emulator lab keeps working through the refactor in `lab-guest` 
 - 2026-11-11 — §3 endpoints, §4 discovery and §9 `dev-fake` implemented on the server (slice 8.6a; details in §10). Additions to the shared rules, proposed: exchange may answer 500 `{"error":"server"}`; `start` refuses unknown query keys; the account is created at `exchange`. Not yet: bans, code revocation, the sign-up gate, the final refused-`guest/generate` body (8.6b).
 - 2026-11-12 — sign-up gate built: `exchange` may answer 403 `{"error":"signup_closed"}`; gateway logins verified against the session key in every mode; Delete Avatar in identity modes revokes the avatar's tokens (slice 8.6b; §10).
 - 2026-11-15 — bans built (slice 8.7 part 2a): `error=banned` at `callback`, 403 `banned` at `exchange`, tokens revoked (§10).
+- 2026-11-15 — game HTTPS operator certificate built (§6): `tls.cert-file` / `tls.key-file` serve `server.hostnames` by SNI; self-signed per-SNI for every other name; `server.public=true` needs the pair.

@@ -198,6 +198,35 @@ func TestSignupDefaultsAndChecks(t *testing.T) {
 	}
 }
 
+// TestGameTLSSettings: the game listener's PEM pair is both-or-neither, needs server.hostnames, and is required when public.
+func TestGameTLSSettings(t *testing.T) {
+	pub := append(discordArgs(t, 0o600), "-server-public=true", "-server-hostnames=op.example")
+	pair := []string{"-tls-cert-file=/g.pem", "-tls-key-file=/g.key"}
+	with := func(extra ...string) []string { return append(append([]string{}, pub...), extra...) }
+	cases := []struct {
+		name string
+		args []string
+		want string // "" = loads
+	}{
+		{"public with the pair", with(pair...), ""},
+		{"public without the pair", pub, "server.public=true needs tls.cert-file and tls.key-file"},
+		{"certificate without key", with("-tls-cert-file=/g.pem"), "tls.cert-file and tls.key-file must be set together"},
+		{"key without certificate", with("-tls-key-file=/g.key"), "tls.cert-file and tls.key-file must be set together"},
+		{"pair without hostnames", pair, "tls.cert-file needs server.hostnames"},
+		{"pair and hostnames, lab", []string{"-server-hostnames=op.example", "-tls-cert-file=/g.pem", "-tls-key-file=/g.key"}, ""},
+		{"hostnames alone, lab", []string{"-server-hostnames=op.example"}, ""},
+	}
+	for _, tc := range cases {
+		_, err := Load(tc.args, none)
+		if tc.want == "" && err != nil || tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)) {
+			t.Errorf("%s: err = %v, want it to contain %q", tc.name, err, tc.want)
+		}
+	}
+	if c, err := Load(with(pair...), none); err != nil || c.TLSCert != "/g.pem" || c.TLSKey != "/g.key" {
+		t.Errorf("the pair is not kept: %+v, %v", c, err)
+	}
+}
+
 func TestDevFakeStarts(t *testing.T) {
 	c, err := Load([]string{"-auth-mode=dev-fake"}, none)
 	if err != nil || c.AuthMode != AuthDevFake {

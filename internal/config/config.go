@@ -45,6 +45,7 @@ type Config struct {
 	DataDir, CacheDir                         string
 	Public                                    bool
 	Hostnames                                 []string
+	TLSCert, TLSKey                           string // the game listener's operator pair (tls.cert-file, tls.key-file); "" = self-signed only
 	AuthMode                                  string
 	Signup, AllowlistFile                     string // resolved by parse: Signup is never "" there (DefaultSignup)
 	DiscordClientID, DiscordSecretFile        string // the secret itself is read from the file, never a setting
@@ -68,6 +69,8 @@ var settings = []setting{
 	{"cache.dir", "", "re-downloadable caches: static, dp-cache"},
 	{"server.public", "false", "public server: needs auth.mode discord, no DNS sink"},
 	{"server.hostnames", "", "operator hostnames, added to the certificate names (comma-separated)"},
+	{"tls.cert-file", "", "PEM certificate chain (RSA) for the server.hostnames names on the game HTTPS listener; reloaded when the file changes; empty = self-signed only"},
+	{"tls.key-file", "", "PEM private key for tls.cert-file"},
 	{"auth.mode", AuthLabGuest, "lab-guest, discord or dev-fake"},
 	{"auth.signup", "", "open, allowlist or closed: who may make a new account (empty = allowlist in discord mode, open otherwise; lab-guest ignores it)"},
 	{"auth.allowlist-file", "", "text file of Discord ids allowed to make a new account (auth.signup allowlist): one per line, discord:<id> or <id>, # comments"},
@@ -152,6 +155,7 @@ func parse(args []string, lookup func(string) (string, bool)) (Config, error) {
 		StaffCert: values["staff.tls-cert-file"], StaffKey: values["staff.tls-key-file"],
 		StaffOwner: strings.TrimSpace(values["staff.owner"]), StaffAllowlistFile: values["staff.allowlist-file"],
 		StaffRedirect: strings.TrimSpace(values["staff.discord.redirect"]),
+		TLSCert:       values["tls.cert-file"], TLSKey: values["tls.key-file"],
 	}
 	if c.Signup == "" {
 		c.Signup = DefaultSignup(c.AuthMode)
@@ -215,6 +219,15 @@ func (c Config) check() error {
 		if err := checkSecretFile(c.DiscordSecretFile); err != nil {
 			return fmt.Errorf("config: auth.discord.secret-file: %v", err)
 		}
+	}
+	if (c.TLSCert == "") != (c.TLSKey == "") {
+		return errors.New("config: tls.cert-file and tls.key-file must be set together")
+	}
+	if c.Public && c.TLSCert == "" {
+		return errors.New("config: server.public=true needs tls.cert-file and tls.key-file (a publicly trusted RSA certificate for server.hostnames)")
+	}
+	if c.TLSCert != "" && len(c.Hostnames) == 0 {
+		return errors.New("config: tls.cert-file needs server.hostnames")
 	}
 	if err := c.checkStaff(); err != nil {
 		return err
