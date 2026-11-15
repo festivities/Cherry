@@ -1102,10 +1102,15 @@ func handleAvatarInfo(w http.ResponseWriter, r *http.Request) {
 		info.Items = store.AvatarItemsFromCodes(workableLook("FEMALE"))
 	} else if sex, ok := store.ActiveProfiles().CloneAvatars[id]; ok {
 		// The four clone avatars the create flow asks for (NaCreateLayer::InitCloneAvatars); their
-		// synthesized appearance is operator data (profiles.json). The authentic ones are not in the archives.
+		// synthesized appearance is operator data (profiles.json): clone_looks where given, else the sex's look.
 		info.Name = store.ActiveProfiles().CloneName
 		info.Gender = sex
-		info.Items = store.AvatarItemsFromCodes(workableLook(sex))
+		codes := workableLook(sex)
+		if look, ok := store.CloneLookOf(id); ok {
+			info.Skin = look.Skin
+			codes = look.Codes
+		}
+		info.Items = store.AvatarItemsFromCodes(codes)
 	}
 	payload, _ := json.Marshal(struct {
 		Result store.AvatarInfoResult `json:"result"`

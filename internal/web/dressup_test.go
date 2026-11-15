@@ -424,6 +424,10 @@ func TestCreateFaceAnalyze(t *testing.T) {
 	}
 }
 
+// cherryMascotCodes is the closet mascot's worn set (NaExperienceOfApp::InitUI @0x1cfcfc0) without its two
+// codes that have no art (CUBD00001, CUSD00001). profiles.json clone_looks gives it to the speaking guide.
+var cherryMascotCodes = []string{"CUHE0000M", "CUNO00042", "CUHA002GJ", "CUEY000K3", "CUEB0009Y", "CUMO000E9", "CUFE000AV", "CUSH002BH", "CUON0059S", "CUAH0067V"}
+
 func TestAvatarInfoTutorialFixtures(t *testing.T) {
 	for id, sex := range store.ActiveProfiles().CloneAvatars {
 		rec := serve(t, http.MethodGet, "/v4/avatar/"+id)
@@ -452,14 +456,26 @@ func TestAvatarInfoTutorialFixtures(t *testing.T) {
 			t.Errorf("%s: skin/name/sType empty: %+v", id, body.Result)
 		}
 		want := workableLook(sex)
+		look, hasLook := store.CloneLookOf(id)
+		if hasLook {
+			// The speaking guide wears the closet mascot (profiles.json clone_looks); the other clones keep their sex look.
+			want = look.Codes
+			if body.Result.Skin != look.Skin {
+				t.Errorf("%s: skin = %q, want %q (clone look)", id, body.Result.Skin, look.Skin)
+			}
+			if !slices.Equal(want, cherryMascotCodes) {
+				t.Errorf("%s: clone look = %v, want the closet mascot %v", id, want, cherryMascotCodes)
+			}
+		}
 		if len(body.Result.Items) != len(want) {
-			t.Fatalf("%s: items = %+v, want sex-appropriate look %v", id, body.Result.Items, want)
+			t.Fatalf("%s: items = %+v, want look %v", id, body.Result.Items, want)
 		}
 		for i, item := range body.Result.Items {
 			if item.CD != want[i] {
-				t.Errorf("%s: item[%d] = %q, want %q (sex-appropriate look)", id, i, item.CD, want[i])
+				t.Errorf("%s: item[%d] = %q, want %q (look)", id, i, item.CD, want[i])
 			}
-			if !fixtureItemCodes[item.CD] {
+			// The mascot codes are the client's own originals, not the verified creation catalogue.
+			if !hasLook && !fixtureItemCodes[item.CD] {
 				t.Errorf("%s: item %q unverified", id, item.CD)
 			}
 			if item.InvenSeq != "0" || item.DyeType != 0 || len(item.ColorAndTransparencies) != 0 {

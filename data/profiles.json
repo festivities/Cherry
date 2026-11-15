@@ -1,13 +1,16 @@
 {
   "origin": "mixed",
-  "note": "Mixed. ORIGINAL: the four clone avatar ids (1151262555912366100, 1151262590612422506, 1151262602112441105, 1151262571612391402: the built-in avatars NaCreateLayer::InitCloneAvatars requests, observed in JICAMA.md), and the lab grant item codes (their shape is checked). CHERRY-MADE: the synthetic friend's name (its aid 100000, store.FriendAID, is Cherry's), the clone name, each clone's sex and looks (the authentic item lists are not in the archives).",
+  "note": "Mixed. ORIGINAL: the four clone avatar ids (1151262555912366100, 1151262590612422506, 1151262602112441105, 1151262571612391402: the built-in avatars NaCreateLayer::InitCloneAvatars requests, observed in JICAMA.md); the lab grant item codes (their shape is checked); the mascot look in clone_looks, which is the closet mascot's worn set: NaExperienceOfApp::InitUI (libgame.so v10.1.0.0, 0x1cfcfc0) passes the 12 codes below to InitNpcAvatar (0x1cfcd90) in this order, skin 001 (SetBodyColor(atoi) = 1), gender FEMALE, id 1155131794639385601. CUBD00001 and CUSD00001 are the first two of those 12 codes and are left out: no item art in Cherry's originals index and no category letters in internal/itemcode. CHERRY-MADE: the synthetic friend's name (its aid 100000, store.FriendAID, is Cherry's), the clone name, each clone's sex, and the assignment of the mascot look to the speaking guide (the first clone of NaCreateLayer::InitCloneAvatars: 1151262555912366100 on a JP client, whose step-1 line 9445 'Hey! It's good to see you again!' fits the mascot met in the closet; ShowStepClone steps 1 to 6). The West guide 1151262590612422506 (GB/US/CA/AU, IsWestAvatarNation 0x1b7cae0) introduces itself as Amber (string 242), so it keeps the FEMALE look; Cherry serves nation JP. The other two clone ids keep their looks, and the Female/Male/Animal previews are local (InitCloneAvatars AddCloneCreate), not these ids. The authentic server item lists are not in the archives.",
   "friend_name": "Friend",
   "clone_name": "cherry",
   "clone_avatars": {
-    "1151262555912366100": "MALE",
+    "1151262555912366100": "FEMALE",
     "1151262590612422506": "FEMALE",
     "1151262602112441105": "ANIMAL",
     "1151262571612391402": "MALE"
+  },
+  "clone_looks": {
+    "1151262555912366100": {"skin": "1", "codes": ["CUHE0000M", "CUNO00042", "CUHA002GJ", "CUEY000K3", "CUEB0009Y", "CUMO000E9", "CUFE000AV", "CUSH002BH", "CUON0059S", "CUAH0067V"]}
   },
   "lab_grant_codes": ["CUHA0036Z", "CUON004TV", "CUSH00267", "CUAH004JH"]
 }

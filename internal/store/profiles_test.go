@@ -46,15 +46,29 @@ func TestProfilesDefaults(t *testing.T) {
 	if got := CuratedGrantCodes(); strings.Join(got, " ") != "CUHA0036Z CUON004TV CUSH00267 CUAH004JH" {
 		t.Fatalf("CuratedGrantCodes = %v", got)
 	}
+	// The speaking guide (first clone of InitCloneAvatars on a JP client) wears the closet mascot; the
+	// type-preview clones keep the sex look (no clone_looks entry).
+	look, ok := CloneLookOf("1151262555912366100")
+	if want := "CUHE0000M CUNO00042 CUHA002GJ CUEY000K3 CUEB0009Y CUMO000E9 CUFE000AV CUSH002BH CUON0059S CUAH0067V"; !ok || look.Skin != "1" || strings.Join(look.Codes, " ") != want {
+		t.Fatalf("CloneLookOf(guide) = %+v %t", look, ok)
+	}
+	if _, ok := CloneLookOf("1151262571612391402"); ok {
+		t.Fatal("a type-preview clone must not carry the mascot look")
+	}
 }
 
 func TestProfilesFileRefusals(t *testing.T) {
 	t.Cleanup(profilesFile.Reset)
 	cases := []struct{ text, want string }{
 		{mutateProfiles(t, `"clone_name"`, `"clone_nam"`), "unknown field"},
+		{mutateProfiles(t, `"clone_looks"`, `"clone_lookz"`), "unknown field"},
 		{mutateProfiles(t, `"Friend"`, `"  "`), "friend_name must not be empty"},
-		{mutateProfiles(t, `"1151262555912366100": "MALE"`, `"1151262555912366100": "ROBOT"`), "type must be MALE, FEMALE or ANIMAL"},
+		{mutateProfiles(t, `"1151262555912366100": "FEMALE"`, `"1151262555912366100": "ROBOT"`), "type must be MALE, FEMALE or ANIMAL"},
 		{mutateProfiles(t, `"1151262590612422506"`, `"11512x590612422506"`), "id must be digits"},
+		{mutateProfiles(t, `"1151262555912366100": {"skin"`, `"1151262555912366199": {"skin"`), "clone_looks 1151262555912366199: not a clone avatar"},
+		{mutateProfiles(t, `"skin": "1", "codes": ["CUHE0000M"`, `"skin": "x1", "codes": ["CUHE0000M"`), "clone_looks 1151262555912366100: skin must be digits"},
+		{mutateProfiles(t, `"CUNO00042", `, `"CUNO0004", `), `clone_looks 1151262555912366100: "CUNO0004" must be an item code, listed once`},
+		{mutateProfiles(t, `"CUNO00042", `, `"CUHE0000M", `), `clone_looks 1151262555912366100: "CUHE0000M" must be an item code, listed once`},
 		{mutateProfiles(t, `"CUHA0036Z", `, `"CUHA0036", `), `lab_grant_codes: "CUHA0036" must be an item code`},
 		{mutateProfiles(t, `"CUON004TV", `, `"CUHA0036Z", `), "listed once"},
 	}

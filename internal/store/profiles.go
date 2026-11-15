@@ -19,13 +19,22 @@ import (
 //	friend_name      the display name of the synthetic friend (FriendAID)
 //	clone_name       the display name of every clone avatar
 //	clone_avatars    {avatar id: "MALE" | "FEMALE" | "ANIMAL"}: the sex of each clone avatar
+//	clone_looks      {avatar id: look} for clone avatars that wear a given look instead of the sex's workable look
 //	lab_grant_codes  clothing item codes every lab account owns on top of its inventory (LabAids)
 type Profiles struct {
 	opdata.Provenance
-	FriendName    string            `json:"friend_name"`
-	CloneName     string            `json:"clone_name"`
-	CloneAvatars  map[string]string `json:"clone_avatars"`
-	LabGrantCodes []string          `json:"lab_grant_codes"`
+	FriendName    string               `json:"friend_name"`
+	CloneName     string               `json:"clone_name"`
+	CloneAvatars  map[string]string    `json:"clone_avatars"`
+	CloneLooks    map[string]CloneLook `json:"clone_looks"`
+	LabGrantCodes []string             `json:"lab_grant_codes"`
+}
+
+// CloneLook is a clone avatar's appearance: its skin (the body colour index as a string, read with atoi by
+// the client) and its worn item codes in equip order.
+type CloneLook struct {
+	Skin  string   `json:"skin"`
+	Codes []string `json:"codes"`
 }
 
 var profilesFile = opdata.New("profiles.json", data.ProfilesJSON, checkProfiles, nil)
@@ -41,6 +50,12 @@ func FriendName() string { return ActiveProfiles().FriendName }
 
 // CuratedGrantCodes are the clothing codes lab accounts own in addition to their inventory.
 func CuratedGrantCodes() []string { return ActiveProfiles().LabGrantCodes }
+
+// CloneLookOf is the look a clone avatar wears when profiles.json gives it one.
+func CloneLookOf(id string) (CloneLook, bool) {
+	look, ok := ActiveProfiles().CloneLooks[id]
+	return look, ok
+}
 
 func checkProfiles(p *Profiles) error {
 	if err := p.CheckOrigin("mixed"); err != nil {
@@ -60,6 +75,25 @@ func checkProfiles(p *Profiles) error {
 		case "MALE", "FEMALE", "ANIMAL":
 		default:
 			return fmt.Errorf("clone avatar %s: type must be MALE, FEMALE or ANIMAL", id)
+		}
+	}
+	for _, id := range slices.Sorted(maps.Keys(p.CloneLooks)) {
+		look := p.CloneLooks[id]
+		if _, ok := p.CloneAvatars[id]; !ok {
+			return fmt.Errorf("clone_looks %s: not a clone avatar", id)
+		}
+		if !httpx.IsAllDigits(look.Skin) {
+			return fmt.Errorf("clone_looks %s: skin must be digits", id)
+		}
+		if len(look.Codes) == 0 {
+			return fmt.Errorf("clone_looks %s: codes must not be empty", id)
+		}
+		seen := map[string]bool{}
+		for _, code := range look.Codes {
+			if !ValidItemCode(code) || seen[code] {
+				return fmt.Errorf("clone_looks %s: %q must be an item code, listed once", id, code)
+			}
+			seen[code] = true
 		}
 	}
 	seen := map[string]bool{}
