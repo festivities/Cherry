@@ -253,8 +253,8 @@ func banPlayer(id int64, reason, actor string) (string, error) {
 	}
 	pendingTokens = slices.DeleteFunc(pendingTokens, func(p pendingToken) bool { return p.acc == acc })
 	acc.Ban = &Ban{Reason: reason, By: actor, At: time.Now().UTC().Format(time.RFC3339)}
-	acc.SessionKey = RandomToken(32)
-	rs.revoke = true // the save deletes every token row of the account first (ResetIdentityLocked does the same)
+	rotateSessionKey(acc) // the session key ends with the ban (epoch bump; a legacy key stops too)
+	rs.revoke = true      // the save deletes every token row of the account first (ResetIdentityLocked does the same)
 	audit := staffAudit{actor, "ban", playerTarget(id), map[string]any{"aid": acc.Aid, "identity": acc.Identity, "reason": reason}}
 	if err := saveAuditedLocked(audit, nil, acc); err != nil {
 		*acc, *rs, pendingTokens = prev, prevRS, prevPending

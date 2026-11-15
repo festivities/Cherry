@@ -89,7 +89,8 @@ func TestPublicStaffNeedsEachPiece(t *testing.T) {
 		env["CHERRY_SERVER_PUBLIC"] = "true"
 		env["CHERRY_LISTEN_DNS"] = ""
 		env["CHERRY_SERVER_HOSTNAMES"] = "op.example"
-		env["CHERRY_TLS_CERT_FILE"] = "/g.pem" // the game pair (config only checks the names, not the files)
+		env["CHERRY_AUTH_SESSION_SECRET_FILE"] = secretFile(t) // a public server needs the session secret (mode 0600)
+		env["CHERRY_TLS_CERT_FILE"] = "/g.pem"                 // the game pair (config only checks the names, not the files)
 		env["CHERRY_TLS_KEY_FILE"] = "/g.key"
 		env["CHERRY_STAFF_TLS_CERT_FILE"] = "/a.pem"
 		env["CHERRY_STAFF_TLS_KEY_FILE"] = "/a.key"

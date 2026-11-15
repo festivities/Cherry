@@ -1,7 +1,6 @@
 package lpn
 
 import (
-	"crypto/subtle"
 	"slices"
 	"strconv"
 	"sync"
@@ -16,19 +15,15 @@ import (
 // avatar on the same socket); a login that fails the check changes nothing, and no other message changes the aid.
 // TLUP's ClientSession carries the same two fields and is checked the same way on every heart event.
 
-// sessionKeyHolds reports whether the account with aid holds sessionKey. The compare is constant-time.
+// sessionKeyHolds reports whether the account with aid holds sessionKey. The compare is constant-time, and a migrated
+// account's first derived-key login drops its legacy key (store.HoldsSessionKeyLocked).
 func sessionKeyHolds(aid uint64, sessionKey []byte) bool {
 	if aid == 0 || aid > (1<<63)-1 || len(sessionKey) == 0 {
 		return false
 	}
 	store.AccountsMu.Lock()
-	acc := store.AccountByAidLocked(strconv.FormatUint(aid, 10))
-	var held []byte
-	if acc != nil {
-		held = []byte(acc.SessionKey)
-	}
-	store.AccountsMu.Unlock()
-	return acc != nil && subtle.ConstantTimeCompare(held, sessionKey) == 1
+	defer store.AccountsMu.Unlock()
+	return store.HoldsSessionKeyLocked(store.AccountByAidLocked(strconv.FormatUint(aid, 10)), sessionKey)
 }
 
 // verifiedLogin is the check every gateway agent shares: the request is well formed with a non-empty session key and a

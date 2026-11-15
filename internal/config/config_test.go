@@ -200,7 +200,7 @@ func TestSignupDefaultsAndChecks(t *testing.T) {
 
 // TestGameTLSSettings: the game listener's PEM pair is both-or-neither, needs server.hostnames, and is required when public.
 func TestGameTLSSettings(t *testing.T) {
-	pub := append(discordArgs(t, 0o600), "-server-public=true", "-server-hostnames=op.example")
+	pub := append(discordArgs(t, 0o600), "-server-public=true", "-server-hostnames=op.example", "-auth-session-secret-file="+sessionSecretFileWith(t, 0o600))
 	pair := []string{"-tls-cert-file=/g.pem", "-tls-key-file=/g.key"}
 	with := func(extra ...string) []string { return append(append([]string{}, pub...), extra...) }
 	cases := []struct {

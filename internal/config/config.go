@@ -50,6 +50,7 @@ type Config struct {
 	Signup, AllowlistFile                     string // resolved by parse: Signup is never "" there (DefaultSignup)
 	DiscordClientID, DiscordSecretFile        string // the secret itself is read from the file, never a setting
 	DiscordRedirect                           string
+	SessionSecretFile                         string // auth.session-secret-file: derives the session keys (store.LoadSessionSecret)
 	ServerName                                string
 	UploadsOff                                bool   // uploads.enabled = false; the zero value is on (tests, an unactivated config)
 	UploadQuotaBytes                          int64  // uploads.quota-bytes: per account and picture kind; 0 takes the default
@@ -90,6 +91,7 @@ var settings = []setting{
 	{"auth.discord.client-id", "", "Discord application client id (auth.mode discord)"},
 	{"auth.discord.secret-file", "", "file holding the Discord client secret; mode 0600 off Windows; the secret is never a value"},
 	{"auth.discord.redirect", "", "the exact OAuth callback URL registered with Discord (https)"},
+	{"auth.session-secret-file", "", "file of at least 32 random bytes that derives the session keys (mode 0600 off Windows); required when server.public=true; empty keeps the keys stored in clear"},
 	{"server.name", "Cherry", "operator display name in discovery (1 to 64 characters)"},
 	{"listen.staff", "", "staff UI listener (HTTPS, own hostname, Discord sign-in); empty turns the staff UI off"},
 	{"staff.hostname", "", "staff UI hostname: required with listen.staff when server.public is true; the Host header must match it"},
@@ -211,7 +213,8 @@ func parse(args []string, lookup func(string) (string, bool)) (Config, error) {
 		Signup: values["auth.signup"], AllowlistFile: values["auth.allowlist-file"],
 		DiscordClientID: values["auth.discord.client-id"], DiscordSecretFile: values["auth.discord.secret-file"],
 		DiscordRedirect: values["auth.discord.redirect"], ServerName: strings.TrimSpace(values["server.name"]),
-		Staff: values["listen.staff"], StaffHostname: strings.ToLower(strings.TrimSpace(values["staff.hostname"])),
+		SessionSecretFile: values["auth.session-secret-file"],
+		Staff:             values["listen.staff"], StaffHostname: strings.ToLower(strings.TrimSpace(values["staff.hostname"])),
 		StaffCert: values["staff.tls-cert-file"], StaffKey: values["staff.tls-key-file"],
 		StaffOwner: strings.TrimSpace(values["staff.owner"]), StaffAllowlistFile: values["staff.allowlist-file"],
 		StaffRedirect: strings.TrimSpace(values["staff.discord.redirect"]),
@@ -308,6 +311,14 @@ func (c Config) check() error {
 		}
 		if err := checkSecretFile(c.DiscordSecretFile); err != nil {
 			return fmt.Errorf("config: auth.discord.secret-file: %v", err)
+		}
+	}
+	if c.Public && c.SessionSecretFile == "" {
+		return errors.New("config: server.public=true needs auth.session-secret-file (at least 32 random bytes; the session keys are derived from it)")
+	}
+	if c.SessionSecretFile != "" {
+		if err := checkSecretFile(c.SessionSecretFile); err != nil {
+			return fmt.Errorf("config: auth.session-secret-file: %v", err)
 		}
 	}
 	if (c.TLSCert == "") != (c.TLSKey == "") {

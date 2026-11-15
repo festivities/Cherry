@@ -5,7 +5,6 @@ package lpn
 
 import (
 	"bytes"
-	"crypto/subtle"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -208,7 +207,7 @@ func sessionAccount(body []byte) uint64 {
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
 	for _, acc := range store.AllAccountsLocked() {
-		if subtle.ConstantTimeCompare([]byte(acc.SessionKey), []byte(req.SessionKey)) == 1 {
+		if store.HoldsSessionKeyLocked(acc, []byte(req.SessionKey)) {
 			aid, err := strconv.ParseUint(acc.Aid, 10, 64)
 			if err != nil {
 				return 0

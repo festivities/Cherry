@@ -20,7 +20,10 @@ import (
 
 type StoredAccount struct {
 	AccessToken    string                `json:"accessToken"`
-	SessionKey     string                `json:"sessionKey"`
+	SessionKey     string                `json:"sessionKey"` // clear only while no session secret is set (sessionkey.go)
+	SessionSalt    string                `json:"sessionSalt,omitempty"`
+	SessionEpoch   int64                 `json:"sessionEpoch,omitempty"`
+	LegacyKeyHash  string                `json:"legacySessionKeyHash,omitempty"`
 	Mid            string                `json:"mid"`
 	AvatarUserID   string                `json:"avatarUserId"`
 	Aid            string                `json:"aid"`
@@ -248,6 +251,13 @@ func reloadLocked(d *DB) error {
 	}); err != nil {
 		return err
 	}
+	migrated, err := prepareSessionKeys(st.Accounts)
+	if err != nil {
+		return err
+	}
+	if err := scrubSessionKeys(d, st.rowIDs, migrated); err != nil {
+		return err
+	}
 	rows := make(map[*Account]*rowState, len(st.Accounts))
 	for _, acc := range st.Accounts {
 		_, _, sum, err := accountRow(acc)
@@ -440,7 +450,8 @@ func StoredFrom(acc *Account) StoredAccount {
 		pi = &copied
 	}
 	return StoredAccount{
-		SessionKey: acc.SessionKey, Mid: acc.Mid,
+		SessionKey: sessionKeyOnDisk(acc), SessionSalt: acc.SessionSalt, SessionEpoch: acc.SessionEpoch,
+		LegacyKeyHash: acc.LegacyKeyHash, Mid: acc.Mid,
 		AvatarUserID: acc.AvatarUserID, Aid: acc.Aid, Name: acc.Name, Gender: acc.Gender,
 		Skin: acc.Skin, Country: acc.Country, ItemCodes: acc.ItemCodes,
 		InventoryCodes: acc.InventoryCodes,
@@ -466,7 +477,8 @@ func accountFromStored(saved StoredAccount) *Account {
 	}
 	inventoryCopy := AppendUniqueItemCodes(nil, inventoryCodes)
 	return &Account{
-		AccessToken: saved.AccessToken, SessionKey: saved.SessionKey, Mid: saved.Mid,
+		AccessToken: saved.AccessToken, SessionKey: saved.SessionKey, SessionSalt: saved.SessionSalt,
+		SessionEpoch: saved.SessionEpoch, LegacyKeyHash: saved.LegacyKeyHash, Mid: saved.Mid,
 		AvatarUserID: saved.AvatarUserID, Aid: saved.Aid, Name: saved.Name,
 		Gender: saved.Gender, Skin: saved.Skin, Country: saved.Country,
 		ItemCodes: saved.ItemCodes, InventoryCodes: inventoryCopy,

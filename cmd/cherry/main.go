@@ -90,6 +90,15 @@ func main() {
 		economy.NowFunc = func() time.Time { return time.Now().Add(off) }
 		logger.Printf("cherry: FAKE CLOCK game time starts at %s (offset %s)", t.Format(time.RFC3339), off)
 	}
+	// The session-key secret loads before the accounts: their rows derive or migrate with it (store/sessionkey.go).
+	if cfg.SessionSecretFile != "" {
+		if err := store.LoadSessionSecret(cfg.SessionSecretFile); err != nil {
+			logger.Fatalf("cherry: %v", err)
+		}
+		logger.Printf("cherry: session keys derived from auth.session-secret-file")
+	} else {
+		logger.Printf("cherry: session keys stored in clear (auth.session-secret-file is empty)")
+	}
 	if err := openAccounts(cfg.DataDir); err != nil {
 		logger.Fatalf("cherry: load accounts: %v", err)
 	}

@@ -84,8 +84,12 @@ func AccountByAvatarID(id string) (AccountSnapshot, bool) {
 }
 
 type Account struct {
-	AccessToken    string
-	SessionKey     string
+	AccessToken  string
+	SessionKey   string // the key the client presents: derived (SessionSalt, SessionEpoch) or clear; memory only when derived
+	SessionSalt  string // derived keys: random per account (sessionkey.go)
+	SessionEpoch int64  // derived keys: bumped by a ban and Delete Avatar
+	// LegacyKeyHash is the SHA-256 of a migrated account's old clear key, until the account presents its derived key.
+	LegacyKeyHash  string
 	Mid            string
 	AvatarUserID   string
 	Aid            string
@@ -233,11 +237,11 @@ func newAccountLocked(guestCode string) (*Account, error) {
 func newRecord(guestCode string) *Account {
 	acc := &Account{
 		AccessToken:  RandomToken(32),
-		SessionKey:   RandomToken(32),
 		Mid:          "1",
 		AvatarUserID: "3001",
 		Aid:          "0",
 	}
+	initSessionKey(acc)
 	if guestCode != "" {
 		bindGuest(acc, guestCode)
 	}
@@ -486,9 +490,11 @@ func ResetIdentityLocked(acc *Account, lines []LedgerLine) (undo func() error, e
 	pendingTokens = slices.DeleteFunc(pendingTokens, func(p pendingToken) bool { return p.acc == acc })
 	own := RandomToken(32)
 	*acc = Account{
-		AccessToken: own, SessionKey: RandomToken(32), Mid: prev.Mid, AvatarUserID: prev.AvatarUserID, Aid: "0",
+		AccessToken: own, Mid: prev.Mid, AvatarUserID: prev.AvatarUserID, Aid: "0",
+		SessionSalt: prev.SessionSalt, SessionEpoch: prev.SessionEpoch,
 		Identity: prev.Identity, CodeHashes: prev.CodeHashes, Welcomed: prev.Welcomed, BossBook: prev.BossBook, Ban: prev.Ban,
 	}
+	rotateSessionKey(acc)
 	if b := prev.Butlers; b != nil && (b.FreeUsed || len(b.Free) > 0) {
 		acc.Butlers = &ButlerBook{FreeUsed: true}
 	}
