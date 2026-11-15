@@ -14,7 +14,7 @@ Hard rules:
 - Do not edit code, docs or data; do not build, deploy, stop or restart Cherry; do not commit.
 - No Frida, client patches, app-data resets, new guest accounts, Delete Avatar, or blanket chmod.
 - Never touch YunDetectService or any non-Cherry process.
-- Emulator serials follow start order: before the first step confirm each serial's AVD with `adb -s <serial> emu avd name` and report it; the two AVDs have different screen sizes. If a serial is not the AVD your brief names, stop: a third AVD named `Raspberry` belongs to another session and must never get input, a relaunch or a force-stop.
+- Emulator serials follow start order: before the first step confirm each serial's AVD with `adb -s <serial> emu avd name` and report it; the two AVDs have different screen sizes. If a serial is not the AVD your brief names, stop. Since 2026-11-15 (user) the patched-client tests run on AVD `Raspberry` (`emulator-5559`): input, launch and force-stop are allowed there when the brief names it; AVDs Cherry and Jerry are out of use unless a brief names them.
 - Before each screenshot, confirm LINE PLAY is the foreground app (`adb -s <serial> shell dumpsys window | grep mCurrentFocus` must show `jp.naver.lineplay.android`). If it is not (the app may have crashed between steps), check `pidof jp.naver.lineplay.android`, stop and report.
 - A physical phone (none attached since 2026-10-22): touch only LINE PLAY; screenshots only of LINE PLAY. Never open, list or read anything else on it.
 - Take a fresh screenshot/snapshot before and after every tap; coordinates from another device or an old screenshot are invalid. Read `wm size` per device. Native Cocos screens: menu items are tapped on the icon ~80–100 px above the label.
