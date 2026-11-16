@@ -78,7 +78,7 @@ func observeConn(conn net.Conn, addr string, logger *log.Logger) {
 		}
 		metrics.GatewayConns.Add(1)
 		defer metrics.GatewayConns.Add(-1)
-		observeGatewayFrames(&lockedConn{Conn: conn}, addr, remote, logger)
+		observeGatewayFrames(&lockedConn{Conn: conn, listener: "gateway", remote: remote, since: time.Now()}, addr, remote, logger)
 		return
 	}
 

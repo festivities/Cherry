@@ -237,6 +237,22 @@ table.chat td:first-child { white-space: nowrap; }
 .photo-card figcaption p { margin: .25rem 0; overflow-wrap: anywhere; }
 .photo-card form.stack input[type="text"] { max-width: none; width: 100%; }
 
+/* Insights: the charts are server-rendered SVG. Their colours are classes, never style attributes (the CSP forbids them). */
+a.linkcard { display: block; color: inherit; text-decoration: none; }
+a.linkcard:hover { border-color: var(--accent); }
+figure.chart { margin: 1rem 0 1.6rem; min-width: 0; }
+figure.chart figcaption { font-weight: 650; margin-bottom: .35rem; }
+figure.chart svg {
+  display: block; width: 100%; max-width: 46rem; height: auto; overflow: visible;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+}
+figure.chart .bar { fill: var(--accent); }
+figure.chart .bar:hover { fill: var(--danger); }
+figure.chart .grid { stroke: var(--line); stroke-width: 1; }
+figure.chart .tick { fill: var(--muted); font-size: 11px; font-family: var(--sans); }
+figure.chart p { margin: .35rem 0 0; }
+.insights { margin-top: .9rem; }
+
 /* the hidden attribute always hides (the editor and the diff toggle parts of the page with it) */
 [hidden] { display: none !important; }
 

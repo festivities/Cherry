@@ -77,6 +77,7 @@ func TestPagesHaveNoInlineMarkup(t *testing.T) {
 		"/", "/docs", "/docs/cherrytips.json", "/docs/cherrytips.json/1", "/audit", "/audit?action=draft&from=2000-01-01",
 		"/players", "/players?q=render", base, "/docs?notice=draft-saved", "/players/999999",
 		"/chat", "/chat?kind=private&text=hi", "/photos", "/photos?kind=diary&player=7101",
+		"/online", "/online?notice=kicked", "/economy", "/economy?window=7d", "/activity",
 	}
 	for _, target := range targets {
 		r := c.get(target)

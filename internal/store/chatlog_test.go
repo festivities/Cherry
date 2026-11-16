@@ -72,8 +72,8 @@ func TestMigrationV4ToV5KeepsRows(t *testing.T) {
 	}
 	defer d.Close()
 	var version int
-	if err := d.write.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != len(migrations) || version != 5 {
-		t.Fatalf("user_version = %d (err %v), want 5", version, err)
+	if err := d.write.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != len(migrations) || version != 6 {
+		t.Fatalf("user_version = %d (err %v), want 6", version, err)
 	}
 	var kept string
 	if err := d.write.QueryRow("SELECT file FROM media_files").Scan(&kept); err != nil || kept != "kept.img" {

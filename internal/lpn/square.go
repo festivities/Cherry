@@ -95,6 +95,11 @@ func SquareNumericItem(code string) (uint64, bool) {
 type lockedConn struct {
 	net.Conn
 	mu sync.Mutex
+	// listener, remote and since are set when the connection is accepted and never change: the staff Online page reads them
+	// (online.go). listener is "session" (:10123) or "gateway" (:10000).
+	listener string
+	remote   string
+	since    time.Time
 }
 
 func (c *lockedConn) Write(b []byte) (int, error) {

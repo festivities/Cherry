@@ -1,0 +1,27 @@
+{{define "page"}}<h1>Activity</h1>
+<p class="muted">The last 30 UTC days, today last. Each chart is an SVG: hover a bar for its day and value. Daily active players is a proxy: it counts the avatars that had a ledger line or a chat message that day, not logins.</p>
+
+{{range .Activity.Charts}}{{template "chart" .}}{{end}}
+
+<details class="note">
+<summary>The same numbers as a table</summary>
+<div class="scroll"><table>
+<thead><tr><th>Day (UTC)</th><th class="num">Sign-ups</th><th class="num">Chat messages</th><th class="num">Ledger lines</th><th class="num">Active players (proxy)</th></tr></thead>
+<tbody>
+{{range .Activity.Days}}<tr><td>{{.Day}}</td><td class="num">{{.Signups}}</td><td class="num">{{.Chat}}</td><td class="num">{{.Lines}}</td><td class="num">{{.Active}}</td></tr>
+{{end}}</tbody>
+</table></div>
+</details>
+{{end}}
+
+{{define "chart"}}<figure class="chart">
+<figcaption>{{.Title}}</figcaption>
+<svg viewBox="0 0 {{.Width}} {{.Height}}" role="img" aria-label="{{.Title}}">
+<title>{{.Title}}</title>
+{{range .Ticks}}<line class="grid" x1="{{$.Left}}" y1="{{.Y}}" x2="{{$.Right}}" y2="{{.Y}}"></line>
+<text class="tick" x="{{$.Left}}" y="{{.Y}}" text-anchor="end" dominant-baseline="middle" dx="-6">{{.Text}}</text>
+{{end}}{{range .Bars}}<rect class="bar" x="{{.X}}" y="{{.Y}}" width="{{.W}}" height="{{.H}}"><title>{{.Title}}</title></rect>
+{{end}}{{range .Labels}}<text class="tick" x="{{.X}}" y="{{$.Bottom}}" text-anchor="middle" dy="16">{{.Text}}</text>
+{{end}}</svg>
+<p class="muted small">{{.Note}}</p>
+</figure>{{end}}

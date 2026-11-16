@@ -21,6 +21,7 @@ import (
 
 	"cherry/internal/auth"
 	"cherry/internal/config"
+	"cherry/internal/lpn"
 	"cherry/internal/store"
 )
 
@@ -58,6 +59,11 @@ type Server struct {
 	rate rateRing      // the request counter's recent readings (the dashboard's requests per minute)
 	stop chan struct{} // closed by Shutdown: ends sampleLoop
 
+	// The Insights (insights.go, online.go): the live connections and the kick's close are fields, so tests can supply their own.
+	online   func() []lpn.Connection // lpn.Online
+	closeAid func(aid string)        // lpn.CloseAid: ends an account's live connections (the kick)
+	memo     memo                    // the Insights aggregates, kept for insightsTTL
+
 	srv *http.Server
 }
 
@@ -93,6 +99,9 @@ func New(cfg config.Config, logger *log.Logger) (*Server, error) {
 		sessions: map[[32]byte]*session{},
 		blocked:  map[string]time.Time{},
 		stop:     make(chan struct{}),
+		online:   lpn.Online,
+		closeAid: lpn.CloseAid,
+		memo:     memo{items: map[string]memoItem{}},
 		limits: limits{
 			loginMinute:    auth.NewLimiter(10, time.Minute),
 			loginHour:      auth.NewLimiter(60, time.Hour),
@@ -216,6 +225,10 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /players/{id}/guestbook/{no}/remove", s.action(true, maxBodySmall, s.removal(store.RemovePlayerGuestbookEntry, "entry-removed")))
 	mux.HandleFunc("POST /players/{id}/comments/{no}/remove", s.action(true, maxBodySmall, s.removal(store.RemovePlayerComment, "comment-removed")))
 	mux.HandleFunc("POST /players/{id}/media/{mid}/remove", s.action(true, maxBodySmall, s.handleMediaRemove))
+	mux.HandleFunc("POST /players/{id}/kick", s.action(true, maxBodySmall, s.handleKick))
+	mux.HandleFunc("GET /online", s.page(s.handleOnline))
+	mux.HandleFunc("GET /economy", s.page(s.handleEconomy))
+	mux.HandleFunc("GET /activity", s.page(s.handleActivity))
 	mux.HandleFunc("GET /chat", s.page(s.handleChatLog))
 	mux.HandleFunc("GET /photos", s.page(s.handlePhotos))
 	mux.HandleFunc("GET /photos/{id}/file", s.page(s.handlePhotoFile))

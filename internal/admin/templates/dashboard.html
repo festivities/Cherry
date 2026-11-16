@@ -44,6 +44,25 @@
 </div>
 </section>
 
+{{with .Summary}}{{if .Known}}<section class="cards insights" aria-label="Insights">
+<a class="card linkcard" href="/online">
+<h2>Players logged in</h2>
+<p class="big">{{.Players}}</p>
+<p class="muted small">Online now, with the rooms they are in.</p>
+</a>
+<a class="card linkcard" href="/economy">
+<h2>Gems in circulation</h2>
+<p class="big">{{.Gems}}</p>
+<p class="muted small">{{.Holders}} accounts hold Gems or Cash; Cash in circulation {{.Cash}}.</p>
+</a>
+<a class="card linkcard" href="/activity">
+<h2>Sign-ups today (UTC)</h2>
+<p class="big">{{.SignupsToday}}</p>
+<p class="muted small">Activity: sign-ups, chat, ledger lines and daily active players.</p>
+</a>
+</section>
+{{end}}{{end}}
+
 <h2>Save time</h2>
 <p class="muted">Each save holds the store's lock while it writes. The bars show each bucket's share of all saves.</p>
 <div class="scroll">

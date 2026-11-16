@@ -101,7 +101,7 @@ func gatewayConn(t *testing.T) (net.Conn, *bytes.Buffer, chan struct{}) {
 	logs := &bytes.Buffer{}
 	done := make(chan struct{})
 	go func() {
-		observeGatewayFrames(&lockedConn{Conn: server}, GatewayAddr, "test", log.New(logs, "", 0))
+		observeGatewayFrames(&lockedConn{Conn: server, listener: "gateway", since: time.Now()}, GatewayAddr, "test", log.New(logs, "", 0))
 		_ = server.Close()
 		close(done)
 	}()

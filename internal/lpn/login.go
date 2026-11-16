@@ -38,7 +38,7 @@ func verifiedLogin(data []byte) (uint64, bool) {
 }
 
 // gatewayLogins lists the aids each gateway connection verified a login for. Every gateway agent calls bindGatewayLogin
-// after its verifiedLogin succeeds, and observeGatewayFrames unbinds the connection when it ends. CloseBannedAid reads it.
+// after its verifiedLogin succeeds, and observeGatewayFrames unbinds the connection when it ends. CloseAid reads it.
 var (
 	gatewayLoginsMu sync.Mutex
 	gatewayLogins   = map[*lockedConn][]uint64{}
@@ -60,10 +60,11 @@ func unbindGatewayLogins(conn *lockedConn) {
 	delete(gatewayLogins, conn)
 }
 
-// CloseBannedAid ends every live connection of the account with avatar id aid: its :10123 session and each gateway
+// CloseAid ends every live connection of the account with avatar id aid: its :10123 session and each gateway
 // connection that verified a login for it. Closing a connection makes its own goroutine run the usual teardown (unbind,
-// leave); this function does not wait for that and holds no lock while it closes. It is the store's OnBan hook (cmd/cherry).
-func CloseBannedAid(aid string) {
+// leave); this function does not wait for that and holds no lock while it closes. It is the store's OnBan hook (cmd/cherry)
+// and the staff Kick (the account is not banned: it can sign in again at once).
+func CloseAid(aid string) {
 	n, err := strconv.ParseUint(aid, 10, 64)
 	if err != nil || n == 0 {
 		return

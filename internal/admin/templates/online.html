@@ -1,0 +1,51 @@
+{{define "page"}}<h1>Online now</h1>
+<p class="muted">Players connected right now with a login on a live connection, and where they are. A kick closes the player's connections; it is not a ban, so the player can sign in again at once. Networks are kept to their /24 (IPv4) or /48 (IPv6).</p>
+
+<section class="cards">
+<div class="card">
+<h2>Players online</h2>
+<p class="big">{{.Online.Players}}</p>
+<p class="muted small">{{.Online.Total}} connections with a login.</p>
+</div>
+<div class="card">
+<h2>Session connections</h2>
+<p class="big">{{.Online.Session}}</p>
+<p class="muted small">Port 10123, the counter: includes connections that have not logged in yet.</p>
+</div>
+<div class="card">
+<h2>Gateway connections</h2>
+<p class="big">{{.Online.Gateway}}</p>
+<p class="muted small">Port 10000, the counter: includes connections that have not logged in yet.</p>
+</div>
+</section>
+
+<h2>Where they are</h2>
+<p class="muted small">Players per kind of room. A player in two rooms counts in both.</p>
+<div class="scroll"><table>
+<thead><tr><th>Place</th><th class="num">Players</th></tr></thead>
+<tbody>
+{{range .Online.Places}}<tr><td>{{.Label}}</td><td class="num">{{.Count}}</td></tr>
+{{end}}</tbody>
+</table></div>
+
+<h2>Connections</h2>
+<div class="scroll"><table>
+<thead><tr><th>Player</th><th>Listener</th><th>Network</th><th>Connected (UTC)</th><th>Up for</th><th>Rooms</th><th>Kick</th></tr></thead>
+<tbody>
+{{range .Online.Rows}}<tr>
+<td>{{if .PlayerHref}}<a href="{{.PlayerHref}}">{{with .Name}}{{.}}{{else}}player{{end}}</a> <span class="muted small">{{.Aid}}</span>{{else}}<span class="muted">{{.Aid}}</span>{{end}}</td>
+<td>{{.Listener}}</td>
+<td class="mono">{{with .Remote}}{{.}}{{else}}—{{end}}</td>
+<td>{{.Since}}</td>
+<td>{{.For}}</td>
+<td>{{.Rooms}}</td>
+<td>{{if .PlayerID}}<form method="post" action="/players/{{.PlayerID}}/kick" class="row-form" data-confirm="Kick this player? Their live connections close now. This is not a ban: they can sign in again at once.">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<input type="text" name="reason" required maxlength="200" placeholder="Reason" aria-label="Reason for the kick">
+<button type="submit" class="danger">Kick</button>
+</form>{{else}}<span class="muted">no account</span>{{end}}</td>
+</tr>
+{{else}}<tr class="empty"><td colspan="7">Nobody is connected with a login right now.</td></tr>
+{{end}}</tbody>
+</table></div>
+{{end}}

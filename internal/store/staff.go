@@ -34,7 +34,7 @@ var (
 )
 
 // OnBan is called once a ban is saved, with the banned account's avatar id ("0" when it has none). cmd/cherry sets it to
-// lpn.CloseBannedAid, which ends the account's live connections. It runs after AccountsMu is released. Nil does nothing.
+// lpn.CloseAid, which ends the account's live connections. It runs after AccountsMu is released. Nil does nothing.
 var OnBan func(aid string)
 
 const (
@@ -321,6 +321,31 @@ func UnbanPlayer(id int64, actor string) error {
 		return err
 	}
 	return nil
+}
+
+// KickPlayer checks the reason and writes the kick's audit row (target player:<id>, the avatar id and the reason), and returns
+// the avatar id whose live connections the caller closes (lpn.CloseAid). A kick saves nothing on the account: it is not a
+// ban, so the player can sign in again at once. The audit row is written first, so a kick that cannot be recorded does not
+// happen. ErrNoPlayer for an unknown id; ErrNoDatabase without a database.
+func KickPlayer(id int64, reason, actor string) (string, error) {
+	reason, err := cleanReason(reason)
+	if err != nil {
+		return "", err
+	}
+	AccountsMu.Lock()
+	acc := playerLocked(id)
+	var aid string
+	if acc != nil {
+		aid = acc.Aid
+	}
+	AccountsMu.Unlock()
+	if acc == nil {
+		return "", ErrNoPlayer
+	}
+	if err := Audit(actor, "kick", playerTarget(id), map[string]any{"aid": aid, "reason": reason}); err != nil {
+		return "", err
+	}
+	return aid, nil
 }
 
 // PlayerWriting is what the player page lists of the player's own writing, newest first, at most a page of each: the diary

@@ -120,7 +120,7 @@ type Querier interface {
 }
 
 // migrations[i] takes the database from schema version i to i+1. Append only: a shipped step is never edited.
-var migrations = []string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5}
+var migrations = []string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6}
 
 // migrate applies the missing steps, each in its own transaction together with its user_version bump.
 func migrate(db *sql.DB) error { return migrateTo(db, len(migrations)) }
@@ -368,6 +368,13 @@ CREATE TABLE chat_log (
 CREATE INDEX chat_log_time ON chat_log(time);
 CREATE INDEX chat_log_sender ON chat_log(sender, id);
 CREATE INDEX chat_log_channel ON chat_log(kind, channel, time);
+`
+
+// schemaV6 indexes the two columns the staff Insights pages (insights.go) cut by time: the ledger's time, so the economy window
+// and the per-day series read one range of it, and the accounts' creation time, for the sign-up series. Only indexes.
+const schemaV6 = `
+CREATE INDEX ledger_time ON ledger(time);
+CREATE INDEX accounts_created ON accounts(created);
 `
 
 // Path is the file the database was opened from.

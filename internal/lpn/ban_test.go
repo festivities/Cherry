@@ -82,7 +82,7 @@ func TestBanClosesTheBannedAccountsConnections(t *testing.T) {
 	testutil.UseDatabase(t)
 	installLoginPair(t)
 	prev := store.OnBan
-	store.OnBan = CloseBannedAid
+	store.OnBan = CloseAid
 	t.Cleanup(func() { store.OnBan = prev })
 
 	addr := listenSession(t)
@@ -114,15 +114,15 @@ func TestBanClosesTheBannedAccountsConnections(t *testing.T) {
 		t.Fatal("another account's session was unbound by the ban")
 	}
 
-	CloseBannedAid("0") // an account with no avatar has no connections: nothing happens
-	CloseBannedAid("not-an-aid")
+	CloseAid("0") // an account with no avatar has no connections: nothing happens
+	CloseAid("not-an-aid")
 	sessionPing(t, sessB)
 }
 
-// TestCloseBannedAidEndsEachAgentsLogin: a gateway connection that verified a login for the aid is closed, whichever agent
+// TestCloseAidEndsEachAgentsLogin: a gateway connection that verified a login for the aid is closed, whichever agent
 // verified it (Garden, Square, Room Party, Circle, Treasure World); the other account's connection stays, and no connection
 // record is left behind when the connections end.
-func TestCloseBannedAidEndsEachAgentsLogin(t *testing.T) {
+func TestCloseAidEndsEachAgentsLogin(t *testing.T) {
 	installLoginPair(t)
 	for _, agent := range []struct {
 		name string
@@ -135,7 +135,7 @@ func TestCloseBannedAidEndsEachAgentsLogin(t *testing.T) {
 			gwB, _, doneB := gatewayConn(t)
 			sendAndPing(t, gwB, gwFrame(agent.id, 0, loginRequest("sk-9102", loginAidB)))
 
-			CloseBannedAid("9101")
+			CloseAid("9101")
 			waitDone(t, doneA)
 			expectClosed(t, gwA)
 			sendAndPing(t, gwB)

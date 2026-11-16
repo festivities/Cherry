@@ -1,0 +1,70 @@
+{{define "page"}}<h1>Economy</h1>
+<p class="muted">What the accounts hold now, and what the ledger moved in the window: every credit and debit a player's balance took. Figures are kept for about a minute. Accounts with no avatar yet have no player page.</p>
+
+<section class="cards">
+<div class="card">
+<h2>Gems in circulation</h2>
+<p class="big">{{.Economy.Holdings.Gems}}</p>
+<p class="muted small">Summed over every account, as saved.</p>
+</div>
+<div class="card">
+<h2>Cash in circulation</h2>
+<p class="big">{{.Economy.Holdings.Cash}}</p>
+<p class="muted small">Summed over every account, as saved.</p>
+</div>
+<div class="card">
+<h2>Accounts holding any</h2>
+<p class="big">{{.Economy.Holdings.Holders}}</p>
+<p class="muted small">Holding some Gems or some Cash.</p>
+</div>
+</section>
+
+<nav class="filters" aria-label="Window">
+<span class="label">Window</span>
+{{range .Economy.Windows}}<a href="{{.Href}}" class="button{{if .Current}}{{else}} ghost{{end}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}}</a>
+{{end}}</nav>
+
+<h2>Flow in the last {{.Economy.Window.Name}}</h2>
+<div class="scroll"><table>
+<thead><tr><th>Currency</th><th class="num">Minted</th><th class="num">Spent</th><th class="num">Net</th><th class="num">Lines</th></tr></thead>
+<tbody>
+{{range .Economy.Flow}}<tr><td>{{.Currency}}</td><td class="num">{{.Minted}}</td><td class="num">{{.Spent}}</td><td class="num">{{.Net}}</td><td class="num">{{.Lines}}</td></tr>
+{{else}}<tr class="empty"><td colspan="5">No ledger lines in this window.</td></tr>
+{{end}}</tbody>
+</table></div>
+
+<h2>Largest reasons by lines</h2>
+<p class="muted small">A reason is grouped by its first two parts: <code>shop:buy</code>, <code>butler:order</code>, <code>gift send</code>, <code>staff grant</code> (every staff grant, whoever gave it). Gems and Cash are shown in and out of the balance.</p>
+<div class="scroll"><table>
+<thead><tr><th>Reason</th><th class="num">Lines</th><th class="num">Gems in</th><th class="num">Gems out</th><th class="num">Cash in</th><th class="num">Cash out</th></tr></thead>
+<tbody>
+{{range .Economy.Reasons}}<tr><td class="mono">{{.Group}}</td><td class="num">{{.Lines}}</td><td class="num">{{.GemsIn}}</td><td class="num">{{.GemsOut}}</td><td class="num">{{.CashIn}}</td><td class="num">{{.CashOut}}</td></tr>
+{{else}}<tr class="empty"><td colspan="6">No ledger lines in this window.</td></tr>
+{{end}}</tbody>
+</table></div>
+
+<div class="grid-2">
+<section>
+<h2>Earned the most Gems</h2>
+<div class="scroll"><table>
+<thead><tr><th>Player</th><th class="num">Gems</th><th class="num">Cash</th></tr></thead>
+<tbody>
+{{range .Economy.Earners}}<tr><td>{{if .Href}}<a href="{{.Href}}">{{with .Name}}{{.}}{{else}}player{{end}}</a> <span class="muted small">{{.Aid}}</span>{{else}}<span class="muted">no account</span> <span class="muted small">{{.Aid}}</span>{{end}}</td><td class="num">{{.Gems}}</td><td class="num">{{.Cash}}</td></tr>
+{{else}}<tr class="empty"><td colspan="3">No Gems were earned in this window.</td></tr>
+{{end}}</tbody>
+</table></div>
+</section>
+
+<section>
+<h2>Spent the most Gems</h2>
+<div class="scroll"><table>
+<thead><tr><th>Player</th><th class="num">Gems</th><th class="num">Cash</th></tr></thead>
+<tbody>
+{{range .Economy.Spenders}}<tr><td>{{if .Href}}<a href="{{.Href}}">{{with .Name}}{{.}}{{else}}player{{end}}</a> <span class="muted small">{{.Aid}}</span>{{else}}<span class="muted">no account</span> <span class="muted small">{{.Aid}}</span>{{end}}</td><td class="num">{{.Gems}}</td><td class="num">{{.Cash}}</td></tr>
+{{else}}<tr class="empty"><td colspan="3">No Gems were spent in this window.</td></tr>
+{{end}}</tbody>
+</table></div>
+</section>
+</div>
+<p class="muted small">Both lists rank by Gems; the Cash column is the same direction. Accounts with no avatar yet are left out.</p>
+{{end}}

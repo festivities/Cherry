@@ -31,6 +31,7 @@ var navGroups = []navGroup{
 	{"Overview", []link{{Href: "/", Label: "Dashboard"}}},
 	{"Players", []link{{Href: "/players", Label: "Players"}}},
 	{"Moderation", []link{{Href: "/chat", Label: "Chat log"}, {Href: "/photos", Label: "Photos"}}},
+	{"Insights", []link{{Href: "/online", Label: "Online now"}, {Href: "/economy", Label: "Economy"}, {Href: "/activity", Label: "Activity"}}},
 	{"Content", []link{{Href: "/docs", Label: "Documents"}}},
 	{"System", []link{{Href: "/audit", Label: "Audit log"}}},
 }
@@ -47,6 +48,7 @@ var notices = map[string]string{
 	"entry-removed":   "The guestbook entry is removed. The audit trail keeps its number and your reason.",
 	"comment-removed": "The diary comment is removed. The audit trail keeps its number and your reason.",
 	"picture-removed": "The picture is removed. Posts that showed it no longer do.",
+	"kicked":          "The player's live connections are closed. This is not a ban: the player can sign in again at once.",
 	"draft-checked":   "The draft is saved and it passes its checks. Publish it when it is ready.",
 	// draft-checked-art-skipped: the art checks could not run in this process (no asset store), so the note says so.
 	"draft-checked-art-skipped": "The draft is saved and it passes the checks this process can run. The art checks were skipped: this process has no asset store.",
@@ -114,6 +116,12 @@ type view struct {
 	Pictures    []pictureRow
 	PicFilter   store.PictureFilter
 	PicKinds    []string
+
+	// Insights (insights.go, online.go, economy.go, activity.go)
+	Online   onlinePage
+	Economy  economyPage
+	Activity activityPage
+	Summary  insightsSummary // the dashboard's row
 }
 
 // base is the view of a signed-in page: the sidebar, the identity and role in the header, the session's CSRF token and the
