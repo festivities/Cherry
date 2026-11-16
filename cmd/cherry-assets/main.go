@@ -7,10 +7,10 @@
 // generated file.
 //
 //	cherry-assets plan                 counts and bytes per category and item kind (no network)
-//	cherry-assets upload               upload what is missing (HEAD, then PUT), then the indexes and the D1 mirror
-//	cherry-assets upload -packs-only   upload only the map packs and cherry/manifest/packs.json (no bulk indexes, no D1 mirror)
-//	cherry-assets upload -only NAME    upload only one origin source (origSources: an APK folder or DailyBonus) and its D1 rows
-//	cherry-assets prune [-yes]         delete cherry/item/ objects (and D1 rows) the plan no longer has: converted items a backup now holds
+//	cherry-assets upload               upload what is missing (HEAD, then PUT), then the indexes
+//	cherry-assets upload -packs-only   upload only the map packs and cherry/manifest/packs.json (no bulk indexes)
+//	cherry-assets upload -only NAME    upload only one origin source (origSources: an APK folder or DailyBonus)
+//	cherry-assets prune [-yes]         delete cherry/item/ objects the plan no longer has: converted items a backup now holds
 //	cherry-assets verify               list the bucket and compare it with the plan; fails while legacy manifest/ keys remain
 //	cherry-assets migrate-manifests    one-time: copy manifest/ to cherry/manifest/, then delete the legacy keys (no dataset)
 //	cherry-assets convert              local only: convert the 2014 iOS item.zip items no backup has into the generated tree
@@ -107,7 +107,7 @@ type object struct {
 	rel  string // path within the category or pack directory (bulk and packs only)
 	md5  string // uppercase hex, set when the file is read by upload
 	// generated marks a Cherry-made object: its key is under cherry/, its path is not an archive file, and recipe
-	// names the generator and its sources (the D1 table generated). No generator exists yet.
+	// names the generator and its sources.
 	generated bool
 	recipe    string
 	// source is the origin folder of an original (origin.go): key static/<source>/<rel>, path under the source's folder.
@@ -543,9 +543,8 @@ func main() {
 	cmd, args := os.Args[1], os.Args[2:]
 	flags := flag.NewFlagSet(cmd, flag.ExitOnError)
 	concurrency := flags.Int("concurrency", 8, "parallel R2 requests (upload)")
-	forceD1 := flags.Bool("force-d1", false, "rewrite the D1 manifest rows even when they look current (upload)")
 	packsOnly := flags.Bool("packs-only", false, "upload only the map packs and cherry/manifest/packs.json (upload)")
-	only := flags.String("only", "", "upload only this origin source ("+strings.Join(originNames(), ", ")+"), with its D1 rows (upload)")
+	only := flags.String("only", "", "upload only this origin source ("+strings.Join(originNames(), ", ")+") (upload)")
 	zipFlag := flags.String("zip", itemZipPath, "the 2014 iOS item.zip to convert (convert)")
 	yes := flags.Bool("yes", false, "delete the stale objects (prune; without it prune only counts them)")
 	outFlag := flags.String("out", assets.GeneratedItemRoot, "the generated item tree: convert writes it, plan/upload read it")
@@ -592,7 +591,7 @@ func main() {
 				fail("upload: no origin source %q (one of %s)", *only, strings.Join(originNames(), ", "))
 			}
 		}
-		if err := runUpload(context.Background(), objs, *concurrency, *forceD1, *packsOnly, *only != ""); err != nil {
+		if err := runUpload(context.Background(), objs, *concurrency, *packsOnly, *only != ""); err != nil {
 			fail("upload: %v", err)
 		}
 	case "verify":

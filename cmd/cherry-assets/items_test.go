@@ -4,17 +4,12 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
-	"encoding/json"
 	"io"
 	"log"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	"cherry/internal/assets"
 	"cherry/internal/itemconv"
@@ -139,49 +134,5 @@ func TestConvertedItemRefusedUnderStatic(t *testing.T) {
 	}
 	if err := checkOrigins([]*object{gen}, archiveRoots); err != nil {
 		t.Fatalf("a valid converted item refused: %v", err)
-	}
-}
-
-// TestConvertedItemsD1Rows: every converted file gets a generated row with its key, md5 and recipe, and an original
-// of the same id writes nothing.
-func TestConvertedItemsD1Rows(t *testing.T) {
-	var mu sync.Mutex
-	var sqls []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			SQL string `json:"sql"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		mu.Lock()
-		sqls = append(sqls, req.SQL)
-		mu.Unlock()
-		_, _ = w.Write([]byte(`{"success":true,"errors":[],"result":[{"success":true,"results":[]}]}`))
-	}))
-	t.Cleanup(srv.Close)
-	d := &d1Client{creds: d1Creds{accountID: "acct", token: "tok", database: "db"}, api: srv.URL, hc: srv.Client()}
-	objs, err := withGenerated(nil, archiveRoots, convertedTree(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	logger := log.New(io.Discard, "", 0)
-	now := time.Date(2026, 10, 27, 0, 0, 0, 0, time.UTC)
-	if err := syncGenerated(context.Background(), d, objs, now, logger); err != nil {
-		t.Fatal(err)
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	joined := strings.Join(sqls, "\n")
-	for _, want := range []string{
-		"'cherry/item/custom/224400179/0_0.png'",
-		"'cherry/item/custom/224400179/dp.png'",
-		"'" + itemconv.Recipe + "'",
-		"'" + itemconv.DpRecipe + "'",
-	} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("missing %q in:\n%s", want, joined)
-		}
-	}
-	if strings.Contains(joined, "static/") {
-		t.Errorf("an original was recorded:\n%s", joined)
 	}
 }

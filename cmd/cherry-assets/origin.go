@@ -27,8 +27,7 @@ type origSource struct {
 	file string
 }
 
-// origSources are the only such originals uploaded. The key folder of each is its top name (D1 cat = top, path = the
-// path under it).
+// origSources are the only such originals uploaded. The key folder of each is its top name.
 var origSources = []origSource{
 	{top: "android-10.1.0.0-2024", base: originalAssetsRoot, tree: "avatar_data"},
 	{top: "android-4.0.0.0-2016", base: originalAssetsRoot, file: "animation/fish/fish_ani_0001.png"},
@@ -68,7 +67,7 @@ func cherryMadeName(rel string) bool {
 }
 
 // origObjects lists the origin originals of origSources, sorted by key. object.source is the top folder and object.rel the
-// path under it, so the D1 mirror rows and the plan group are the source's own.
+// path under it, so the plan group is the source's own.
 func origObjects() ([]*object, error) {
 	var objs []*object
 	for _, src := range origSources {

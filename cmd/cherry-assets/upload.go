@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log"
 	"maps"
-	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -24,21 +23,15 @@ import (
 )
 
 // runUpload stores every object that is missing or different in R2 (HEAD, then PUT), then writes the
-// indexes and the D1 mirror. The indexes are written only when every object is in place, so Cherry never
-// lists a file R2 does not have. packsOnly skips the bulk indexes and the D1 mirror (objs must then be the map
-// packs only, since the bulk indexes list every bulk object given). Generated objects get their D1 rows in
-// either mode.
-// origOnly uploads one origin source only (-only) and writes just its D1 rows (no index, no pack list).
-func runUpload(ctx context.Context, objs []*object, concurrency int, forceD1, packsOnly, origOnly bool) error {
+// indexes. The indexes are written only when every object is in place, so Cherry never
+// lists a file R2 does not have. packsOnly skips the bulk indexes (objs must then be the map
+// packs only, since the bulk indexes list every bulk object given).
+// origOnly uploads one origin source only (-only): no index, no pack list.
+func runUpload(ctx context.Context, objs []*object, concurrency int, packsOnly, origOnly bool) error {
 	cfg, err := loadR2()
 	if err != nil {
 		return err
 	}
-	creds, err := loadD1Creds()
-	if err != nil {
-		return err
-	}
-	d1 := &d1Client{creds: creds, api: d1API, hc: &http.Client{Timeout: 60 * time.Second}}
 	logPath := filepath.Join(os.TempDir(), "cherry-assets-"+time.Now().Format("20060102-150405")+".log")
 	lf, err := os.Create(logPath)
 	if err != nil {
@@ -87,10 +80,6 @@ func runUpload(ctx context.Context, objs []*object, concurrency int, forceD1, pa
 		return fmt.Errorf("%d objects failed (run stopped after %d); manifests not written, rerun to resume", n, maxFailures)
 	}
 	if origOnly {
-		if err := syncOrig(ctx, d1, objs, logger); err != nil {
-			return fmt.Errorf("d1 origin: %w", err)
-		}
-		fmt.Println("d1: origin rows written")
 		return nil
 	}
 
@@ -101,17 +90,6 @@ func runUpload(ctx context.Context, objs []*object, concurrency int, forceD1, pa
 		}
 		logger.Printf("manifests written: %d categories", len(manifests))
 		fmt.Printf("manifests: %d categories written to R2\n", len(manifests))
-
-		if err := syncD1(ctx, d1, manifests, r.putCats(), forceD1, logger); err != nil {
-			return fmt.Errorf("d1: %w", err)
-		}
-		fmt.Println("d1: manifest mirror current")
-	}
-	if err := syncOrig(ctx, d1, objs, logger); err != nil {
-		return fmt.Errorf("d1 origin: %w", err)
-	}
-	if err := syncGenerated(ctx, d1, objs, time.Now(), logger); err != nil {
-		return fmt.Errorf("d1 generated: %w", err)
 	}
 	if err := writePacks(ctx, r.client, objs); err != nil {
 		return err
@@ -159,15 +137,6 @@ type uploader struct {
 	skipped  atomic.Int64
 	failed   atomic.Int64
 	bytesUp  atomic.Int64
-	putMu    sync.Mutex
-	putSet   map[string]bool // categories that had at least one PUT this run
-}
-
-// putCats reports which bulk categories had an object PUT this run.
-func (u *uploader) putCats() map[string]bool {
-	u.putMu.Lock()
-	defer u.putMu.Unlock()
-	return u.putSet
 }
 
 // progress logs a line every 30 seconds until the returned stop function runs.
@@ -230,14 +199,6 @@ func (u *uploader) one(ctx context.Context, o *object) {
 	}
 	u.uploaded.Add(1)
 	u.bytesUp.Add(o.size)
-	if o.cat != "" {
-		u.putMu.Lock()
-		if u.putSet == nil {
-			u.putSet = map[string]bool{}
-		}
-		u.putSet[o.cat] = true
-		u.putMu.Unlock()
-	}
 	u.log.Printf("uploaded %s %d", o.key, o.size)
 }
 
@@ -270,7 +231,7 @@ func retry(ctx context.Context, fn func() error) error {
 }
 
 // writeManifests builds cherry/manifest/<cat>.json for each bulk category from the uploaded objects' MD5s and
-// PUTs it. It returns the entries per category (sorted by path), for the D1 mirror.
+// PUTs it. It returns the entries per category (sorted by path).
 func writeManifests(ctx context.Context, client *assets.Client, objs []*object) (map[string][]assets.Entry, error) {
 	byCat := map[string][]assets.Entry{}
 	for _, o := range objs {
@@ -296,7 +257,7 @@ func writeManifests(ctx context.Context, client *assets.Client, objs []*object) 
 }
 
 // writePacks writes cherry/manifest/packs.json from the uploaded map packs, sorted by directory and name, each with
-// its origin (generated packs are cherry, the rest original). The packs are not mirrored to D1.
+// its origin (generated packs are cherry, the rest original).
 func writePacks(ctx context.Context, client *assets.Client, objs []*object) error {
 	var entries []assets.PackEntry
 	for _, o := range objs {
@@ -420,7 +381,7 @@ func verifyGroup(key string) string {
 	return "bulk:" + parts[1]
 }
 
-// runPrune deletes the converted-item objects (cherry/item/) and their D1 generated rows that the plan no longer
+// runPrune deletes the converted-item objects (cherry/item/) that the plan no longer
 // has: items a newer device backup now holds as originals (convert skips those ids). It never touches static/
 // or the indexes. Without yes it only prints what it would delete.
 func runPrune(ctx context.Context, objs []*object, yes bool) error {
@@ -459,21 +420,6 @@ func runPrune(ctx context.Context, objs []*object, yes bool) error {
 			return fmt.Errorf("delete %s: %w", k, err)
 		}
 	}
-	creds, err := loadD1Creds()
-	if err != nil {
-		return err
-	}
-	d1 := &d1Client{creds: creds, api: d1API, hc: &http.Client{Timeout: 60 * time.Second}}
-	for i := 0; i < len(stale); i += d1Batch {
-		end := min(i+d1Batch, len(stale))
-		quoted := make([]string, 0, end-i)
-		for _, k := range stale[i:end] {
-			quoted = append(quoted, sqlStr(k))
-		}
-		if _, err := d1.query(ctx, "DELETE FROM generated WHERE key IN ("+strings.Join(quoted, ", ")+")"); err != nil {
-			return fmt.Errorf("d1 generated rows %d-%d: %w", i, end, err)
-		}
-	}
-	fmt.Printf("prune: %d objects and their D1 rows deleted\n", len(stale))
+	fmt.Printf("prune: %d objects deleted\n", len(stale))
 	return nil
 }

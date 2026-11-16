@@ -25,7 +25,7 @@ import (
 	"cherry/internal/itemcode"
 )
 
-// Recipe names the generator and its source (the D1 generated table and cherry/manifest/items.json).
+// Recipe names the generator and its source (checked by cherry-assets: a generated object must name one).
 const Recipe = "itemconv-v1 ios-mini-4.3-2014/item.zip"
 
 // DpRecipe is the recipe of a dp.png: rendered by Cherry's item thumbnail generator from the converted parts.

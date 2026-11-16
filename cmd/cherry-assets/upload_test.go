@@ -15,7 +15,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"cherry/internal/assets"
 )
@@ -111,59 +110,6 @@ func TestGeneratedPackUploadsUnderCherry(t *testing.T) {
 	}
 }
 
-// Each generated object gets one upsert into generated, after the tables exist. Originals and a run without
-// generated objects write nothing.
-func TestSyncGeneratedWritesRows(t *testing.T) {
-	var mu sync.Mutex
-	var sqls []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			SQL string `json:"sql"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		mu.Lock()
-		sqls = append(sqls, req.SQL)
-		mu.Unlock()
-		_, _ = w.Write([]byte(`{"success":true,"errors":[],"result":[{"success":true,"results":[]}]}`))
-	}))
-	t.Cleanup(srv.Close)
-	d := &d1Client{creds: d1Creds{accountID: "acct", token: "tok", database: "db"}, api: srv.URL, hc: srv.Client()}
-	ctx := context.Background()
-	logger := log.New(io.Discard, "", 0)
-	now := time.Date(2026, 10, 26, 5, 0, 0, 0, time.UTC)
-	original := &object{key: "static/garden/1900000000.mworldpack", size: 4, md5: "AB", pack: "garden", rel: "1900000000.mworldpack"}
-	if err := syncGenerated(ctx, d, []*object{original}, now, logger); err != nil {
-		t.Fatal(err)
-	}
-	mu.Lock()
-	n := len(sqls)
-	mu.Unlock()
-	if n != 0 {
-		t.Fatalf("originals wrote %d statements", n)
-	}
-
-	sum := strings.Repeat("A", 32)
-	gen := &object{key: assets.GeneratedPackKey("1999999999.mworldpack"), size: 5, md5: sum, pack: "garden", rel: "1999999999.mworldpack", generated: true, recipe: "test: two fixtures"}
-	if err := syncGenerated(ctx, d, []*object{original, gen}, now, logger); err != nil {
-		t.Fatal(err)
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	joined := strings.Join(sqls, "\n")
-	for _, want := range []string{
-		"CREATE TABLE IF NOT EXISTS manifest (",
-		"CREATE TABLE IF NOT EXISTS generated (key TEXT PRIMARY KEY",
-		"INSERT OR REPLACE INTO generated (key, size, md5, recipe, created) VALUES ('cherry/garden/1999999999.mworldpack', 5, '" + sum + "', 'test: two fixtures', '2026-10-26T05:00:00Z')",
-	} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("missing %q in:\n%s", want, joined)
-		}
-	}
-	if strings.Contains(joined, "1900000000") {
-		t.Errorf("an original was recorded in generated:\n%s", joined)
-	}
-}
-
 // verify groups a bucket key under the plan's group names, or under one of the three bookkeeping groups.
 func TestVerifyGroups(t *testing.T) {
 	for key, want := range map[string]string{
@@ -181,49 +127,5 @@ func TestVerifyGroups(t *testing.T) {
 	}
 	if tot := summarize([]*object{{key: assets.GeneratedPackKey("1999999999.mworldpack"), pack: "garden", generated: true, size: 5}}); tot.count["generated"] != 1 || tot.count["pack:garden"] != 0 {
 		t.Fatalf("generated object summarized as %+v", tot)
-	}
-}
-
-// TestD1WritesOnlyChangedRows: rows already in D1 with the same md5 are not written again (D1's free tier allows 100k row
-// writes a day); a changed md5 is rewritten and a row the run no longer has is deleted.
-func TestD1WritesOnlyChangedRows(t *testing.T) {
-	var sqls []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			SQL string `json:"sql"`
-		}
-		_ = json.NewDecoder(r.Body).Decode(&req)
-		sqls = append(sqls, req.SQL)
-		results := `[]`
-		switch {
-		case strings.HasPrefix(req.SQL, "SELECT key AS k"):
-			results = `[{"k":"cherry/item/a.png","md5":"AA"}]`
-		case strings.HasPrefix(req.SQL, "SELECT path AS k"):
-			results = `[{"k":"same.png","md5":"S"},{"k":"edited.png","md5":"OLD"},{"k":"gone.png","md5":"G"}]`
-		}
-		_, _ = w.Write([]byte(`{"success":true,"errors":[],"result":[{"success":true,"results":` + results + `}]}`))
-	}))
-	t.Cleanup(srv.Close)
-	d := &d1Client{creds: d1Creds{accountID: "acct", token: "tok", database: "db"}, api: srv.URL, hc: srv.Client()}
-	ctx := context.Background()
-	logger := log.New(io.Discard, "", 0)
-	gen := []*object{{key: "cherry/item/a.png", md5: "AA", generated: true}, {key: "cherry/item/b.png", md5: "BB", generated: true}}
-	if err := syncGenerated(ctx, d, gen, time.Now(), logger); err != nil {
-		t.Fatal(err)
-	}
-	n, err := replaceRows(ctx, d, "cache", []assets.Entry{{Path: "same.png", MD5: "S"}, {Path: "edited.png", MD5: "NEW"}, {Path: "new.png", MD5: "N"}})
-	if err != nil || n != 3 {
-		t.Fatalf("replaceRows = %d, %v; want 3 (edited, new, gone)", n, err)
-	}
-	joined := strings.Join(sqls, "\n")
-	for _, want := range []string{"'cherry/item/b.png'", "'edited.png', 0, 'NEW'", "'new.png'", "path IN ('gone.png')"} {
-		if !strings.Contains(joined, want) {
-			t.Errorf("missing %q in:\n%s", want, joined)
-		}
-	}
-	for _, sql := range sqls {
-		if strings.Contains(sql, "'cherry/item/a.png'") || strings.Contains(sql, "'same.png'") || sql == "DELETE FROM manifest WHERE cat = 'cache'" {
-			t.Errorf("an unchanged row or the whole category was written: %s", sql)
-		}
 	}
 }

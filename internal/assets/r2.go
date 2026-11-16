@@ -7,8 +7,7 @@
 // truth: cmd/cherry-assets writes them, and only from its archive roots, and nothing Cherry makes is ever
 // written there. cherry/ holds everything Cherry makes: the indexes (cherry/manifest/, read here, with the
 // legacy manifest/ keys as a fallback until migrate-manifests has run) and Cherry-generated Garden packs
-// (cherry/garden/<name>, GeneratedPackKey). In D1, table manifest mirrors the original bulk files only and
-// table generated records the cherry/ objects.
+// (cherry/garden/<name>, GeneratedPackKey).
 //
 // Streaming is on only when streaming.json enables it AND %LOCALAPPDATA%\Cherry\cloudflare.json exists
 // (Open). The checkresource2 versions then come from the manifests, so the patcher fetches every category
