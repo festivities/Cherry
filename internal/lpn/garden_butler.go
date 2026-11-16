@@ -471,6 +471,25 @@ func butlerDialogBody(b economy.ButlerDef, v economy.ButlerView, h store.ButlerH
 	return body
 }
 
+// butlerIntimacyMax is the heart gauge's maximum the Talk popup is sent. Cherry keeps no intimacy (the gauge stays 0), so
+// this only scales an empty gauge; Cherry-made.
+const butlerIntimacyMax = 100
+
+// butlerTalkBody is the Talk popup (hc 58, butler-robo-spec 10.4): result 0 and ButlerIntimacyPopupInfo (f2): the heart
+// gauge (now 0, max, add 0: no gain, so the client plays the character action), the butler's ButlerInfo, the talk line
+// (Cherry-made, data/butlers.json talk_line) and, for a butler with voices, one of its lines (auto-played), rotating
+// with the time. A reply without f2 opened the popup empty: no name, no butler, no line (device 2026-11-17).
+func butlerTalkBody(b economy.ButlerDef, v economy.ButlerView, h store.ButlerHire, now time.Time) []byte {
+	info := pbLen(nil, 1, pbVar(pbVar(pbVar(nil, 1, 0), 2, butlerIntimacyMax), 3, 0))
+	info = pbLen(info, 2, butlerInfo(b, v.Worn(b), &h, v.Chief() == b.ID, now))
+	info = pbLen(info, 3, []byte(economy.ActiveButlers().TalkLine))
+	if b.Voices != nil {
+		lines := b.Voices.Lines
+		info = pbLen(info, 4, []byte(b.Voices.FilePath(lines[now.Unix()%int64(len(lines))])))
+	}
+	return pbLen(pbVar(nil, 1, 0), 2, info)
+}
+
 // butlerRefusal is the reply to a request the butlers do not serve here: result butlerRefused, or the
 // message the Garden's popup shows for it (reward info: "not available"), or an empty reply where the reply
 // has no result field (spec 3.2). Nothing is spent.
@@ -510,12 +529,13 @@ func gardenButlerReply(msgid uint16, viewer uint64, data []byte, now time.Time, 
 			}
 		}
 		// an unknown or not-hired butler is refused below
-	case 49: // talk {butler_id}: the Talk popup of a butler under contract; the minimal reply (butler-robo-spec 10.8), no intimacy gain (hc 58)
+	case 49: // talk {butler_id}: the Talk popup of a butler under contract, no intimacy gain (hc 58)
 		id, _ := protobufUintField(data, 1)
 		if b, ok := economy.ButlerByID(int64(id)); ok {
-			if _, ok := economy.ButlerViewOf(aid, now).Hire(b.ID); ok {
+			v := economy.ButlerViewOf(aid, now)
+			if h, ok := v.Hire(b.ID); ok {
 				logger.Printf("BUTLER talk aid=%s butler=%d result=0", aid, id)
-				return []gardenMsg{{58, pbVar(nil, 1, 0)}}
+				return []gardenMsg{{58, butlerTalkBody(b, v, h, now)}}
 			}
 		}
 		// an unknown or not-hired butler is refused below

@@ -5,6 +5,7 @@ import (
 	"log"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -145,12 +146,23 @@ func TestButlerChatDialogOnTheWire(t *testing.T) {
 		}
 	}
 
-	// Talk (ch 49 to hc 58): the minimal valid reply for a butler under contract, and a refusal without one.
+	// Talk (ch 49 to hc 58): for a butler under contract, result 0 and the Talk popup's content (the butler, the talk line
+	// and one of its voice lines; a reply without it opened an empty popup on the device), and a refusal without one.
 	msgs = gardenButlerReply(49, 3600, pbVar(nil, 1, merry), now, logger)
-	if len(msgs) != 1 || msgs[0].id != 58 || string(msgs[0].body) != string(pbVar(nil, 1, 0)) {
-		t.Fatalf("talk: got %+v, want one hc 58 with result 0 alone", msgs)
+	if len(msgs) != 1 || msgs[0].id != 58 {
+		t.Fatalf("talk: got %+v, want one hc 58", msgs)
 	}
 	checkButlerWire(t, "talk", msgs[0].body)
+	popup, _, _ := pbBytesField(msgs[0].body, 2)
+	if line, _, _ := pbBytesField(popup, 3); string(line) != economy.ActiveButlers().TalkLine {
+		t.Fatalf("talk line %q, want the talk_line of butlers.json", line)
+	}
+	if _, ok, _ := pbBytesField(popup, 2); !ok {
+		t.Fatal("talk: the popup carries no ButlerInfo (the device drew an empty figure)")
+	}
+	if voice, _, _ := pbBytesField(popup, 4); !strings.HasPrefix(string(voice), "butler_voice_master/") {
+		t.Fatalf("talk voice %q, want one of Merry's lines", voice)
+	}
 	msgs = gardenButlerReply(49, 3604, pbVar(nil, 1, merry), now, logger)
 	if len(msgs) != 1 || msgs[0].id != 58 || string(msgs[0].body) != string(pbVar(nil, 1, butlerRefused)) {
 		t.Fatalf("talk without a contract: got %+v, want a refusal of 1", msgs)

@@ -368,7 +368,7 @@ func TestButlerConfigRefusesIdOutsideCherryBlock(t *testing.T) {
 	}
 
 	valid := func(id int64) *Butlers {
-		return &Butlers{Origin: "mixed", Note: "n", ChatGreeting: "Hi.", FreeDays: 3, Hire: []ButlerPrice{{Days: 30, Cash: 30}},
+		return &Butlers{Origin: "mixed", Note: "n", ChatGreeting: "Hi.", TalkLine: "Fun.", FreeDays: 3, Hire: []ButlerPrice{{Days: 30, Cash: 30}},
 			Gathering: ButlerGathering{Gems: 3, GemsCap: 10, GathersPerDay: 10, DurationMinutes: 60},
 			Butlers: []ButlerDef{{ID: id, Name: "X", Gender: "FEMALE", Skins: []ButlerSkin{{ID: DefaultSkinID(id), Code: "cherry_x", Name: "X", Outfit: []string{"CUON004BH"}}},
 				Abilities: []string{"essence"}, Art: "b1"}}}
@@ -432,7 +432,7 @@ func TestButlerConfigRefusesIdOutsideCherryBlock(t *testing.T) {
 	}
 
 	bad := filepath.Join(t.TempDir(), "butlers.json")
-	raw := `{"origin":"mixed","note":"n","chat_greeting":"Hi.","free_days":3,"hire":[{"days":30,"cash":30}],` +
+	raw := `{"origin":"mixed","note":"n","chat_greeting":"Hi.","talk_line":"Fun.","free_days":3,"hire":[{"days":30,"cash":30}],` +
 		`"gathering":{"gems":3,"gems_cap":10,"gathers_per_day":10},` +
 		`"butlers":[{"id":5,"name":"Low","gender":"MALE","skins":[{"id":5,"code":"cherry_low","name":"Low","outfit":["CUON004BH"]}],"abilities":["ore"],"art":"b1"}]}`
 	if err := os.WriteFile(bad, []byte(raw), 0o600); err != nil {
@@ -500,7 +500,7 @@ func TestButlerLookalikesAndSkins(t *testing.T) {
 // eye count as one slot), and a look-alike must be one of the outfit's codes. Both are checked at load, with no archive.
 func TestButlerOutfitRefusesTwoOfASlotAndUnlistedLookalike(t *testing.T) {
 	valid := func(outfit, lookalikes []string) *Butlers {
-		return &Butlers{Origin: "mixed", Note: "n", ChatGreeting: "Hi.", FreeDays: 3, Hire: []ButlerPrice{{Days: 30, Cash: 30}},
+		return &Butlers{Origin: "mixed", Note: "n", ChatGreeting: "Hi.", TalkLine: "Fun.", FreeDays: 3, Hire: []ButlerPrice{{Days: 30, Cash: 30}},
 			Gathering: ButlerGathering{Gems: 3, GemsCap: 10, GathersPerDay: 10, DurationMinutes: 60},
 			Butlers: []ButlerDef{{ID: CherryButlerFirst, Name: "X", Gender: "FEMALE", Abilities: []string{"essence"}, Art: "b1",
 				Skins: []ButlerSkin{{ID: DefaultSkinID(CherryButlerFirst), Code: "cherry_x", Name: "X", Outfit: outfit, Lookalikes: lookalikes}}}}}

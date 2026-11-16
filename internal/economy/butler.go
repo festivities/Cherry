@@ -70,6 +70,7 @@ var butlerSkinFS fs.FS = assets.DeviceFiles("")
 //	origin      must be "mixed": the roster is original; the ids, skin codes, prices and gathering amounts are Cherry-made
 //	note        says per field which are original and which are Cherry-made; text for operators, not sent to the client
 //	chat_greeting  the Chat popup's first line for every butler (Cherry-made); must not be empty
+//	talk_line   the Talk popup's line ("I'm bored! Play with me!") for every butler (Cherry-made); must not be empty
 //	free_days   days of the account's first hire, free once per account (a first hire, paid or free, uses it)
 //	hire        the one 30-day period and its earned-Cash price (the client's contract picker offers 30 days only)
 //	gathering   gems: Gems per gather; gems_cap: Gems a game day from butler gathering, per account; gathers_per_day:
@@ -80,6 +81,7 @@ type Butlers struct {
 	Origin       string          `json:"origin"`
 	Note         string          `json:"note"`
 	ChatGreeting string          `json:"chat_greeting"`
+	TalkLine     string          `json:"talk_line"`
 	FreeDays     int64           `json:"free_days"`
 	Hire         []ButlerPrice   `json:"hire"`
 	Gathering    ButlerGathering `json:"gathering"`
@@ -192,6 +194,9 @@ func checkButlers(b *Butlers) error {
 	}
 	if strings.TrimSpace(b.ChatGreeting) == "" {
 		return errors.New("chat_greeting must not be empty: it is the Chat popup's first line")
+	}
+	if strings.TrimSpace(b.TalkLine) == "" {
+		return errors.New("talk_line must not be empty: it is the Talk popup's line")
 	}
 	if b.FreeDays < 1 {
 		return errors.New("free_days must be at least 1")

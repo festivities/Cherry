@@ -67,9 +67,11 @@ var butlerSpec = map[string]map[uint64]butlerWire{
 	"memoryscene": {3: {0, ""}, 4: {2, ""}, 5: {2, "memoryline"}, 6: {2, ""}},
 	"memoryline":  {1: {0, ""}, 2: {0, ""}, 3: {2, ""}, 4: {2, ""}, 5: {0, ""}, 6: {0, ""}},
 	// The Chat (hc 57 and hc 58, butler-robo-spec 10.2 and 10.4): the greeting, the buttons, the butler and its first line.
-	"dialog": {1: {0, ""}, 2: {2, ""}, 3: {2, "button"}, 4: {2, "info"}, 5: {2, ""}},
-	"button": {1: {0, ""}, 2: {2, ""}, 3: {0, ""}, 4: {0, ""}},
-	"talk":   {1: {0, ""}},
+	"dialog":   {1: {0, ""}, 2: {2, ""}, 3: {2, "button"}, 4: {2, "info"}, 5: {2, ""}},
+	"button":   {1: {0, ""}, 2: {2, ""}, 3: {0, ""}, 4: {0, ""}},
+	"talk":     {1: {0, ""}, 2: {2, "intimacy"}},
+	"intimacy": {1: {2, "gauge"}, 2: {2, "info"}, 3: {2, ""}, 4: {2, ""}},
+	"gauge":    {1: {0, ""}, 2: {0, ""}, 3: {0, ""}},
 }
 
 // checkButlerWire walks body as the spec table name and fails on a field the table does not list, a field with
