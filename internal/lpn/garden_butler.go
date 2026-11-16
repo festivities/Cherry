@@ -805,7 +805,9 @@ func gardenButlerReply(msgid uint16, viewer uint64, data []byte, now time.Time, 
 			return []gardenMsg{{76, pbVar(nil, 1, code)}}
 		}
 		logger.Printf("BUTLER order reward aid=%s butler=%d order=%d items=%d reward=%d result=0", aid, id, orderID, len(items), paid.Reward.Amount)
-		return []gardenMsg{{76, specialOrderRewardBody(paid)}}
+		// hc 28 makes the client refetch coin/balance, as after a gather claim: without it the HUD kept the old Gems
+		// (device 2026-11-17, server 232 -> 247, HUD 232).
+		return []gardenMsg{{76, specialOrderRewardBody(paid)}, {28, pbVar(nil, 2, 0)}}
 	}
 	reply := butlerReplies[msgid]
 	logger.Printf("BUTLER refused aid=%s msgid=%d reply=%d", aid, msgid, reply)

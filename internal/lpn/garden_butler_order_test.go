@@ -78,6 +78,12 @@ func TestSpecialOrderRequestPath(t *testing.T) {
 	request := func(msgid uint16, at time.Time, data []byte) gardenMsg {
 		t.Helper()
 		msgs := gardenButlerReply(msgid, viewer, data, at, logger)
+		// A paid delivery is followed by hc 28, which makes the client refetch its balance (the Gem HUD).
+		if len(msgs) == 2 && msgid == 65 && msgs[1].id == 28 {
+			if r, _ := protobufUintField(msgs[0].body, 1); r == 0 {
+				msgs = msgs[:1]
+			}
+		}
 		if len(msgs) != 1 || msgs[0].id != map[uint16]uint16{64: 75, 65: 76, 66: 77}[msgid] {
 			t.Fatalf("request %d: got %d frames %+v", msgid, len(msgs), msgs)
 		}
