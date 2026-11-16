@@ -1,0 +1,24 @@
+{{define "page"}}<h1>Review the mail</h1>
+<p class="flash warn" role="note">Nothing is sent yet. Check the recipients and the attachment. A sent mail cannot be recalled.</p>
+<dl class="facts card">
+<dt>To</dt><dd>{{.Mail.Target}}: <strong>{{.Mail.Recipients}}</strong> {{if eq .Mail.Recipients 1}}mailbox{{else}}mailboxes{{end}}</dd>
+<dt>Attachment</dt><dd>{{.Mail.Attachment}}</dd>
+<dt>Expires</dt><dd>after {{.Mail.Expires}} days</dd>
+<dt>Message</dt><dd>{{with .Mail.Form.Message}}{{.}}{{else}}(none){{end}}</dd>
+<dt>Reason</dt><dd>{{.Mail.Form.Reason}}</dd>
+</dl>
+<form method="post" action="/mail/send" class="stack" data-confirm="Send this mail to {{.Mail.Recipients}} {{if eq .Mail.Recipients 1}}mailbox{{else}}mailboxes{{end}}? It cannot be recalled.">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<input type="hidden" name="send" value="{{.Mail.SendID}}">
+<input type="hidden" name="audience" value="{{.Mail.Form.Audience}}">
+<input type="hidden" name="player_id" value="{{.Mail.Form.PlayerID}}">
+<input type="hidden" name="expect" value="{{.Mail.Recipients}}">
+<input type="hidden" name="kind" value="{{.Mail.Form.Kind}}">
+<input type="hidden" name="amount" value="{{.Mail.Form.Amount}}">
+<input type="hidden" name="item" value="{{.Mail.Form.Item}}">
+<input type="hidden" name="message" value="{{.Mail.Form.Message}}">
+<input type="hidden" name="days" value="{{.Mail.Form.Days}}">
+<input type="hidden" name="reason" value="{{.Mail.Form.Reason}}">
+<div class="actions"><button type="submit" class="danger">Send to {{.Mail.Recipients}} {{if eq .Mail.Recipients 1}}mailbox{{else}}mailboxes{{end}}</button> <a href="/mail">Edit the mail</a></div>
+</form>
+{{end}}

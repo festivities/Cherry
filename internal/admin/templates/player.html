@@ -1,20 +1,108 @@
 {{define "page"}}<h1>Player #{{.Player.ID}}{{with .Player.Name}} <span class="muted">{{.}}</span>{{end}}</h1>
+<nav class="jump" aria-label="Sections">{{range .Page.Sections}}<a href="{{.Href}}">{{.Label}}</a>{{end}}</nav>
+<p class="actions-row"><a href="/mail?player={{.Player.ID}}">Send mail to this player</a> · <a href="/audit?target=player:{{.Player.ID}}">Audit rows for this player</a>{{if ne .Player.Aid "0"}} · <a href="/chat?player={{.Player.Aid}}">Chat by this player</a> · <a href="/photos?player={{.Player.Aid}}">Photos by this player</a>{{end}}</p>
 
+<section id="overview" class="page-section">
+<h2>Overview</h2>
 <div class="grid-2">
-<section class="card">
-<h2>Account</h2>
+<div class="card">
 <dl class="facts">
 <dt>Name</dt><dd>{{if .Player.Name}}{{.Player.Name}}{{else}}none yet{{end}}</dd>
 <dt>Avatar id</dt><dd>{{.Player.Aid}}{{if eq .Player.Aid "0"}} (no avatar yet){{end}}</dd>
 <dt>Identity</dt><dd>{{if .Player.Identity}}{{.Player.Identity}}{{else}}none (lab account){{end}}</dd>
-<dt>Gems</dt><dd>{{.Player.Gems}}</dd>
-<dt>Cash</dt><dd>{{.Player.Cash}}</dd>
+<dt>Created (UTC)</dt><dd>{{with .Page.Created}}{{.}}{{else}}—{{end}}</dd>
+<dt>Last seen (UTC)</dt><dd>{{with .Page.Seen}}{{.}}{{else}}—{{end}}</dd>
 <dt>Ban</dt><dd>{{with .Player.Ban}}banned on {{.At}} by {{.By}}: {{.Reason}}{{else}}not banned{{end}}</dd>
+<dt>Online now</dt><dd>{{with .Page.Online}}yes, since {{.Since}} UTC (for {{.For}}), in {{.Rooms}}{{else}}no{{end}}</dd>
 </dl>
+{{with .Page.Online}}<form method="post" action="/players/{{$.Player.ID}}/kick" class="stack" data-confirm="Close this player's live connections? The player can sign in again at once; this is not a ban.">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<label><span class="label">Reason for the kick</span>
+<input type="text" name="reason" maxlength="200" required>
+<small class="help">Closes the live connections only. The player can sign in again at once.</small></label>
+<div class="actions"><button type="submit" class="ghost">Kick: close the live connections</button></div>
+</form>{{end}}
+</div>
+<div class="card">
+<h3>Balances</h3>
+<table>
+<tbody>
+<tr><th scope="row">Gems</th><td class="num">{{.Player.Gems}}</td></tr>
+<tr><th scope="row">Cash</th><td class="num">{{.Player.Cash}}</td></tr>
+<tr><th scope="row">Smiles</th><td class="num">{{.Page.Book.Smiles}}</td></tr>
+<tr><th scope="row">Face Shop tickets</th><td class="num">{{.Page.Book.FaceTickets}}</td></tr>
+<tr><th scope="row">Boss Coins</th><td class="num">{{.Page.Book.BossCoins}}</td></tr>
+<tr><th scope="row">Ride points</th><td class="num">{{.Page.Book.RidePoints}}</td></tr>
+<tr><th scope="row">Race tickets left today</th><td class="num">{{.Page.Book.RaceTickets}} of {{.Page.Book.RaceMax}}</td></tr>
+</tbody>
+</table>
+</div>
+</div>
 </section>
 
+<section id="inventory" class="page-section">
+<h2>Inventory</h2>
+<p>{{.Page.Book.Owned}} owned item codes · {{.Page.Book.RoomItems}} room items · {{len .Page.Book.Pets}} pets</p>
+{{if .Page.Book.NewestCodes}}<p class="muted small">The newest {{len .Page.Book.NewestCodes}} owned codes, newest first. Codes only: the staff panel serves no item pictures.</p>
+<ul class="codes">{{range .Page.Book.NewestCodes}}<li class="mono">{{.}}</li>{{end}}</ul>
+{{else}}<p class="empty-state">No owned items.</p>{{end}}
+{{if .Page.Book.Pets}}<h3>Pets</h3>
+<div class="scroll"><table>
+<thead><tr><th>Name</th><th>Code</th></tr></thead>
+<tbody>{{range .Page.Book.Pets}}<tr><td>{{.Name}}</td><td class="mono">{{.Code}}</td></tr>{{end}}</tbody>
+</table></div>{{end}}
+</section>
+
+<section id="garden-bag" class="page-section">
+<h2>Garden bag</h2>
+<div class="scroll"><table>
+<thead><tr><th>Material</th><th class="num">Item</th><th class="num">Count</th></tr></thead>
+<tbody>
+{{range .Page.Book.Bag}}<tr><td>{{.Name}}</td><td class="num">{{.Item}}</td><td class="num">{{.Count}}</td></tr>
+{{else}}<tr class="empty"><td colspan="3">The Garden bag is empty.</td></tr>{{end}}
+</tbody>
+</table></div>
+</section>
+
+<section id="butlers" class="page-section">
+<h2>Butlers</h2>
+<div class="scroll"><table>
+<thead><tr><th>Butler</th><th>Contract (UTC)</th><th>Worn skin</th><th>Special order</th><th>Gathering</th><th>Memories (the roster's)</th></tr></thead>
+<tbody>
+{{range .Page.Book.Butlers}}<tr>
+<td>{{.Name}} <span class="muted small">#{{.ID}}</span>{{if eq .ID $.Page.Book.Chief}} <span class="pill">chief</span>{{end}}</td>
+<td>{{unixms .Begin}} to {{unixms .End}}{{if .Ended}} <span class="pill warn">ended</span>{{end}}</td>
+<td>{{.Skin}}</td>
+<td>{{if .HasOrder}}grade {{.OrderGrade}}, {{.OrderCount}} materials, until {{unixms .OrderEnd}}{{else}}none{{end}}</td>
+<td>{{if .HasGathering}}until {{unixms .GatherEnd}}{{else}}idle{{end}}</td>
+<td>{{range $i, $m := .Memories}}{{if $i}}, {{end}}{{$m}}{{else}}none{{end}}</td>
+</tr>{{else}}<tr class="empty"><td colspan="6">No butlers hired.</td></tr>{{end}}
+</tbody>
+</table></div>
+</section>
+
+<section id="social" class="page-section">
+<h2>Social</h2>
+<div class="grid-2">
+<div class="card">
+<h3>Friends</h3>
+<p>{{.Page.FriendTotal}} accepted{{if gt .Page.FriendTotal 50}} (the first 50 are listed){{end}}.</p>
+{{if .Page.Friends}}<ul class="codes">{{range .Page.Friends}}<li>{{if .Href}}<a href="{{.Href}}">{{.Label}}</a>{{else}}<span class="mono">{{.Label}}</span>{{end}}</li>{{end}}</ul>
+{{else}}<p class="empty-state">No friends yet.</p>{{end}}
+</div>
+<div class="card">
+<h3>Circle</h3>
+{{with .Page.Circle}}<p>{{.Name}} <span class="muted small">circle #{{.ID}}</span>, role {{.Role}}.</p>
+{{else}}<p class="empty-state">Not in a circle.</p>{{end}}
+</div>
+</div>
+</section>
+
+<section id="moderation" class="page-section">
+<h2>Moderation</h2>
+<div class="grid-2">
 <section class="card">
-<h2>Ban</h2>
+<h3>Ban</h3>
 {{if .Player.Ban}}<form method="post" action="/players/{{.Player.ID}}/unban" class="stack" data-confirm="Lift the ban on this player?">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
 <p class="muted small">Lifting the ban lets the player sign in again. The account's tokens stay revoked until then.</p>
@@ -28,27 +116,8 @@
 <div class="actions"><button type="submit" class="danger">Ban this identity</button></div>
 </form>{{end}}
 </section>
-</div>
-
-<div class="grid-2">
 <section class="card">
-<h2>Grant or take away</h2>
-<form method="post" action="/players/{{.Player.ID}}/grant" class="stack">
-<input type="hidden" name="csrf" value="{{.CSRF}}">
-<label><span class="label">Currency</span>
-<select name="currency"><option value="gems">Gems</option><option value="cash">Cash</option></select></label>
-<label><span class="label">Amount</span>
-<input type="text" name="delta" inputmode="numeric" required>
-<small class="help">A whole number. A negative number takes away.</small></label>
-<label><span class="label">Reason</span>
-<input type="text" name="reason" maxlength="200" required>
-<small class="help">Written to the ledger and the audit trail.</small></label>
-<div class="actions"><button type="submit">Apply</button></div>
-</form>
-</section>
-
-<section class="card">
-<h2>Rename</h2>
+<h3>Rename</h3>
 <form method="post" action="/players/{{.Player.ID}}/rename" class="stack">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
 <label><span class="label">Nickname</span>
@@ -60,9 +129,9 @@
 </form>
 </section>
 </div>
-<p class="muted small">Grants, bans, renames and removals need a Discord sign-in in the last five minutes. A ban also ends the player's live connections.</p>
+<p class="muted small">Grants, bans, renames, kicks and removals need a Discord sign-in in the last five minutes. A ban and a kick end the player's live connections; a ban also refuses the next sign-in.</p>
 
-<h2>Diary posts (newest 20)</h2>
+<h3>Diary posts (newest 20)</h3>
 <div class="scroll"><table>
 <thead><tr><th>Post</th><th>Date (UTC)</th><th>Text (first 80 characters)</th><th>Photo</th><th>Remove</th></tr></thead>
 <tbody>
@@ -73,7 +142,7 @@
 </tbody>
 </table></div>
 
-<h2>Guestbook entries the player wrote (newest 20)</h2>
+<h3>Guestbook entries the player wrote (newest 20)</h3>
 <div class="scroll"><table>
 <thead><tr><th>Entry</th><th>In the guestbook of</th><th>Date (UTC)</th><th>Text (first 80 characters)</th><th>Remove</th></tr></thead>
 <tbody>
@@ -84,7 +153,7 @@
 </tbody>
 </table></div>
 
-<h2>Diary comments the player wrote (newest 20)</h2>
+<h3>Diary comments the player wrote (newest 20)</h3>
 <div class="scroll"><table>
 <thead><tr><th>Comment</th><th>Post</th><th>Owner of the post</th><th>Date (UTC)</th><th>Text (first 80 characters)</th><th>Remove</th></tr></thead>
 <tbody>
@@ -95,7 +164,7 @@
 </tbody>
 </table></div>
 
-<h2>Pictures the player uploaded (newest 20)</h2>
+<h3>Pictures the player uploaded (newest 20)</h3>
 <div class="scroll"><table>
 <thead><tr><th>Picture</th><th>Kind</th><th class="num">Size (KiB)</th><th>Uploaded (UTC)</th><th>Remove</th></tr></thead>
 <tbody>
@@ -107,15 +176,49 @@
 </table></div>
 <p class="muted small">Removing a picture deletes the file and clears every post, profile or room thumbnail that names it (a post keeps its text). The audit row names the picture's number and the reason, never the picture.</p>
 
-<h2>Newest ledger lines</h2>
+<h3>Audit rows for this player (newest 20)</h3>
+<div class="scroll"><table>
+<thead><tr><th>Time (UTC)</th><th>Actor</th><th>Action</th><th>Detail</th></tr></thead>
+<tbody>
+{{range .Page.Audit}}<tr><td>{{.Time}}</td><td class="mono">{{.Actor}}</td><td class="mono">{{.Action}}</td><td class="mono">{{.Detail}}</td></tr>
+{{else}}<tr class="empty"><td colspan="4">No audit rows name this player.</td></tr>{{end}}
+</tbody>
+</table></div>
+</section>
+
+<section id="ledger" class="page-section">
+<h2>Ledger</h2>
 {{if eq .Player.Aid "0"}}<p class="muted">Ledger lines are kept by avatar id. This account has none yet, so none are shown.</p>{{end}}
+<nav class="filters" aria-label="Ledger window">
+<span class="label">Window</span>
+{{range .Page.Windows}}<a href="{{.Href}}" class="button{{if .Current}}{{else}} ghost{{end}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}}</a>
+{{end}}</nav>
 <div class="scroll"><table>
 <thead><tr><th>Time (UTC)</th><th>Currency</th><th class="num">Change</th><th class="num">Balance after</th><th>Reason</th></tr></thead>
 <tbody>
 {{range .Ledger}}<tr><td>{{.Time}}</td><td>{{.Currency}}</td><td class="num">{{.Delta}}</td><td class="num">{{.Balance}}</td><td>{{.Reason}}</td></tr>
-{{else}}<tr class="empty"><td colspan="5">No ledger lines.</td></tr>{{end}}
+{{else}}<tr class="empty"><td colspan="5">No ledger lines in {{.Page.WindowName}}.</td></tr>{{end}}
 </tbody>
 </table></div>
-<p><a href="/audit?target=player:{{.Player.ID}}">Audit rows for this player</a></p>
-{{if ne .Player.Aid "0"}}<p><a href="/chat?player={{.Player.Aid}}">Chat by this player</a> · <a href="/photos?player={{.Player.Aid}}">Photos by this player</a></p>{{end}}
+</section>
+
+<section id="grant" class="page-section">
+<h2>Grant or take away</h2>
+<div class="card">
+<form method="post" action="/players/{{.Player.ID}}/grant" class="stack">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<label><span class="label">What</span>
+<select name="currency">{{range .Page.Grants}}<option value="{{.Value}}">{{.Label}}</option>{{end}}</select></label>
+<label><span class="label">Garden material (used only with "Garden material")</span>
+<select name="item"><option value="">none</option>{{range .Page.Materials}}<option value="{{.Item}}">{{.Name}} ({{.Item}})</option>{{end}}</select></label>
+<label><span class="label">Amount</span>
+<input type="text" name="delta" inputmode="numeric" required>
+<small class="help">A whole number. A negative number takes away; a take-away below zero is refused, and nothing changes.</small></label>
+<label><span class="label">Reason</span>
+<input type="text" name="reason" maxlength="200" required>
+<small class="help">Written to the audit trail, and to the ledger for a currency.</small></label>
+<div class="actions"><button type="submit">Apply</button> <a href="/mail?player={{.Player.ID}}">Send mail instead</a></div>
+</form>
+</div>
+</section>
 {{end}}

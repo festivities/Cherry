@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"cherry/internal/auth"
@@ -29,7 +30,7 @@ type navGroup struct {
 
 var navGroups = []navGroup{
 	{"Overview", []link{{Href: "/", Label: "Dashboard"}}},
-	{"Players", []link{{Href: "/players", Label: "Players"}}},
+	{"Players", []link{{Href: "/players", Label: "Players"}, {Href: "/mail", Label: "Mail"}}},
 	{"Moderation", []link{{Href: "/chat", Label: "Chat log"}, {Href: "/photos", Label: "Photos"}}},
 	{"Insights", []link{{Href: "/online", Label: "Online now"}, {Href: "/economy", Label: "Economy"}, {Href: "/activity", Label: "Activity"}}},
 	{"Content", []link{{Href: "/docs", Label: "Documents"}}},
@@ -39,17 +40,19 @@ var navGroups = []navGroup{
 // notices are the flash texts a redirect may name with ?notice=<code>. The code picks a fixed text; a code that is not in the
 // map shows nothing, so no text from the query ever reaches a page.
 var notices = map[string]string{
-	"draft-saved":     "The draft is saved as a new version. Validate it, then publish it.",
-	"granted":         "The balance is changed. The ledger and the audit trail have the line.",
-	"banned":          "The identity is banned. Its sessions and live connections end now.",
-	"unbanned":        "The ban is lifted. The player can sign in again.",
-	"renamed":         "The nickname is changed. Diary posts and guestbook entries take it too.",
-	"post-removed":    "The diary post is removed. The audit trail keeps its number and your reason.",
-	"entry-removed":   "The guestbook entry is removed. The audit trail keeps its number and your reason.",
-	"comment-removed": "The diary comment is removed. The audit trail keeps its number and your reason.",
-	"picture-removed": "The picture is removed. Posts that showed it no longer do.",
-	"kicked":          "The player's live connections are closed. This is not a ban: the player can sign in again at once.",
-	"draft-checked":   "The draft is saved and it passes its checks. Publish it when it is ready.",
+	"draft-saved":       "The draft is saved as a new version. Validate it, then publish it.",
+	"granted":           "The change is saved. The audit trail has the line; a currency change has its ledger line too.",
+	"mail-sent":         "The mail is sent. The sent mail list has its recipients and the audit trail has the line.",
+	"mail-already-sent": "This mail was already sent. Nothing was sent again.",
+	"banned":            "The identity is banned. Its sessions and live connections end now.",
+	"unbanned":          "The ban is lifted. The player can sign in again.",
+	"renamed":           "The nickname is changed. Diary posts and guestbook entries take it too.",
+	"post-removed":      "The diary post is removed. The audit trail keeps its number and your reason.",
+	"entry-removed":     "The guestbook entry is removed. The audit trail keeps its number and your reason.",
+	"comment-removed":   "The diary comment is removed. The audit trail keeps its number and your reason.",
+	"picture-removed":   "The picture is removed. Posts that showed it no longer do.",
+	"kicked":            "The player's live connections are closed. This is not a ban: the player can sign in again at once.",
+	"draft-checked":     "The draft is saved and it passes its checks. Publish it when it is ready.",
 	// draft-checked-art-skipped: the art checks could not run in this process (no asset store), so the note says so.
 	"draft-checked-art-skipped": "The draft is saved and it passes the checks this process can run. The art checks were skipped: this process has no asset store.",
 }
@@ -66,6 +69,8 @@ type check struct {
 // view is what the templates read. A page fills the fields it shows; the rest stay empty.
 type view struct {
 	Title, Server, Who, Role, CSRF string
+	SessionLeft                    string // how long the session lasts without a request, shown in the header
+	SearchQuery                    string // the header search box's value on the search page
 	Nav                            bool
 	NavGroups                      []navGroup
 	Crumbs                         []link
@@ -122,6 +127,11 @@ type view struct {
 	Economy  economyPage
 	Activity activityPage
 	Summary  insightsSummary // the dashboard's row
+
+	// the player page (playerpage.go), mail (mail.go), search (search.go)
+	Page   playerPage
+	Mail   mailPage
+	Search searchPage
 }
 
 // base is the view of a signed-in page: the sidebar, the identity and role in the header, the session's CSRF token and the
@@ -132,9 +142,26 @@ func (s *Server) base(r *http.Request, sess session, title string) view {
 		role = "Owner"
 	}
 	return view{
-		Title: title, Server: s.cfg.ServerName, Who: whoOf(sess), Role: role, CSRF: sess.csrf,
+		Title: title, Server: s.cfg.ServerName, Who: whoOf(sess), Role: role, CSRF: sess.csrf, SessionLeft: sessionLeft(sess, s.now()),
 		Nav: true, NavGroups: navFor(r.URL.Path), Notice: notices[r.URL.Query().Get("notice")],
 	}
+}
+
+// isOwner reports whether the session is the owner's (the only identity that may send mail to every account).
+func (s *Server) isOwner(sess session) bool { return sess.identity == s.owner }
+
+// sessionLeft is the time a session lasts from now: to the idle timeout after its last request, or the absolute lifetime,
+// whichever is first. Less than a minute is "under a minute".
+func sessionLeft(sess session, now time.Time) string {
+	end := sess.lastSeen.Add(idleTimeout)
+	if abs := sess.created.Add(absoluteTimeout); abs.Before(end) {
+		end = abs
+	}
+	left := end.Sub(now)
+	if left < time.Minute {
+		return "under a minute"
+	}
+	return fmt.Sprintf("%d min", int(left/time.Minute))
 }
 
 // whoOf is the identity the header shows: the display name Discord gave, then the identity masked as the logs mask it.

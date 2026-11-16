@@ -1,7 +1,29 @@
-// Cherry staff UI: a confirmation before a destructive form is sent (data-confirm), and the dashboard's refresh of its numbers
-// from /stats.json every 15 seconds (data-stats). Every page works without this file; the server still checks each POST.
+// Cherry staff UI: the menu button of a narrow screen (a button that opens and closes the sidebar, Escape closes it), a
+// confirmation before a destructive form is sent (data-confirm), and the dashboard's refresh of its numbers from /stats.json
+// every 15 seconds (data-stats). Every page works without this file (the menu falls back to the checkbox label); the server
+// still checks each POST.
 (function () {
   'use strict';
+
+  document.documentElement.classList.add('js');
+  var navButton = document.getElementById('nav-button');
+  var navToggle = document.getElementById('nav-toggle');
+  function setNav(open) {
+    navToggle.checked = open;
+    navButton.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+  if (navButton && navToggle) {
+    navButton.addEventListener('click', function () {
+      setNav(!navToggle.checked);
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && navToggle.checked) {
+        setNav(false);
+        navButton.focus();
+      }
+    });
+    setNav(navToggle.checked);
+  }
 
   document.addEventListener('submit', function (e) {
     var msg = e.target && e.target.getAttribute && e.target.getAttribute('data-confirm');

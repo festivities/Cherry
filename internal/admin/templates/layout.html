@@ -13,7 +13,7 @@
 {{- if .Nav}}{{template "shell" .}}
 <script src="{{asset "staff.js"}}" defer></script>
 {{- else}}
-<main class="plain">{{template "page" .}}</main>
+<main class="plain" id="main">{{template "page" .}}</main>
 {{- end}}
 {{- range .Scripts}}
 <script src="{{asset .}}" defer></script>
@@ -22,13 +22,21 @@
 </html>{{end}}
 
 {{define "shell"}}<input type="checkbox" id="nav-toggle" class="nav-toggle" tabindex="-1" aria-hidden="true">
+<a class="skip-link" href="#main">Skip to content</a>
 <header class="topbar">
-<label for="nav-toggle" class="nav-button">Menu</label>
+<label for="nav-toggle" class="nav-button nav-nojs">Menu</label>
+<button type="button" class="nav-button nav-js" id="nav-button" aria-controls="sidebar" aria-expanded="false">Menu</button>
 <a class="brand" href="/">Cherry staff</a>
 <span class="server">{{.Server}}</span>
+<form method="get" action="/search" class="topsearch" role="search">
+<label for="top-search" class="sr-only">Search players, chat, audit and documents</label>
+<input type="search" id="top-search" name="q" maxlength="100" value="{{.SearchQuery}}" placeholder="Search">
+<button type="submit">Search</button>
+</form>
 <div class="account">
-<span class="who">{{.Who}}</span>
+<span class="who">Signed in as {{.Who}}</span>
 <span class="role{{if eq .Role "Owner"}} owner{{end}}">{{.Role}}</span>
+{{with .SessionLeft}}<span class="session-hint">session ends in {{.}}</span>{{end}}
 <form method="post" action="/auth/logout" class="inline">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
 <button type="submit" class="ghost">Sign out</button>
@@ -36,11 +44,11 @@
 </div>
 </header>
 <div class="shell">
-<nav class="sidebar" aria-label="Main">
+<nav class="sidebar" id="sidebar" aria-label="Main">
 {{range .NavGroups}}<h2 class="nav-group">{{.Title}}</h2>
 <ul>{{range .Links}}<li><a href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}}</a></li>{{end}}</ul>
 {{end}}</nav>
-<main>
+<main id="main" tabindex="-1">
 {{with .Crumbs}}<nav class="crumbs" aria-label="Breadcrumb">{{range $i, $c := .}}{{if $i}} / {{end}}{{if $c.Href}}<a href="{{$c.Href}}">{{$c.Label}}</a>{{else}}<span>{{$c.Label}}</span>{{end}}{{end}}</nav>{{end}}
 {{with .Notice}}<p class="flash ok" role="status">{{.}}</p>{{end}}
 {{template "page" .}}

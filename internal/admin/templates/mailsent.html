@@ -1,0 +1,12 @@
+{{define "page"}}<h1>Sent mail</h1>
+<p class="actions-row"><a href="/mail">Compose new mail</a></p>
+<p class="muted small">Newest first. Each send is one row: who sent it, to whom, what it carried, how many mailboxes got it and why. A full mailbox gets nothing and is counted.</p>
+<div class="scroll"><table>
+<thead><tr><th>Sent (UTC)</th><th>By</th><th>To</th><th class="num">Recipients</th><th class="num">Full mailbox</th><th>Attachment</th><th class="num">Expires (days)</th><th>Text (first 80 characters)</th><th>Reason</th></tr></thead>
+<tbody>
+{{range .Mail.Sends}}<tr><td>{{.When}}</td><td class="mono">{{.By}}</td><td>{{if .TargetHref}}<a href="{{.TargetHref}}">{{.Target}}</a>{{else}}{{.Target}}{{end}}</td><td class="num">{{.Recipients}}</td><td class="num">{{.Skipped}}</td><td>{{.Attachment}}</td><td class="num">{{.Expires}}</td><td>{{.Text}}</td><td>{{.Reason}}</td></tr>
+{{else}}<tr class="empty"><td colspan="9">No mail has been sent from the staff panel.</td></tr>{{end}}
+</tbody>
+</table></div>
+{{with .Mail.OlderHref}}<p><a href="{{.}}">Older sends</a></p>{{end}}
+{{end}}

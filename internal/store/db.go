@@ -120,7 +120,7 @@ type Querier interface {
 }
 
 // migrations[i] takes the database from schema version i to i+1. Append only: a shipped step is never edited.
-var migrations = []string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6}
+var migrations = []string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6, schemaV7}
 
 // migrate applies the missing steps, each in its own transaction together with its user_version bump.
 func migrate(db *sql.DB) error { return migrateTo(db, len(migrations)) }
@@ -375,6 +375,27 @@ CREATE INDEX chat_log_channel ON chat_log(kind, channel, time);
 const schemaV6 = `
 CREATE INDEX ledger_time ON ledger(time);
 CREATE INDEX accounts_created ON accounts(created);
+`
+
+// schemaV7 keeps every staff mail send (economy/staffmail.go): one row per send, its send id unique so a double submit cannot
+// send twice, who sent it, to whom (player:<row id> or all-players), what it carried (kind, amount or item), its text and its
+// reason. Only a new table.
+const schemaV7 = `
+CREATE TABLE staff_mail (
+	id           INTEGER PRIMARY KEY,
+	send_id      TEXT NOT NULL UNIQUE,
+	created      TEXT NOT NULL,
+	actor        TEXT NOT NULL,
+	target       TEXT NOT NULL,
+	recipients   INTEGER NOT NULL,
+	skipped      INTEGER NOT NULL,
+	kind         TEXT NOT NULL,
+	amount       INTEGER NOT NULL,
+	item         TEXT NOT NULL,
+	message      TEXT NOT NULL,
+	expires_days INTEGER NOT NULL,
+	reason       TEXT NOT NULL
+) STRICT;
 `
 
 // Path is the file the database was opened from.

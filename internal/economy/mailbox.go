@@ -272,25 +272,20 @@ func handleAdminMail(w http.ResponseWriter, r *http.Request) {
 		Message     string `json:"message"`
 		ExpiresDays int    `json:"expiresDays"`
 	}
-	if !readAdminJSON(r, &req) || req.Aid == "" || !validMailType(req.Type) ||
-		len(req.Message) > 500 || req.ExpiresDays < 0 || req.ExpiresDays > 3650 || !validMailPayload(req.Type, req.Amount, req.Item) {
+	if !readAdminJSON(r, &req) || req.Aid == "" {
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
 	}
-	if req.ExpiresDays == 0 {
-		req.ExpiresDays = ActiveRewards().Mail.DefaultDays
+	order := MailOrder{Type: req.Type, Amount: req.Amount, Item: req.Item, Message: req.Message, Days: req.ExpiresDays}
+	if order.Check() != nil {
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
 	}
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
 	var targets []*store.Account
 	if req.Aid == "all" {
-		seen := map[*store.Account]bool{}
-		for _, a := range store.AllAccountsLocked() {
-			if !seen[a] {
-				seen[a] = true
-				targets = append(targets, a)
-			}
-		}
+		targets = store.AllAccountsLocked()
 	} else if a := store.AccountByAidLocked(req.Aid); a != nil {
 		targets = []*store.Account{a}
 	}
@@ -298,23 +293,14 @@ func handleAdminMail(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
 		return
 	}
-	prevs := make([]store.Account, len(targets))
-	sent := 0
-	for i, a := range targets {
-		prevs[i] = *a
-		row := store.MailRow{Type: req.Type, Amount: req.Amount, Item: req.Item, Message: req.Message, Sender: MailSender()}
-		if addMailLocked(a, row, req.ExpiresDays, NowFunc()) {
-			sent++
-		}
-	}
+	prevs := snapshotAccounts(targets)
+	sent := DeliverMailLocked(targets, order.row(), order.days(), NowFunc())
 	if sent == 0 {
 		httpx.WriteJSON(w, http.StatusBadRequest, `{"errorCode":"400","errorMessage":"cherry: mailbox full"}`)
 		return
 	}
 	if err := store.SaveLocked(nil, targets...); err != nil {
-		for i, a := range targets {
-			*a = prevs[i]
-		}
+		restoreAccounts(targets, prevs)
 		httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
 		return
 	}

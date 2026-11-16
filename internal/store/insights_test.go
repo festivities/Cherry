@@ -290,8 +290,8 @@ func TestMigrationV5ToV6AddsIndexesAndKeepsRows(t *testing.T) {
 	}
 	defer d.Close()
 	var version int
-	if err := d.write.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 6 {
-		t.Fatalf("user_version = %d (err %v), want 6", version, err)
+	if err := d.write.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != len(migrations) {
+		t.Fatalf("user_version = %d (err %v), want %d", version, err, len(migrations))
 	}
 	var reason string
 	if err := d.write.QueryRow("SELECT reason FROM ledger").Scan(&reason); err != nil || reason != "kept" {

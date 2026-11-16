@@ -287,7 +287,7 @@ func AttachDB(d *DB) error {
 		pendingTokens = append(pendingTokens, pendingToken{acc: acc, hash: h, own: acc.AccessToken != "" && h == CodeHash(acc.AccessToken)})
 	}
 	savedLatest, savedNext = nil, 0
-	if err := commitLocked(nil, accountList, 0, callerSite(), nil); err != nil {
+	if err := commitLocked(nil, accountList, 0, callerSite(), nil, nil); err != nil {
 		database.Store(nil)
 		return err
 	}
@@ -312,12 +312,13 @@ func DetachDB() {
 // attached database the save succeeds and writes nothing. In test builds it also checks that no account that was not
 // named differs from its last saved form (checkNotMissed).
 func SaveLocked(lines []LedgerLine, accs ...*Account) error {
-	return commitLocked(lines, accs, 0, callerSite(), nil)
+	return commitLocked(lines, accs, 0, callerSite(), nil, nil)
 }
 
 // commitLocked writes the named accounts, their pending tokens, the lines and the scalars in one transaction, and deletes
-// the row removeID when it is not 0 (DeleteAccountLocked). audit, when set, is written in the same transaction.
-func commitLocked(lines []LedgerLine, named []*Account, removeID int64, site string, audit *staffAudit) error {
+// the row removeID when it is not 0 (DeleteAccountLocked). audit, when set, is written in the same transaction, and so is
+// extra (a staff mail send's record, staffmail.go).
+func commitLocked(lines []LedgerLine, named []*Account, removeID int64, site string, audit *staffAudit, extra func(tx *sql.Tx) error) error {
 	defer metrics.SaveSince(time.Now())
 	if audit != nil && database.Load() == nil {
 		return ErrNoDatabase
@@ -374,6 +375,11 @@ func commitLocked(lines []LedgerLine, named []*Account, removeID int64, site str
 			}
 			if audit != nil {
 				if err := auditTx(tx, audit.actor, audit.action, audit.target, audit.detail); err != nil {
+					return err
+				}
+			}
+			if extra != nil {
+				if err := extra(tx); err != nil {
 					return err
 				}
 			}
@@ -564,7 +570,7 @@ func SwapAccountsForTest(entries map[string]*Account) (restore func(), err error
 		}
 		savedLatest, savedNext = nil, 0
 	}
-	if err := commitLocked(nil, accountList, 0, callerSite(), nil); err != nil {
+	if err := commitLocked(nil, accountList, 0, callerSite(), nil, nil); err != nil {
 		prev.restoreLocked()
 		return nil, err
 	}

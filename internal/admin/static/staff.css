@@ -206,7 +206,11 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
 
 /* narrow screens: the sidebar becomes a menu under the top bar */
 @media (max-width: 800px) {
-  .nav-button { display: inline-block; }
+  .nav-button.nav-nojs { display: inline-block; }
+  .js .nav-button.nav-nojs { display: none; }
+  .js .nav-button.nav-js { display: inline-block; }
+  .topsearch { max-width: none; width: 100%; order: 10; }
+  .session-hint { width: 100%; }
   .server { display: none; }
   .shell { grid-template-columns: minmax(0, 1fr); }
   .sidebar { display: none; border-right: 0; border-bottom: 1px solid var(--line); }
@@ -328,3 +332,29 @@ fieldset.ed-card { background: var(--surface-2); }
 @media (max-width: 800px) {
   .ed-tools { margin-left: 0; width: 100%; }
 }
+
+/* staff panel phase 5: skip link, header search, session hint, anchors, empty states, codes */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+.skip-link {
+  position: absolute; left: .75rem; top: -4rem; z-index: 20; padding: .4rem .8rem;
+  background: var(--accent); color: var(--accent-fg); border-radius: 8px; text-decoration: none; font-weight: 600;
+}
+.skip-link:focus { top: .5rem; }
+.topsearch { display: flex; gap: .4rem; align-items: center; flex: 1 1 14rem; max-width: 26rem; margin: 0; }
+.topsearch input[type="search"] {
+  flex: 1 1 auto; min-width: 0; padding: .3rem .5rem; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface); color: var(--fg); font: inherit;
+}
+.topsearch button { padding: .3rem .7rem; }
+.session-hint { color: var(--muted); font-size: .8rem; white-space: nowrap; }
+.nav-js { display: none; }
+.jump { display: flex; flex-wrap: wrap; gap: .3rem .9rem; margin: .75rem 0 1rem; font-size: .92rem; }
+.jump a { color: var(--accent); }
+section[id] { scroll-margin-top: 4.5rem; }
+.page-section { margin-top: 1.6rem; }
+.codes { columns: 14rem; list-style: none; padding: 0; margin: .4rem 0 1rem; }
+.codes li { break-inside: avoid; padding: .15rem 0; overflow-wrap: anywhere; }
+.empty-state { color: var(--muted); font-style: italic; }

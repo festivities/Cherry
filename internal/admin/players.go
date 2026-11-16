@@ -7,6 +7,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"cherry/internal/economy"
 	"cherry/internal/store"
 )
 
@@ -73,40 +74,6 @@ func (s *Server) handlePlayers(w http.ResponseWriter, r *http.Request, sess sess
 	s.render(w, http.StatusOK, "players", v)
 }
 
-// handlePlayer: one player, its newest ledger lines, its own writing and the actions on it.
-func (s *Server) handlePlayer(w http.ResponseWriter, r *http.Request, sess session) {
-	id, ok := s.playerID(w, r)
-	if !ok {
-		return
-	}
-	p, found := store.PlayerByID(id)
-	if !found {
-		s.storeError(w, store.ErrNoPlayer)
-		return
-	}
-	lines, err := store.PlayerLedger(id, ledgerPage)
-	if err != nil {
-		s.storeError(w, err)
-		return
-	}
-	writing, err := store.PlayerWritingOf(id, writingPage)
-	if err != nil {
-		s.storeError(w, err)
-		return
-	}
-	pictures, err := store.PlayerMedia(id, mediaPage)
-	if err != nil {
-		s.storeError(w, err)
-		return
-	}
-	v := s.base(r, sess, "Player #"+strconv.FormatInt(id, 10))
-	v.Crumbs = []link{{Href: "/players", Label: "Players"}, {Label: "#" + strconv.FormatInt(id, 10)}}
-	v.Player, v.Ledger = p, lines
-	v.Posts, v.Entries, v.Comments = writingRows(writing)
-	v.Media = mediaRows(pictures)
-	s.render(w, http.StatusOK, "player", v)
-}
-
 // mediaRows turns the player's pictures into the rows of the page.
 func mediaRows(files []store.MediaFile) []playerMedia {
 	rows := []playerMedia{}
@@ -159,8 +126,9 @@ func cutText(s string, n int) string {
 	return s
 }
 
-// handleGrant: POST /players/{id}/grant (privileged). The form: currency (gems or cash), delta (a signed whole number) and
-// reason. The store checks the values and writes the balance, its ledger line and the audit row in one save.
+// handleGrant: POST /players/{id}/grant (privileged). The form: currency (a grantKinds value), item (the Garden material's
+// item id, for "material"), delta (a signed whole number) and reason. The economy checks the values and writes the balances,
+// the ledger lines and the audit row in one save.
 func (s *Server) handleGrant(w http.ResponseWriter, r *http.Request, sess session) {
 	id, ok := s.playerID(w, r)
 	if !ok {
@@ -171,7 +139,12 @@ func (s *Server) handleGrant(w http.ResponseWriter, r *http.Request, sess sessio
 		s.fail(w, http.StatusBadRequest, "The amount must be a whole number.")
 		return
 	}
-	if err := store.GrantPlayer(id, r.PostFormValue("currency"), delta, r.PostFormValue("reason"), sess.identity); err != nil {
+	g, err := grantOf(r.PostFormValue("currency"), r.PostFormValue("item"), delta)
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
+	if err := economy.StaffGrantPlayer(id, g, r.PostFormValue("reason"), sess.identity, economy.NowFunc()); err != nil {
 		s.storeError(w, err)
 		return
 	}

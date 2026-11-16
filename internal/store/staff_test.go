@@ -42,84 +42,6 @@ func auditCount(t *testing.T) int {
 	return len(rows)
 }
 
-// TestGrantWritesBalanceLedgerAndAudit: a grant changes the balance, writes one ledger line with the staff identity in its
-// reason, and writes its audit row; the reason is trimmed.
-func TestGrantWritesBalanceLedgerAndAudit(t *testing.T) {
-	attachTestDB(t)
-	acc, id := staffAccount(t, "dev-gr", "1001", "Gran", 100)
-	if err := GrantPlayer(id, "gems", 250, "  event prize ", "discord:111"); err != nil {
-		t.Fatal(err)
-	}
-	if err := GrantPlayer(id, "cash", 5, "refund", "discord:111"); err != nil {
-		t.Fatal(err)
-	}
-	if gems, cash := balances(acc); gems != 350 || cash != 5 {
-		t.Fatalf("balances gems %d cash %d, want 350 and 5", gems, cash)
-	}
-	lines, err := PlayerLedger(id, 20)
-	if err != nil || len(lines) != 2 {
-		t.Fatalf("ledger = %d lines, err %v; want 2", len(lines), err)
-	}
-	if l := lines[1]; l.Aid != "1001" || l.Currency != "gems" || l.Delta != 250 || l.Balance != 350 || l.Reason != "staff:discord:111:event prize" {
-		t.Fatalf("gems line = %+v", l)
-	}
-	rows, err := AuditRows(0, 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var grants []AuditRow
-	for _, r := range rows {
-		if r.Action == "grant" {
-			grants = append(grants, r)
-		}
-	}
-	if len(grants) != 2 || grants[1].Actor != "discord:111" || grants[1].Target != fmt.Sprintf("player:%d", id) {
-		t.Fatalf("grant audit rows = %+v", grants)
-	}
-	if d := grants[1].Detail; !strings.Contains(d, `"delta":250`) || !strings.Contains(d, `"balance":350`) || !strings.Contains(d, `"aid":"1001"`) {
-		t.Fatalf("grant audit detail = %s", d)
-	}
-}
-
-// TestGrantRefusalsChangeNothing: each bad grant is refused with ErrBadInput, and the balance, the ledger and the audit trail
-// stay as they were.
-func TestGrantRefusalsChangeNothing(t *testing.T) {
-	attachTestDB(t)
-	acc, id := staffAccount(t, "dev-rf", "1002", "Refused", 350)
-	ledgerBefore, auditBefore := len(must(LedgerLines())), auditCount(t)
-	refused := []struct {
-		name, currency, reason string
-		delta                  int64
-	}{
-		{"bad currency", "gold", "x", 10},
-		{"zero", "gems", "x", 0},
-		{"too large", "gems", "x", 1000001},
-		{"too small", "gems", "x", -1000001},
-		{"below zero", "gems", "x", -351},
-		{"no reason", "gems", "", 10},
-		{"blank reason", "gems", "   ", 10},
-		{"long reason", "gems", strings.Repeat("r", 201), 10},
-	}
-	for _, tc := range refused {
-		err := GrantPlayer(id, tc.currency, tc.delta, tc.reason, "discord:1")
-		if !errors.Is(err, ErrBadInput) {
-			t.Errorf("%s: err %v, want ErrBadInput", tc.name, err)
-		}
-	}
-	if err := GrantPlayer(id+1000, "gems", 10, "x", "discord:1"); !errors.Is(err, ErrNoPlayer) {
-		t.Errorf("unknown player: err %v, want ErrNoPlayer", err)
-	}
-	if gems, _ := balances(acc); gems != 350 {
-		t.Fatalf("refused grants changed the balance to %d", gems)
-	}
-	if n := len(must(LedgerLines())); n != ledgerBefore {
-		t.Fatalf("refused grants wrote %d ledger lines", n-ledgerBefore)
-	}
-	if n := auditCount(t); n != auditBefore {
-		t.Fatalf("refused grants wrote %d audit rows", n-auditBefore)
-	}
-}
-
 // must returns the value of a call that cannot fail in a test.
 func must[T any](v T, err error) T {
 	if err != nil {
@@ -139,7 +61,12 @@ func TestFailedSaveLeavesTheAccountAsItWas(t *testing.T) {
 	if err := d.Close(); err != nil { // every save from now on fails
 		t.Fatal(err)
 	}
-	if err := GrantPlayer(id, "gems", 5, "x", "discord:1"); err == nil {
+	AccountsMu.Lock()
+	acc.Gems += 5
+	err := SaveAuditedLocked("discord:1", "grant", PlayerTarget(id), map[string]any{"delta": 5}, nil, acc)
+	acc.Gems -= 5
+	AccountsMu.Unlock()
+	if err == nil {
 		t.Fatal("a grant with a failing save succeeded")
 	}
 	if err := BanPlayer(id, "x", "discord:1"); err == nil {

@@ -1,0 +1,39 @@
+{{define "page"}}<h1>Search</h1>
+<form method="get" action="/search" class="filters" role="search">
+<label><span class="label">Search</span>
+<input type="search" name="q" value="{{.Search.Query}}" maxlength="100"></label>
+<div class="actions"><button type="submit">Search</button></div>
+</form>
+{{if .Search.Query}}
+<p class="muted">Results for <strong>{{.Search.Query}}</strong>. Each group shows at most 20 hits.</p>
+
+<h2>Players ({{len .Search.Players}}{{if .Search.PlayersMore}}+{{end}})</h2>
+{{if .Search.Players}}<div class="scroll"><table>
+<thead><tr><th>Player</th><th>Avatar id</th><th>Name</th><th>Identity</th></tr></thead>
+<tbody>{{range .Search.Players}}<tr><td><a href="{{.Href}}">#{{.ID}}</a></td><td>{{.Aid}}</td><td>{{.Name}}</td><td>{{.Identity}}</td></tr>{{end}}</tbody>
+</table></div>
+{{if .Search.PlayersMore}}<p class="flash warn">More players match. Narrow the search.</p>{{end}}
+{{else}}<p class="empty-state">No player matches.</p>{{end}}
+
+<h2>Chat messages ({{len .Search.Chat}}{{if .Search.ChatMore}}+{{end}})</h2>
+{{if .Search.Chat}}<div class="scroll"><table>
+<thead><tr><th>Time (UTC)</th><th>Channel</th><th>Sender</th><th>Text</th><th>Context</th></tr></thead>
+<tbody>{{range .Search.Chat}}<tr><td>{{.Time}}</td><td>{{.Kind}} {{.Channel}}</td><td>{{if .PlayerHref}}<a href="{{.PlayerHref}}">{{.Name}}</a>{{else}}{{.Name}}{{end}} <span class="muted small">{{.Aid}}</span></td><td>{{.Text}}</td><td><a href="{{.ContextHref}}">around this time</a></td></tr>{{end}}</tbody>
+</table></div>
+{{if .Search.ChatMore}}<p class="flash warn">More messages match. Use the chat log's filters to narrow them.</p>{{end}}
+{{else}}<p class="empty-state">No chat message contains this text.</p>{{end}}
+
+<h2>Audit rows ({{len .Search.Audit}}{{if .Search.AuditMore}}+{{end}})</h2>
+{{if .Search.Audit}}<div class="scroll"><table>
+<thead><tr><th>Time (UTC)</th><th>Actor</th><th>Action</th><th>Target</th><th>Detail</th></tr></thead>
+<tbody>{{range .Search.Audit}}<tr><td>{{.Row.Time}}</td><td class="mono">{{.By}}</td><td class="mono">{{.Row.Action}}</td><td><a href="{{.Href}}" class="mono">{{.Row.Target}}</a></td><td class="mono">{{.Row.Detail}}</td></tr>{{end}}</tbody>
+</table></div>
+{{if .Search.AuditMore}}<p class="flash warn">More audit rows match. Use the audit log's filters to narrow them.</p>{{end}}
+{{else}}<p class="empty-state">No audit row names this text.</p>{{end}}
+
+<h2>Documents ({{len .Search.Docs}})</h2>
+{{if .Search.Docs}}<ul class="codes">{{range .Search.Docs}}<li><a href="{{.Href}}" class="mono">{{.Name}}</a></li>{{end}}</ul>
+{{else}}<p class="empty-state">No document name contains this text.</p>{{end}}
+{{else}}<p class="empty-state">Search for a player's number (#12), avatar id, Discord identity or name; a word from a chat message; an action, target or reason from the audit trail; or a document's name.</p>
+{{end}}
+{{end}}

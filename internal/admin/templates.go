@@ -84,7 +84,7 @@ func serveStatic(w http.ResponseWriter, r *http.Request) {
 }
 
 // templateFuncs are the functions the templates may call.
-var templateFuncs = template.FuncMap{"asset": assetURL, "utc": rfcDate, "firstLine": firstLine}
+var templateFuncs = template.FuncMap{"asset": assetURL, "utc": rfcDate, "firstLine": firstLine, "unixms": unixMsDate}
 
 // firstLine is the first line of s: a document's note as the list shows it.
 func firstLine(s string) string {

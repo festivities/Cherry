@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -78,6 +79,8 @@ func TestPagesHaveNoInlineMarkup(t *testing.T) {
 		"/players", "/players?q=render", base, "/docs?notice=draft-saved", "/players/999999",
 		"/chat", "/chat?kind=private&text=hi", "/photos", "/photos?kind=diary&player=7101",
 		"/online", "/online?notice=kicked", "/economy", "/economy?window=7d", "/activity",
+		"/mail", "/mail?player=" + strconv.FormatInt(id, 10), "/mail/sent", "/search?q=render", "/search",
+		base + "?window=7d", base + "?window=all",
 	}
 	for _, target := range targets {
 		r := c.get(target)

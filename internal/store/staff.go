@@ -39,7 +39,7 @@ var OnBan func(aid string)
 
 const (
 	playerSearchMax = 50      // rows of a search; a search that has more says so
-	maxGrant        = 1000000 // the largest grant or take-away in one action
+	MaxGrant        = 1000000 // the largest grant or take-away of one currency or material in one action
 	maxReason       = 200     // characters of a reason (grant, ban)
 )
 
@@ -64,7 +64,7 @@ type staffAudit struct {
 // saveAuditedLocked is SaveLocked with one audit row in the same transaction. Without an attached database it fails with
 // ErrNoDatabase before anything is written. Caller holds AccountsMu and restores what it changed on error.
 func saveAuditedLocked(audit staffAudit, lines []LedgerLine, accs ...*Account) error {
-	return commitLocked(lines, accs, 0, callerSite(), &audit)
+	return commitLocked(lines, accs, 0, callerSite(), &audit, nil)
 }
 
 // playerLocked returns the account with row id, or nil. Caller holds AccountsMu.
@@ -88,6 +88,21 @@ func playerOf(acc *Account) Player {
 
 // playerTarget is the audit target of an account.
 func playerTarget(id int64) string { return fmt.Sprintf("player:%d", id) }
+
+// PlayerTarget is the audit target of the account with row id ("player:<id>"), as the audit rows of a player name it.
+func PlayerTarget(id int64) string { return playerTarget(id) }
+
+// CleanStaffReason trims a staff reason and checks it: 1 to 200 characters (the audit trail keeps it).
+func CleanStaffReason(reason string) (string, error) { return cleanReason(reason) }
+
+// PlayerAccountLocked returns the account with row id, or nil. Caller holds AccountsMu.
+func PlayerAccountLocked(id int64) *Account { return playerLocked(id) }
+
+// SaveAuditedLocked is SaveLocked with one audit row (actor, action, target, detail) in the same transaction, and lines the
+// ledger lines of the change. The economy's staff grants use it. Caller holds AccountsMu and restores what it changed on error.
+func SaveAuditedLocked(actor, action, target string, detail map[string]any, lines []LedgerLine, accs ...*Account) error {
+	return saveAuditedLocked(staffAudit{actor, action, target, detail}, lines, accs...)
+}
 
 // cleanReason trims a staff reason and checks it: 1 to 200 characters.
 func cleanReason(reason string) (string, error) {
@@ -170,87 +185,7 @@ func PlayerByID(id int64) (Player, bool) {
 // PlayerLedger returns the newest limit ledger lines of the account with row id, newest first. The ledger is keyed by the
 // avatar id, so an account with aid "0" has none of its own: it gets an empty list. ErrNoPlayer for an unknown id.
 func PlayerLedger(id int64, limit int) ([]LedgerLine, error) {
-	AccountsMu.Lock()
-	acc := playerLocked(id)
-	var aid string
-	if acc != nil {
-		aid = acc.Aid
-	}
-	d := database.Load()
-	AccountsMu.Unlock()
-	if acc == nil {
-		return nil, ErrNoPlayer
-	}
-	lines := []LedgerLine{}
-	if d == nil || aid == "0" {
-		return lines, nil
-	}
-	err := d.View(func(q Querier) error {
-		rows, err := q.Query(`SELECT time, aid, currency, delta, balance, reason FROM ledger WHERE aid = ? ORDER BY id DESC LIMIT ?`, aid, limit)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var l LedgerLine
-			if err := rows.Scan(&l.Time, &l.Aid, &l.Currency, &l.Delta, &l.Balance, &l.Reason); err != nil {
-				return err
-			}
-			lines = append(lines, l)
-		}
-		return rows.Err()
-	})
-	return lines, err
-}
-
-// GrantPlayer changes the gems or cash balance of the account with row id by delta (a take-away is negative). delta is
-// not zero and within ±maxGrant; the balance may not go below 0 or above MaxBalance; reason is 1 to 200 characters. The
-// ledger line's reason is "staff:<actor>:<reason>". The balance, the line and the audit row are one save. On error nothing
-// changes.
-func GrantPlayer(id int64, currency string, delta int64, reason, actor string) error {
-	reason, err := cleanReason(reason)
-	if err != nil {
-		return err
-	}
-	var d LedgerDeltas
-	switch currency {
-	case "gems":
-		d.Gems = delta
-	case "cash":
-		d.Cash = delta
-	default:
-		return fmt.Errorf("%w: the currency is gems or cash", ErrBadInput)
-	}
-	if delta == 0 || delta > maxGrant || delta < -maxGrant {
-		return fmt.Errorf("%w: the amount is a whole number from -%d to %d, not zero", ErrBadInput, maxGrant, maxGrant)
-	}
-	AccountsMu.Lock()
-	defer AccountsMu.Unlock()
-	acc := playerLocked(id)
-	if acc == nil {
-		return ErrNoPlayer
-	}
-	prev := *acc
-	lines, err := SpendLocked(acc, d, "staff:"+actor+":"+reason)
-	if err != nil {
-		var be *BalanceError
-		if errors.As(err, &be) {
-			return fmt.Errorf("%w: the balance cannot go below 0 or above %d", ErrBadInput, MaxBalance)
-		}
-		return err
-	}
-	balance := acc.Gems
-	if currency == "cash" {
-		balance = acc.Cash
-	}
-	audit := staffAudit{actor, "grant", playerTarget(id), map[string]any{
-		"aid": acc.Aid, "currency": currency, "delta": delta, "balance": balance, "reason": reason,
-	}}
-	if err := saveAuditedLocked(audit, lines, acc); err != nil {
-		*acc = prev
-		return err
-	}
-	return nil
+	return PlayerLedgerSince(id, time.Time{}, limit)
 }
 
 // BanPlayer bans the account with row id. Its record gets the ban; every token of the account stops resolving (its own and

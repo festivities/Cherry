@@ -444,7 +444,7 @@ func DeleteAccountLocked(acc *Account, lines []LedgerLine) (undo func() error, e
 	if LatestAcc == acc {
 		LatestAcc = highestAidLocked()
 	}
-	if err := commitLocked(lines, nil, prevRow.id, callerSite(), nil); err != nil {
+	if err := commitLocked(lines, nil, prevRow.id, callerSite(), nil, nil); err != nil {
 		accountList, pendingTokens, LatestAcc = prevList, prevPending, prevLatest
 		accountRows[acc] = rs
 		for _, h := range hashes {

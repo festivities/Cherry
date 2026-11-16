@@ -1,0 +1,34 @@
+{{define "page"}}<h1>Mail</h1>
+<p class="actions-row"><a href="/mail/sent">Sent mail</a></p>
+<p class="muted">Mail carries one attachment and a message. Review shows the recipients before anything is sent; the send happens once, however often the button is pressed.</p>
+<form method="post" action="/mail/review" class="card stack">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<label><span class="label">Audience</span>
+<select name="audience">
+<option value="player"{{if eq .Mail.Form.Audience "player"}} selected{{end}}>One player</option>
+{{if .Mail.Owner}}<option value="all"{{if eq .Mail.Form.Audience "all"}} selected{{end}}>Every account (owner only)</option>{{end}}
+</select></label>
+<label><span class="label">Player (one player only)</span>
+<input type="text" name="player" value="{{.Mail.Form.Player}}" maxlength="200">
+<small class="help">#12 for the number on the player page, an avatar id, a Discord identity, or part of a name that matches exactly one player.</small></label>
+<label><span class="label">Attachment</span>
+<select name="kind">{{range .Mail.Kinds}}<option value="{{.Value}}"{{if eq .Value $.Mail.Form.Kind}} selected{{end}}>{{.Label}}</option>{{end}}</select>
+<small class="help">The postbox carries one attachment per mail. Materials, Smiles and Boss Coins cannot be mailed: the grant form gives them.</small></label>
+<label><span class="label">Amount</span>
+<input type="text" name="amount" value="{{.Mail.Form.Amount}}" inputmode="numeric">
+<small class="help">Gems, Cash or Face Shop tickets: a whole number, 1 up to the rewards file's maximum. Not used for an item.</small></label>
+<label><span class="label">Item code</span>
+<input type="text" name="item" value="{{.Mail.Form.Item}}" maxlength="20">
+<small class="help">A sellable item code of the catalog, for example CUAE00B9R. Used for an item only; an unknown code is refused.</small></label>
+<label><span class="label">Message</span>
+<textarea name="message" rows="4" maxlength="500">{{.Mail.Form.Message}}</textarea>
+<small class="help">Up to 500 bytes. The player reads it with the attachment.</small></label>
+<label><span class="label">Expires after (days)</span>
+<input type="text" name="days" value="{{.Mail.Form.Days}}" inputmode="numeric">
+<small class="help">Empty or 0 is the rewards file's default. At most 3650.</small></label>
+<label><span class="label">Reason</span>
+<input type="text" name="reason" value="{{.Mail.Form.Reason}}" maxlength="200" required>
+<small class="help">Written to the audit trail and the sent mail list. 1 to 200 characters.</small></label>
+<div class="actions"><button type="submit">Review the mail</button></div>
+</form>
+{{end}}

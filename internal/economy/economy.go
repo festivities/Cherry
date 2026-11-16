@@ -393,22 +393,15 @@ func handleAdminGrant(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
 		return
 	}
-	prevBag, prevCoins, prevRacing, now := acc.GardenBag, acc.BossCoins, acc.Racing, time.Now()
-	acc.BossCoins = max(acc.BossCoins+req.BossCoins, 0) // saved with the deltas below
-	if req.RidePoints != 0 {
-		setRidePointsLocked(acc, max(ridePointsLocked(acc)+req.RidePoints, 0))
-	}
-	if req.RaceTickets != 0 {
-		rec := raceDay(acc, AttendDayKey(now))
-		rec.Used = min(max(rec.Used-req.RaceTickets, 0), ActiveRacing().MaxTickets)
-		acc.Racing = &rec
-	}
-	for item, n := range req.Materials {
-		acc.GardenBag = gardenBagChange(acc.GardenBag, item, n, now)
-	}
-	err = store.ApplyDeltasLocked(acc, store.LedgerDeltas{Gems: req.Gems, Cash: req.Cash, FaceTickets: req.FaceTickets, Smiles: req.Smiles}, reason)
-	if err != nil {
-		acc.GardenBag, acc.BossCoins, acc.Racing = prevBag, prevCoins, prevRacing
+	now := time.Now()
+	g := clampLoopbackGrant(acc, StaffGrant{Gems: req.Gems, Cash: req.Cash, FaceTickets: req.FaceTickets, Smiles: req.Smiles,
+		BossCoins: req.BossCoins, RidePoints: req.RidePoints, RaceTickets: req.RaceTickets, Materials: req.Materials}, now)
+	prev := *acc
+	lines, err := GrantLocked(acc, g, reason, now)
+	if err == nil {
+		if err = store.SaveLocked(lines, acc); err != nil {
+			*acc = prev
+		}
 	}
 	if _, ok := err.(*store.BalanceError); ok {
 		httpx.WriteJSON(w, http.StatusBadRequest, errNotEnoughBody)
