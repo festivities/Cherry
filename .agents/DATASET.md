@@ -48,7 +48,7 @@ Two top-level trees. They never mix (AGENTS "R2/D1 layout"):
 `internal/assets/r2.go` is a small stdlib SigV4 client (HEAD, GET, PUT, DELETE, ListObjectsV2) with the region fixed to `"auto"` (R2). Only R2 has been tested. For MinIO, Backblaze B2, Wasabi, AWS S3 or similar:
 - Make the region configurable (an optional `r2_region` in the credentials file, default `"auto"`). Most providers reject a signature whose region scope is wrong.
 - Check `objectPath` against the provider's addressing style (path-style `https://<endpoint>/<bucket>/<key>`, the form R2 accepts; MinIO accepts it too; AWS prefers virtual-hosted style).
-- The D1 mirror (`cmd/cherry-assets/d1.go`) is Cloudflare-only and is not read at runtime. Make its sync skip cleanly when no D1 fields are set.
+- The D1 mirror (`cmd/cherry-assets/d1.go`) is Cloudflare-only and is not read at runtime. Make its sync skip cleanly when no D1 fields are set. It writes only new, changed or removed rows (one SELECT per table first): the D1 free tier allows 100k row writes a day, and until 2026-11-16 every upload rewrote all ~10k `generated` rows, which used up the daily limit.
 - Keep the dependency rule (AGENTS "Policies", Dependencies: stdlib only, except `modernc.org/sqlite` for the database; any other module needs the user's yes). The S3 client stays stdlib.
 
 ## 5. Don'ts

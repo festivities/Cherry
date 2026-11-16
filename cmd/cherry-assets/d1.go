@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -82,7 +83,7 @@ func (d *d1Client) query(ctx context.Context, sql string) ([]map[string]any, err
 			Results []map[string]any `json:"results"`
 		} `json:"result"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 64<<20)).Decode(&out); err != nil {
 		return nil, fmt.Errorf("d1: HTTP %d, unreadable reply", resp.StatusCode)
 	}
 	if !out.Success || len(out.Result) == 0 || !out.Result[0].Success {
@@ -118,7 +119,8 @@ func d1Init(ctx context.Context, d *d1Client) error {
 }
 
 // syncGenerated upserts one generated row per Cherry-generated object in objs (key, size, md5, recipe, and the
-// time of this run). Originals are not recorded here. With no generated objects it writes nothing.
+// time of this run) whose md5 differs from its row, so a re-run writes nothing (D1's free tier allows 100k row writes a
+// day). Originals are not recorded here.
 func syncGenerated(ctx context.Context, d *d1Client, objs []*object, now time.Time, logger *log.Logger) error {
 	var gen []*object
 	for _, o := range objs {
@@ -132,6 +134,11 @@ func syncGenerated(ctx context.Context, d *d1Client, objs []*object, now time.Ti
 	if err := d1Init(ctx, d); err != nil {
 		return err
 	}
+	have, err := existingMD5(ctx, d, "SELECT key AS k, md5 FROM generated")
+	if err != nil {
+		return err
+	}
+	gen = slices.DeleteFunc(gen, func(o *object) bool { md5, ok := have[o.key]; return ok && md5 == o.md5 })
 	stamp := now.UTC().Format(time.RFC3339)
 	for i := 0; i < len(gen); i += d1Batch {
 		end := min(i+d1Batch, len(gen))
@@ -180,16 +187,17 @@ func syncD1(ctx context.Context, d *d1Client, manifests map[string][]assets.Entr
 			logger.Printf("d1 %s current", cat)
 			continue
 		}
-		if err := replaceRows(ctx, d, cat, entries); err != nil {
+		written, err := replaceRows(ctx, d, cat, entries)
+		if err != nil {
 			return err
 		}
-		fmt.Printf("d1 %-9s %d rows written\n", cat, len(entries))
-		logger.Printf("d1 %s: %d rows", cat, len(entries))
+		fmt.Printf("d1 %-9s %d rows written\n", cat, written)
+		logger.Printf("d1 %s: %d rows", cat, written)
 	}
 	return nil
 }
 
-// syncOrig rewrites the manifest rows of each origin source that this run uploaded (objs; their md5 set by the upload).
+// syncOrig syncs (changed rows only) the manifest rows of each origin source that this run uploaded (objs; their md5 set by the upload).
 // Sources the run did not upload keep their rows, so a one-source run never touches the others.
 func syncOrig(ctx context.Context, d *d1Client, objs []*object, logger *log.Logger) error {
 	if err := d1Init(ctx, d); err != nil {
@@ -205,35 +213,74 @@ func syncOrig(ctx context.Context, d *d1Client, objs []*object, logger *log.Logg
 		if len(entries) == 0 {
 			continue
 		}
-		if err := replaceRows(ctx, d, src.top, entries); err != nil {
+		n, err := replaceRows(ctx, d, src.top, entries)
+		if err != nil {
 			return err
 		}
-		fmt.Printf("d1 %-22s %d rows written\n", src.top, len(entries))
-		logger.Printf("d1 %s: %d rows", src.top, len(entries))
+		fmt.Printf("d1 %-22s %d rows written\n", src.top, n)
+		logger.Printf("d1 %s: %d rows", src.top, n)
 	}
 	return nil
 }
 
-// replaceRows deletes the manifest rows of cat and inserts entries in batches.
-func replaceRows(ctx context.Context, d *d1Client, cat string, entries []assets.Entry) error {
-	if _, err := d.query(ctx, "DELETE FROM manifest WHERE cat = "+sqlStr(cat)); err != nil {
-		return err
+// replaceRows makes the manifest rows of cat equal entries, writing only the rows that differ (new or changed md5) and
+// deleting the rows entries no longer has. It returns the rows written or deleted.
+func replaceRows(ctx context.Context, d *d1Client, cat string, entries []assets.Entry) (int, error) {
+	have, err := existingMD5(ctx, d, "SELECT path AS k, md5 FROM manifest WHERE cat = "+sqlStr(cat))
+	if err != nil {
+		return 0, err
 	}
-	for i := 0; i < len(entries); i += d1Batch {
-		end := min(i+d1Batch, len(entries))
+	var changed []assets.Entry
+	for _, e := range entries {
+		if md5, ok := have[e.Path]; !ok || md5 != e.MD5 {
+			changed = append(changed, e)
+		}
+		delete(have, e.Path)
+	}
+	var stale []string
+	for p := range have {
+		stale = append(stale, p)
+	}
+	for i := 0; i < len(stale); i += d1Batch {
+		end := min(i+d1Batch, len(stale))
+		quoted := make([]string, 0, end-i)
+		for _, p := range stale[i:end] {
+			quoted = append(quoted, sqlStr(p))
+		}
+		if _, err := d.query(ctx, "DELETE FROM manifest WHERE cat = "+sqlStr(cat)+" AND path IN ("+strings.Join(quoted, ", ")+")"); err != nil {
+			return 0, err
+		}
+	}
+	for i := 0; i < len(changed); i += d1Batch {
+		end := min(i+d1Batch, len(changed))
 		var b strings.Builder
-		b.WriteString("INSERT INTO manifest (cat, path, size, md5) VALUES ")
-		for j, e := range entries[i:end] {
+		b.WriteString("INSERT OR REPLACE INTO manifest (cat, path, size, md5) VALUES ")
+		for j, e := range changed[i:end] {
 			if j > 0 {
 				b.WriteString(", ")
 			}
 			fmt.Fprintf(&b, "(%s, %s, %d, %s)", sqlStr(cat), sqlStr(e.Path), e.Size, sqlStr(e.MD5))
 		}
 		if _, err := d.query(ctx, b.String()); err != nil {
-			return fmt.Errorf("%s rows %d-%d: %w", cat, i, end, err)
+			return 0, fmt.Errorf("%s rows %d-%d: %w", cat, i, end, err)
 		}
 	}
-	return nil
+	return len(changed) + len(stale), nil
+}
+
+// existingMD5 runs sel (which selects the columns k and md5) and returns k → md5. Reads are cheap on D1 (5M a day free).
+func existingMD5(ctx context.Context, d *d1Client, sel string) (map[string]string, error) {
+	rows, err := d.query(ctx, sel)
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[string]string, len(rows))
+	for _, r := range rows {
+		k, _ := r["k"].(string)
+		md5, _ := r["md5"].(string)
+		m[k] = md5
+	}
+	return m, nil
 }
 
 // sqlStr quotes a SQL string literal.
