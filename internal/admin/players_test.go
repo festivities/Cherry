@@ -124,7 +124,7 @@ func TestGrantWritesBalanceLedgerAndAudit(t *testing.T) {
 	form := url.Values{"csrf": {c.csrf()}, "currency": {"gems"}, "delta": {"+400"}, "reason": {"welcome back"}}
 	r := c.post(playerURL(id)+"/grant", form)
 	expect(t, r, http.StatusSeeOther)
-	if loc := r.Header.Get("Location"); loc != playerURL(id) {
+	if loc := r.Header.Get("Location"); loc != playerURL(id)+"?notice=granted" {
 		t.Fatalf("grant redirects to %q", loc)
 	}
 	if p := playerOf(t, id); p.Gems != 500 {
@@ -372,7 +372,7 @@ func TestRenameFromThePage(t *testing.T) {
 
 	r := c.post(rename, url.Values{"csrf": {c.csrf()}, "name": {"Newname"}, "reason": {"impersonation"}})
 	expect(t, r, http.StatusSeeOther)
-	if loc := r.Header.Get("Location"); loc != playerURL(id) {
+	if loc := r.Header.Get("Location"); loc != playerURL(id)+"?notice=renamed" {
 		t.Fatalf("rename redirects to %q", loc)
 	}
 	if p := playerOf(t, id); p.Name != "Newname" {

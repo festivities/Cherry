@@ -1,28 +1,54 @@
 package admin
 
 import (
-	"bytes"
-	_ "embed" // staff.css
 	"errors"
 	"fmt"
-	"html/template"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
+	"time"
+	"unicode/utf8"
 
-	"cherry/internal/metrics"
+	"cherry/internal/auth"
 	"cherry/internal/opdata"
 	"cherry/internal/store"
 )
 
-//go:embed static/staff.css
-var staffCSS []byte
+// link is one navigation entry or breadcrumb: Href (empty for the current page) and Label.
+type link struct {
+	Href, Label string
+	Current     bool
+}
 
-// link is one entry of the navigation. Part 2 adds reports and season tools here.
-type link struct{ Href, Label string }
+// navGroup is one heading of the sidebar and the pages under it. Only pages that exist are listed: Moderation has no page of
+// its own yet (the player page holds the removals), so it is not in the sidebar.
+type navGroup struct {
+	Title string
+	Links []link
+}
 
-var navLinks = []link{{"/", "Dashboard"}, {"/docs", "Documents"}, {"/players", "Players"}, {"/audit", "Audit"}}
+var navGroups = []navGroup{
+	{"Overview", []link{{Href: "/", Label: "Dashboard"}}},
+	{"Players", []link{{Href: "/players", Label: "Players"}}},
+	{"Content", []link{{Href: "/docs", Label: "Documents"}}},
+	{"System", []link{{Href: "/audit", Label: "Audit log"}}},
+}
+
+// notices are the flash texts a redirect may name with ?notice=<code>. The code picks a fixed text; a code that is not in the
+// map shows nothing, so no text from the query ever reaches a page.
+var notices = map[string]string{
+	"draft-saved":     "The draft is saved as a new version. Validate it, then publish it.",
+	"granted":         "The balance is changed. The ledger and the audit trail have the line.",
+	"banned":          "The identity is banned. Its sessions and live connections end now.",
+	"unbanned":        "The ban is lifted. The player can sign in again.",
+	"renamed":         "The nickname is changed. Diary posts and guestbook entries take it too.",
+	"post-removed":    "The diary post is removed. The audit trail keeps its number and your reason.",
+	"entry-removed":   "The guestbook entry is removed. The audit trail keeps its number and your reason.",
+	"comment-removed": "The diary comment is removed. The audit trail keeps its number and your reason.",
+	"picture-removed": "The picture is removed. Posts that showed it no longer do.",
+}
 
 // check is a validation result shown on a version page.
 type check struct {
@@ -33,15 +59,17 @@ type check struct {
 
 // view is what the templates read. A page fills the fields it shows; the rest stay empty.
 type view struct {
-	Title, Server, Who, CSRF  string
-	Nav                       bool
-	Links                     []link
-	Text, Notice, Login, Next string
+	Title, Server, Who, Role, CSRF string
+	Nav                            bool
+	NavGroups                      []navGroup
+	Crumbs                         []link
+	Notice                         string // the flash of a successful action
+	Text, Login, Next              string
 
 	// dashboard
-	Accounts    int
-	Connections int64
-	Saves       int64
+	Stats   stats
+	Recent  []store.AuditRow
+	Signups []store.Signup
 
 	// documents
 	Docs     []store.DocLive
@@ -54,8 +82,10 @@ type view struct {
 	Check    *check
 
 	// audit
-	Rows  []store.AuditRow
-	Older int64
+	Rows       []store.AuditRow
+	Filter     store.AuditFilter
+	NewestHref string
+	OlderHref  string
 
 	// players
 	Query    string
@@ -69,34 +99,39 @@ type view struct {
 	Media    []playerMedia
 }
 
-func serveCSS(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/css; charset=utf-8")
-	_, _ = w.Write(staffCSS)
+// base is the view of a signed-in page: the sidebar, the identity and role in the header, the session's CSRF token and the
+// flash the request names (?notice=, mapped through notices).
+func (s *Server) base(r *http.Request, sess session, title string) view {
+	role := "Staff"
+	if sess.identity == s.owner {
+		role = "Owner"
+	}
+	return view{
+		Title: title, Server: s.cfg.ServerName, Who: whoOf(sess), Role: role, CSRF: sess.csrf,
+		Nav: true, NavGroups: navFor(r.URL.Path), Notice: notices[r.URL.Query().Get("notice")],
+	}
 }
 
-// base is the view of a signed-in page: the navigation, who is signed in and the CSRF token of the session.
-func (s *Server) base(sess session, title string) view {
-	who := sess.identity
+// whoOf is the identity the header shows: the display name Discord gave, then the identity masked as the logs mask it.
+func whoOf(sess session) string {
+	id := auth.MaskIdentity(sess.identity)
 	if sess.name != "" && sess.name != sess.identity {
-		who = sess.name + " (" + sess.identity + ")"
+		return sess.name + " (" + id + ")"
 	}
-	return view{Title: title, Server: s.cfg.ServerName, Who: who, CSRF: sess.csrf, Nav: true, Links: navLinks}
+	return id
 }
 
-// render writes one page. The page is built in full first, so a template error leaves no half page.
-func (s *Server) render(w http.ResponseWriter, status int, name string, v view) {
-	if v.Server == "" {
-		v.Server = s.cfg.ServerName
+// navFor copies the sidebar and marks the entry of the area p is in ("/players/5" is in "/players").
+func navFor(p string) []navGroup {
+	area := "/" + strings.Split(strings.TrimPrefix(p, "/"), "/")[0]
+	out := make([]navGroup, len(navGroups))
+	for i, g := range navGroups {
+		out[i] = navGroup{Title: g.Title, Links: slices.Clone(g.Links)}
+		for j := range out[i].Links {
+			out[i].Links[j].Current = out[i].Links[j].Href == area
+		}
 	}
-	var buf bytes.Buffer
-	if err := pages.ExecuteTemplate(&buf, name, v); err != nil {
-		s.logger.Printf("cherry: staff page %s: %v", name, err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(status)
-	_, _ = w.Write(buf.Bytes())
+	return out
 }
 
 // fail answers with the error page: a short text, never a stack trace or a store message the caller did not expect.
@@ -180,15 +215,6 @@ func prefill(live store.DocLive) (string, error) {
 	return string(def), nil
 }
 
-// handleDashboard: who is signed in and the counts of the running process.
-func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request, sess session) {
-	v := s.base(sess, "Dashboard")
-	v.Accounts = store.AccountCount()
-	v.Connections = metrics.SessionConns.Load() + metrics.GatewayConns.Load()
-	v.Saves = metrics.Saves()
-	s.render(w, http.StatusOK, "dashboard", v)
-}
-
 // handleDocsList: the Live table of every document.
 func (s *Server) handleDocsList(w http.ResponseWriter, r *http.Request, sess session) {
 	docs, err := store.Live()
@@ -196,7 +222,7 @@ func (s *Server) handleDocsList(w http.ResponseWriter, r *http.Request, sess ses
 		s.storeError(w, err)
 		return
 	}
-	v := s.base(sess, "Documents")
+	v := s.base(r, sess, "Documents")
 	v.Docs = docs
 	s.render(w, http.StatusOK, "docs", v)
 }
@@ -219,7 +245,8 @@ func (s *Server) handleDocHistory(w http.ResponseWriter, r *http.Request, sess s
 		s.storeError(w, err)
 		return
 	}
-	v := s.base(sess, name)
+	v := s.base(r, sess, name)
+	v.Crumbs = []link{{Href: "/docs", Label: "Documents"}, {Label: name}}
 	v.DocName, v.Doc, v.Versions, v.Draft = name, live, versions, draft
 	s.render(w, http.StatusOK, "doc", v)
 }
@@ -234,7 +261,7 @@ func (s *Server) handleDraft(w http.ResponseWriter, r *http.Request, sess sessio
 		s.storeError(w, err)
 		return
 	}
-	redirect(w, http.StatusSeeOther, fmt.Sprintf("/docs/%s/%d", url.PathEscape(name), dv.Version))
+	redirect(w, http.StatusSeeOther, fmt.Sprintf("/docs/%s/%d?notice=draft-saved", url.PathEscape(name), dv.Version))
 }
 
 // handleDocVersion: one stored version, read only, with the validate, publish and roll-back buttons.
@@ -248,7 +275,8 @@ func (s *Server) handleDocVersion(w http.ResponseWriter, r *http.Request, sess s
 		s.storeError(w, err)
 		return
 	}
-	v := s.base(sess, fmt.Sprintf("%s v%d", name, ver))
+	v := s.base(r, sess, fmt.Sprintf("%s v%d", name, ver))
+	v.Crumbs = []link{{Href: "/docs", Label: "Documents"}, {Href: "/docs/" + url.PathEscape(name), Label: name}, {Label: fmt.Sprintf("v%d", ver)}}
 	v.DocName, v.Version, v.Body = name, dv, string(body)
 	s.render(w, http.StatusOK, "version", v)
 }
@@ -264,7 +292,8 @@ func (s *Server) handleValidate(w http.ResponseWriter, r *http.Request, sess ses
 		s.storeError(w, err)
 		return
 	}
-	v := s.base(sess, fmt.Sprintf("%s v%d", name, ver))
+	v := s.base(r, sess, fmt.Sprintf("%s v%d", name, ver))
+	v.Crumbs = []link{{Href: "/docs", Label: "Documents"}, {Href: "/docs/" + url.PathEscape(name), Label: name}, {Label: fmt.Sprintf("v%d", ver)}}
 	v.DocName, v.Version, v.Body = name, dv, string(body)
 	status := http.StatusOK
 	artSkipped, verr := store.Validate(name, ver)
@@ -292,7 +321,7 @@ func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request, sess sess
 		s.storeError(w, err)
 		return
 	}
-	v := s.base(sess, "Published")
+	v := s.base(r, sess, "Published")
 	v.Notice = publishNotice(res)
 	s.render(w, http.StatusOK, "result", v)
 }
@@ -318,7 +347,7 @@ func (s *Server) handleRollback(w http.ResponseWriter, r *http.Request, sess ses
 		s.storeError(w, err)
 		return
 	}
-	v := s.base(sess, "Rolled back")
+	v := s.base(r, sess, "Rolled back")
 	if res.Version == 0 {
 		v.Notice = fmt.Sprintf("%s has no published version now (v%d was rolled back). The config file or the embedded default applies at the next restart.", name, res.Replaces)
 	} else {
@@ -327,10 +356,51 @@ func (s *Server) handleRollback(w http.ResponseWriter, r *http.Request, sess ses
 	s.render(w, http.StatusOK, "result", v)
 }
 
-// handleAudit: the newest rows, 200 a page; ?before=<id> reads the page that follows.
+// auditFilterOf reads the audit filter of a query. It returns the problem to show when a value is not usable.
+func auditFilterOf(q url.Values) (store.AuditFilter, string) {
+	f := store.AuditFilter{
+		Actor:  strings.TrimSpace(q.Get("actor")),
+		Target: strings.TrimSpace(q.Get("target")),
+		Action: strings.TrimSpace(q.Get("action")),
+		From:   strings.TrimSpace(q.Get("from")),
+		To:     strings.TrimSpace(q.Get("to")),
+	}
+	if utf8.RuneCountInString(f.Actor) > playerQueryMax || utf8.RuneCountInString(f.Target) > playerQueryMax {
+		return f, "The actor and target filters are at most 100 characters."
+	}
+	if len(f.Action) > 40 || !onlyChars(f.Action, "-_.") {
+		return f, "The action filter holds letters, digits, dashes, dots and underscores, at most 40 characters."
+	}
+	for _, day := range []string{f.From, f.To} {
+		if _, err := time.Parse(time.DateOnly, day); day != "" && err != nil {
+			return f, "The dates are days in the form YYYY-MM-DD."
+		}
+	}
+	return f, ""
+}
+
+// auditHref is the audit page with the filter and, when before is set, the page marker.
+func auditHref(f store.AuditFilter, before int64) string {
+	q := url.Values{}
+	for k, v := range map[string]string{"actor": f.Actor, "target": f.Target, "action": f.Action, "from": f.From, "to": f.To} {
+		if v != "" {
+			q.Set(k, v)
+		}
+	}
+	if before > 0 {
+		q.Set("before", strconv.FormatInt(before, 10))
+	}
+	if len(q) == 0 {
+		return "/audit"
+	}
+	return "/audit?" + q.Encode()
+}
+
+// handleAudit: the rows the filter keeps, auditPage a page; ?before=<id> reads the page that follows.
 func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request, sess session) {
+	q := r.URL.Query()
 	var before int64
-	if raw := r.URL.Query()["before"]; len(raw) > 0 {
+	if raw := q["before"]; len(raw) > 0 {
 		n, err := strconv.ParseInt(raw[0], 10, 64)
 		if len(raw) != 1 || err != nil || n < 1 {
 			s.fail(w, http.StatusBadRequest, "The page marker is not valid.")
@@ -338,265 +408,20 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request, sess sessio
 		}
 		before = n
 	}
-	rows, err := store.AuditRows(before, auditPage)
+	f, problem := auditFilterOf(q)
+	if problem != "" {
+		s.fail(w, http.StatusBadRequest, problem)
+		return
+	}
+	rows, err := store.AuditSearch(f, before, auditPage)
 	if err != nil {
 		s.storeError(w, err)
 		return
 	}
-	v := s.base(sess, "Audit")
-	v.Rows = rows
+	v := s.base(r, sess, "Audit log")
+	v.Rows, v.Filter, v.NewestHref = rows, f, auditHref(f, 0)
 	if len(rows) == auditPage {
-		v.Older = rows[len(rows)-1].ID
+		v.OlderHref = auditHref(f, rows[len(rows)-1].ID)
 	}
 	s.render(w, http.StatusOK, "audit", v)
 }
-
-// pages holds the templates. Every page is "top", its body and "bottom": html/template escapes all data, and no template
-// holds a script, a style attribute or template.HTML.
-var pages = template.Must(template.New("staff").Parse(pagesHTML))
-
-const pagesHTML = `
-{{define "top"}}<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex, nofollow">
-<title>{{.Title}} | Cherry staff</title>
-<link rel="stylesheet" href="/static/staff.css">
-</head>
-<body>
-<header class="bar">
-<span class="brand">Cherry staff <span class="server">{{.Server}}</span></span>
-{{if .Nav}}<nav>{{range .Links}}<a href="{{.Href}}">{{.Label}}</a>{{end}}</nav>
-<span class="who">{{.Who}}</span>
-<form method="post" action="/auth/logout" class="inline">
-<input type="hidden" name="csrf" value="{{.CSRF}}">
-<button type="submit">Sign out</button>
-</form>{{end}}
-</header>
-<main>
-{{end}}
-
-{{define "bottom"}}</main>
-</body>
-</html>
-{{end}}
-
-{{define "error"}}{{template "top" .}}
-<h1>{{.Title}}</h1>
-<p>{{.Text}}</p>
-{{if .Login}}<p><a class="button" href="{{.Login}}">Sign in with Discord</a></p>{{end}}
-{{template "bottom" .}}{{end}}
-
-{{define "signedin"}}<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="robots" content="noindex, nofollow">
-<meta http-equiv="refresh" content="0;url={{.Next}}">
-<title>Signed in | Cherry staff</title>
-<link rel="stylesheet" href="/static/staff.css">
-</head>
-<body>
-<main>
-<h1>Signed in</h1>
-<p><a href="{{.Next}}">Continue to the staff pages</a></p>
-</main>
-</body>
-</html>
-{{end}}
-
-{{define "result"}}{{template "top" .}}
-<h1>{{.Title}}</h1>
-<p class="notice">{{.Notice}}</p>
-<p><a href="/docs">Back to the documents</a> · <a href="/audit">Audit log</a></p>
-{{template "bottom" .}}{{end}}
-
-{{define "dashboard"}}{{template "top" .}}
-<h1>Dashboard</h1>
-<dl class="facts">
-<dt>Signed in as</dt><dd>{{.Who}}</dd>
-<dt>Server</dt><dd>{{.Server}}</dd>
-<dt>Accounts in memory</dt><dd>{{.Accounts}}</dd>
-<dt>Open connections</dt><dd>{{.Connections}}</dd>
-<dt>Saves since start</dt><dd>{{.Saves}}</dd>
-</dl>
-<p class="muted">A published operator document applies at the next restart.</p>
-{{template "bottom" .}}{{end}}
-
-{{define "docs"}}{{template "top" .}}
-<h1>Documents</h1>
-<div class="scroll"><table>
-<thead><tr><th>Name</th><th>Runs on</th><th>Published</th><th>Pending</th><th>Rejected at start</th><th>Versions</th></tr></thead>
-<tbody>
-{{range .Docs}}<tr>
-<td><a href="/docs/{{.Name}}">{{.Name}}</a></td>
-<td>{{.Source}}</td>
-<td>{{if .Published}}v{{.Published}}{{else}}none{{end}}</td>
-<td>{{if .Pending}}yes{{else}}no{{end}}</td>
-<td>{{with .Rejected}}v{{.Version}}: {{.Error}}{{else}}no{{end}}</td>
-<td>{{.Versions}}</td>
-</tr>{{else}}<tr><td colspan="6">No documents.</td></tr>{{end}}
-</tbody>
-</table></div>
-{{template "bottom" .}}{{end}}
-
-{{define "doc"}}{{template "top" .}}
-<h1>{{.DocName}}</h1>
-<p>Runs on: {{.Doc.Source}}. Published: {{if .Doc.Published}}v{{.Doc.Published}}{{else}}none{{end}}.{{if .Doc.Pending}} A change applies at the next restart.{{end}}</p>
-{{with .Doc.Rejected}}<p class="warn">Published v{{.Version}} was rejected at start: {{.Error}}</p>{{end}}
-<h2>History</h2>
-<div class="scroll"><table>
-<thead><tr><th>Version</th><th>State</th><th>Author</th><th>Created</th><th>Published</th><th>Replaces</th><th>Note</th></tr></thead>
-<tbody>
-{{range .Versions}}<tr>
-<td><a href="/docs/{{$.DocName}}/{{.Version}}">v{{.Version}}</a></td>
-<td>{{.State}}</td>
-<td>{{.Author}}</td>
-<td>{{.Created}}</td>
-<td>{{.Published}}</td>
-<td>{{if .Replaces}}v{{.Replaces}}{{end}}</td>
-<td>{{.Note}}</td>
-</tr>{{else}}<tr><td colspan="7">No stored versions yet.</td></tr>{{end}}
-</tbody>
-</table></div>
-<h2>New draft</h2>
-<form method="post" action="/docs/{{.DocName}}/draft">
-<input type="hidden" name="csrf" value="{{.CSRF}}">
-<label>Note <input type="text" name="note" maxlength="500"></label>
-<label>Body (JSON)
-<textarea name="body" rows="30" spellcheck="false" required>{{.Draft}}</textarea></label>
-<button type="submit">Save draft</button>
-</form>
-{{template "bottom" .}}{{end}}
-
-{{define "version"}}{{template "top" .}}
-<h1>{{.DocName}} v{{.Version.Version}}</h1>
-{{with .Notice}}<p class="notice">{{.}}</p>{{end}}
-<p>State: {{.Version.State}}. Author: {{.Version.Author}}. Created {{.Version.Created}}{{if .Version.Published}}, published {{.Version.Published}}{{end}}. SHA-256 {{.Version.SHA256}}.</p>
-{{if .Version.Note}}<p>Note: {{.Version.Note}}</p>{{end}}
-{{with .Check}}{{if .Valid}}<p class="ok">Valid.{{if .ArtSkipped}} The art checks were skipped: this process has no asset store.{{end}}</p>{{else}}<p class="warn">Not valid: {{.Message}}</p>{{end}}{{end}}
-<h2>Body (read only)</h2>
-<pre class="body">{{.Body}}</pre>
-<div class="actions">
-<form method="post" action="/docs/{{.DocName}}/{{.Version.Version}}/validate"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Validate</button></form>
-<form method="post" action="/docs/{{.DocName}}/{{.Version.Version}}/publish"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Publish</button></form>
-<form method="post" action="/docs/{{.DocName}}/rollback"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Roll back</button></form>
-</div>
-<p class="muted">Publish and roll back need a Discord sign-in in the last five minutes. A published version applies at the next restart.</p>
-{{template "bottom" .}}{{end}}
-
-{{define "players"}}{{template "top" .}}
-<h1>Players</h1>
-<form method="get" action="/players" class="search">
-<label>Search <input type="search" name="q" value="{{.Query}}" maxlength="100"></label>
-<button type="submit">Search</button>
-</form>
-<p class="muted">The avatar id (exact), the Discord identity (exact) or part of the name (any case). At most 50 rows.</p>
-{{if .Query}}<div class="scroll"><table>
-<thead><tr><th>Player</th><th>Avatar id</th><th>Name</th><th>Identity</th><th>Gems</th><th>Cash</th><th>Banned</th></tr></thead>
-<tbody>
-{{range .Players}}<tr><td><a href="/players/{{.ID}}">#{{.ID}}</a></td><td>{{.Aid}}</td><td>{{.Name}}</td><td>{{.Identity}}</td><td>{{.Gems}}</td><td>{{.Cash}}</td><td>{{if .Ban}}yes{{else}}no{{end}}</td></tr>
-{{else}}<tr><td colspan="7">No player matches.</td></tr>{{end}}
-</tbody>
-</table></div>
-{{if .More}}<p class="notice">Only the first 50 matches are shown. Narrow the search.</p>{{end}}{{end}}
-{{template "bottom" .}}{{end}}
-
-{{define "player"}}{{template "top" .}}
-<h1>Player #{{.Player.ID}}</h1>
-<dl class="facts">
-<dt>Name</dt><dd>{{if .Player.Name}}{{.Player.Name}}{{else}}none yet{{end}}</dd>
-<dt>Avatar id</dt><dd>{{.Player.Aid}}{{if eq .Player.Aid "0"}} (no avatar yet){{end}}</dd>
-<dt>Identity</dt><dd>{{if .Player.Identity}}{{.Player.Identity}}{{else}}none (lab account){{end}}</dd>
-<dt>Gems</dt><dd>{{.Player.Gems}}</dd>
-<dt>Cash</dt><dd>{{.Player.Cash}}</dd>
-<dt>Ban</dt><dd>{{with .Player.Ban}}banned on {{.At}} by {{.By}}: {{.Reason}}{{else}}not banned{{end}}</dd>
-</dl>
-<h2>Grant or take away</h2>
-<form method="post" action="/players/{{.Player.ID}}/grant">
-<input type="hidden" name="csrf" value="{{.CSRF}}">
-<label>Currency <select name="currency"><option value="gems">Gems</option><option value="cash">Cash</option></select></label>
-<label>Amount (a negative number takes away) <input type="text" name="delta" inputmode="numeric" required></label>
-<label>Reason <input type="text" name="reason" maxlength="200" required></label>
-<button type="submit">Apply</button>
-</form>
-<h2>Ban</h2>
-{{if .Player.Ban}}<form method="post" action="/players/{{.Player.ID}}/unban"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Lift the ban</button></form>
-{{else}}<form method="post" action="/players/{{.Player.ID}}/ban"><input type="hidden" name="csrf" value="{{.CSRF}}">
-<label>Reason <input type="text" name="reason" maxlength="200" required></label>
-<button type="submit">Ban this identity</button></form>{{end}}
-<p class="muted">Grants and bans need a Discord sign-in in the last five minutes. A ban ends the identity's sessions and refuses its next sign-in; it follows the identity through Delete Avatar. It also ends the player's live connections.</p>
-<h2>Rename</h2>
-<form method="post" action="/players/{{.Player.ID}}/rename"><input type="hidden" name="csrf" value="{{.CSRF}}">
-<label>Nickname <input type="text" name="name" maxlength="20" required></label>
-<label>Reason <input type="text" name="reason" maxlength="200" required></label>
-<button type="submit">Rename</button></form>
-<p class="muted">The game's rule: 1 to 20 characters, not only spaces, no control characters. The player's diary posts and guestbook entries take the new name.</p>
-<h2>Diary posts (newest 20)</h2>
-<div class="scroll"><table>
-<thead><tr><th>Post</th><th>Date (UTC)</th><th>Text (first 80 characters)</th><th>Photo</th><th>Remove</th></tr></thead>
-<tbody>
-{{range .Posts}}<tr><td>{{.No}}</td><td>{{.Date}}</td><td>{{.Text}}</td><td>{{if .Photo}}yes{{else}}no{{end}}</td><td>
-<form method="post" action="/players/{{$.Player.ID}}/posts/{{.No}}/remove"><input type="hidden" name="csrf" value="{{$.CSRF}}">
-<input type="text" name="reason" maxlength="200" placeholder="Reason" required> <button type="submit">Remove</button></form></td></tr>
-{{else}}<tr><td colspan="5">No diary posts.</td></tr>{{end}}
-</tbody>
-</table></div>
-<h2>Guestbook entries the player wrote (newest 20)</h2>
-<div class="scroll"><table>
-<thead><tr><th>Entry</th><th>In the guestbook of</th><th>Date (UTC)</th><th>Text (first 80 characters)</th><th>Remove</th></tr></thead>
-<tbody>
-{{range .Entries}}<tr><td>{{.No}}</td><td>{{.Host}}</td><td>{{.Date}}</td><td>{{.Text}}</td><td>
-<form method="post" action="/players/{{$.Player.ID}}/guestbook/{{.No}}/remove"><input type="hidden" name="csrf" value="{{$.CSRF}}">
-<input type="text" name="reason" maxlength="200" placeholder="Reason" required> <button type="submit">Remove</button></form></td></tr>
-{{else}}<tr><td colspan="5">No guestbook entries.</td></tr>{{end}}
-</tbody>
-</table></div>
-<h2>Diary comments the player wrote (newest 20)</h2>
-<div class="scroll"><table>
-<thead><tr><th>Comment</th><th>Post</th><th>Owner of the post</th><th>Date (UTC)</th><th>Text (first 80 characters)</th><th>Remove</th></tr></thead>
-<tbody>
-{{range .Comments}}<tr><td>{{.No}}</td><td>{{.Post}}</td><td>{{.Host}}</td><td>{{.Date}}</td><td>{{.Text}}</td><td>
-<form method="post" action="/players/{{$.Player.ID}}/comments/{{.No}}/remove"><input type="hidden" name="csrf" value="{{$.CSRF}}">
-<input type="text" name="reason" maxlength="200" placeholder="Reason" required> <button type="submit">Remove</button></form></td></tr>
-{{else}}<tr><td colspan="6">No diary comments.</td></tr>{{end}}
-</tbody>
-</table></div>
-<p class="muted">Renames and removals need a Discord sign-in in the last five minutes. A removal's audit row names the number and the reason, never the removed text.</p>
-<h2>Pictures the player uploaded (newest 20)</h2>
-<div class="scroll"><table>
-<thead><tr><th>Picture</th><th>Kind</th><th>Size (KiB)</th><th>Uploaded (UTC)</th><th>Remove</th></tr></thead>
-<tbody>
-{{range .Media}}<tr><td>{{.ID}}</td><td>{{.Kind}}</td><td>{{.KiB}}</td><td>{{.Date}}</td><td>
-<form method="post" action="/players/{{$.Player.ID}}/media/{{.ID}}/remove"><input type="hidden" name="csrf" value="{{$.CSRF}}">
-<input type="text" name="reason" maxlength="200" placeholder="Reason" required> <button type="submit">Remove</button></form></td></tr>
-{{else}}<tr><td colspan="5">No pictures.</td></tr>{{end}}
-</tbody>
-</table></div>
-<p class="muted">Removing a picture deletes the file and clears every post, profile or room thumbnail that names it (a post keeps its text). The audit row names the picture's number and the reason, never the picture.</p>
-<h2>Newest ledger lines</h2>
-{{if eq .Player.Aid "0"}}<p class="muted">Ledger lines are kept by avatar id. This account has none yet, so none are shown.</p>{{end}}
-<div class="scroll"><table>
-<thead><tr><th>Time (UTC)</th><th>Currency</th><th>Change</th><th>Balance after</th><th>Reason</th></tr></thead>
-<tbody>
-{{range .Ledger}}<tr><td>{{.Time}}</td><td>{{.Currency}}</td><td>{{.Delta}}</td><td>{{.Balance}}</td><td>{{.Reason}}</td></tr>
-{{else}}<tr><td colspan="5">No ledger lines.</td></tr>{{end}}
-</tbody>
-</table></div>
-<p><a href="/audit">Audit log</a></p>
-{{template "bottom" .}}{{end}}
-
-{{define "audit"}}{{template "top" .}}
-<h1>Audit log</h1>
-<div class="scroll"><table>
-<thead><tr><th>Time (UTC)</th><th>Actor</th><th>Action</th><th>Target</th><th>Detail</th></tr></thead>
-<tbody>
-{{range .Rows}}<tr><td>{{.Time}}</td><td>{{.Actor}}</td><td>{{.Action}}</td><td>{{.Target}}</td><td class="detail">{{.Detail}}</td></tr>
-{{else}}<tr><td colspan="5">No rows yet.</td></tr>{{end}}
-</tbody>
-</table></div>
-{{if .Older}}<p><a href="/audit?before={{.Older}}">Older rows</a></p>{{end}}
-{{template "bottom" .}}{{end}}
-`

@@ -1,0 +1,16 @@
+{{define "page"}}<h1>Documents</h1>
+<p class="muted">Operator documents. The published version applies at the next restart, and every change is in the audit log.</p>
+<div class="scroll"><table>
+<thead><tr><th>Name</th><th>Runs on</th><th>Published</th><th>Waiting for a restart</th><th>Rejected at start</th><th class="num">Versions</th></tr></thead>
+<tbody>
+{{range .Docs}}<tr>
+<td><a href="/docs/{{.Name}}">{{.Name}}</a></td>
+<td>{{.Source}}</td>
+<td>{{if .Published}}v{{.Published}}{{else}}<span class="muted">none</span>{{end}}</td>
+<td>{{if .Pending}}<span class="pill warn">yes</span>{{else}}no{{end}}</td>
+<td>{{with .Rejected}}<span class="pill error">v{{.Version}}: {{.Error}}</span>{{else}}no{{end}}</td>
+<td class="num">{{.Versions}}</td>
+</tr>{{else}}<tr class="empty"><td colspan="6">No documents.</td></tr>{{end}}
+</tbody>
+</table></div>
+{{end}}

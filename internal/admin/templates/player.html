@@ -1,0 +1,120 @@
+{{define "page"}}<h1>Player #{{.Player.ID}}{{with .Player.Name}} <span class="muted">{{.}}</span>{{end}}</h1>
+
+<div class="grid-2">
+<section class="card">
+<h2>Account</h2>
+<dl class="facts">
+<dt>Name</dt><dd>{{if .Player.Name}}{{.Player.Name}}{{else}}none yet{{end}}</dd>
+<dt>Avatar id</dt><dd>{{.Player.Aid}}{{if eq .Player.Aid "0"}} (no avatar yet){{end}}</dd>
+<dt>Identity</dt><dd>{{if .Player.Identity}}{{.Player.Identity}}{{else}}none (lab account){{end}}</dd>
+<dt>Gems</dt><dd>{{.Player.Gems}}</dd>
+<dt>Cash</dt><dd>{{.Player.Cash}}</dd>
+<dt>Ban</dt><dd>{{with .Player.Ban}}banned on {{.At}} by {{.By}}: {{.Reason}}{{else}}not banned{{end}}</dd>
+</dl>
+</section>
+
+<section class="card">
+<h2>Ban</h2>
+{{if .Player.Ban}}<form method="post" action="/players/{{.Player.ID}}/unban" class="stack" data-confirm="Lift the ban on this player?">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<p class="muted small">Lifting the ban lets the player sign in again. The account's tokens stay revoked until then.</p>
+<button type="submit" class="ghost">Lift the ban</button>
+</form>
+{{else}}<form method="post" action="/players/{{.Player.ID}}/ban" class="stack" data-confirm="Ban this identity? Its sessions end, its live connections close and its next sign-in is refused.">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<label><span class="label">Reason</span>
+<input type="text" name="reason" maxlength="200" required>
+<small class="help">Written to the audit trail. A ban follows the identity through Delete Avatar.</small></label>
+<div class="actions"><button type="submit" class="danger">Ban this identity</button></div>
+</form>{{end}}
+</section>
+</div>
+
+<div class="grid-2">
+<section class="card">
+<h2>Grant or take away</h2>
+<form method="post" action="/players/{{.Player.ID}}/grant" class="stack">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<label><span class="label">Currency</span>
+<select name="currency"><option value="gems">Gems</option><option value="cash">Cash</option></select></label>
+<label><span class="label">Amount</span>
+<input type="text" name="delta" inputmode="numeric" required>
+<small class="help">A whole number. A negative number takes away.</small></label>
+<label><span class="label">Reason</span>
+<input type="text" name="reason" maxlength="200" required>
+<small class="help">Written to the ledger and the audit trail.</small></label>
+<div class="actions"><button type="submit">Apply</button></div>
+</form>
+</section>
+
+<section class="card">
+<h2>Rename</h2>
+<form method="post" action="/players/{{.Player.ID}}/rename" class="stack">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<label><span class="label">Nickname</span>
+<input type="text" name="name" maxlength="20" required>
+<small class="help">The game's rule: 1 to 20 characters, not only spaces, no control characters. Diary posts and guestbook entries take the new name.</small></label>
+<label><span class="label">Reason</span>
+<input type="text" name="reason" maxlength="200" required></label>
+<div class="actions"><button type="submit">Rename</button></div>
+</form>
+</section>
+</div>
+<p class="muted small">Grants, bans, renames and removals need a Discord sign-in in the last five minutes. A ban also ends the player's live connections.</p>
+
+<h2>Diary posts (newest 20)</h2>
+<div class="scroll"><table>
+<thead><tr><th>Post</th><th>Date (UTC)</th><th>Text (first 80 characters)</th><th>Photo</th><th>Remove</th></tr></thead>
+<tbody>
+{{range .Posts}}<tr><td>{{.No}}</td><td>{{.Date}}</td><td>{{.Text}}</td><td>{{if .Photo}}yes{{else}}no{{end}}</td><td>
+<form method="post" action="/players/{{$.Player.ID}}/posts/{{.No}}/remove" class="row-form" data-confirm="Remove this diary post? Its comments and likes go with it. The audit trail keeps the number and your reason."><input type="hidden" name="csrf" value="{{$.CSRF}}">
+<input type="text" name="reason" maxlength="200" placeholder="Reason" aria-label="Reason" required> <button type="submit" class="danger">Remove</button></form></td></tr>
+{{else}}<tr class="empty"><td colspan="5">No diary posts.</td></tr>{{end}}
+</tbody>
+</table></div>
+
+<h2>Guestbook entries the player wrote (newest 20)</h2>
+<div class="scroll"><table>
+<thead><tr><th>Entry</th><th>In the guestbook of</th><th>Date (UTC)</th><th>Text (first 80 characters)</th><th>Remove</th></tr></thead>
+<tbody>
+{{range .Entries}}<tr><td>{{.No}}</td><td>{{.Host}}</td><td>{{.Date}}</td><td>{{.Text}}</td><td>
+<form method="post" action="/players/{{$.Player.ID}}/guestbook/{{.No}}/remove" class="row-form" data-confirm="Remove this guestbook entry and its replies? The audit trail keeps the number and your reason."><input type="hidden" name="csrf" value="{{$.CSRF}}">
+<input type="text" name="reason" maxlength="200" placeholder="Reason" aria-label="Reason" required> <button type="submit" class="danger">Remove</button></form></td></tr>
+{{else}}<tr class="empty"><td colspan="5">No guestbook entries.</td></tr>{{end}}
+</tbody>
+</table></div>
+
+<h2>Diary comments the player wrote (newest 20)</h2>
+<div class="scroll"><table>
+<thead><tr><th>Comment</th><th>Post</th><th>Owner of the post</th><th>Date (UTC)</th><th>Text (first 80 characters)</th><th>Remove</th></tr></thead>
+<tbody>
+{{range .Comments}}<tr><td>{{.No}}</td><td>{{.Post}}</td><td>{{.Host}}</td><td>{{.Date}}</td><td>{{.Text}}</td><td>
+<form method="post" action="/players/{{$.Player.ID}}/comments/{{.No}}/remove" class="row-form" data-confirm="Remove this diary comment? The audit trail keeps the number and your reason."><input type="hidden" name="csrf" value="{{$.CSRF}}">
+<input type="text" name="reason" maxlength="200" placeholder="Reason" aria-label="Reason" required> <button type="submit" class="danger">Remove</button></form></td></tr>
+{{else}}<tr class="empty"><td colspan="6">No diary comments.</td></tr>{{end}}
+</tbody>
+</table></div>
+
+<h2>Pictures the player uploaded (newest 20)</h2>
+<div class="scroll"><table>
+<thead><tr><th>Picture</th><th>Kind</th><th class="num">Size (KiB)</th><th>Uploaded (UTC)</th><th>Remove</th></tr></thead>
+<tbody>
+{{range .Media}}<tr><td>{{.ID}}</td><td>{{.Kind}}</td><td class="num">{{.KiB}}</td><td>{{.Date}}</td><td>
+<form method="post" action="/players/{{$.Player.ID}}/media/{{.ID}}/remove" class="row-form" data-confirm="Remove this picture? The file is deleted, and every post, profile or room thumbnail that shows it loses it."><input type="hidden" name="csrf" value="{{$.CSRF}}">
+<input type="text" name="reason" maxlength="200" placeholder="Reason" aria-label="Reason" required> <button type="submit" class="danger">Remove</button></form></td></tr>
+{{else}}<tr class="empty"><td colspan="5">No pictures.</td></tr>{{end}}
+</tbody>
+</table></div>
+<p class="muted small">Removing a picture deletes the file and clears every post, profile or room thumbnail that names it (a post keeps its text). The audit row names the picture's number and the reason, never the picture.</p>
+
+<h2>Newest ledger lines</h2>
+{{if eq .Player.Aid "0"}}<p class="muted">Ledger lines are kept by avatar id. This account has none yet, so none are shown.</p>{{end}}
+<div class="scroll"><table>
+<thead><tr><th>Time (UTC)</th><th>Currency</th><th class="num">Change</th><th class="num">Balance after</th><th>Reason</th></tr></thead>
+<tbody>
+{{range .Ledger}}<tr><td>{{.Time}}</td><td>{{.Currency}}</td><td class="num">{{.Delta}}</td><td class="num">{{.Balance}}</td><td>{{.Reason}}</td></tr>
+{{else}}<tr class="empty"><td colspan="5">No ledger lines.</td></tr>{{end}}
+</tbody>
+</table></div>
+<p><a href="/audit?target=player:{{.Player.ID}}">Audit rows for this player</a></p>
+{{end}}

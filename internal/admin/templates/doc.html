@@ -1,0 +1,32 @@
+{{define "page"}}<h1>{{.DocName}}</h1>
+<p class="muted">Runs on: {{.Doc.Source}}. Published: {{if .Doc.Published}}v{{.Doc.Published}}{{else}}none{{end}}.{{if .Doc.Pending}} A change applies at the next restart.{{end}}</p>
+{{with .Doc.Rejected}}<p class="flash error">Published v{{.Version}} was rejected at start: {{.Error}}</p>{{end}}
+
+<h2>History</h2>
+<div class="scroll"><table>
+<thead><tr><th>Version</th><th>State</th><th>Author</th><th>Created</th><th>Published</th><th>Replaces</th><th>Note</th></tr></thead>
+<tbody>
+{{range .Versions}}<tr>
+<td><a href="/docs/{{$.DocName}}/{{.Version}}">v{{.Version}}</a></td>
+<td>{{.State}}</td>
+<td>{{.Author}}</td>
+<td>{{.Created}}</td>
+<td>{{.Published}}</td>
+<td>{{if .Replaces}}v{{.Replaces}}{{end}}</td>
+<td>{{.Note}}</td>
+</tr>{{else}}<tr class="empty"><td colspan="7">No stored versions yet.</td></tr>{{end}}
+</tbody>
+</table></div>
+
+<h2>New draft</h2>
+<form method="post" action="/docs/{{.DocName}}/draft" class="stack">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<label><span class="label">Note</span>
+<input type="text" name="note" maxlength="500">
+<small class="help">Why this change, in a few words. It is kept with the version.</small></label>
+<label><span class="label">Body (JSON)</span>
+<textarea name="body" rows="30" spellcheck="false" required>{{.Draft}}</textarea>
+<small class="help">Saved as a draft. Nothing runs until you validate it and publish it.</small></label>
+<div class="actions"><button type="submit">Save draft</button></div>
+</form>
+{{end}}

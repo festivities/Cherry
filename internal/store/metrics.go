@@ -19,12 +19,26 @@ func init() {
 		if d == nil {
 			return 0
 		}
-		fi, err := os.Stat(d.Path() + "-wal")
-		if err != nil {
-			return 0
-		}
-		return fi.Size()
+		return fileSize(d.Path() + "-wal")
 	})
+}
+
+// fileSize is the size of a file, 0 when it cannot be read.
+func fileSize(path string) int64 {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return fi.Size()
+}
+
+// DBBytes is the size of the attached database file and of its WAL file (zeros without a database).
+func DBBytes() (db, wal int64) {
+	d := attachedDB()
+	if d == nil {
+		return 0, 0
+	}
+	return fileSize(d.Path()), fileSize(d.Path() + "-wal")
 }
 
 // AccountCount is the number of accounts in memory (the staff dashboard). It takes AccountsMu itself.

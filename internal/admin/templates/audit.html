@@ -1,0 +1,24 @@
+{{define "page"}}<h1>Audit log</h1>
+<p class="muted">Every staff change, newest first. Each row names its actor and target, never a secret or a removed text.</p>
+<form method="get" action="/audit" class="filters" role="search">
+<label><span class="label">Actor</span>
+<input type="text" name="actor" value="{{.Filter.Actor}}" maxlength="100" placeholder="part of the identity"></label>
+<label><span class="label">Target</span>
+<input type="text" name="target" value="{{.Filter.Target}}" maxlength="100" placeholder="e.g. player:5"></label>
+<label><span class="label">Action</span>
+<input type="text" name="action" value="{{.Filter.Action}}" maxlength="40" placeholder="e.g. publish"></label>
+<label><span class="label">From (UTC)</span>
+<input type="date" name="from" value="{{.Filter.From}}"></label>
+<label><span class="label">To (UTC)</span>
+<input type="date" name="to" value="{{.Filter.To}}"></label>
+<div class="actions"><button type="submit">Filter</button> <a href="{{.NewestHref}}" class="button ghost">Clear</a></div>
+</form>
+<div class="scroll"><table>
+<thead><tr><th>Time (UTC)</th><th>Actor</th><th>Action</th><th>Target</th><th>Detail</th></tr></thead>
+<tbody>
+{{range .Rows}}<tr><td>{{.Time}}</td><td>{{.Actor}}</td><td>{{.Action}}</td><td>{{.Target}}</td><td class="detail">{{.Detail}}</td></tr>
+{{else}}<tr class="empty"><td colspan="5">No rows match.</td></tr>{{end}}
+</tbody>
+</table></div>
+<p class="pager">{{with .OlderHref}}<a href="{{.}}">Older rows</a> · {{end}}<a href="{{.NewestHref}}">Newest rows</a></p>
+{{end}}

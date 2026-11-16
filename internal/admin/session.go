@@ -49,6 +49,22 @@ func (s *Server) page(h handler) http.HandlerFunc {
 	}
 }
 
+// jsonPage guards a GET that answers JSON: a live session, or 401 with a JSON body (the page guard answers HTML instead). It
+// does not count as activity: the dashboard polls it every 15 seconds, and an open tab must not keep a session alive past
+// the idle timeout.
+func (s *Server) jsonPage(h handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sess, ok := s.lookupSession(r, false)
+		if !ok {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte("{\"error\":\"sign in with Discord first\"}\n"))
+			return
+		}
+		h(w, r, sess)
+	}
+}
+
 // action guards a POST. In order: the Origin (or, without an Origin, Sec-Fetch-Site same-origin); a live session; a body
 // within maxBody; the CSRF token, compared in constant time; and, when privileged, a Discord login within freshWindow.
 // Only then does h run. Every refusal is one log line that names the reason and the path, never a value.
@@ -108,8 +124,12 @@ func (s *Server) freshLogin(sess session) bool {
 	return s.now().Sub(sess.fresh) <= freshWindow
 }
 
-// sessionOf returns the live session of the request. An expired session is removed here, so it cannot come back.
-func (s *Server) sessionOf(r *http.Request) (session, bool) {
+// sessionOf returns the live session of the request and counts the request as activity (the idle clock restarts).
+func (s *Server) sessionOf(r *http.Request) (session, bool) { return s.lookupSession(r, true) }
+
+// lookupSession returns the live session of the request. An expired session is removed here, so it cannot come back. touch
+// false leaves the idle clock where it is.
+func (s *Server) lookupSession(r *http.Request, touch bool) (session, bool) {
 	c, err := r.Cookie(cookieSession)
 	if err != nil || !validToken(c.Value) {
 		return session{}, false
@@ -126,7 +146,9 @@ func (s *Server) sessionOf(r *http.Request) (session, bool) {
 		delete(s.sessions, key)
 		return session{}, false
 	}
-	sess.lastSeen = now
+	if touch {
+		sess.lastSeen = now
+	}
 	return *sess, true
 }
 

@@ -1,0 +1,15 @@
+{{define "page"}}<h1>{{.DocName}} v{{.Version.Version}}</h1>
+<p class="muted">State: {{.Version.State}}. Author: {{.Version.Author}}. Created {{.Version.Created}}{{if .Version.Published}}, published {{.Version.Published}}{{end}}. SHA-256 <span class="mono">{{.Version.SHA256}}</span>.</p>
+{{if .Version.Note}}<p>Note: {{.Version.Note}}</p>{{end}}
+{{with .Check}}{{if .Valid}}<p class="flash ok">Valid.{{if .ArtSkipped}} The art checks were skipped: this process has no asset store.{{end}}</p>{{else}}<p class="flash error">Not valid: {{.Message}}</p>{{end}}{{end}}
+
+<h2>Body (read only)</h2>
+<pre class="body">{{.Body}}</pre>
+
+<div class="actions">
+<form method="post" action="/docs/{{.DocName}}/{{.Version.Version}}/validate"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" class="ghost">Validate</button></form>
+<form method="post" action="/docs/{{.DocName}}/{{.Version.Version}}/publish" data-confirm="Publish {{.DocName}} v{{.Version.Version}}? It applies at the next restart."><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Publish</button></form>
+<form method="post" action="/docs/{{.DocName}}/rollback" data-confirm="Roll {{.DocName}} back to the version it replaced? It applies at the next restart."><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" class="danger">Roll back</button></form>
+</div>
+<p class="muted small">Publish and roll back need a Discord sign-in in the last five minutes. A published version applies at the next restart.</p>
+{{end}}

@@ -1,0 +1,4 @@
+{{define "page"}}<h1>{{.Title}}</h1>
+<p class="flash error">{{.Text}}</p>
+{{with .Login}}<p><a class="button" href="{{.}}">Sign in with Discord</a></p>{{else}}<p><a href="/">Back to the staff dashboard</a></p>{{end}}
+{{end}}

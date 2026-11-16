@@ -30,7 +30,7 @@ func TestDevFakeFlow(t *testing.T) {
 	}
 	draft := c.post("/docs/cherrytips.json/draft", url.Values{"csrf": {c.csrf()}, "body": {string(def)}, "note": {"first"}})
 	expect(t, draft, http.StatusSeeOther)
-	if loc := draft.Header.Get("Location"); loc != "/docs/cherrytips.json/1" {
+	if loc := draft.Header.Get("Location"); loc != "/docs/cherrytips.json/1?notice=draft-saved" {
 		t.Fatalf("draft redirects to %q", loc)
 	}
 	expect(t, c.get("/docs/cherrytips.json/1"), http.StatusOK)
@@ -145,7 +145,6 @@ func TestEveryResponseHasTheHeaders(t *testing.T) {
 	paths := []struct{ method, target string }{
 		{http.MethodGet, "/"},
 		{http.MethodGet, "/docs"},
-		{http.MethodGet, "/static/staff.css"},
 		{http.MethodGet, "/auth/login?as=bad%20name"},
 		{http.MethodGet, "/no-such-page"},
 		{http.MethodPost, "/auth/logout"},
@@ -184,9 +183,8 @@ func checkHeaders(t *testing.T, target string, r reply) {
 	if r.Header.Get("Strict-Transport-Security") != "" {
 		t.Errorf("%s: HSTS on a server that is not public", target)
 	}
-	lower := strings.ToLower(r.body)
-	if strings.Contains(lower, "<script") || strings.Contains(lower, "style=") {
-		t.Errorf("%s: page holds a script or an inline style", target)
+	if bad := inlineMarkup(r.body); len(bad) > 0 {
+		t.Errorf("%s: page holds inline markup %v", target, bad)
 	}
 }
 

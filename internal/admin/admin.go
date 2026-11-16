@@ -1,7 +1,7 @@
 // Package admin is the staff UI (PLAN Roadmap 8, P4; slice 8.7 part 1): its own HTTPS listener on its own hostname, Discord
 // sign-in for the owner and the staff allowlist (dev-fake for tests), server-side sessions with CSRF and Origin checks on
-// every change, and server-rendered pages for the operator documents and the audit log. No game route is mounted here and
-// no staff route on the game listeners (cmd/cherry's tests walk both muxes).
+// every change, and server-rendered pages (templates/, static/) for the dashboard, the players, the operator documents and
+// the audit log. No game route is mounted here and no staff route on the game listeners (cmd/cherry's tests walk both muxes).
 //
 // ponytail: sessions, sign-in state and blocks live in memory, so one process holds them and a restart signs every staff
 // member out. The caps bound them; a second process needs shared storage (a sessions table, schema v4).
@@ -55,6 +55,9 @@ type Server struct {
 	sessions map[[32]byte]*session    // by the SHA-256 of the session id
 	blocked  map[string]time.Time     // client address -> blocked until
 
+	rate rateRing      // the request counter's recent readings (the dashboard's requests per minute)
+	stop chan struct{} // closed by Shutdown: ends sampleLoop
+
 	srv *http.Server
 }
 
@@ -89,6 +92,7 @@ func New(cfg config.Config, logger *log.Logger) (*Server, error) {
 		logins:   map[[32]byte]*loginState{},
 		sessions: map[[32]byte]*session{},
 		blocked:  map[string]time.Time{},
+		stop:     make(chan struct{}),
 		limits: limits{
 			loginMinute:    auth.NewLimiter(10, time.Minute),
 			loginHour:      auth.NewLimiter(60, time.Hour),
@@ -162,6 +166,7 @@ func Start(cfg config.Config, logger *log.Logger) (*Server, error) {
 		host = "any"
 	}
 	logger.Printf("cherry: staff UI listening addr=%s host=%s owner=%s public=%t", ln.Addr(), host, auth.MaskIdentity(s.owner), cfg.Public)
+	go s.sampleLoop()
 	go func() {
 		if err := s.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			logger.Printf("cherry: staff UI stopped: %v", err)
@@ -173,8 +178,11 @@ func Start(cfg config.Config, logger *log.Logger) (*Server, error) {
 // Serve serves TLS on ln until Shutdown.
 func (s *Server) Serve(ln net.Listener) error { return s.srv.ServeTLS(ln, "", "") }
 
-// Shutdown stops the listener and waits for the open requests, up to ctx.
-func (s *Server) Shutdown(ctx context.Context) error { return s.srv.Shutdown(ctx) }
+// Shutdown stops the sampler and the listener, and waits for the open requests, up to ctx.
+func (s *Server) Shutdown(ctx context.Context) error {
+	close(s.stop)
+	return s.srv.Shutdown(ctx)
+}
 
 // Handler is the whole staff handler: the security headers, the Host check and the routes. Tests call it directly.
 func (s *Server) Handler() http.Handler { return s.srv.Handler }
@@ -183,11 +191,12 @@ func (s *Server) Handler() http.Handler { return s.srv.Handler }
 // reaches its handler.
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /static/staff.css", serveCSS)
+	mux.HandleFunc("GET /static/{file}", serveStatic)
 	mux.HandleFunc("GET /auth/login", s.handleLogin)
 	mux.HandleFunc("GET /auth/callback", s.handleCallback)
 	mux.HandleFunc("POST /auth/logout", s.action(false, maxBodySmall, s.handleLogout))
 	mux.HandleFunc("GET /{$}", s.page(s.handleDashboard))
+	mux.HandleFunc("GET /stats.json", s.jsonPage(s.handleStats))
 	mux.HandleFunc("GET /docs", s.page(s.handleDocsList))
 	mux.HandleFunc("GET /docs/{name}", s.page(s.handleDocHistory))
 	mux.HandleFunc("POST /docs/{name}/draft", s.action(false, docBodyCap, s.handleDraft))
@@ -202,9 +211,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /players/{id}/ban", s.action(true, maxBodySmall, s.handleBan))
 	mux.HandleFunc("POST /players/{id}/unban", s.action(true, maxBodySmall, s.handleUnban))
 	mux.HandleFunc("POST /players/{id}/rename", s.action(true, maxBodySmall, s.handleRename))
-	mux.HandleFunc("POST /players/{id}/posts/{no}/remove", s.action(true, maxBodySmall, s.removal(store.RemovePlayerPost)))
-	mux.HandleFunc("POST /players/{id}/guestbook/{no}/remove", s.action(true, maxBodySmall, s.removal(store.RemovePlayerGuestbookEntry)))
-	mux.HandleFunc("POST /players/{id}/comments/{no}/remove", s.action(true, maxBodySmall, s.removal(store.RemovePlayerComment)))
+	mux.HandleFunc("POST /players/{id}/posts/{no}/remove", s.action(true, maxBodySmall, s.removal(store.RemovePlayerPost, "post-removed")))
+	mux.HandleFunc("POST /players/{id}/guestbook/{no}/remove", s.action(true, maxBodySmall, s.removal(store.RemovePlayerGuestbookEntry, "entry-removed")))
+	mux.HandleFunc("POST /players/{id}/comments/{no}/remove", s.action(true, maxBodySmall, s.removal(store.RemovePlayerComment, "comment-removed")))
 	mux.HandleFunc("POST /players/{id}/media/{mid}/remove", s.action(true, maxBodySmall, s.handleMediaRemove))
 	// A state change reached by GET gets 405: a literal path beats the {version} wildcard of the GET page.
 	mux.HandleFunc("GET /docs/{name}/draft", methodNotAllowed("POST"))

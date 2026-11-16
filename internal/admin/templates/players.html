@@ -1,0 +1,16 @@
+{{define "page"}}<h1>Players</h1>
+<form method="get" action="/players" class="filters" role="search">
+<label><span class="label">Search</span>
+<input type="search" name="q" value="{{.Query}}" maxlength="100"></label>
+<div class="actions"><button type="submit">Search</button></div>
+</form>
+<p class="muted">Find a player by avatar id (exact), Discord identity (exact) or part of the name (any case). At most 50 rows.</p>
+{{if .Query}}<div class="scroll"><table>
+<thead><tr><th>Player</th><th>Avatar id</th><th>Name</th><th>Identity</th><th class="num">Gems</th><th class="num">Cash</th><th>Banned</th></tr></thead>
+<tbody>
+{{range .Players}}<tr><td><a href="/players/{{.ID}}">#{{.ID}}</a></td><td>{{.Aid}}</td><td>{{.Name}}</td><td>{{.Identity}}</td><td class="num">{{.Gems}}</td><td class="num">{{.Cash}}</td><td>{{if .Ban}}<span class="pill error">yes</span>{{else}}no{{end}}</td></tr>
+{{else}}<tr class="empty"><td colspan="7">No player matches.</td></tr>{{end}}
+</tbody>
+</table></div>
+{{if .More}}<p class="flash warn">Only the first 50 matches are shown. Narrow the search.</p>{{end}}{{end}}
+{{end}}

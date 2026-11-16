@@ -1,0 +1,92 @@
+{{define "page"}}<h1>Dashboard</h1>
+<p class="muted">{{.Server}} · the numbers refresh every 15 seconds while this page is open. A published operator document applies at the next restart.</p>
+
+<section class="cards" data-stats>
+<div class="card">
+<h2>Players online now</h2>
+<p class="big" data-k="online">{{.Stats.Online}}</p>
+<p class="muted small">Game connections: <span data-k="session_conns">{{.Stats.SessionConns}}</span> session, <span data-k="gateway_conns">{{.Stats.GatewayConns}}</span> gateway.</p>
+</div>
+<div class="card">
+<h2>Accounts</h2>
+<p class="big" data-k="accounts">{{.Stats.Accounts}}</p>
+<p class="muted small">Loaded in memory from the database.</p>
+</div>
+<div class="card">
+<h2>Requests</h2>
+<p class="big" data-k="requests">{{.Stats.Requests}}</p>
+<p class="muted small"><span data-k="requests_per_min">{{printf "%.1f" .Stats.RequestsPerMin}}</span> per minute over the last minute.</p>
+</div>
+<div class="card">
+<h2>Uptime</h2>
+<p class="big" data-k="uptime">{{.Stats.Uptime}}</p>
+<p class="muted small">Started <span data-k="started">{{.Stats.Started}}</span></p>
+</div>
+<div class="card">
+<h2>Saves</h2>
+<p class="big" data-k="saves">{{.Stats.Saves}}</p>
+<p class="muted small">Average hold <span data-k="save_avg">{{.Stats.SaveAvg}}</span>, longest <span data-k="save_max">{{.Stats.SaveMax}}</span>.</p>
+</div>
+<div class="card">
+<h2>Database</h2>
+<p class="big" data-k="db_size">{{.Stats.DBSize}}</p>
+<p class="muted small">Write-ahead log <span data-k="wal_size">{{.Stats.WALSize}}</span>.</p>
+</div>
+<div class="card">
+<h2>Build</h2>
+<p class="big mono" data-k="build">{{.Stats.Build}}</p>
+<p class="muted small">Built <span data-k="build_time">{{with .Stats.BuildTime}}{{.}}{{else}}not stamped{{end}}</span>. {{.Stats.GoVersion}}</p>
+</div>
+<div class="card">
+<h2>Go runtime</h2>
+<p class="muted small">Goroutines <span class="strong" data-k="goroutines">{{.Stats.Goroutines}}</span>, heap in use <span class="strong" data-k="heap_inuse">{{.Stats.HeapInUse}}</span>.</p>
+<p class="muted small">GC cycles <span class="strong" data-k="gc_count">{{.Stats.GCCount}}</span>, GOMAXPROCS <span class="strong" data-k="gomaxprocs">{{.Stats.GOMAXPROCS}}</span>, memory limit <span class="strong" data-k="memory_limit">{{.Stats.MemoryLimit}}</span>.</p>
+</div>
+</section>
+
+<h2>Save time</h2>
+<p class="muted">Each save holds the store's lock while it writes. The bars show each bucket's share of all saves.</p>
+<div class="scroll">
+<table class="hist">
+<thead><tr><th>Held for</th><th class="num">Saves</th><th>Share</th></tr></thead>
+<tbody>
+{{range $i, $b := .Stats.SaveHist}}<tr>
+<td>{{$b.Label}}</td>
+<td class="num" id="hist-count-{{$i}}">{{$b.Count}}</td>
+<td><div class="bar-track"><div class="bar-fill w-{{$b.Bar}}" id="hist-fill-{{$i}}"></div></div></td>
+</tr>
+{{end}}</tbody>
+</table>
+</div>
+
+<div class="grid-2">
+<section>
+<h2>Newest audit rows</h2>
+<div class="scroll"><table>
+<thead><tr><th>Time (UTC)</th><th>Actor</th><th>Action</th><th>Target</th></tr></thead>
+<tbody>
+{{range .Recent}}<tr><td>{{.Time}}</td><td>{{.Actor}}</td><td>{{.Action}}</td><td>{{.Target}}</td></tr>
+{{else}}<tr class="empty"><td colspan="4">No rows yet.</td></tr>{{end}}
+</tbody>
+</table></div>
+<p><a href="/audit">All audit rows</a></p>
+</section>
+
+<section>
+<h2>Newest sign-ups</h2>
+<div class="scroll"><table>
+<thead><tr><th>Player</th><th>Name</th><th>Avatar</th><th>Created (UTC)</th></tr></thead>
+<tbody>
+{{range .Signups}}<tr>
+<td><a href="/players/{{.ID}}">#{{.ID}}</a></td>
+<td>{{with .Name}}{{.}}{{else}}<span class="muted">none yet</span>{{end}}</td>
+<td>{{if eq .Aid "0"}}<span class="muted">none yet</span>{{else}}{{.Aid}}{{end}}</td>
+<td>{{utc .Created}}</td>
+</tr>
+{{else}}<tr class="empty"><td colspan="4">No accounts yet.</td></tr>{{end}}
+</tbody>
+</table></div>
+<p><a href="/players">Find a player</a></p>
+</section>
+</div>
+{{end}}
