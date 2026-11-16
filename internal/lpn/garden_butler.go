@@ -13,9 +13,10 @@ import (
 )
 
 // Garden butlers (Garden LPN agent 10; spec butler-spec.md): the Shop (51 list, 52 hire), the Book (53 list,
-// 50 gather, 56 chief), Skin Select (62), the Skin Shop (60 list, 61 buy, 59 wear; butler-robo-spec section 2) and the
-// Voice Book (63; section 1) and the Memories (69 list, 70 open; section 3). Every other butler request gets a refusal
-// with no data and no spend, so the client's spinner clears. Field numbers and wire types are the spec's contract (section 3).
+// 50 gather, 56 chief), Skin Select (62), the Skin Shop (60 list, 61 buy, 59 wear; butler-robo-spec section 2), the
+// Voice Book (63; section 1), the Memories (69 list, 70 open; section 3) and the Chat (48 dialog, 49 talk; section 10).
+// Every other butler request gets a refusal with no data and no spend, so the client's spinner clears. Field numbers
+// and wire types are the spec's contract (section 3).
 // Reply msgids differ from request msgids (section 2). The roster is original data with Cherry-made ids and prices:
 // economy/butler.go and data/butlers.json. The chief spawns through hc_room_relaystart_res fields 8 and 9 (garden.go
 // relay start).
@@ -262,7 +263,8 @@ const butlerSkinCoinCash = 1
 // butlerSkinRow is one Skin Shop row (ButlerSkinBuyInfo, spec 2.6): f1 the butler id, f2 its sex (the older spec's name),
 // f3 the skin (ButlerSkinInfo: picture, outfit, name), f4 owned and f5 worn (1 or 0: the field numbers are a probe, see
 // butler-robo-spec 2.6), f6 the coin (its type picks the icon and the balance checked) and f9 the price (the client reads
-// only f9's value, spec 8); the sell and sale windows never end (f7, f10); no sale and no free hire (f8, f11).
+// only f9's value, spec 8); no sale and no free hire (f8, f11). The sell and sale end times are 0 (f7, f10): an end time
+// of -1 printed "Sales Period: Dec 31 1969", and 0 hides that line and the second price block (butler-robo-spec 10.6).
 func butlerSkinRow(b economy.ButlerDef, s economy.ButlerSkin, v economy.ButlerView) []byte {
 	row := pbVar(nil, 1, uint64(b.ID))
 	row = pbVar(row, 2, squareSex(b.Gender))
@@ -271,10 +273,10 @@ func butlerSkinRow(b economy.ButlerDef, s economy.ButlerSkin, v economy.ButlerVi
 	row = pbVar(row, 5, squareBool(v.Worn(b).ID == s.ID))
 	price := butlerCoin(butlerSkinCoinCash, s.Price)
 	row = pbLen(row, 6, price)
-	row = pbVar(row, 7, butlerNoDate)
+	row = pbVar(row, 7, 0)
 	row = pbVar(row, 8, 0)
 	row = pbLen(row, 9, price)
-	row = pbVar(row, 10, butlerNoDate)
+	row = pbVar(row, 10, 0)
 	return pbVar(row, 11, 0)
 }
 
@@ -304,10 +306,10 @@ func butlerEquipBody(b economy.ButlerDef, v economy.ButlerView) []byte {
 }
 
 // butlerVoiceBody is the Voice Book (hc 74): result 0, the butler's thumbnail (f2) and, for a butler with a voice pack, its
-// revision and zip record (f3: revision f1, one record with the zip's path in f4) and one script row per line (f4: N, 0, 1,
-// the label "Voice N", the empty text, the file's path under cache/butler/). A butler without voices gets neither f3 nor
-// f4: an empty voiceInfo means no pack (spec 1.2), so the download popup does nothing (not a refusal, which would show an
-// error).
+// revision and zip record (f3: revision f1, one record with the zip's path in f4) and one script row per line: the key N
+// (f1), the display order from 1 (f2: the "#n" header and the sort, butler-robo-spec 10.7), 1 open (f3), the label "Voice N",
+// the empty text, the file's path under cache/butler/. A butler without voices gets neither f3 nor f4: an empty voiceInfo
+// means no pack (spec 1.2), so the download popup does nothing (not a refusal, which would show an error).
 func butlerVoiceBody(b economy.ButlerDef, v economy.ButlerView) []byte {
 	body := pbVar(nil, 1, 0)
 	body = pbLen(body, 2, butlerThumbOf(b, v))
@@ -315,9 +317,9 @@ func butlerVoiceBody(b economy.ButlerDef, v economy.ButlerView) []byte {
 		return body
 	}
 	body = pbLen(body, 3, butlerVoiceInfo(b))
-	for _, n := range b.Voices.Lines {
+	for i, n := range b.Voices.Lines {
 		row := pbVar(nil, 1, uint64(n))
-		row = pbVar(row, 2, 0)
+		row = pbVar(row, 2, uint64(i+1))
 		row = pbVar(row, 3, 1)
 		row = pbLen(row, 4, []byte("Voice "+strconv.FormatInt(n, 10)))
 		row = pbLen(row, 5, nil)
@@ -426,6 +428,49 @@ func butlerChangeLeader(b economy.ButlerDef, worn economy.ButlerSkin, h store.Bu
 	return pbLen(body, 2, pbVar(nil, 1, 0))
 }
 
+// butlerChatButton is one ButlerDialogPopupButtonInfo (butler-robo-spec 10.2): the slot (1 talk, 2 gathering, 3 butler list,
+// 4 special order, 5 Memories), its label and that slot's state (10.3).
+func butlerChatButton(index uint64, text string, state uint64) []byte {
+	return pbVar(pbLen(pbVar(nil, 1, index), 2, []byte(text)), 3, state)
+}
+
+// butlerChatButtons is the Chat popup's buttonList (butler-robo-spec 10.3), every index with its label. The gathering slot
+// (2) takes the state the Book card shows for the butler's gathering: idle (status 1) state 0, collecting (3) state 1, done
+// (5) state 2. The labels are the client's strings where the spec names them, Cherry-made otherwise (data/butlers.json note).
+func butlerChatButtons(g *store.ButlerGather, now time.Time) [][]byte {
+	status, _ := butlerGatherState(g, now)
+	gather := butlerChatButton(2, "Please gather!", 0)
+	switch status {
+	case 3:
+		gather = butlerChatButton(2, "Currently collecting.", 1)
+	case 5:
+		gather = butlerChatButton(2, "Collecting complete!", 2)
+	}
+	return [][]byte{
+		butlerChatButton(1, "I'm bored! Play with me!", 0),
+		gather,
+		butlerChatButton(3, "Take me to the butler list!", 0),
+		butlerChatButton(4, "Make me a special order!", 0),
+		butlerChatButton(5, "Memories", 0),
+	}
+}
+
+// butlerDialogBody is the Chat popup (hc 57, butler-robo-spec 10.2): result 0, the greeting (f2, one line for every butler),
+// the buttons (f3), the butler's ButlerInfo with the skin it wears, its contract and its chief flag (f4) and, for a butler
+// with voices, the file of its first line (f5, played on open; silent until the pack is downloaded).
+func butlerDialogBody(b economy.ButlerDef, v economy.ButlerView, h store.ButlerHire, now time.Time) []byte {
+	body := pbVar(nil, 1, 0)
+	body = pbLen(body, 2, []byte(economy.ActiveButlers().ChatGreeting))
+	for _, btn := range butlerChatButtons(v.Gathering(b.ID), now) {
+		body = pbLen(body, 3, btn)
+	}
+	body = pbLen(body, 4, butlerInfo(b, v.Worn(b), &h, v.Chief() == b.ID, now))
+	if b.Voices != nil {
+		body = pbLen(body, 5, []byte(b.Voices.FilePath(b.Voices.Lines[0])))
+	}
+	return body
+}
+
 // butlerRefusal is the reply to a request the butlers do not serve here: result butlerRefused, or the
 // message the Garden's popup shows for it (reward info: "not available"), or an empty reply where the reply
 // has no result field (spec 3.2). Nothing is spent.
@@ -455,6 +500,25 @@ func gardenButlerRelay(owner uint64, now time.Time) []byte {
 func gardenButlerReply(msgid uint16, viewer uint64, data []byte, now time.Time, logger *log.Logger) []gardenMsg {
 	aid := strconv.FormatUint(viewer, 10)
 	switch msgid {
+	case 48: // dialog_popup {butler_id}: the Chat popup of a butler under contract (hc 57)
+		id, _ := protobufUintField(data, 1)
+		v := economy.ButlerViewOf(aid, now)
+		if b, ok := economy.ButlerByID(int64(id)); ok {
+			if h, ok := v.Hire(b.ID); ok {
+				logger.Printf("BUTLER dialog aid=%s butler=%d result=0", aid, id)
+				return []gardenMsg{{57, butlerDialogBody(b, v, h, now)}}
+			}
+		}
+		// an unknown or not-hired butler is refused below
+	case 49: // talk {butler_id}: the Talk popup of a butler under contract; the minimal reply (butler-robo-spec 10.8), no intimacy gain (hc 58)
+		id, _ := protobufUintField(data, 1)
+		if b, ok := economy.ButlerByID(int64(id)); ok {
+			if _, ok := economy.ButlerViewOf(aid, now).Hire(b.ID); ok {
+				logger.Printf("BUTLER talk aid=%s butler=%d result=0", aid, id)
+				return []gardenMsg{{58, pbVar(nil, 1, 0)}}
+			}
+		}
+		// an unknown or not-hired butler is refused below
 	case 50: // do_gathering {butler_id, gathering_status: 2 start, 4 stop, gathering_req_type}
 		id, _ := protobufUintField(data, 1)
 		status, _ := protobufUintField(data, 2)

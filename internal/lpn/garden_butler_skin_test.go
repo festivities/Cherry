@@ -91,6 +91,14 @@ func TestButlerSkinShopAndVoiceBookOnTheWire(t *testing.T) {
 	if price, _, _ := pbBytesField(list[1], 9); coinValue(price) != 30 {
 		t.Fatalf("silver beret price %d, want 30 Cash", coinValue(price))
 	}
+	// The sell and sale end times are 0: no "Sales Period" line and no second price block (butler-robo-spec 10.6).
+	for i, row := range list {
+		for _, f := range []uint64{7, 10} {
+			if end, _ := protobufUintField(row, f); end != 0 {
+				t.Fatalf("skin row %d field %d = %d, want 0", i, f, end)
+			}
+		}
+	}
 
 	// The buy: 30 Cash once; the refreshed list shows the beret owned, not worn, and the balance 70.
 	msgs = skinRequest(t, 61, aid, now, 1, merry, 2, silver)
@@ -181,6 +189,15 @@ func TestButlerSkinShopAndVoiceBookOnTheWire(t *testing.T) {
 	scripts := pbAll(t, msgs[0].body, 4)
 	if len(scripts) != 47 {
 		t.Fatalf("voice book has %d rows, want 47", len(scripts))
+	}
+	// Display order f2 is 1..47 in the Lines order, and every row is open (f3 1), so the "#n" headers count up.
+	for i, row := range scripts {
+		if order, _ := protobufUintField(row, 2); order != uint64(i+1) {
+			t.Fatalf("voice row %d display order %d, want %d", i, order, i+1)
+		}
+		if open, _ := protobufUintField(row, 3); open != 1 {
+			t.Fatalf("voice row %d status %d, want 1 (open)", i, open)
+		}
 	}
 	first := scripts[0]
 	if n, _ := protobufUintField(first, 1); n != 1 {

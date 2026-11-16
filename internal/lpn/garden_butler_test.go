@@ -31,7 +31,7 @@ var butlerSpec = map[string]map[uint64]butlerWire{
 	"shop":    {1: {0, ""}, 2: {2, "buy"}, 3: {2, "coin"}},
 	"buy":     {1: {2, "detail"}, 2: {0, ""}, 3: {0, ""}, 4: {0, ""}, 5: {0, ""}, 6: {0, ""}, 7: {0, ""}, 8: {0, ""}, 9: {0, ""}, 10: {0, ""}, 11: {0, ""}, 12: {0, ""}, 13: {2, "hire"}},
 	"detail":  {1: {2, "info"}, 2: {2, ""}, 3: {2, ""}, 4: {0, ""}, 5: {0, ""}, 6: {2, "ability"}, 7: {0, ""}, 8: {2, ""}, 9: {0, ""}, 10: {2, ""}, 11: {2, ""}, 12: {2, ""}},
-	"info":    {1: {0, ""}, 2: {2, ""}, 3: {0, ""}, 4: {0, ""}, 5: {2, "skin"}, 6: {2, "employ"}, 7: {2, "point"}, 8: {2, ""}, 9: {2, ""}},
+	"info":    {1: {0, ""}, 2: {2, ""}, 3: {0, ""}, 4: {0, ""}, 5: {2, "skin"}, 6: {2, "employ"}, 7: {2, "point"}, 8: {2, ""}, 9: {2, "voiceinfo"}},
 	"skin":    {1: {0, ""}, 2: {2, ""}, 3: {2, ""}, 4: {0, ""}, 5: {2, "item"}, 6: {2, ""}, 7: {0, ""}, 8: {2, ""}},
 	"item":    {1: {0, ""}, 3: {0, ""}},
 	"employ":  {1: {0, ""}, 2: {0, ""}, 3: {0, ""}, 4: {0, ""}, 5: {0, ""}, 6: {0, ""}, 7: {2, ""}, 8: {0, ""}, 9: {0, ""}},
@@ -66,6 +66,10 @@ var butlerSpec = map[string]map[uint64]butlerWire{
 	"memoryopen":  {1: {0, ""}, 2: {0, ""}, 3: {0, ""}, 4: {2, "memoryscene"}, 5: {2, ""}, 6: {2, "info"}},
 	"memoryscene": {3: {0, ""}, 4: {2, ""}, 5: {2, "memoryline"}, 6: {2, ""}},
 	"memoryline":  {1: {0, ""}, 2: {0, ""}, 3: {2, ""}, 4: {2, ""}, 5: {0, ""}, 6: {0, ""}},
+	// The Chat (hc 57 and hc 58, butler-robo-spec 10.2 and 10.4): the greeting, the buttons, the butler and its first line.
+	"dialog": {1: {0, ""}, 2: {2, ""}, 3: {2, "button"}, 4: {2, "info"}, 5: {2, ""}},
+	"button": {1: {0, ""}, 2: {2, ""}, 3: {0, ""}, 4: {0, ""}},
+	"talk":   {1: {0, ""}},
 }
 
 // checkButlerWire walks body as the spec table name and fails on a field the table does not list, a field with
@@ -165,6 +169,11 @@ func TestButlerRepliesMatchSpecWire(t *testing.T) {
 		{name: "special order reward refused", req: 65, reply: 76, spec: "result"},
 		{name: "special order bag refused", req: 66, reply: 77, spec: ""},
 		{name: "memory list refused", req: 69, reply: 80, spec: ""},
+		{name: "chat", req: 48, reply: 57, spec: "dialog", data: pbVar(nil, 1, merry), book: hired(merry)},
+		{name: "chat without a contract", req: 48, reply: 57, spec: "result", data: pbVar(nil, 1, merry)},
+		{name: "chat refused for an unknown butler", req: 48, reply: 57, spec: "result", data: pbVar(nil, 1, 1900000050)},
+		{name: "talk", req: 49, reply: 58, spec: "talk", data: pbVar(nil, 1, merry), book: hired(merry)},
+		{name: "talk without a contract", req: 49, reply: 58, spec: "result", data: pbVar(nil, 1, merry)},
 	}
 	tokens := map[string]*store.Account{}
 	for i, r := range rows {

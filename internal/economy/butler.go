@@ -69,6 +69,7 @@ var butlerSkinFS fs.FS = assets.DeviceFiles("")
 //
 //	origin      must be "mixed": the roster is original; the ids, skin codes, prices and gathering amounts are Cherry-made
 //	note        says per field which are original and which are Cherry-made; text for operators, not sent to the client
+//	chat_greeting  the Chat popup's first line for every butler (Cherry-made); must not be empty
 //	free_days   days of the account's first hire, free once per account (a first hire, paid or free, uses it)
 //	hire        the one 30-day period and its earned-Cash price (the client's contract picker offers 30 days only)
 //	gathering   gems: Gems per gather; gems_cap: Gems a game day from butler gathering, per account; gathers_per_day:
@@ -76,12 +77,13 @@ var butlerSkinFS fs.FS = assets.DeviceFiles("")
 //	            before it can be collected. A gather pays one drop of each of the butler's abilities (ButlerDef.Abilities)
 //	butlers     one or more roster butlers
 type Butlers struct {
-	Origin    string          `json:"origin"`
-	Note      string          `json:"note"`
-	FreeDays  int64           `json:"free_days"`
-	Hire      []ButlerPrice   `json:"hire"`
-	Gathering ButlerGathering `json:"gathering"`
-	Butlers   []ButlerDef     `json:"butlers"`
+	Origin       string          `json:"origin"`
+	Note         string          `json:"note"`
+	ChatGreeting string          `json:"chat_greeting"`
+	FreeDays     int64           `json:"free_days"`
+	Hire         []ButlerPrice   `json:"hire"`
+	Gathering    ButlerGathering `json:"gathering"`
+	Butlers      []ButlerDef     `json:"butlers"`
 }
 
 // ButlerPrice is one hire period and its earned-Cash price.
@@ -187,6 +189,9 @@ func checkButlers(b *Butlers) error {
 	}
 	if strings.TrimSpace(b.Note) == "" {
 		return errors.New("note must say which fields are original and which are Cherry-made")
+	}
+	if strings.TrimSpace(b.ChatGreeting) == "" {
+		return errors.New("chat_greeting must not be empty: it is the Chat popup's first line")
 	}
 	if b.FreeDays < 1 {
 		return errors.New("free_days must be at least 1")
