@@ -48,12 +48,17 @@ var notices = map[string]string{
 	"entry-removed":   "The guestbook entry is removed. The audit trail keeps its number and your reason.",
 	"comment-removed": "The diary comment is removed. The audit trail keeps its number and your reason.",
 	"picture-removed": "The picture is removed. Posts that showed it no longer do.",
+	"draft-checked":   "The draft is saved and it passes its checks. Publish it when it is ready.",
+	// draft-checked-art-skipped: the art checks could not run in this process (no asset store), so the note says so.
+	"draft-checked-art-skipped": "The draft is saved and it passes the checks this process can run. The art checks were skipped: this process has no asset store.",
 }
 
-// check is a validation result shown on a version page.
+// check is a validation result shown on a version page, or next to the draft editor when a draft just saved was refused
+// (Saved is that draft's version then).
 type check struct {
 	Valid      bool
 	ArtSkipped bool
+	Saved      int
 	Message    string
 }
 
@@ -72,14 +77,17 @@ type view struct {
 	Signups []store.Signup
 
 	// documents
-	Docs     []store.DocLive
-	DocName  string
-	Doc      store.DocLive
-	Versions []store.DocVersion
-	Draft    string
-	Version  store.DocVersion
-	Body     string
-	Check    *check
+	Docs      []store.DocLive
+	DocName   string
+	Doc       store.DocLive
+	Versions  []store.DocVersion
+	Draft     string
+	DraftNote string
+	Version   store.DocVersion
+	Body      string
+	Check     *check
+	Diff      *diffView
+	Scripts   []string // the page's own scripts (under /static; the layout adds the tags)
 
 	// audit
 	Rows       []store.AuditRow
@@ -205,14 +213,15 @@ func docLive(name string) (store.DocLive, error) {
 	return store.DocLive{Name: name}, nil
 }
 
-// prefill is the body a new draft starts from: the published version, else the default built into the binary.
-func prefill(live store.DocLive) (string, error) {
+// liveBody is the body a document runs on as the staff UI shows it: the published version, else the default built into
+// the binary. base names it for the page (the diff's "compared with"). A config file override is not shown here.
+func liveBody(live store.DocLive) (base string, body []byte, err error) {
 	if live.Published > 0 {
-		_, body, err := store.Get(live.Name, live.Published)
-		return string(body), err
+		_, published, err := store.Get(live.Name, live.Published)
+		return fmt.Sprintf("the published v%d", live.Published), published, err
 	}
 	def, _ := opdata.Embedded(live.Name)
-	return string(def), nil
+	return "the built-in default (nothing is published)", def, nil
 }
 
 // handleDocsList: the Live table of every document.
@@ -227,9 +236,9 @@ func (s *Server) handleDocsList(w http.ResponseWriter, r *http.Request, sess ses
 	s.render(w, http.StatusOK, "docs", v)
 }
 
-// handleDocHistory: one document's versions and the draft form, prefilled with what a new draft should start from.
-func (s *Server) handleDocHistory(w http.ResponseWriter, r *http.Request, sess session) {
-	name := r.PathValue("name")
+// docPage renders the document page: the draft form with draft and note as its values, the check of a draft that was just
+// saved (chk), and the history. It is the page of GET /docs/{name} and of a refused "save and check".
+func (s *Server) docPage(w http.ResponseWriter, r *http.Request, sess session, name, draft, note string, chk *check, status int) {
 	versions, err := store.History(name)
 	if err != nil {
 		s.storeError(w, err)
@@ -240,28 +249,71 @@ func (s *Server) handleDocHistory(w http.ResponseWriter, r *http.Request, sess s
 		s.storeError(w, err)
 		return
 	}
-	draft, err := prefill(live)
+	v := s.base(r, sess, name)
+	v.Crumbs = []link{{Href: "/docs", Label: "Documents"}, {Label: name}}
+	v.DocName, v.Doc, v.Versions, v.Draft, v.DraftNote, v.Check = name, live, versions, draft, note, chk
+	v.Scripts = []string{"editor.js"}
+	s.render(w, status, "doc", v)
+}
+
+// handleDocHistory: GET /docs/{name}. The draft form starts from the live document; the history is below it.
+func (s *Server) handleDocHistory(w http.ResponseWriter, r *http.Request, sess session) {
+	name := r.PathValue("name")
+	live, err := docLive(name)
 	if err != nil {
 		s.storeError(w, err)
 		return
 	}
-	v := s.base(r, sess, name)
-	v.Crumbs = []link{{Href: "/docs", Label: "Documents"}, {Label: name}}
-	v.DocName, v.Doc, v.Versions, v.Draft = name, live, versions, draft
-	s.render(w, http.StatusOK, "doc", v)
+	_, draft, err := liveBody(live)
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
+	s.docPage(w, r, sess, name, string(draft), "", nil, http.StatusOK)
 }
 
-// handleDraft: POST /docs/{name}/draft stores the body as the next draft. The audit row names the actor and the hash.
+// handleDraft: POST /docs/{name}/draft stores the body as the next draft. The audit row names the actor and the hash. With
+// then=check the draft is also validated at once: a refused draft stays saved, and the page shows why next to the editor.
 func (s *Server) handleDraft(w http.ResponseWriter, r *http.Request, sess session) {
 	name := r.PathValue("name")
 	// Browsers submit textarea line breaks as CRLF; drafts are stored with LF so hashes do not depend on the staff machine (user, 2026-11-15).
 	body := strings.ReplaceAll(r.PostFormValue("body"), "\r\n", "\n")
-	dv, err := store.SaveDraft(name, []byte(body), sess.identity, r.PostFormValue("note"))
+	note := r.PostFormValue("note")
+	dv, err := store.SaveDraft(name, []byte(body), sess.identity, note)
 	if err != nil {
 		s.storeError(w, err)
 		return
 	}
-	redirect(w, http.StatusSeeOther, fmt.Sprintf("/docs/%s/%d?notice=draft-saved", url.PathEscape(name), dv.Version))
+	if r.PostFormValue("then") != "check" {
+		redirect(w, http.StatusSeeOther, fmt.Sprintf("/docs/%s/%d?notice=draft-saved", url.PathEscape(name), dv.Version))
+		return
+	}
+	artSkipped, verr := store.Validate(name, dv.Version)
+	switch {
+	case errors.Is(verr, store.ErrInvalidDocument):
+		s.docPage(w, r, sess, name, body, note, &check{Valid: false, Saved: dv.Version, Message: verr.Error()}, http.StatusUnprocessableEntity)
+	case verr != nil:
+		s.storeError(w, verr)
+	default:
+		notice := "draft-checked"
+		if artSkipped {
+			notice = "draft-checked-art-skipped"
+		}
+		redirect(w, http.StatusSeeOther, fmt.Sprintf("/docs/%s/%d?notice=%s", url.PathEscape(name), dv.Version, notice))
+	}
+}
+
+// versionDiff compares body (a stored version of name) with the live document of name.
+func (s *Server) versionDiff(name string, body []byte) (*diffView, error) {
+	live, err := docLive(name)
+	if err != nil {
+		return nil, err
+	}
+	base, liveDoc, err := liveBody(live)
+	if err != nil {
+		return nil, err
+	}
+	return diffDocs(base, liveDoc, body), nil
 }
 
 // handleDocVersion: one stored version, read only, with the validate, publish and roll-back buttons.
@@ -275,9 +327,14 @@ func (s *Server) handleDocVersion(w http.ResponseWriter, r *http.Request, sess s
 		s.storeError(w, err)
 		return
 	}
+	diff, err := s.versionDiff(name, body)
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
 	v := s.base(r, sess, fmt.Sprintf("%s v%d", name, ver))
 	v.Crumbs = []link{{Href: "/docs", Label: "Documents"}, {Href: "/docs/" + url.PathEscape(name), Label: name}, {Label: fmt.Sprintf("v%d", ver)}}
-	v.DocName, v.Version, v.Body = name, dv, string(body)
+	v.DocName, v.Version, v.Body, v.Diff = name, dv, string(body), diff
 	s.render(w, http.StatusOK, "version", v)
 }
 
@@ -292,9 +349,14 @@ func (s *Server) handleValidate(w http.ResponseWriter, r *http.Request, sess ses
 		s.storeError(w, err)
 		return
 	}
+	diff, err := s.versionDiff(name, body)
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
 	v := s.base(r, sess, fmt.Sprintf("%s v%d", name, ver))
 	v.Crumbs = []link{{Href: "/docs", Label: "Documents"}, {Href: "/docs/" + url.PathEscape(name), Label: name}, {Label: fmt.Sprintf("v%d", ver)}}
-	v.DocName, v.Version, v.Body = name, dv, string(body)
+	v.DocName, v.Version, v.Body, v.Diff = name, dv, string(body), diff
 	status := http.StatusOK
 	artSkipped, verr := store.Validate(name, ver)
 	switch {

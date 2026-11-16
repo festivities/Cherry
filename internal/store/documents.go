@@ -68,10 +68,16 @@ type DocResult struct {
 // restart would change what runs (Pending).
 type DocLive struct {
 	opdata.Status
-	Published int  `json:"published"`
-	Pending   bool `json:"pending"`
-	Latest    int  `json:"latest"`
-	Versions  int  `json:"versions"`
+	Published   int    `json:"published"`
+	Pending     bool   `json:"pending"`
+	Latest      int    `json:"latest"`
+	Versions    int    `json:"versions"`
+	Draft       int    `json:"draft"`                 // the newest draft when it is newer than the published version (0 = none)
+	ArtChecks   bool   `json:"artChecks"`             // opdata.HasArtChecks: startup checks against the item archive
+	PublishedAt string `json:"publishedAt,omitempty"` // when the published version was published (RFC 3339, UTC)
+	PublishedBy string `json:"publishedBy,omitempty"` // the actor of the newest publish or rollback of the document
+	Origin      string `json:"origin,omitempty"`      // the top-level "origin" and "note" of the body that runs
+	Note        string `json:"note,omitempty"`
 }
 
 const docCols = "name, version, state, sha256, author, note, created, published, replaces"
@@ -365,10 +371,13 @@ func Get(name string, version int) (DocVersion, []byte, error) {
 }
 
 // Live reports every document: what it runs on now, the database's published version and whether a restart would change
-// what runs. Documents are listed in name order, then rejected names the build does not know.
+// what runs. Documents are listed in name order, then rejected names the build does not know. The body a document runs on
+// (the published version, else the embedded default) gives Origin and Note.
 func Live() ([]DocLive, error) {
-	type tally struct{ published, latest, versions int }
+	type tally struct{ published, latest, versions, draft int }
+	type published struct{ at, by, body string }
 	tallies := map[string]*tally{}
+	pubs := map[string]published{}
 	if d := database.Load(); d != nil {
 		err := d.View(func(q Querier) error {
 			rows, err := q.Query("SELECT name, version, state FROM documents")
@@ -389,11 +398,41 @@ func Live() ([]DocLive, error) {
 				}
 				t.versions++
 				t.latest = max(t.latest, version)
-				if state == "published" {
+				switch state {
+				case "published":
 					t.published = version
+				case "draft":
+					t.draft = max(t.draft, version)
 				}
 			}
-			return rows.Err()
+			if err := rows.Err(); err != nil {
+				return err
+			}
+			prows, err := q.Query("SELECT name, published, body FROM documents WHERE state = 'published'")
+			if err != nil {
+				return err
+			}
+			defer prows.Close()
+			for prows.Next() {
+				var name string
+				var p published
+				if err := prows.Scan(&name, &p.at, &p.body); err != nil {
+					return err
+				}
+				pubs[name] = p
+			}
+			if err := prows.Err(); err != nil {
+				return err
+			}
+			for name, p := range pubs {
+				// The newest publish or rollback names who made the published version live. Audit targets are exact names.
+				err := q.QueryRow("SELECT actor FROM audit WHERE target = ? AND action IN ('publish', 'rollback') ORDER BY id DESC LIMIT 1", name).Scan(&p.by)
+				if err != nil && !errors.Is(err, sql.ErrNoRows) {
+					return err
+				}
+				pubs[name] = p
+			}
+			return nil
 		})
 		if err != nil {
 			return nil, err
@@ -401,9 +440,23 @@ func Live() ([]DocLive, error) {
 	}
 	var out []DocLive
 	for _, st := range opdata.Live() {
-		l := DocLive{Status: st}
+		l := DocLive{Status: st, ArtChecks: opdata.HasArtChecks(st.Name)}
+		body, _ := opdata.Embedded(st.Name)
+		if p, ok := pubs[st.Name]; ok {
+			body = []byte(p.body)
+			l.PublishedAt, l.PublishedBy = p.at, p.by
+		}
+		var head struct {
+			Origin string `json:"origin"`
+			Note   string `json:"note"`
+		}
+		_ = json.Unmarshal(body, &head) // a body without the keys (or not an object) has neither
+		l.Origin, l.Note = head.Origin, head.Note
 		if t := tallies[st.Name]; t != nil {
 			l.Published, l.Latest, l.Versions = t.published, t.latest, t.versions
+			if t.draft > l.Published {
+				l.Draft = t.draft
+			}
 		}
 		// A rejected published version stays rejected until its document is published again: a restart cannot load it.
 		rejectedNow := st.Rejected != nil && st.Rejected.Version == l.Published

@@ -52,6 +52,7 @@ p { margin: .5rem 0; }
 .small { font-size: .85rem; }
 .strong { font-weight: 650; }
 .mono, .detail, .body, textarea { font-family: var(--mono); font-size: 13px; }
+.mono { overflow-wrap: anywhere; }
 .inline { display: inline; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
@@ -217,4 +218,82 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
 @media (max-width: 520px) {
   .cards { grid-template-columns: minmax(0, 1fr); }
   .filters input, .filters select { max-width: none; }
+  .ed-tools { margin-left: 0; width: 100%; }
+  .ed-tools input[type="search"] { max-width: none; width: 100%; }
+}
+
+/* the hidden attribute always hides (the editor and the diff toggle parts of the page with it) */
+[hidden] { display: none !important; }
+
+/* long preformatted text and the long text cells of the documents list scroll or clip; they never push the page wider */
+pre { margin: .5rem 0; overflow-x: auto; max-width: 100%; }
+pre.body { white-space: pre; }
+.clip { max-width: 22rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+td.links { white-space: nowrap; }
+table.docs td { vertical-align: middle; }
+
+/* error box: a refused draft, a refused version, a JSON the form cannot read; the message is shown as written */
+.error-box {
+  margin: .9rem 0; padding: .65rem .9rem; border-radius: var(--radius);
+  border: 1px solid var(--danger); background: var(--error-soft);
+}
+.error-box > p { margin: 0 0 .35rem; }
+.error-msg {
+  margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--danger);
+  font-family: var(--mono); font-size: 13px; background: transparent;
+}
+details.note { margin: .6rem 0; }
+details.note summary { cursor: pointer; color: var(--muted); font-size: .9rem; }
+details.note p { color: var(--fg); font-size: .92rem; overflow-wrap: anywhere; white-space: pre-wrap; }
+
+/* version diff: added and removed lines carry a class each; unchanged runs are folded into a gap row */
+.diff-summary { margin: .5rem 0; }
+.diff-add { color: var(--ok); font-weight: 650; }
+.diff-del { color: var(--danger); font-weight: 650; }
+.diff table { table-layout: auto; }
+.diff td { padding: .12rem .5rem; border-bottom: 0; }
+.diff td.ln { width: 3.4rem; color: var(--muted); text-align: right; font-family: var(--mono); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.diff td.sign { width: 1.2rem; text-align: center; font-family: var(--mono); font-weight: 650; }
+.diff td.code { font-family: var(--mono); font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.diff tr.add td { background: var(--ok-soft); color: var(--ok); }
+.diff tr.del td { background: var(--error-soft); color: var(--danger); }
+.diff tr.gap td { color: var(--muted); font-style: italic; text-align: center; background: var(--surface-2); }
+
+/* the form editor of a draft (static/editor.js): tabs, the filter, fieldsets per key, collapsible objects and cards */
+.ed { margin: .4rem 0 .9rem; }
+.ed-bar { display: flex; flex-wrap: wrap; gap: .5rem .75rem; align-items: center; margin: .2rem 0 .5rem; }
+.ed-tabs { display: inline-flex; gap: .35rem; }
+.ed-tabs button { padding: .3rem .85rem; }
+.ed-tools { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-left: auto; }
+.ed-tools input[type="search"] { width: 15rem; max-width: 100%; padding: .3rem .55rem; }
+.ed-tools button { padding: .3rem .7rem; font-size: .88rem; }
+.ed-tree-wrap { min-width: 0; }
+.ed-tree { min-width: 0; }
+fieldset.ed-node {
+  min-width: 0; margin: .45rem 0; padding: .3rem .65rem .5rem; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface);
+}
+fieldset.ed-card { background: var(--surface-2); }
+.ed-node > legend { font-weight: 600; font-size: .9rem; padding: 0 .3rem; }
+.ed-node > details > summary { cursor: pointer; font-weight: 600; padding: .2rem 0; overflow-wrap: anywhere; }
+.ed-key { font-family: var(--mono); font-size: 11.5px; color: var(--muted); margin-left: .4rem; font-weight: 400; }
+.ed-count { color: var(--muted); font-size: .82rem; font-weight: 400; margin-left: .5rem; }
+.ed-body { padding-left: .6rem; border-left: 2px solid var(--line); margin: .35rem 0 .2rem .1rem; min-width: 0; }
+.ed-val { display: flex; flex-wrap: wrap; gap: .4rem .6rem; align-items: center; }
+.ed-val input[type="text"], .ed-val textarea { font-family: var(--sans); font-size: 14px; min-height: 0; max-width: 100%; width: 100%; }
+.ed-val input[type="number"] {
+  font: inherit; font-family: var(--mono); font-size: 14px; color: inherit; background: var(--surface);
+  width: 16rem; max-width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: .4rem .6rem;
+}
+.ed-val input[aria-invalid="true"] { border-color: var(--danger); }
+.ed-val select { max-width: 14rem; }
+.ed-check { display: inline-flex; gap: .4rem; align-items: center; }
+.ed-null { font-family: var(--mono); color: var(--muted); }
+.ed-hint { display: block; color: var(--danger); margin-top: .25rem; }
+.ed-actions { display: flex; flex-wrap: wrap; gap: .3rem; margin: .4rem 0 .1rem; }
+.ed-actions button { padding: .2rem .6rem; font-size: .86rem; }
+.ed-actions button:disabled { opacity: .45; cursor: default; }
+.ed-node .ed-actions button.ghost { background: var(--surface); }
+@media (max-width: 800px) {
+  .ed-tools { margin-left: 0; width: 100%; }
 }

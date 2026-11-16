@@ -6,6 +6,7 @@
 <meta name="robots" content="noindex, nofollow">
 {{with .Next}}<meta http-equiv="refresh" content="0;url={{.}}">{{end}}
 <title>{{.Title}} | Cherry staff</title>
+<link rel="icon" href="{{asset "favicon.svg"}}" type="image/svg+xml">
 <link rel="stylesheet" href="{{asset "staff.css"}}">
 </head>
 <body>
@@ -13,6 +14,9 @@
 <script src="{{asset "staff.js"}}" defer></script>
 {{- else}}
 <main class="plain">{{template "page" .}}</main>
+{{- end}}
+{{- range .Scripts}}
+<script src="{{asset .}}" defer></script>
 {{- end}}
 </body>
 </html>{{end}}

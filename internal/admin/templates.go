@@ -26,6 +26,12 @@ var staffCSS []byte
 //go:embed static/staff.js
 var staffJS []byte
 
+//go:embed static/editor.js
+var editorJS []byte
+
+//go:embed static/favicon.svg
+var faviconSVG []byte
+
 // staticFile is one entry of the static allowlist: its content type, its bytes and the ETag of the bytes.
 type staticFile struct {
 	ctype string
@@ -35,8 +41,10 @@ type staticFile struct {
 
 // staticFiles is the allowlist of /static/<file>. Nothing else is served and nothing is listed.
 var staticFiles = map[string]staticFile{
-	"staff.css": newStaticFile("text/css; charset=utf-8", staffCSS),
-	"staff.js":  newStaticFile("text/javascript; charset=utf-8", staffJS),
+	"staff.css":   newStaticFile("text/css; charset=utf-8", staffCSS),
+	"staff.js":    newStaticFile("text/javascript; charset=utf-8", staffJS),
+	"editor.js":   newStaticFile("text/javascript; charset=utf-8", editorJS),
+	"favicon.svg": newStaticFile("image/svg+xml", faviconSVG),
 }
 
 func newStaticFile(ctype string, data []byte) staticFile {
@@ -52,6 +60,12 @@ func assetURL(name string) string {
 		return "/static/" + name
 	}
 	return "/static/" + name + "?v=" + strings.Trim(f.etag, `"`)
+}
+
+// serveFavicon answers /favicon.ico, which browsers ask for without any link, with a redirect to the icon in the allowlist.
+// The layout links the icon too, so this is only the fallback.
+func serveFavicon(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, assetURL("favicon.svg"), http.StatusFound)
 }
 
 // serveStatic serves an allowlisted file with its content type, a day of cache and its ETag. Any other name is 404: the
@@ -70,7 +84,13 @@ func serveStatic(w http.ResponseWriter, r *http.Request) {
 }
 
 // templateFuncs are the functions the templates may call.
-var templateFuncs = template.FuncMap{"asset": assetURL, "utc": rfcDate}
+var templateFuncs = template.FuncMap{"asset": assetURL, "utc": rfcDate, "firstLine": firstLine}
+
+// firstLine is the first line of s: a document's note as the list shows it.
+func firstLine(s string) string {
+	line, _, _ := strings.Cut(s, "\n")
+	return line
+}
 
 // pages is one template set per page file: the layout and the page, parsed together. A template error fails at start.
 var pages = loadPages()

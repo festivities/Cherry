@@ -11,7 +11,10 @@ import (
 func TestStaticAllowlist(t *testing.T) {
 	fx := newFixture(t, devConfig())
 	c := fx.client()
-	for name, ctype := range map[string]string{"staff.css": "text/css; charset=utf-8", "staff.js": "text/javascript; charset=utf-8"} {
+	for name, ctype := range map[string]string{
+		"staff.css": "text/css; charset=utf-8", "staff.js": "text/javascript; charset=utf-8",
+		"editor.js": "text/javascript; charset=utf-8", "favicon.svg": "image/svg+xml",
+	} {
 		r := c.get("/static/" + name)
 		expect(t, r, http.StatusOK)
 		if got := r.Header.Get("Content-Type"); got != ctype {

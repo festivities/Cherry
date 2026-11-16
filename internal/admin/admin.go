@@ -192,6 +192,7 @@ func (s *Server) Handler() http.Handler { return s.srv.Handler }
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /static/{file}", serveStatic)
+	mux.HandleFunc("GET /favicon.ico", serveFavicon)
 	mux.HandleFunc("GET /auth/login", s.handleLogin)
 	mux.HandleFunc("GET /auth/callback", s.handleCallback)
 	mux.HandleFunc("POST /auth/logout", s.action(false, maxBodySmall, s.handleLogout))

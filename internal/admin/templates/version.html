@@ -1,7 +1,21 @@
 {{define "page"}}<h1>{{.DocName}} v{{.Version.Version}}</h1>
 <p class="muted">State: {{.Version.State}}. Author: {{.Version.Author}}. Created {{.Version.Created}}{{if .Version.Published}}, published {{.Version.Published}}{{end}}. SHA-256 <span class="mono">{{.Version.SHA256}}</span>.</p>
 {{if .Version.Note}}<p>Note: {{.Version.Note}}</p>{{end}}
-{{with .Check}}{{if .Valid}}<p class="flash ok">Valid.{{if .ArtSkipped}} The art checks were skipped: this process has no asset store.{{end}}</p>{{else}}<p class="flash error">Not valid: {{.Message}}</p>{{end}}{{end}}
+{{with .Check}}{{if .Valid}}<p class="flash ok">Valid.{{if .ArtSkipped}} The art checks were skipped: this process has no asset store.{{end}}</p>{{else}}<div class="error-box" role="alert">
+<p class="strong">Not valid.</p>
+<pre class="error-msg">{{.Message}}</pre>
+</div>{{end}}{{end}}
+
+<h2>Changes</h2>
+{{with .Diff}}{{if .TooLarge}}<p class="flash warn">The change is too large to show line by line. Compare the two versions by hand.</p>
+{{else if .Same}}<p class="muted">This version reads the same as {{.Base}}.</p>
+{{else}}<p class="diff-summary"><span class="diff-add">+{{.Added}}</span> <span class="diff-del">&minus;{{.Removed}}</span> lines against {{.Base}}. Unchanged lines are folded.</p>
+<div class="scroll diff"><table>
+<tbody>
+{{range .Rows}}<tr class="{{.Kind}}">{{if eq .Kind "gap"}}<td colspan="4" class="gap-note">{{.Gap}} unchanged {{if eq .Gap 1}}line{{else}}lines{{end}}</td>{{else}}<td class="ln">{{if .Old}}{{.Old}}{{end}}</td><td class="ln">{{if .New}}{{.New}}{{end}}</td><td class="sign">{{.Sign}}</td><td class="code">{{.Text}}</td>{{end}}</tr>
+{{end}}</tbody>
+</table></div>
+{{end}}{{end}}
 
 <h2>Body (read only)</h2>
 <pre class="body">{{.Body}}</pre>
