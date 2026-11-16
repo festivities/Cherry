@@ -47,9 +47,6 @@ type playerMedia struct {
 // playerPath is the page of one player.
 func playerPath(id int64) string { return "/players/" + strconv.FormatInt(id, 10) }
 
-// playerNotice is the page of one player with the flash code of the action that was just taken (see notices).
-func playerNotice(id int64, code string) string { return playerPath(id) + "?notice=" + code }
-
 // playerID reads the {id} of a player route; ok is false (and the reply written) for a malformed one.
 func (s *Server) playerID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
@@ -67,7 +64,7 @@ func (s *Server) handlePlayers(w http.ResponseWriter, r *http.Request, sess sess
 		s.fail(w, http.StatusBadRequest, "The search is too long.")
 		return
 	}
-	v := s.base(r, sess, "Players")
+	v := s.base(sess, "Players")
 	v.Query = query
 	v.Players, v.More = store.FindPlayers(query)
 	s.render(w, http.StatusOK, "players", v)
@@ -99,8 +96,7 @@ func (s *Server) handlePlayer(w http.ResponseWriter, r *http.Request, sess sessi
 		s.storeError(w, err)
 		return
 	}
-	v := s.base(r, sess, "Player #"+strconv.FormatInt(id, 10))
-	v.Crumbs = []link{{Href: "/players", Label: "Players"}, {Label: "#" + strconv.FormatInt(id, 10)}}
+	v := s.base(sess, "Player")
 	v.Player, v.Ledger = p, lines
 	v.Posts, v.Entries, v.Comments = writingRows(writing)
 	v.Media = mediaRows(pictures)
@@ -175,7 +171,7 @@ func (s *Server) handleGrant(w http.ResponseWriter, r *http.Request, sess sessio
 		s.storeError(w, err)
 		return
 	}
-	redirect(w, http.StatusSeeOther, playerNotice(id, "granted"))
+	redirect(w, http.StatusSeeOther, playerPath(id))
 }
 
 // handleBan: POST /players/{id}/ban (privileged). The form: reason.
@@ -188,7 +184,7 @@ func (s *Server) handleBan(w http.ResponseWriter, r *http.Request, sess session)
 		s.storeError(w, err)
 		return
 	}
-	redirect(w, http.StatusSeeOther, playerNotice(id, "banned"))
+	redirect(w, http.StatusSeeOther, playerPath(id))
 }
 
 // handleUnban: POST /players/{id}/unban (privileged).
@@ -201,7 +197,7 @@ func (s *Server) handleUnban(w http.ResponseWriter, r *http.Request, sess sessio
 		s.storeError(w, err)
 		return
 	}
-	redirect(w, http.StatusSeeOther, playerNotice(id, "unbanned"))
+	redirect(w, http.StatusSeeOther, playerPath(id))
 }
 
 // handleRename: POST /players/{id}/rename (privileged). The form: name (the in-game nickname rule) and reason.
@@ -214,7 +210,7 @@ func (s *Server) handleRename(w http.ResponseWriter, r *http.Request, sess sessi
 		s.storeError(w, err)
 		return
 	}
-	redirect(w, http.StatusSeeOther, playerNotice(id, "renamed"))
+	redirect(w, http.StatusSeeOther, playerPath(id))
 }
 
 // handleMediaRemove: POST /players/{id}/media/{mid}/remove (privileged). The form: reason. The store clears every reference to the
@@ -233,12 +229,12 @@ func (s *Server) handleMediaRemove(w http.ResponseWriter, r *http.Request, sess 
 		s.storeError(w, err)
 		return
 	}
-	redirect(w, http.StatusSeeOther, playerNotice(id, "picture-removed"))
+	redirect(w, http.StatusSeeOther, playerPath(id))
 }
 
 // removal is the handler of one removal of the player's own writing (POST /players/{id}/posts/{no}/remove and its
-// siblings): the number is the route's {no}, the form is the reason, and notice is the flash code of the removal.
-func (s *Server) removal(remove func(id int64, no, reason, actor string) error, notice string) handler {
+// siblings): the number is the route's {no}, the form is the reason.
+func (s *Server) removal(remove func(id int64, no, reason, actor string) error) handler {
 	return func(w http.ResponseWriter, r *http.Request, sess session) {
 		id, ok := s.playerID(w, r)
 		if !ok {
@@ -248,6 +244,6 @@ func (s *Server) removal(remove func(id int64, no, reason, actor string) error, 
 			s.storeError(w, err)
 			return
 		}
-		redirect(w, http.StatusSeeOther, playerNotice(id, notice))
+		redirect(w, http.StatusSeeOther, playerPath(id))
 	}
 }

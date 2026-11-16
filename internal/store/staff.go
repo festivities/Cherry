@@ -121,41 +121,6 @@ func FindPlayers(q string) (rows []Player, more bool) {
 	return rows, false
 }
 
-// Signup is an account as the dashboard's newest-accounts list shows it: the row id (the player page's key), the avatar id
-// ("0" until the avatar is made), the nickname and the creation time (RFC 3339, UTC).
-type Signup struct {
-	ID      int64
-	Aid     string
-	Name    string
-	Created string
-}
-
-// RecentSignups returns the newest limit accounts, newest first. The creation time is kept in the database, so this reads it
-// there. ErrNoDatabase without one.
-func RecentSignups(limit int) ([]Signup, error) {
-	d, err := docDB()
-	if err != nil {
-		return nil, err
-	}
-	out := []Signup{}
-	err = d.View(func(q Querier) error {
-		rows, err := q.Query("SELECT id, aid, name, created FROM accounts ORDER BY id DESC LIMIT ?", limit)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var s Signup
-			if err := rows.Scan(&s.ID, &s.Aid, &s.Name, &s.Created); err != nil {
-				return err
-			}
-			out = append(out, s)
-		}
-		return rows.Err()
-	})
-	return out, err
-}
-
 // PlayerByID returns the account with row id.
 func PlayerByID(id int64) (Player, bool) {
 	AccountsMu.Lock()

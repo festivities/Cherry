@@ -49,20 +49,6 @@ func (s *Server) page(h handler) http.HandlerFunc {
 	}
 }
 
-// jsonPage guards a GET that answers JSON: a live session, or 401 with a JSON body (the page guard answers HTML instead).
-func (s *Server) jsonPage(h handler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		sess, ok := s.sessionOf(r)
-		if !ok {
-			w.Header().Set("Content-Type", "application/json; charset=utf-8")
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte("{\"error\":\"sign in with Discord first\"}\n"))
-			return
-		}
-		h(w, r, sess)
-	}
-}
-
 // action guards a POST. In order: the Origin (or, without an Origin, Sec-Fetch-Site same-origin); a live session; a body
 // within maxBody; the CSRF token, compared in constant time; and, when privileged, a Discord login within freshWindow.
 // Only then does h run. Every refusal is one log line that names the reason and the path, never a value.
