@@ -96,7 +96,8 @@ func butlerEmployment(h store.ButlerHire, now time.Time) []byte {
 
 // butlerInfo is ButlerInfo (spec 3.3): id, name, gender (the client's sex enum), isLeader, skinInfo (the skin the butler
 // wears, worn), and for a contract the employmentInfo. The chief also gets positionInfo (MovePoint, the varint px/py the
-// Garden NPCs use).
+// Garden NPCs use). A butler with a voice pack gets voiceInfo (f9): the Profile shows its Voice Book button only when
+// that record is present (butler-robo-spec 9).
 func butlerInfo(b economy.ButlerDef, worn economy.ButlerSkin, hire *store.ButlerHire, chief bool, now time.Time) []byte {
 	body := pbVar(nil, 1, uint64(b.ID))
 	body = pbLen(body, 2, []byte(b.Name))
@@ -110,7 +111,15 @@ func butlerInfo(b economy.ButlerDef, worn economy.ButlerSkin, hire *store.Butler
 		px, py := gardenPx(butlerChiefTile[0], butlerChiefTile[1])
 		body = pbLen(body, 7, pbVar(pbVar(nil, 1, px), 2, py))
 	}
+	if b.Voices != nil {
+		body = pbLen(body, 9, butlerVoiceInfo(b))
+	}
 	return body
+}
+
+// butlerVoiceInfo is ButlerVoiceInfo: the pack's revision (f1) and one record with the zip's path (f2 f4, spec 1.2-1.3).
+func butlerVoiceInfo(b economy.ButlerDef) []byte {
+	return pbLen(pbVar(nil, 1, uint64(b.Voices.Revision)), 2, pbLen(nil, 4, []byte(b.Voices.ZipPath())))
 }
 
 // butlerGatherState is the gathering status and end time the card shows at now (ButlerDetailInfo f4 and f5, hc 59 f2
@@ -246,17 +255,21 @@ func butlerThumbOf(b economy.ButlerDef, v economy.ButlerView) []byte {
 	return butlerThumb(b, v.Worn(b), employed)
 }
 
+// butlerSkinCoinCash is the Skin Shop's Cash coin type: the row's f6 type picks the icon and the balance the client checks
+// (1 Cash, anything else Gems; butler-robo-spec 8), unlike the Butler Shop's ButlerCoinCash 2.
+const butlerSkinCoinCash = 1
+
 // butlerSkinRow is one Skin Shop row (ButlerSkinBuyInfo, spec 2.6): f1 the butler id, f2 its sex (the older spec's name),
 // f3 the skin (ButlerSkinInfo: picture, outfit, name), f4 owned and f5 worn (1 or 0: the field numbers are a probe, see
-// butler-robo-spec 2.6), f6 the price (CoinInfo: cost) and f9 the same price as the sale cost, so either reading shows
-// it; the sell and sale windows never end (f7, f10); no sale and no free hire (f8, f11).
+// butler-robo-spec 2.6), f6 the coin (its type picks the icon and the balance checked) and f9 the price (the client reads
+// only f9's value, spec 8); the sell and sale windows never end (f7, f10); no sale and no free hire (f8, f11).
 func butlerSkinRow(b economy.ButlerDef, s economy.ButlerSkin, v economy.ButlerView) []byte {
 	row := pbVar(nil, 1, uint64(b.ID))
 	row = pbVar(row, 2, squareSex(b.Gender))
 	row = pbLen(row, 3, butlerSkin(b, s))
 	row = pbVar(row, 4, squareBool(v.Owns(b, s.ID)))
 	row = pbVar(row, 5, squareBool(v.Worn(b).ID == s.ID))
-	price := butlerCoin(economy.ButlerCoinCash, s.Price)
+	price := butlerCoin(butlerSkinCoinCash, s.Price)
 	row = pbLen(row, 6, price)
 	row = pbVar(row, 7, butlerNoDate)
 	row = pbVar(row, 8, 0)
@@ -301,9 +314,7 @@ func butlerVoiceBody(b economy.ButlerDef, v economy.ButlerView) []byte {
 	if b.Voices == nil {
 		return body
 	}
-	info := pbVar(nil, 1, uint64(b.Voices.Revision))
-	info = pbLen(info, 2, pbLen(nil, 4, []byte(b.Voices.ZipPath())))
-	body = pbLen(body, 3, info)
+	body = pbLen(body, 3, butlerVoiceInfo(b))
 	for _, n := range b.Voices.Lines {
 		row := pbVar(nil, 1, uint64(n))
 		row = pbVar(row, 2, 0)

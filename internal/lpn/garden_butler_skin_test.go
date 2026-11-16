@@ -82,7 +82,13 @@ func TestButlerSkinShopAndVoiceBookOnTheWire(t *testing.T) {
 	if owned, _ := protobufUintField(list[1], 4); owned != 0 {
 		t.Fatal("the silver beret is listed as owned before the buy")
 	}
-	if price, _, _ := pbBytesField(list[1], 6); coinValue(price) != 30 {
+	// The client reads the coin type from f6 (1 = Cash icon and Cash balance check, anything else Gems) and the price from
+	// f9 (butler-robo-spec 8).
+	coin, _, _ := pbBytesField(list[1], 6)
+	if typ, _ := protobufUintField(coin, 1); typ != 1 {
+		t.Fatalf("silver beret coin type %d, want 1 (Cash on the Skin Shop)", typ)
+	}
+	if price, _, _ := pbBytesField(list[1], 9); coinValue(price) != 30 {
 		t.Fatalf("silver beret price %d, want 30 Cash", coinValue(price))
 	}
 
@@ -214,5 +220,22 @@ func TestButlerSkinShopAndVoiceBookOnTheWire(t *testing.T) {
 		if msgs[0].id != c.reply || result(msgs[0].body) != 1 {
 			t.Fatalf("req %d for an unknown butler: msgid %d result %d, want a refusal of %d", c.msgid, msgs[0].id, result(msgs[0].body), c.reply)
 		}
+	}
+}
+
+// TestButlerInfoCarriesVoicePack: the Profile shows the Voice Book button only when ButlerInfo f9 holds a voice record
+// (butler-robo-spec 9), so Merry's info carries her pack and a butler without voices carries none.
+func TestButlerInfoCarriesVoicePack(t *testing.T) {
+	const merry, ophelia = 1900000006, 1900000004
+	now := time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC)
+	m, _ := economy.ButlerByID(merry)
+	voice, _, _ := pbBytesField(butlerInfo(m, m.Skins[0], nil, false, now), 9)
+	record, _, _ := pbBytesField(voice, 2)
+	if zip, _, _ := pbBytesField(record, 4); string(zip) != m.Voices.ZipPath() {
+		t.Fatalf("merry's voice record zip = %q, want %q", zip, m.Voices.ZipPath())
+	}
+	o, _ := economy.ButlerByID(ophelia)
+	if _, ok, _ := pbBytesField(butlerInfo(o, o.Skins[0], nil, false, now), 9); ok {
+		t.Fatal("a butler without voices carries a voice record")
 	}
 }
