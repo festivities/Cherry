@@ -65,7 +65,8 @@ type Config struct {
 	// part 5). A frame over the limit is dropped; a connection that sends ten times the rate for long enough is closed.
 	StaticRate, StaticBurst, FrameRate, FrameBurst int
 	// Retention (PLAN 8.6b part 4): days a deleted account keeps its personal fields, and days an alias token may stay unused.
-	DeletedDays, IdleTokenDays int
+	// ChatDays is how long the chat log keeps a player's message (0 keeps every one).
+	DeletedDays, IdleTokenDays, ChatDays int
 }
 
 // setting is one row of the table. The flag is the key with dashes for dots, the environment name is CHERRY_ plus the
@@ -116,6 +117,7 @@ var settings = []setting{
 	{"limits.frame-burst", "0", "frames a connection may send at once (identity modes: 400); ten times both values close a flooding connection"},
 	{"retention.deleted-days", "30", "days a deleted avatar keeps its personal fields in deleted-accounts.jsonl; then only its aid and time remain"},
 	{"retention.idle-token-days", "30", "days an alias token may go unused before it is pruned; the device then signs in again"},
+	{"retention.chat-days", "30", "days the chat log keeps a player's message, then the sweep deletes it; 0 keeps every message"},
 }
 
 // identityDefaults are the limit settings' defaults in identity modes (discord, dev-fake); lab-guest keeps the table's
@@ -251,6 +253,7 @@ func parse(args []string, lookup func(string) (string, bool)) (Config, error) {
 		{"limits.static-rate", &c.StaticRate}, {"limits.static-burst", &c.StaticBurst},
 		{"limits.frame-rate", &c.FrameRate}, {"limits.frame-burst", &c.FrameBurst},
 		{"retention.deleted-days", &c.DeletedDays}, {"retention.idle-token-days", &c.IdleTokenDays},
+		{"retention.chat-days", &c.ChatDays},
 	} {
 		v, err := strconv.Atoi(values[n.key])
 		if err != nil || v < 0 {

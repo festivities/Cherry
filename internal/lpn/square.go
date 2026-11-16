@@ -625,6 +625,7 @@ func (s *squareSession) handleData(frame []byte) error {
 		body := pbVar(pbVar(nil, 1, s.aid), 2, serial)
 		body = pbVar(pbLen(body, 3, msg), 4, 0) // type=0 [I]
 		s.logger.Printf("SQUARE chat aid=%d serial=%d bytes=%d", s.aid, serial, len(msg))
+		store.RecordChat(store.ChatEntry{Kind: store.ChatSquare, Channel: strconv.FormatUint(s.square.Theme, 10), Sender: strconv.FormatUint(s.aid, 10), SenderName: squareAccountName(s.aid), Text: string(msg)})
 		s.room.broadcast(s.logger, nil, 11, body)
 	case 9: // cr_player_action -> rc_player_action_all to others [I field mapping]
 		action, found, ok := pbBytesField(data, 1)

@@ -973,6 +973,7 @@ func (s *roomPartySession) relay(msgid uint16, data []byte) error {
 		body := pbVar(pbVar(nil, 1, s.aid), 2, serial)
 		body = pbVar(pbLen(body, 3, msg), 4, 0)
 		s.logger.Printf("ROOMPARTY chat aid=%d serial=%d bytes=%d to=%d", s.aid, serial, len(msg), len(all))
+		store.RecordChat(store.ChatEntry{Kind: store.ChatParty, Channel: strconv.FormatUint(r.host, 10), Sender: strconv.FormatUint(s.aid, 10), SenderName: squareAccountName(s.aid), Text: string(msg)})
 		for _, o := range all {
 			o.send(s.logger, 12, body)
 		}

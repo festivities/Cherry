@@ -317,11 +317,18 @@
     return box;
   }
 
-  // containerEl is an object or a list: a fieldset with a collapsible body (details) and, for a list, its add buttons.
-  function containerEl(N, label, key, cls, labelFn) {
+  // containerEl is an object or a list: a fieldset with a collapsible body (details) and, for a list, its add buttons. depth
+  // counts the containers above it plus one: the fields of the document (depth 1) start open, anything nested deeper starts
+  // closed, so a long document (butlers.json, a list of cards) is a short list until a branch is opened. The open state a
+  // reader sets is kept on the model node (N._open), so a re-render keeps it.
+  function containerEl(N, label, key, cls, labelFn, depth) {
     var f = h('fieldset', 'ed-node ' + cls);
+    f._depth = depth;
     var det = h('details');
-    det.open = true;
+    det.open = N._open === undefined ? depth <= 1 : N._open;
+    det.addEventListener('toggle', function () {
+      N._open = det.open;
+    });
     var sum = h('summary');
     var labelEl = h('span', 'ed-label', label);
     sum.appendChild(labelEl);
@@ -467,12 +474,13 @@
     var item = C.t === 'a';
     var key = item ? null : C.keys[j];
     var el;
+    var depth = (parentEl._depth || 0) + 1;
     if (N.t === 'o') {
       el = item
-        ? containerEl(N, cardLabel(N, j), null, 'ed-card', function () { return cardLabel(N, j); })
-        : containerEl(N, humanise(key), key, 'ed-object');
+        ? containerEl(N, cardLabel(N, j), null, 'ed-card', function () { return cardLabel(N, j); }, depth)
+        : containerEl(N, humanise(key), key, 'ed-object', null, depth);
     } else if (N.t === 'a') {
-      el = containerEl(N, item ? 'Item ' + (j + 1) : humanise(key), key, item ? 'ed-list ed-item' : 'ed-list');
+      el = containerEl(N, item ? 'Item ' + (j + 1) : humanise(key), key, item ? 'ed-list ed-item' : 'ed-list', null, depth);
     } else {
       el = leafEl(C, j, parentEl);
     }
@@ -491,6 +499,8 @@
       });
       var visible = !term || own || any;
       el.hidden = !visible;
+      // A filter opens the branches it shows: a match inside a closed object or card would otherwise stay hidden.
+      if (term && visible && el._host && el._host.tagName === 'DETAILS') el._host.open = true;
       return visible;
     })(st.tree, false);
   }

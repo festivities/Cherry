@@ -15,6 +15,9 @@ var Requests atomic.Int64
 // SessionConns and GatewayConns are the open :10123 session and :10000 gateway connections.
 var SessionConns, GatewayConns atomic.Int64
 
+// ChatLogDropped counts the player messages the chat log could not keep: a full queue or a failed write (store/chatlog.go).
+var ChatLogDropped atomic.Int64
+
 var (
 	saves      atomic.Int64 // every store save (accounts, social, circles, Treasure World, chat)
 	saveNs     atomic.Int64 // total time the saves held their lock
@@ -65,6 +68,7 @@ func init() {
 	publish("requests", &Requests)
 	publish("session_conns", &SessionConns)
 	publish("gateway_conns", &GatewayConns)
+	publish("chat_log_dropped", &ChatLogDropped)
 	publish("saves", &saves)
 	publish("save_ns_total", &saveNs)
 	publish("save_ns_max", &saveMaxNs)

@@ -74,8 +74,8 @@ func main() {
 	}
 	logger.Printf("cherry: config https=%s http=%s session=%s gateway=%s dns=%s admin=%s data=%s cache=%s public=%t auth=%s",
 		cfg.HTTPS, cfg.HTTP, cfg.Session, cfg.Gateway, dns, cfg.Admin, cfg.DataDir, cfg.CacheDir, cfg.Public, cfg.AuthMode)
-	logger.Printf("cherry: limits conns=%d/address %d total; api=%d/s burst %d; account=%d/s burst %d; guest=%d/min; retention deleted=%dd idle-tokens=%dd",
-		cfg.ConnsPerAddress, cfg.ConnsTotal, cfg.APIRate, cfg.APIBurst, cfg.AccountRate, cfg.AccountBurst, cfg.GuestPerMinute, cfg.DeletedDays, cfg.IdleTokenDays)
+	logger.Printf("cherry: limits conns=%d/address %d total; api=%d/s burst %d; account=%d/s burst %d; guest=%d/min; retention deleted=%dd idle-tokens=%dd chat=%dd",
+		cfg.ConnsPerAddress, cfg.ConnsTotal, cfg.APIRate, cfg.APIBurst, cfg.AccountRate, cfg.AccountBurst, cfg.GuestPerMinute, cfg.DeletedDays, cfg.IdleTokenDays, cfg.ChatDays)
 	// CHERRY_FAKE_NOW (RFC 3339) moves the game clock (economy.NowFunc) for season tests. Records written meanwhile
 	// carry the moved dates, so it runs only on a copy of the data: the data directory must not be the real folder.
 	if v := os.Getenv("CHERRY_FAKE_NOW"); v != "" {
@@ -102,6 +102,8 @@ func main() {
 	if err := openAccounts(cfg.DataDir); err != nil {
 		logger.Fatalf("cherry: load accounts: %v", err)
 	}
+	// The chat log's writer runs from here to the shutdown; the game handlers only enqueue (store/chatlog.go).
+	store.StartChatLog()
 	// openAccounts loaded the social, circle and Treasure World rows; the chat registry is lpn's and loads here.
 	if err := lpn.LoadAvatarChat(); err != nil {
 		logger.Fatalf("cherry: load chat rooms: %v", err)
@@ -263,6 +265,7 @@ func main() {
 		_ = dnsConn.Close()
 	}
 	maintStop()
+	store.StopChatLog()                           // the queued chat messages are written before the database closes
 	if err := store.FlushTokenUse(); err != nil { // the last-use times the batch has not written yet
 		logger.Printf("cherry: token last-use write at shutdown: %v", err)
 	}

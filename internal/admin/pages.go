@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"cherry/internal/auth"
@@ -22,8 +21,7 @@ type link struct {
 	Current     bool
 }
 
-// navGroup is one heading of the sidebar and the pages under it. Only pages that exist are listed: Moderation has no page of
-// its own yet (the player page holds the removals), so it is not in the sidebar.
+// navGroup is one heading of the sidebar and the pages under it. Only pages that exist are listed.
 type navGroup struct {
 	Title string
 	Links []link
@@ -32,6 +30,7 @@ type navGroup struct {
 var navGroups = []navGroup{
 	{"Overview", []link{{Href: "/", Label: "Dashboard"}}},
 	{"Players", []link{{Href: "/players", Label: "Players"}}},
+	{"Moderation", []link{{Href: "/chat", Label: "Chat log"}, {Href: "/photos", Label: "Photos"}}},
 	{"Content", []link{{Href: "/docs", Label: "Documents"}}},
 	{"System", []link{{Href: "/audit", Label: "Audit log"}}},
 }
@@ -105,6 +104,16 @@ type view struct {
 	Entries  []playerEntry
 	Comments []playerComment
 	Media    []playerMedia
+
+	// chat log and photos (moderation.go)
+	ChatRows    []chatRow
+	ChatFilter  store.ChatFilter
+	ChatKinds   []string
+	ChatContext string // the context line of a context link
+	Keep        int    // retention.chat-days: days the chat log keeps a message (0 = no limit)
+	Pictures    []pictureRow
+	PicFilter   store.PictureFilter
+	PicKinds    []string
 }
 
 // base is the view of a signed-in page: the sidebar, the identity and role in the header, the session's CSRF token and the
@@ -433,10 +442,8 @@ func auditFilterOf(q url.Values) (store.AuditFilter, string) {
 	if len(f.Action) > 40 || !onlyChars(f.Action, "-_.") {
 		return f, "The action filter holds letters, digits, dashes, dots and underscores, at most 40 characters."
 	}
-	for _, day := range []string{f.From, f.To} {
-		if _, err := time.Parse(time.DateOnly, day); day != "" && err != nil {
-			return f, "The dates are days in the form YYYY-MM-DD."
-		}
+	if !dateOK(f.From, f.To) {
+		return f, "The dates are days in the form YYYY-MM-DD."
 	}
 	return f, ""
 }

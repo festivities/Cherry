@@ -1,0 +1,26 @@
+{{define "page"}}<h1>Photos</h1>
+<p class="muted">Pictures players uploaded (diary photos, My Room thumbnails and profile pictures), newest first. A removal deletes the file and clears every post or profile that shows it. It needs a Discord sign-in in the last five minutes.</p>
+<form method="get" action="/photos" class="filters" role="search">
+<label><span class="label">Kind</span>
+<select name="kind"><option value="">Any</option>{{range .PicKinds}}<option value="{{.}}"{{if eq . $.PicFilter.Kind}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+<label><span class="label">Player</span>
+<input type="text" name="player" value="{{.PicFilter.Player}}" maxlength="100" placeholder="avatar id or part of the name"></label>
+<div class="actions"><button type="submit">Filter</button> <a href="/photos" class="button ghost">Clear</a></div>
+</form>
+{{if .Pictures}}<div class="photo-grid">
+{{range .Pictures}}<figure class="photo-card">
+<a href="/photos/{{.ID}}/file"><img src="/photos/{{.ID}}/file" alt="{{.Kind}} picture {{.ID}}" loading="lazy" width="320" height="320" class="photo-img"></a>
+<figcaption>
+<p><span class="pill">{{.Kind}}</span> <span class="muted small">#{{.ID}} · {{.KiB}} KiB</span></p>
+<p class="small">{{if .PlayerHref}}<a href="{{.PlayerHref}}">{{.Name}}</a>{{else}}{{.Name}}{{end}} <span class="muted">{{.Owner}}</span></p>
+<p class="muted small">{{.Date}} UTC</p>
+<form method="post" action="/photos/{{.ID}}/remove" class="stack" data-confirm="Remove this picture? The file is deleted, and every post, profile or room thumbnail that shows it loses it.">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<input type="text" name="reason" maxlength="200" placeholder="Reason" aria-label="Reason for removing picture {{.ID}}" required>
+<button type="submit" class="danger">Remove</button>
+</form>
+</figcaption>
+</figure>{{end}}
+</div>{{else}}<p class="muted">No pictures match.</p>{{end}}
+<p class="pager">{{with .OlderHref}}<a href="{{.}}">Older pictures</a> · {{end}}<a href="{{.NewestHref}}">Newest pictures</a></p>
+{{end}}

@@ -117,4 +117,5 @@
 </tbody>
 </table></div>
 <p><a href="/audit?target=player:{{.Player.ID}}">Audit rows for this player</a></p>
+{{if ne .Player.Aid "0"}}<p><a href="/chat?player={{.Player.Aid}}">Chat by this player</a> · <a href="/photos?player={{.Player.Aid}}">Photos by this player</a></p>{{end}}
 {{end}}

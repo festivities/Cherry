@@ -608,6 +608,7 @@ func avatarChatSend(roomID string, msgType int64, msg string, aid uint64) (tcRep
 		r.msgs = kept
 		return avatarChatErr(acInternal), id
 	}
+	store.RecordChat(store.ChatEntry{Kind: store.ChatPrivate, Channel: strconv.FormatInt(id, 10), Sender: strconv.FormatUint(aid, 10), SenderName: name, Text: text})
 	// A member outside the room gets the banner text with the push; one inside gets the plain 13001 as before.
 	to := r.other(aid)
 	banner := ""

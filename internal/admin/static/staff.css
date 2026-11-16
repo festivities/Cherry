@@ -222,6 +222,21 @@ dl.facts dd { margin: 0; overflow-wrap: anywhere; }
   .ed-tools input[type="search"] { max-width: none; width: 100%; }
 }
 
+/* chat log and photo log: long texts wrap as written; the photo grid fits the screen width (no inline style) */
+td.wrap { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 12rem; max-width: 48rem; }
+table.chat td:first-child { white-space: nowrap; }
+.photo-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(min(12rem, 100%), 1fr)); gap: .9rem; margin: .8rem 0 1rem;
+}
+.photo-card {
+  margin: 0; min-width: 0; overflow: hidden; background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--radius);
+}
+.photo-img { display: block; width: 100%; aspect-ratio: 1 / 1; object-fit: cover; background: var(--surface-2); }
+.photo-card figcaption { padding: .6rem .7rem .7rem; }
+.photo-card figcaption p { margin: .25rem 0; overflow-wrap: anywhere; }
+.photo-card form.stack input[type="text"] { max-width: none; width: 100%; }
+
 /* the hidden attribute always hides (the editor and the diff toggle parts of the page with it) */
 [hidden] { display: none !important; }
 

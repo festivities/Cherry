@@ -665,6 +665,9 @@ func (s *circleSession) chat(data []byte) {
 	m := circleChatMsg{sendAid: s.aid, sendName: circleAccountName(s.aid), kind: kind, text: slices.Clone(msg), ms: time.Now().UnixMilli()}
 	m.serial = s.chats.add(s.circleID, m)
 	s.logger.Printf("CIRCLE chat aid=%d serial=%d bytes=%d", s.aid, m.serial, len(msg))
+	if kind == 0 { // the chat log keeps typed text (type 0); other types are not logged
+		store.RecordChat(store.ChatEntry{Kind: store.ChatCircle, Channel: strconv.FormatInt(s.circleID, 10), Sender: s.aidText(), SenderName: m.sendName, Text: string(msg)})
+	}
 	s.room.broadcast(s.logger, nil, circleRcChat, pbLen(nil, 1, circleChatInfo(m)))
 	economy.CirclePointEarn(s.aidText(), "chat", economy.NowFunc()) // a circle chat message counts toward points and missions
 }

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -136,14 +137,19 @@ func TestNavMarksTheArea(t *testing.T) {
 			t.Errorf("%s marks %q, want %q", path, marked, want)
 		}
 	}
+	// Every sidebar link is a page this server serves: the link's own path answers the signed-in page, not a 404 (the
+	// fixture's session is the dev owner, see the moderation tests for the pages' bodies).
+	fx := newFixture(t, devConfig())
+	c := fx.client()
+	c.signInDev("owner")
 	for _, g := range navGroups {
-		if g.Title == "Moderation" {
-			t.Error("the sidebar lists a Moderation group with no page")
-		}
 		for _, l := range g.Links {
-			if l.Href != "/" && !strings.HasPrefix(l.Href, "/players") && !strings.HasPrefix(l.Href, "/docs") && l.Href != "/audit" {
-				t.Errorf("sidebar link %q has no page", l.Href)
+			if r := c.get(l.Href); r.StatusCode != http.StatusOK {
+				t.Errorf("sidebar link %q (group %s) answers %d", l.Href, g.Title, r.StatusCode)
 			}
 		}
+	}
+	if !slices.ContainsFunc(navGroups, func(g navGroup) bool { return g.Title == "Moderation" }) {
+		t.Error("the sidebar has no Moderation group")
 	}
 }

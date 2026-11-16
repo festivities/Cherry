@@ -605,6 +605,9 @@ func loungeSend(roomID, msgType int64, text string, aid uint64, bound bool) tcRe
 	if over := len(r.msgs) - l.HistoryLimit; over > 0 {
 		r.msgs = slices.Delete(r.msgs, 0, over)
 	}
+	if msgType == tcTypeText { // a sticker is not typed text: it is not logged
+		store.RecordChat(store.ChatEntry{Kind: store.ChatLounge, Channel: strconv.FormatInt(roomID, 10), Sender: strconv.FormatUint(aid, 10), SenderName: sender.nickname, Text: text})
+	}
 	return tcReply{
 		result: map[string]any{"msgSn": msg.sn, "msgTimeSec": msg.sec},
 		pushes: loungePushesLocked(roomID, r, aid, msg.sn, msg.msgType),

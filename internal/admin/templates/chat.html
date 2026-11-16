@@ -1,0 +1,27 @@
+{{define "page"}}<h1>Chat log</h1>
+<p class="muted">Messages players typed in chat channels, newest first. {{if .Keep}}Kept for {{.Keep}} days (retention.chat-days), then deleted.{{else}}Kept without a time limit (retention.chat-days is 0).{{end}} Each text is shown as plain text, as it was sent.</p>
+<form method="get" action="/chat" class="filters" role="search">
+<label><span class="label">Kind</span>
+<select name="kind"><option value="">Any</option>{{range .ChatKinds}}<option value="{{.}}"{{if eq . $.ChatFilter.Kind}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+<label><span class="label">Channel id</span>
+<input type="text" name="channel" value="{{.ChatFilter.Channel}}" maxlength="20" inputmode="numeric" placeholder="e.g. 1960000000"></label>
+<label><span class="label">Player</span>
+<input type="text" name="player" value="{{.ChatFilter.Player}}" maxlength="100" placeholder="avatar id or part of the name"></label>
+<label><span class="label">Text</span>
+<input type="search" name="text" value="{{.ChatFilter.Text}}" maxlength="100" placeholder="part of the text"></label>
+<label><span class="label">From (UTC)</span>
+<input type="date" name="from" value="{{.ChatFilter.From}}"></label>
+<label><span class="label">To (UTC)</span>
+<input type="date" name="to" value="{{.ChatFilter.To}}"></label>
+<div class="actions"><button type="submit">Filter</button> <a href="/chat" class="button ghost">Clear</a></div>
+</form>
+{{with .ChatContext}}<p class="flash warn" role="status">{{.}} <a href="/chat">Back to the whole log</a></p>{{end}}
+<div class="scroll"><table class="chat">
+<thead><tr><th>Time (UTC)</th><th>Channel</th><th>Sender</th><th>Text</th></tr></thead>
+<tbody>
+{{range .ChatRows}}<tr><td>{{.Time}}</td><td><a href="{{.ContextHref}}" title="Show this channel around this time">{{.Kind}} {{.Channel}}</a></td><td>{{if .PlayerHref}}<a href="{{.PlayerHref}}">{{.Name}}</a>{{else}}{{.Name}}{{end}} <span class="muted small">{{.Aid}}</span></td><td class="wrap">{{.Text}}</td></tr>
+{{else}}<tr class="empty"><td colspan="4">No messages match.</td></tr>{{end}}
+</tbody>
+</table></div>
+<p class="pager">{{with .OlderHref}}<a href="{{.}}">Older messages</a> · {{end}}<a href="{{.NewestHref}}">Newest messages</a></p>
+{{end}}

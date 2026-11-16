@@ -120,7 +120,7 @@ type Querier interface {
 }
 
 // migrations[i] takes the database from schema version i to i+1. Append only: a shipped step is never edited.
-var migrations = []string{schemaV1, schemaV2, schemaV3, schemaV4}
+var migrations = []string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5}
 
 // migrate applies the missing steps, each in its own transaction together with its user_version bump.
 func migrate(db *sql.DB) error { return migrateTo(db, len(migrations)) }
@@ -351,6 +351,23 @@ CREATE TABLE media_files (
 	created TEXT NOT NULL
 ) STRICT;
 CREATE INDEX media_files_owner ON media_files(owner, kind, id);
+`
+
+// schemaV5 keeps the player chat log (chatlog.go): every message a player typed in a chat channel, with the time, the
+// channel, the sender and the text, for the staff chat log and its retention sweep. Only a new table and its indexes.
+const schemaV5 = `
+CREATE TABLE chat_log (
+	id          INTEGER PRIMARY KEY,
+	time        INTEGER NOT NULL,
+	kind        TEXT NOT NULL CHECK (kind IN ('private', 'lounge', 'circle', 'square', 'party')),
+	channel     TEXT NOT NULL,
+	sender      TEXT NOT NULL,
+	sender_name TEXT NOT NULL,
+	text        TEXT NOT NULL
+) STRICT;
+CREATE INDEX chat_log_time ON chat_log(time);
+CREATE INDEX chat_log_sender ON chat_log(sender, id);
+CREATE INDEX chat_log_channel ON chat_log(kind, channel, time);
 `
 
 // Path is the file the database was opened from.

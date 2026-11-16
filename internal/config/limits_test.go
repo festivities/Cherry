@@ -15,8 +15,8 @@ func TestLimitDefaultsByMode(t *testing.T) {
 	if lab.APIRate != 0 || lab.AccountRate != 0 || lab.GuestPerMinute != 0 || lab.StaticRate != 0 || lab.FrameRate != 0 || lab.ConnsPerAddress != 1024 || lab.ConnsTotal != 4096 {
 		t.Fatalf("lab limits = %+v, want off with the lab connection caps", lab)
 	}
-	if lab.DeletedDays != 30 || lab.IdleTokenDays != 30 {
-		t.Fatalf("retention = %d / %d days, want 30 / 30", lab.DeletedDays, lab.IdleTokenDays)
+	if lab.DeletedDays != 30 || lab.IdleTokenDays != 30 || lab.ChatDays != 30 {
+		t.Fatalf("retention = %d / %d / %d days, want 30 / 30 / 30", lab.DeletedDays, lab.IdleTokenDays, lab.ChatDays)
 	}
 
 	idc, err := parse([]string{"-auth-mode", "dev-fake"}, none)
@@ -45,6 +45,7 @@ func TestLimitSettingsRefusals(t *testing.T) {
 		"rate without burst":      {"-limits-api-rate", "5", "-limits-api-burst", "0"},
 		"negative connections":    {"-limits-conns-per-address", "-1"},
 		"words for a count":       {"-retention-deleted-days", "many"},
+		"negative chat days":      {"-retention-chat-days", "-1"},
 	} {
 		if _, err := Load(args, none); err == nil {
 			t.Errorf("%s: Load accepted %v", name, args)
