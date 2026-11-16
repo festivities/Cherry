@@ -151,6 +151,15 @@ func specialOrderMaterial(so SpecialOrder, item, grade int64) bool {
 	return slices.ContainsFunc(so.Materials, func(m SpecialOrderMaterial) bool { return m.Item == item && m.Grade == grade })
 }
 
+// MaterialStars is the star grade (1 to 3) special_order gives item, or 0 for an item it does not list.
+func MaterialStars(item int64) int64 {
+	so := ActiveButlers().SpecialOrder
+	if i := slices.IndexFunc(so.Materials, func(m SpecialOrderMaterial) bool { return m.Item == item }); i >= 0 {
+		return so.Materials[i].Grade
+	}
+	return 0
+}
+
 // bagCount is how many of item bag holds.
 func bagCount(bag []store.GardenBagStack, item int64) int64 {
 	if i := slices.IndexFunc(bag, func(s store.GardenBagStack) bool { return s.Item == item }); i >= 0 {

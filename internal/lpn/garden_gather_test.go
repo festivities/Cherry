@@ -490,3 +490,13 @@ func TestGatherFishIsOneHit(t *testing.T) {
 		t.Fatalf("end paid again: gems %d stacks %d", g2, s2)
 	}
 }
+
+// TestBagGradeMatchesSpecialOrders: a Bag row's 0-based grade is the material's special-order star grade minus one (1-star
+// fish 110000 → 0, 3-star 130000 → 2), so the Bag and an order show the same stars; an unlisted item keeps 1.
+func TestBagGradeMatchesSpecialOrders(t *testing.T) {
+	for item, want := range map[int64]uint64{110000: 0, 120000: 1, 130000: 2, 310000: 0, 490000: 1} {
+		if got := bagGrade(item); got != want {
+			t.Errorf("bagGrade(%d) = %d, want %d", item, got, want)
+		}
+	}
+}

@@ -304,7 +304,7 @@ func gardenAssetItem(d economy.GatherDrop) []byte {
 	a := pbVar(nil, 1, uint64(d.Item))                            // itemid
 	a = pbVar(a, 2, uint64(d.Item/100000))                        // itemtype = filter tab: 1 fish (balloon), 2 essence (tree), 3 ore (crystal)
 	a = pbLen(a, 3, []byte(d.Name))                               // itemname
-	a = pbVar(a, 4, 1)                                            // grade
+	a = pbVar(a, 4, bagGrade(d.Item))                             // grade
 	a = pbLen(a, 5, []byte("item"+strconv.FormatInt(d.Item, 10))) // item_code
 	a = pbLen(a, 6, []byte(economy.GatherCraftImage(d.Item)))     // img_url: local craft path (economy.GatherCraftImage)
 	detail := "Gathered in a Garden."
@@ -314,6 +314,16 @@ func gardenAssetItem(d economy.GatherDrop) []byte {
 	a = pbLen(a, 7, []byte(detail))  // detail_msg
 	noDate := uint64(math.MaxUint64) // int64 -1: no validity dates (0 would show 1970)
 	return pbVar(pbVar(a, 9, noDate), 10, noDate)
+}
+
+// bagGrade is a Bag row's grade: 0-based on the wire (the client draws grade+1 stars), the material's special-order star
+// grade minus one, so the Bag and a special order show the same stars. An item special_order does not list (an Atelier
+// good) keeps 1 (two stars), the value every row had before.
+func bagGrade(item int64) uint64 {
+	if stars := economy.MaterialStars(item); stars > 0 {
+		return uint64(stars - 1)
+	}
+	return 1
 }
 
 // gardenBagReply answers the Bag requests: 25 iteminfo, 26 baginfo, 27 bagitem, 28 bagslot extend
