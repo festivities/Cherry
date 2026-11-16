@@ -29,6 +29,10 @@ type Square struct {
 	Spawn    Tile   `json:"spawn"`
 	Index    uint64 `json:"index"`
 	Visible  bool   `json:"visible"`
+	// Icon is the list picture, a path under the device files/ tree (theme_info IconPath): the client draws it only
+	// when that file is on the device, so it names an animation-list file (animation/world_icon/...); "" keeps the
+	// client's default picture.
+	Icon string `json:"icon,omitempty"`
 }
 
 // Tile is a map tile (wx, wy).
@@ -60,6 +64,8 @@ func checkSquares(s *Squares) error {
 			return fmt.Errorf("theme %d: map must be a map folder name", sq.Theme)
 		case sq.MapSize == 0 || sq.Spawn.X >= sq.MapSize || sq.Spawn.Y >= sq.MapSize:
 			return fmt.Errorf("theme %d: spawn %d,%d is outside the %d-tile map", sq.Theme, sq.Spawn.X, sq.Spawn.Y, sq.MapSize)
+		case sq.Icon != "" && (!strings.HasPrefix(sq.Icon, "animation/world_icon/") || strings.Contains(sq.Icon, "..")):
+			return fmt.Errorf("theme %d: icon %q must be an animation/world_icon/ file", sq.Theme, sq.Icon)
 		}
 		seen[sq.Theme] = true
 		if sq.Theme == squareThemeID {

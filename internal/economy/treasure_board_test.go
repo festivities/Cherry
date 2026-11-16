@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path"
 	"regexp"
 	"strings"
 	"testing"
@@ -151,6 +152,7 @@ func TestTreasureBoardV1Name(t *testing.T) {
 // TestTreasureBoardV1Routes: the board and the background serve as PNGs under the names SeasonInfo sends (TreasureBoardPicture and
 // TreasureBackgroundPicture); the board's name for another ring is 404, and a blank name sends no picture.
 func TestTreasureBoardV1Routes(t *testing.T) {
+	treasureClassic(t)
 	calCache(t)
 	d := ActiveTreasureData()
 	mux := http.NewServeMux()
@@ -216,5 +218,22 @@ func TestTreasureBoardV1NoStore(t *testing.T) {
 		if b, ok := treasureSeasonPicture(name); !ok || len(b) == 0 {
 			t.Fatalf("%s did not draw without a store", name)
 		}
+	}
+}
+
+// TestTreasureOriginalArt: the default data shows the original season board and background, and every picture field and both
+// of those resolve to a cache/season_master/ file the art route serves by base name.
+func TestTreasureOriginalArt(t *testing.T) {
+	d := ActiveTreasureData()
+	if TreasureBoardPicture(d) != "cherry/treasure/skin_1598508720.png" || TreasureBackgroundPicture(d) != "cherry/treasure/bg_img_1598508720.png" {
+		t.Fatalf("board %q, background %q", TreasureBoardPicture(d), TreasureBackgroundPicture(d))
+	}
+	for f, file := range TreasureSeasonArt {
+		if !strings.HasPrefix(file, treasureSeasonDir) || TreasureSeasonPicture(f) != "cherry/treasure/"+path.Base(file) {
+			t.Fatalf("field %d: %q -> %q", f, file, TreasureSeasonPicture(f))
+		}
+	}
+	if TreasureSeasonPicture(3) != "" || TreasureSeasonPicture(6) != "" {
+		t.Fatal("DiceType and RankingPointFontColor are not pictures")
 	}
 }

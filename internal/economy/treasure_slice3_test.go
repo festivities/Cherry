@@ -108,6 +108,7 @@ func TestTreasureBuffPercentCap(t *testing.T) {
 
 // TestTreasureBuffBoostsCredits: a worn buff grows the coin and the bonus of a roll (1 Jewel at 10 percent is 2, 5 at 10 is 6).
 func TestTreasureBuffBoostsCredits(t *testing.T) {
+	treasureClassic(t)
 	treasureOwner(t, "1001", "CUAH006FG")
 	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Tickets: 10, Charged: treasureNow.UnixMilli()})
 	if _, err := TreasureBuffWear("1001", []string{"CUAH006FG"}, treasureNow); err != nil {

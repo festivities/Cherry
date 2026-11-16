@@ -81,6 +81,7 @@ var treDayOfTest = (treTime.Unix() + 3*3600) / 86400
 // TestTreasureExchangeAndResetOverTheGateway: the exchange square's counts, the exchange and its limit, the reset offer, a
 // CASH reset refused, a GEM reset that spends Gems, and the ranking board that lists the board.
 func TestTreasureExchangeAndResetOverTheGateway(t *testing.T) {
+	treClassic(t)
 	treScene(t)
 	treSeed(t, store.TreasureRecord{Season: 1950000001, Tickets: 10, Charged: treTime.UnixMilli(), Position: 2, Jewels: 40, ExDay: treDayOfTest, Exchanged: map[string]int64{"2": 30}})
 	treGems(t, 50)

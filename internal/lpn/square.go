@@ -57,13 +57,14 @@ func squareRoomEnter(npcs []byte, theme uint64, mapFile string) []byte {
 
 // squareThemeInfo is one theme_info of rc_themelist_res: ThemeId, ThemeIndex, ThemeName, ThemeEnabled,
 // ThemeGroupId (the world type's own group: GetRepresentGroupType is the identity for these ids),
-// ThemeVisibled, UserCount, ThemeListName and ThemeCountryCodeList "ALL". The list picture is chosen by the client,
-// not by the id. The invite picker lists only friends whose country is in the theme's country list, and "ALL" matches
-// every one (AddFriendCellDatas 0x1cd4230; boss-mp-addendum 6).
+// ThemeVisibled, UserCount, ThemeListName and ThemeCountryCodeList "ALL", and IconPath (field 7, the list picture: a
+// files/-relative path the client loads only when the file exists, square-thumbs-spec 2026-11-16). The invite picker
+// lists only friends whose country is in the theme's country list, and "ALL" matches every one (AddFriendCellDatas
+// 0x1cd4230; boss-mp-addendum 6).
 func squareThemeInfo(sq Square, count uint64) []byte {
 	theme := pbVar(nil, 1, sq.Theme)
 	theme = pbVar(theme, 2, 0)
-	theme = pbLen(theme, 7, nil)
+	theme = pbLen(theme, 7, []byte(sq.Icon)) // IconPath: the list picture (files/-relative; "" = the client default)
 	theme = pbVar(theme, 8, sq.Index)
 	theme = pbLen(theme, 9, []byte(sq.Name))
 	theme = pbLen(theme, 10, nil)

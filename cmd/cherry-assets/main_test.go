@@ -150,6 +150,8 @@ func TestBuildObjectsLaterRootsFillGaps(t *testing.T) {
 		"item/custom/224301832/dp.png",                    // added id
 		"item/dress/225103469/dp.png",                     // added id
 		"item/dress/225103469/fl_l1_a00.png__",            // a partial download: never served
+		"world/icon/square_thum_cafe.png",                 // a Square list picture: any root, under animation/world_icon/
+		"world/icon/square_banner.png",                    // not a listed picture
 	)
 	// An empty file is a partial download too.
 	if err := os.WriteFile(filepath.Join(second, "item", "dress", "225103469", "b_14.png"), nil, 0o600); err != nil {
@@ -173,6 +175,7 @@ func TestBuildObjectsLaterRootsFillGaps(t *testing.T) {
 		"static/item/custom/123/extra.png":                         filepath.Join(second, "item", "custom", "123", "extra.png"),
 		"static/item/custom/224301832/dp.png":                      filepath.Join(second, "item", "custom", "224301832", "dp.png"),
 		"static/item/dress/225103469/dp.png":                       filepath.Join(second, "item", "dress", "225103469", "dp.png"),
+		"static/animation/world_icon/square_thum_cafe.png":         filepath.Join(second, "world", "icon", "square_thum_cafe.png"),
 	}
 	got := map[string]string{}
 	for _, o := range objs {

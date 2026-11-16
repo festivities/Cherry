@@ -75,10 +75,13 @@ var archiveRoots = []string{defaultDataset, extraDataset, miawDataset, roboDatas
 const chatActionPrefix = "00005_"
 
 // bulkSource maps a bulk category to its dataset folder. only, when set, limits the category to those
-// files (paths relative to dir); subui is the one plist of UIResource, tx the string table.
+// files (paths relative to dir); subui is the one plist of UIResource, tx the string table. prefix is put in front
+// of rel in the category; anyRoot takes the files from every root (later roots fill gaps), not only the first.
 type bulkSource struct {
 	cat, dir string
 	only     []string
+	prefix   string
+	anyRoot  bool
 }
 
 var bulkSources = []bulkSource{
@@ -87,6 +90,11 @@ var bulkSources = []bulkSource{
 	{cat: "ui", dir: "UIResource"},
 	{cat: "subui", dir: "UIResource", only: []string{"MarbleChallengePopup.plist"}},
 	{cat: "tx", dir: "stringtable", only: []string{"arts_strings.ast"}},
+	// Square list pictures (squares.json icon, theme_info IconPath). The 10.1 client never fetches its squareui
+	// category, so they ride the animation list like its stock world_icon/ files (square-thumbs-spec, 2026-11-16);
+	// the originals are in the robo iOS cache's world/icon/.
+	{cat: "animation", dir: "world/icon", prefix: "world_icon/", anyRoot: true,
+		only: []string{"square_thum_city.png", "square_thum_cafe.png", "square_thum_riding_pet.png"}},
 }
 
 // object is one R2 object to upload. Bulk objects also feed their category's index.
@@ -227,12 +235,14 @@ func underAny(p string, roots []string) bool {
 // nothing for it.
 func listRoot(dataset string, first bool) ([]*object, error) {
 	var objs []*object
-	bulk := bulkSources
-	if !first {
-		bulk = nil
-	}
-	for _, src := range bulk {
+	for _, src := range bulkSources {
+		if !first && !src.anyRoot {
+			continue
+		}
 		root := filepath.Join(dataset, src.dir)
+		if _, err := os.Stat(root); src.anyRoot && errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
 		err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
@@ -248,6 +258,7 @@ func listRoot(dataset string, first bool) ([]*object, error) {
 			if err != nil {
 				return err
 			}
+			rel = src.prefix + rel
 			objs = append(objs, &object{key: "static/" + src.cat + "/" + rel, path: p, size: info.Size(), cat: src.cat, rel: rel})
 			return nil
 		})

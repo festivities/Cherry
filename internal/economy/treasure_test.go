@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -61,10 +62,14 @@ func TestTreasureDataDefaults(t *testing.T) {
 			t.Fatalf("cell %d faces %s, want %s", pos, cells[pos].Direction, dir)
 		}
 	}
-	for _, pos := range []int{5, 12, 19, 26} {
+	for _, pos := range []int{3, 9, 17, 27} {
 		if cells[pos].Type != TreasureCellGoldKey {
 			t.Fatalf("cell %d is type %d, want a gold key (7)", pos, cells[pos].Type)
 		}
+	}
+	// The default shows the original board, which paints its own ring (2026-11-16).
+	if d.Art.Board != treasureOriginalStem || !slices.Equal(d.Board.Ring, treasureOriginalRing) || len(d.Exchange.Tiles) != 3 {
+		t.Fatalf("art %+v, ring %v, %d exchange tiles; want the original board and ring with 3 tiles", d.Art, d.Board.Ring, len(d.Exchange.Tiles))
 	}
 	cyc := TreasureCurrent(treasureNow)
 	start, end := cyc.Start, cyc.End
@@ -149,19 +154,39 @@ func TestTreasureDataRefusals(t *testing.T) {
 var treasureProbeRing = []int{0, 1, 2, 3, 5, 8, 9, 1, 4, 1, 7, 1, 1, 2, 1, 1, 4, 1, 7, 1, 1, 2, 1, 1, 4, 1, 7, 1}
 
 // treasureRing loads the default treasure file with ring as its board and only square 2 as an exchange tile (the default tiles
-// name 8, 15 and 22, which a probe ring does not keep as exchange squares), as a temp operator file, for one test.
+// name 4, 18 and 25, which a probe ring does not keep as exchange squares) and the drawn board, as a temp operator file, for
+// one test.
 func treasureRing(t *testing.T, ring []int) {
+	t.Helper()
+	treasureRingTiles(t, ring, []map[string]int{{"square": 2, "times": 1}})
+}
+
+// treasureClassicRing is the default ring before the original board (2026-11-16), with its four exchange squares 2, 8, 15
+// and 22 at 1x, 2x, 3x and a gamble of 5: the mechanics tests below were written against its positions.
+var treasureClassicRing = []int{0, 1, 2, 4, 5, 7, 1, 6, 2, 3, 4, 1, 7, 1, 9, 2, 1, 4, 1, 7, 1, 8, 2, 3, 4, 1, 7, 1}
+
+// treasureClassic loads the default treasure file on the classic ring and tiles, with the drawn board.
+func treasureClassic(t *testing.T) {
+	t.Helper()
+	treasureRingTiles(t, treasureClassicRing, []map[string]int{
+		{"square": 2, "times": 1}, {"square": 8, "times": 2}, {"square": 15, "times": 3}, {"square": 22, "gamble": 5}})
+}
+
+// treasureRingTiles loads the default treasure file with ring, tiles and the drawn board (the original board paints its own
+// ring) as a temp operator file, for one test.
+func treasureRingTiles(t *testing.T, ring []int, tiles []map[string]int) {
 	t.Helper()
 	doc := map[string]json.RawMessage{}
 	if err := json.Unmarshal(data.TreasureJSON, &doc); err != nil {
 		t.Fatal(err)
 	}
 	doc["board"], _ = json.Marshal(map[string][]int{"ring": ring})
+	doc["art"], _ = json.Marshal(map[string]string{"board": "board_v1", "background": "bg_v1"})
 	var ex map[string]json.RawMessage
 	if err := json.Unmarshal(doc["exchange"], &ex); err != nil {
 		t.Fatal(err)
 	}
-	ex["tiles"], _ = json.Marshal([]map[string]int{{"square": 2, "times": 1}})
+	ex["tiles"], _ = json.Marshal(tiles)
 	doc["exchange"], _ = json.Marshal(ex)
 	raw, _ := json.Marshal(doc)
 	path := filepath.Join(t.TempDir(), "treasure.json")
@@ -182,6 +207,7 @@ func TestTreasureProbeCellsValidation(t *testing.T) {
 			t.Fatal(err)
 		}
 		d.Board.Ring[1] = c
+		d.Art.Board = treasureBoardV1Stem // another ring needs the drawn board
 		if err := checkTreasureData(d); err != nil {
 			t.Fatalf("ring square 1 of type %d refused: %v", c, err)
 		}
@@ -352,6 +378,7 @@ func TestTreasureRefillAndCap(t *testing.T) {
 
 // TestTreasureRollMoves: the die moves the token round the ring, debits one ticket and pays the square landed on.
 func TestTreasureRollMoves(t *testing.T) {
+	treasureClassic(t)
 	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Tickets: 10, Charged: treasureNow.UnixMilli()})
 	treasureDie(t, 3)
 	mv, err := TreasureRollDice("1001", treasureNow)
@@ -373,6 +400,7 @@ func TestTreasureRollMoves(t *testing.T) {
 
 // TestTreasureGoldKeyLanding: a roll onto a gold key square pays nothing and leaves the key pending; the next roll clears it.
 func TestTreasureGoldKeyLanding(t *testing.T) {
+	treasureClassic(t)
 	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Tickets: 10, Charged: treasureNow.UnixMilli()})
 	treasureDie(t, 5)
 	mv, err := TreasureRollDice("1001", treasureNow)
@@ -411,6 +439,7 @@ func treasureRandSeq(t *testing.T, vals ...int) {
 // (the default weights 3, 2, 3, 2 give the picks 0-2 type 1, 3-4 type 2, 5-7 type 6, 8-9 type 7), the value offset in the
 // card's range, then the coin amount of a coin landing.
 func TestTreasureGoldKeyCards(t *testing.T) {
+	treasureClassic(t)
 	cases := []struct {
 		name    string
 		pos     int
@@ -501,6 +530,7 @@ func TestTreasureGoldKeyCountsGoldKeyMissions(t *testing.T) {
 
 // TestTreasureLapPaysTickets: passing the start line pays the lap reward (not capped), and landing on it pays too.
 func TestTreasureLapPaysTickets(t *testing.T) {
+	treasureClassic(t)
 	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Position: 26, Tickets: 3, Charged: treasureNow.UnixMilli()})
 	treasureDie(t, 4)
 	mv, err := TreasureRollDice("1001", treasureNow)

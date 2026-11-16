@@ -1,10 +1,10 @@
 {
   "origin": "mixed",
-  "note": "Mixed. ORIGINAL: the Square theme ids (6, 32, 33, 34), the map ids (the mworld packs in santi files/world/; 2401039000 is global) and the list names (LINE City, LINE Café, Runway Square, Pet Theme Park: strings in arts_strings.ast). CHERRY-MADE: the spawn points, the map sizes and the list order and visibility (not checked against the mworld).",
+  "note": "Mixed. ORIGINAL: the Square theme ids (6, 32, 33, 34), the map ids (the mworld packs in santi files/world/; 2401039000 is global) and the list names (LINE City, LINE Café, Runway Square, Pet Theme Park: strings in arts_strings.ast) and the list pictures (icon: square_thum_city, square_thum_cafe and square_thum_riding_pet from the robo iOS cache's world/icon/, delivered in the animation list under world_icon/ because the 10.1 client never fetches its squareui list; Runway Square has no original picture and keeps the client default). CHERRY-MADE: which picture goes with which Square (by eye), the spawn points, the map sizes and the list order and visibility (not checked against the mworld).",
   "squares": [
-    {"theme": 6, "name": "LINE City", "list_name": "LINE City", "map": "2401039000", "map_size": 160, "spawn": {"x": 93, "y": 80}, "index": 0, "visible": true},
-    {"theme": 32, "name": "LINE Café", "list_name": "LINE Café", "map": "2202250100", "map_size": 160, "spawn": {"x": 87, "y": 85}, "index": 1, "visible": true},
+    {"theme": 6, "name": "LINE City", "list_name": "LINE City", "icon": "animation/world_icon/square_thum_city.png", "map": "2401039000", "map_size": 160, "spawn": {"x": 93, "y": 80}, "index": 0, "visible": true},
+    {"theme": 32, "name": "LINE Café", "list_name": "LINE Café", "icon": "animation/world_icon/square_thum_cafe.png", "map": "2202250100", "map_size": 160, "spawn": {"x": 87, "y": 85}, "index": 1, "visible": true},
     {"theme": 33, "name": "Runway Square", "list_name": "Runway Square", "map": "2310272600", "map_size": 180, "spawn": {"x": 85, "y": 81}, "index": 2, "visible": true},
-    {"theme": 34, "name": "Pet Theme Park", "list_name": "Pet Theme Park", "map": "2201202900", "map_size": 160, "spawn": {"x": 89, "y": 97}, "index": 3, "visible": true}
+    {"theme": 34, "name": "Pet Theme Park", "list_name": "Pet Theme Park", "icon": "animation/world_icon/square_thum_riding_pet.png", "map": "2201202900", "map_size": 160, "spawn": {"x": 89, "y": 97}, "index": 3, "visible": true}
   ]
 }

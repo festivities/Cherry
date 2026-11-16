@@ -48,6 +48,8 @@ func treasureBoardV1Name(d *TreasureData) string {
 // treasureBoardFile is the file art.board names for d; "" for a blank name.
 func treasureBoardFile(d *TreasureData) string {
 	switch d.Art.Board {
+	case treasureOriginalStem:
+		return treasureBoardOriginal
 	case treasureBoardV1Stem:
 		return treasureBoardV1Name(d)
 	case treasureBoardCalStem:
@@ -59,6 +61,8 @@ func treasureBoardFile(d *TreasureData) string {
 // treasureBgFile is the file art.background names; "" for a blank name.
 func treasureBgFile(d *TreasureData) string {
 	switch d.Art.Background {
+	case treasureOriginalStem:
+		return treasureBgOriginal
 	case treasureBgV1Stem:
 		return treasureBgV1File
 	case treasureBgCalStem:
@@ -66,6 +70,20 @@ func treasureBgFile(d *TreasureData) string {
 	}
 	return ""
 }
+
+// The original season board and background (robo iOS cache, cache/season_master/, 2026-11-16): art.board and
+// art.background "original". The board has its squares painted on, so checkTreasureArt holds the ring to
+// treasureOriginalRing while it is shown.
+const (
+	treasureOriginalStem  = "original"
+	treasureBoardOriginal = treasureSeasonDir + "skin_1598508720.png"
+	treasureBgOriginal    = treasureSeasonDir + "bg_img_1598508720.png"
+)
+
+// treasureOriginalRing is the original board read square by square from the start corner (bottom left), the way
+// the token walks: bottom row, right column up, top row leftwards, left column down. Trophy = exchange, pink arrow =
+// buff, S = secret quest, key = gold key; the corners are trap (7), drums (14) and broom (21).
+var treasureOriginalRing = []int{0, 1, 4, 7, 2, 3, 1, 6, 1, 7, 4, 1, 5, 1, 9, 4, 1, 7, 2, 3, 1, 8, 4, 1, 5, 2, 1, 7}
 
 // treasureTileOrigin is the top-left pixel of square k's tile on the 640x684 board.
 func treasureTileOrigin(k int) (x, y float64) {

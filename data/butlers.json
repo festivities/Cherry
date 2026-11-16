@@ -1,6 +1,6 @@
 {
   "origin": "mixed",
-  "note": "Mixed. ORIGINAL (client files: UIResource/UIImage_hd butler_event_name_bN, butler_event_profile_bN and butler_event_text_bN .png; string table 9854-9867): the seven names; each butler's blood type, birthday, keywords and quote (profile, record only: no verified protocol field); the ability names Fishing, collecting Drops and mining; the portrait (art, served unchanged); the outfit item ids that match a true item (catalog items with art, matched by eye; see each butler's note); gender (read from the portrait, [I]). CHERRY-PICKED LOOK-ALIKES (field lookalikes, always a subset of outfit): Cherry-picked look-alike: an original catalog item chosen by Cherry because the true item is not in any archive; user decision 2026-10-29. Each one is an original item of the same slot that looks closest to the true item, which is not used; the faces (EY, EB, MO, NO) and the animal ears have no true match in any archive. CHERRY-MADE: the ids (1900000004-1900000010 in the Cherry block; 1900000001-1900000003 were Cherry's Hazel, Wren and Oswin, retired and never reused), the skin codes and skin ids (one default skin per butler: its outfit), skin_color (an original skin-palette index of the client, g_akHBC 0 to 16, chosen by Cherry from the portraits: 1 is the untinted base that matches the pale portraits; 0 is a tan tint and is wrong for the six human butlers; Merry is ANIMAL: the client ignores skin_color for animals (she keeps 0); her body colour comes from her FA outfit item instead; the palette decode is in the butler audit notes, skin-palette.md), the ability-to-gather-kind mapping (Fishing = fish, collecting Drops = essence (the Korean card says essence absorption), mining = ore), free_days, hire (the one 30-day period at 30 earned Cash), and gathering gems, gems_cap, gathers_per_day and duration_minutes (60 minutes from a gathering's start to its collect: Cherry-made, the client shows no duration of its own). Hire prices are in earned Cash (cash). The client's contract picker offers only 30-day periods (CButtonHandler 0x22cfb84), so hire lists the one 30-day period. The free first hire (free_days) is a separate path.",
+  "note": "Mixed. ORIGINAL (client files: UIResource/UIImage_hd butler_event_name_bN, butler_event_profile_bN and butler_event_text_bN .png; string table 9854-9867): the seven names; each butler's blood type, birthday, keywords and quote (profile, record only: no verified protocol field); the ability names Fishing, collecting Drops and mining; the portrait (art, served unchanged); the skin picture (skin_image: the server's skin and main pictures as the robo iOS device cached them, cache/butler/butler_skin_master/ and butler_main/, 2026-11-16; matched to each butler by eye; sent as skinImgUrl and in Skin Select instead of the event portrait); the outfit item ids that match a true item (catalog items with art, matched by eye; see each butler's note); gender (read from the portrait, [I]). CHERRY-PICKED LOOK-ALIKES (field lookalikes, always a subset of outfit): Cherry-picked look-alike: an original catalog item chosen by Cherry because the true item is not in any archive; user decision 2026-10-29. Each one is an original item of the same slot that looks closest to the true item, which is not used; the faces (EY, EB, MO, NO) and the animal ears have no true match in any archive. CHERRY-MADE: the ids (1900000004-1900000010 in the Cherry block; 1900000001-1900000003 were Cherry's Hazel, Wren and Oswin, retired and never reused), the skin codes and skin ids (one default skin per butler: its outfit), skin_color (an original skin-palette index of the client, g_akHBC 0 to 16, chosen by Cherry from the portraits: 1 is the untinted base that matches the pale portraits; 0 is a tan tint and is wrong for the six human butlers; Merry is ANIMAL: the client ignores skin_color for animals (she keeps 0); her body colour comes from her FA outfit item instead; the palette decode is in the butler audit notes, skin-palette.md), the ability-to-gather-kind mapping (Fishing = fish, collecting Drops = essence (the Korean card says essence absorption), mining = ore), free_days, hire (the one 30-day period at 30 earned Cash), and gathering gems, gems_cap, gathers_per_day and duration_minutes (60 minutes from a gathering's start to its collect: Cherry-made, the client shows no duration of its own). Hire prices are in earned Cash (cash). The client's contract picker offers only 30-day periods (CButtonHandler 0x22cfb84), so hire lists the one 30-day period. The free first hire (free_days) is a separate path.",
   "free_days": 3,
   "hire": [
     {"days": 30, "cash": 30}
@@ -17,7 +17,7 @@
       "outfit": ["CUON009D6", "CUHA006L8", "CUSH003KV", "CUEY002AF", "CUEB000J2", "CUMO0015J", "CUNO00016", "CUAH0074I"],
       "lookalikes": ["CUEY002AF", "CUEB000J2", "CUMO0015J", "CUNO00016", "CUAH0074I"],
       "abilities": ["fish", "essence", "ore"],
-      "art": "b1",
+      "art": "b1", "skin_image": "cache/butler/butler_skin_master/skin_1616571707.png",
       "profile": {"blood_type": "AB", "birthday": "Aug 12", "keywords": ["Perfectionist", "courteous", "self-control"], "quote": "A perfect butler works for a perfect lord."},
       "note": "Outfit: ON, HA and SH are original. Her ribbon is part of HA 224408540. Look-alikes: the faces (EY, EB, MO, NO) and AH CUAH0074I (round gold glasses with a pearl chain) for the round gold monocle, which is in no archive. Cherry-picked look-alike: an original catalog item chosen by Cherry because the true item is not in any archive; user decision 2026-10-29."
     },
@@ -26,7 +26,7 @@
       "outfit": ["CUON009CW", "CUHA006L7", "CUSH003KZ", "CUEY0024M", "CUEB000GA", "CUMO00106", "CUNO00006"],
       "lookalikes": ["CUEY0024M", "CUEB000GA", "CUMO00106", "CUNO00006"],
       "abilities": ["fish", "essence"],
-      "art": "b2",
+      "art": "b2", "skin_image": "cache/butler/butler_skin_master/skin_1597832302.png",
       "profile": {"blood_type": "B", "birthday": "Sep 30", "keywords": ["Gentle", "mild", "smile"], "quote": "I would very much want to serve my lord even in my sleep."},
       "note": "Outfit: ON and HA are original; SH 225304643 is the plain black lace-up (a likely match, not confirmed by eye). Look-alikes: the faces (EY, EB, MO, NO). No accessories. Cherry-picked look-alike: an original catalog item chosen by Cherry because the true item is not in any archive; user decision 2026-10-29."
     },
@@ -35,7 +35,7 @@
       "outfit": ["CUON009CV", "CUSH003KY", "CUAH0087T", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
       "lookalikes": ["CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
       "abilities": ["ore"],
-      "art": "b3",
+      "art": "b3", "skin_image": "cache/butler/butler_skin_master/skin_1597832311.png",
       "profile": {"blood_type": "O", "birthday": "Jan 17", "keywords": ["Cute", "diligent", "committed"], "quote": "It's my duty for my lord to have a MERRY day!"},
       "note": "ANIMAL (bunny): gender ANIMAL is the client's sex 2, so the client's animal base fills the slots the outfit leaves empty [I]. ON, SH and the head band AH 225410649 are original. Look-alikes: the animal eyes, mouth and nose, the ears EA CAEA0004N (pink; the orange CAEA0000M is not used), and the skin FA CAFA0000T: an FA item sets an animal's BODY colour through the client map g_mapABC 0x3c11920 (CAFA0000T = #FFDCE1, 2.0 from her portrait fur; without an FA the body is the default brown #E08C3F; skin-palette.md, section Animal body colour). Not found: the tail (no item in either archive; the animal base has none). No HA: the animal head has no hair item. Cherry-picked look-alike: an original catalog item chosen by Cherry because the true item is not in any archive; user decision 2026-10-29."
     },
@@ -44,7 +44,7 @@
       "outfit": ["CUON009CT", "CUHA006LD", "CUSH003KU", "CUEY000LW", "CUEB0007D", "CUMO0011W", "CUNO00006", "CUAH005Z7"],
       "lookalikes": ["CUEY000LW", "CUEB0007D", "CUMO0011W", "CUNO00006", "CUAH005Z7"],
       "abilities": ["fish", "essence", "ore"],
-      "art": "b4",
+      "art": "b4", "skin_image": "cache/butler/butler_main/20201020112817335.png",
       "profile": {"blood_type": "AB", "birthday": "Nov 22", "keywords": ["Cold-hearted", "solitary", "loyal"], "quote": "I liked being alone. Until I met you."},
       "note": "Outfit: ON and HA are original; SH 225304638 is a likely match (black lace-up with sparkle). Look-alikes: the faces (the eyes CUEY000LW, both blue (CUEY0015Q was tried and dropped: it is heterochromatic), brows, mouth and nose), and AH CUAH005Z7 (navy tassel earrings) for the ear chain, which is in no archive (225410706 is a different design and is not used). Cherry-picked look-alike: an original catalog item chosen by Cherry because the true item is not in any archive; user decision 2026-10-29."
     },
@@ -53,7 +53,7 @@
       "outfit": ["CUHA006L6", "CUSH003KX", "CUON008U1", "CUEY00186", "CUEB000D7", "CUMO0013O", "CUNO00016", "CUAH005L1"],
       "lookalikes": ["CUON008U1", "CUEY00186", "CUEB000D7", "CUMO0013O", "CUNO00016", "CUAH005L1"],
       "abilities": ["essence", "ore"],
-      "art": "b5",
+      "art": "b5", "skin_image": "cache/butler/butler_main/20201020125845985.png",
       "profile": {"blood_type": "A", "birthday": "Feb 19", "keywords": ["Love", "clingy", "darkness"], "quote": "May I be close to you forever...!"},
       "note": "No original ON: the batch slots CUON009CY, CZ, D1, D5 and D8 are in neither archive. Look-alikes: ON CUON008U1 (225111449, outside the batch), the faces (EY, EB, MO, NO), and AH CUAH005L1 (black eyepatch) for the heart eyepatch, which is in no archive (CUAH0086L is a chest pendant and is not used). HA and SH are original. Ribbons: not found (225410605 is a different design). Cherry-picked look-alike: an original catalog item chosen by Cherry because the true item is not in any archive; user decision 2026-10-29."
     },
@@ -62,7 +62,7 @@
       "outfit": ["CUON009CS", "CUSH003KT", "CUHA006J0", "CUEY000XA", "CUEB000E7", "CUMO0000I", "CUNO00016", "CUAH000OC"],
       "lookalikes": ["CUHA006J0", "CUEY000XA", "CUEB000E7", "CUMO0000I", "CUNO00016", "CUAH000OC"],
       "abilities": ["essence"],
-      "art": "b6",
+      "art": "b6", "skin_image": "cache/butler/butler_main/20201020130048085.png",
       "profile": {"blood_type": "A", "birthday": "Jul 19", "keywords": ["Innocent", "whimsical", "clumsy"], "quote": "Oh no! I put salt in instead of sugar!"},
       "note": "ON and SH are original (white apron dress, black Mary Janes). Look-alikes: HA CUHA006J0 (mint, not braided) for the mint braids (224408541 and 224408543 are in neither archive), AH CUAH000OC (plain cream frill) for the maid headband and bow, which are in no archive (225410649 is Merry's head band; CUAH008A2 was a heavy bonnet and is not used), and the faces (EY, EB, MO, NO). Cherry-picked look-alike: an original catalog item chosen by Cherry because the true item is not in any archive; user decision 2026-10-29."
     },
@@ -71,7 +71,7 @@
       "outfit": ["CUON009CU", "CUHA006LA", "CUSH003KW", "CUEY001EM", "CUEB000IU", "CUMO0008T", "CUNO00006"],
       "lookalikes": ["CUEY001EM", "CUEB000IU", "CUMO0008T", "CUNO00006"],
       "abilities": ["fish"],
-      "art": "b7",
+      "art": "b7", "skin_image": "cache/butler/butler_main/20201020130206627.png",
       "profile": {"blood_type": "O", "birthday": "Mar 23", "keywords": ["Foodaholic", "endearing", "naïve"], "quote": "I choose you over food!"},
       "note": "Outfit: ON and HA are original; SH 225304640 (tan) is a likely match. Look-alikes: the faces (EY, EB, MO, NO). No accessories. Cherry-picked look-alike: an original catalog item chosen by Cherry because the true item is not in any archive; user decision 2026-10-29."
     }

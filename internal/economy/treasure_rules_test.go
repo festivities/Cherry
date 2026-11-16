@@ -1,12 +1,8 @@
 package economy
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"image/png"
-	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -125,6 +121,7 @@ func TestTreasureMissionTypesCount(t *testing.T) {
 // TestTreasureExchangeRules: Jewels become Ranking Points at the rate on an exchange square, up to the square's daily limit;
 // a refusal changes nothing; the limit starts again at 06:00 JST.
 func TestTreasureExchangeRules(t *testing.T) {
+	treasureClassic(t)
 	butlerAccount(t, "1001", 0, 0)
 	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Position: 2, Tickets: 10, Charged: treasureNow.UnixMilli(), Jewels: 70})
 	res, err := TreasureExchange("1001", 5, treasureNow)
@@ -161,6 +158,7 @@ func TestTreasureExchangeRules(t *testing.T) {
 // TestTreasureExchangeTiles: squares 2, 8, 15 convert at 1x, 2x, 3x (the popup shows that rate) and square 22 draws
 // 1x to 5x per exchange (data/treasure.json tiles).
 func TestTreasureExchangeTiles(t *testing.T) {
+	treasureClassic(t)
 	butlerAccount(t, "1001", 0, 0)
 	draw := TreasureRandIntn
 	t.Cleanup(func() { TreasureRandIntn = draw })
@@ -182,6 +180,7 @@ func TestTreasureExchangeTiles(t *testing.T) {
 // TestTreasureResetRules: a full square resets for earned Gems through the ledger (treasure:reset:*); CASH is refused, a
 // short balance is refused, and a square that is not full has nothing to reset.
 func TestTreasureResetRules(t *testing.T) {
+	treasureClassic(t)
 	dir := butlerAccount(t, "1001", 0, 20)
 	treasureState(t, "1001", store.TreasureRecord{Season: treasureSeasonID(), Position: 2, Tickets: 10, Charged: treasureNow.UnixMilli(),
 		ExDay: treasureDayNumber(treasureNow), Exchanged: map[string]int64{"2": 60}})
@@ -460,51 +459,6 @@ func TestTreasureRankRewardRules(t *testing.T) {
 	}
 	if late := TreasureRankInfo("1001", end.AddDate(0, 0, 8)); late.Open || late.Claimable {
 		t.Fatalf("rank offer after the claim window: %+v", late)
-	}
-}
-
-// TestTreasureArtDrawn: the three Cherry-drawn pictures decode at their plist sizes, have a transparent corner and a white
-// symbol, and are cached once under the tw1_ prefix.
-func TestTreasureArtDrawn(t *testing.T) {
-	dir := t.TempDir()
-	prev := thumbs.DpCacheDir
-	thumbs.DpCacheDir = dir
-	t.Cleanup(func() { thumbs.DpCacheDir = prev })
-	sizes := map[string][2]int{"quest_button.png": {180, 67}, "help_button.png": {62, 67}, "rank_board.png": {250, 67}}
-	for name, size := range sizes {
-		b, ok := treasureDrawnPicture(name)
-		if !ok {
-			t.Fatalf("%s not drawn", name)
-		}
-		img, err := png.Decode(bytes.NewReader(b))
-		if err != nil || img.Bounds().Dx() != size[0] || img.Bounds().Dy() != size[1] {
-			t.Fatalf("%s: %v, bounds %v", name, err, img.Bounds())
-		}
-		if _, _, _, a := img.At(0, 0).RGBA(); a != 0 {
-			t.Fatalf("%s: corner is not transparent", name)
-		}
-		white := 0
-		for y := 0; y < size[1]; y++ {
-			for x := 0; x < size[0]; x++ {
-				r, g, bl, a := img.At(x, y).RGBA()
-				if a > 0x8000 && r > 0xF000 && g > 0xE800 && bl > 0xE000 {
-					white++
-				}
-			}
-		}
-		if white < 20 {
-			t.Fatalf("%s: %d white pixels, want a visible symbol", name, white)
-		}
-	}
-	entries, _ := os.ReadDir(dir)
-	if len(entries) != 3 || !strings.HasPrefix(entries[0].Name(), "tw1_") {
-		t.Fatalf("cache entries = %v, want three tw1_ files", entries)
-	}
-	if _, ok := treasureDrawnPicture("nope.png"); ok {
-		t.Fatal("an unknown name was drawn")
-	}
-	if TreasureSeasonPicture(22) != "cherry/treasure/quest_button.png" || TreasureSeasonPicture(1) != "" {
-		t.Fatalf("picture paths: 22 = %q, 1 = %q", TreasureSeasonPicture(22), TreasureSeasonPicture(1))
 	}
 }
 

@@ -36,6 +36,13 @@ func TestSquaresDefaultList(t *testing.T) {
 			t.Fatalf("entry %d = theme %d map %s", i, list[i].Theme, list[i].Map)
 		}
 	}
+	// IconPath (field 7) carries the list picture; Runway Square has none and keeps the client default.
+	if info := squareThemeInfo(list[0], 0); !strings.Contains(string(info), "animation/world_icon/square_thum_city.png") {
+		t.Fatalf("LINE City theme_info lacks its icon: %q", info)
+	}
+	if list[2].Icon != "" {
+		t.Fatalf("Runway Square icon = %q, want none", list[2].Icon)
+	}
 }
 
 func TestSquaresCheckRejectsBadData(t *testing.T) {
@@ -45,18 +52,20 @@ func TestSquaresCheckRejectsBadData(t *testing.T) {
 		return `{"origin":"mixed","note":"test","squares":[` + strings.Join(entries, ",") + `]}`
 	}
 	for name, bad := range map[string]string{
-		"no LINE City":       doc(cafe),
-		"City listed twice":  doc(city, city),
-		"City hidden":        doc(strings.Replace(city, `"visible":true`, `"visible":false`, 1)),
-		"City on other map":  doc(strings.Replace(city, "2401039000", "2202250100", 1)),
-		"empty name":         doc(strings.Replace(city, `"name":"LINE City"`, `"name":""`, 1), cafe),
-		"empty list name":    doc(strings.Replace(city, `"list_name":"LINE City"`, `"list_name":""`, 1)),
-		"empty map":          doc(city, strings.Replace(cafe, "2202250100", "", 1)),
-		"map is a path":      doc(city, strings.Replace(cafe, "2202250100", "../x", 1)),
-		"spawn off the map":  doc(city, strings.Replace(cafe, `"x":87`, `"x":160`, 1)),
-		"zero map size":      doc(city, strings.Replace(cafe, `"map_size":160`, `"map_size":0`, 1)),
-		"unknown key":        doc(city, strings.Replace(cafe, `"visible":true`, `"visible":true,"extra":1`, 1)),
-		"not an object list": `{"name":"LINE City"}`,
+		"no LINE City":            doc(cafe),
+		"City listed twice":       doc(city, city),
+		"City hidden":             doc(strings.Replace(city, `"visible":true`, `"visible":false`, 1)),
+		"City on other map":       doc(strings.Replace(city, "2401039000", "2202250100", 1)),
+		"empty name":              doc(strings.Replace(city, `"name":"LINE City"`, `"name":""`, 1), cafe),
+		"empty list name":         doc(strings.Replace(city, `"list_name":"LINE City"`, `"list_name":""`, 1)),
+		"empty map":               doc(city, strings.Replace(cafe, "2202250100", "", 1)),
+		"map is a path":           doc(city, strings.Replace(cafe, "2202250100", "../x", 1)),
+		"spawn off the map":       doc(city, strings.Replace(cafe, `"x":87`, `"x":160`, 1)),
+		"zero map size":           doc(city, strings.Replace(cafe, `"map_size":160`, `"map_size":0`, 1)),
+		"unknown key":             doc(city, strings.Replace(cafe, `"visible":true`, `"visible":true,"extra":1`, 1)),
+		"not an object list":      `{"name":"LINE City"}`,
+		"icon outside world_icon": doc(city, strings.Replace(cafe, `"visible":true`, `"visible":true,"icon":"UIResource/x.png"`, 1)),
+		"icon climbs out":         doc(city, strings.Replace(cafe, `"visible":true`, `"visible":true,"icon":"animation/world_icon/../x.png"`, 1)),
 	} {
 		if _, err := opdata.Decode([]byte(bad), checkSquares); err == nil {
 			t.Fatalf("%s accepted: %s", name, bad)

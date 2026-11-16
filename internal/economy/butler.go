@@ -51,6 +51,9 @@ const dayMillis = 86400000
 // butlerArtFS is the original UI art tree (UIResource/UIImage_hd) read from the store. The portraits are originals.
 var butlerArtFS fs.FS = assets.DeviceFiles("UIResource/UIImage_hd")
 
+// butlerSkinFS is the device files/ tree the skin pictures (skin_image: cache/butler/...) are read from.
+var butlerSkinFS fs.FS = assets.DeviceFiles("")
+
 // Butlers is data/butlers.json. Strict JSON: unknown keys are an error.
 //
 //	origin      must be "mixed": the roster is original; the ids, skin codes, prices and gathering amounts are Cherry-made
@@ -112,6 +115,7 @@ type ButlerDef struct {
 	Lookalikes []string      `json:"lookalikes,omitempty"`
 	Abilities  []string      `json:"abilities"`
 	Art        string        `json:"art"`
+	SkinImage  string        `json:"skin_image,omitempty"` // the original skin picture (a device files/ path); "" sends the portrait
 	Profile    ButlerProfile `json:"profile"`
 	Note       string        `json:"note,omitempty"`
 }
@@ -230,6 +234,11 @@ func verifyButlers(b *Butlers) error {
 		if _, err := fs.Stat(butlerArtFS, butlerArtFile(d)); err != nil {
 			return fmt.Errorf("butler %d: portrait %s is not in the archive", d.ID, butlerArtFile(d))
 		}
+		if d.SkinImage != "" {
+			if _, err := fs.Stat(butlerSkinFS, d.SkinImage); err != nil {
+				return fmt.Errorf("butler %d: skin_image %s is not in the archive", d.ID, d.SkinImage)
+			}
+		}
 	}
 	return nil
 }
@@ -248,12 +257,17 @@ func ButlerOutfitIDs(d ButlerDef) []int64 {
 	return ids
 }
 
-// ButlerPortrait returns the portrait of roster butler id: the original art, read as it is from the store. ok is false
-// for a butler outside the roster or a missing file. Nothing is generated.
+// ButlerPortrait returns the picture of roster butler id: its original skin picture (skin_image) when the data names one,
+// else its event portrait; the original art, read as it is from the store. ok is false for a butler outside the roster or
+// a missing file. Nothing is generated.
 func ButlerPortrait(id int64) ([]byte, bool) {
 	d, ok := ButlerByID(id)
 	if !ok {
 		return nil, false
+	}
+	if d.SkinImage != "" {
+		b, err := fs.ReadFile(butlerSkinFS, d.SkinImage)
+		return b, err == nil
 	}
 	b, err := fs.ReadFile(butlerArtFS, butlerArtFile(d))
 	return b, err == nil

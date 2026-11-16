@@ -261,6 +261,7 @@ func TestTreasureOpenEchoIsExact(t *testing.T) {
 // TestTreasureBoardOverTheGateway drives one session end to end: login, enter (28 squares, season 1), relay start, six
 // rolls (one with a lap), coin count, the exit with its close control, the tutorial flag and the re-entry.
 func TestTreasureBoardOverTheGateway(t *testing.T) {
+	treClassic(t)
 	treScene(t)
 	treDice(t, 3, 3, 5, 6, 6, 6) // squares 3, 6, 11, 17, 23, 1: no gold key (5, 12, 19, 26) on the way
 	g := newTreGateway(t)
@@ -282,8 +283,8 @@ func TestTreasureBoardOverTheGateway(t *testing.T) {
 			t.Fatalf("season picture field %d = %q, want present and %q", f, got, economy.TreasureSeasonPicture(f))
 		}
 	}
-	// SkinUrl and BgImgUrl are the v1 pictures named in data/treasure.json (art.board, art.background); the board's file name
-	// carries the crc of the ring and the rates.
+	// SkinUrl and BgImgUrl are the v1 pictures the classic test file names (art.board, art.background); the board's file name
+	// carries the crc of the ring and the rates. The default's original pictures: economy TestTreasureOriginalArt.
 	d := economy.ActiveTreasureData()
 	if got := string(cirBytes(season, 1)); got != economy.TreasureBoardPicture(d) || !strings.HasPrefix(got, "cherry/treasure/board_v1_") {
 		t.Fatalf("SkinUrl = %q, want the v1 board %q", got, economy.TreasureBoardPicture(d))
@@ -430,6 +431,7 @@ func TestTreasureRefusals(t *testing.T) {
 
 // TestTreasureNoTicketRoll: with no ticket left the roll is refused with the counts, and the square does not change.
 func TestTreasureNoTicketRoll(t *testing.T) {
+	treClassic(t)
 	treScene(t)
 	treDice(t, 1) // one square a roll: no lap, so the ten tickets are the only ones
 	g := newTreGateway(t)
@@ -457,6 +459,7 @@ func TestTreasureNoTicketRoll(t *testing.T) {
 // f7.f9.f1 = 1) and no reward. cs 10 (empty body) plays the card: with the stubbed draws the first card, one step forward, so
 // the token goes to square 6 (a coin, one Jewel), and the reply has no lap. A second cs 10 on the same key is refused.
 func TestTreasureGoldKeyOverTheGateway(t *testing.T) {
+	treClassic(t)
 	treScene(t)
 	treDice(t, 5)
 	g := newTreGateway(t)
@@ -501,19 +504,38 @@ func TestTreasureGoldKeyOverTheGateway(t *testing.T) {
 var treProbeRing = []int{0, 1, 2, 3, 5, 8, 9, 1, 4, 1, 7, 1, 1, 2, 1, 1, 4, 1, 7, 1, 1, 2, 1, 1, 4, 1, 7, 1}
 
 // treLoadRing loads the default treasure file with ring as its board, and square 2 as the only exchange tile (the default
-// tiles name 8, 15 and 22, which the probe ring does not keep as exchange squares), for one test.
+// tiles name 4, 18 and 25, which the probe ring does not keep as exchange squares), for one test.
 func treLoadRing(t *testing.T, ring []int) {
+	t.Helper()
+	treLoadRingTiles(t, ring, []map[string]int{{"square": 2, "times": 1}})
+}
+
+// treClassicRing is the default ring before the original board (2026-11-16) with its exchange squares 2, 8, 15 and 22: the
+// gateway tests below were written against its positions.
+var treClassicRing = []int{0, 1, 2, 4, 5, 7, 1, 6, 2, 3, 4, 1, 7, 1, 9, 2, 1, 4, 1, 7, 1, 8, 2, 3, 4, 1, 7, 1}
+
+// treClassic loads the default treasure file on the classic ring and its four tiles.
+func treClassic(t *testing.T) {
+	t.Helper()
+	treLoadRingTiles(t, treClassicRing, []map[string]int{
+		{"square": 2, "times": 1}, {"square": 8, "times": 2}, {"square": 15, "times": 3}, {"square": 22, "gamble": 5}})
+}
+
+// treLoadRingTiles loads the default treasure file with ring, tiles and the drawn board (the original board paints its own
+// ring), for one test.
+func treLoadRingTiles(t *testing.T, ring []int, tiles []map[string]int) {
 	t.Helper()
 	doc := map[string]json.RawMessage{}
 	if err := json.Unmarshal(data.TreasureJSON, &doc); err != nil {
 		t.Fatal(err)
 	}
 	doc["board"], _ = json.Marshal(map[string][]int{"ring": ring})
+	doc["art"], _ = json.Marshal(map[string]string{"board": "board_v1", "background": "bg_v1"})
 	var ex map[string]json.RawMessage
 	if err := json.Unmarshal(doc["exchange"], &ex); err != nil {
 		t.Fatal(err)
 	}
-	ex["tiles"], _ = json.Marshal([]map[string]int{{"square": 2, "times": 1}})
+	ex["tiles"], _ = json.Marshal(tiles)
 	doc["exchange"], _ = json.Marshal(ex)
 	raw, _ := json.Marshal(doc)
 	path := filepath.Join(t.TempDir(), "treasure.json")

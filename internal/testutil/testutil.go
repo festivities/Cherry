@@ -77,6 +77,7 @@ var (
 	archiveRoot  = archiveFolder()
 	santiFiles   = filepath.Join(archiveRoot, "santi-backup-20260921", "jp.naver.lineplay.android", "files")
 	lpFiles      = filepath.Join(archiveRoot, "lpbackup", "jp.naver.lineplay.android", "files")
+	roboCaches   = filepath.Join(archiveRoot, "robo-backup-20261113", "Library", "Caches")
 	originalsAPK = filepath.Join(archiveRoot, "lineplay-original-assets")
 )
 
@@ -125,6 +126,7 @@ func ArchiveMounts(items ...string) map[string][]string {
 		"static/garden01/":              {filepath.Join(craft, "garden01")},
 		"static/craft01/":               {filepath.Join(craft, "craft01")},
 		"static/photozone/frame/":       {filepath.Join(santiFiles, "cache", "photozone", "frame")},
+		"static/cache/":                 {filepath.Join(roboCaches, "cache")}, // the robo iOS cache's season and butler art (origin.go)
 		"static/android-10.1.0.0-2024/": {filepath.Join(originalsAPK, "android-10.1.0.0-2024")},
 		"static/android-4.0.0.0-2016/":  {filepath.Join(originalsAPK, "android-4.0.0.0-2016")},
 	}

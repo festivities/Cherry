@@ -1,6 +1,7 @@
 package economy
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -268,6 +269,9 @@ func TestTreasureLabProbeRingValidates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	d.Board.Ring = slices.Clone(treasureClassicRing)
+	d.Exchange.Tiles = []TreasureTile{{Square: 2, Times: 1}, {Square: 8, Times: 2}, {Square: 15, Times: 3}, {Square: 22, Gamble: 5}}
+	d.Art.Board = treasureBoardV1Stem
 	d.Board.Ring[23] = TreasureCellTravel
 	d.Board.Ring[25] = TreasureCellTrap
 	if err := checkTreasureData(d); err != nil {

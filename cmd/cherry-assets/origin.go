@@ -35,6 +35,13 @@ var origSources = []origSource{
 	{top: "DailyBonus", base: extraDataset},
 	{top: "DiarySkin", base: defaultDataset, file: "common/UIImage_hd/avatar_photo_bg.png"},
 	{top: "DiarySkin", base: defaultDataset, file: "00001/UIImage_hd/skin_info.json"},
+	// Treasure World season pictures (SeasonInfo picture fields, economy.TreasureSeasonArt): the server's season art as
+	// the robo iOS device cached it; served at /cherry/treasure/<name> from static/cache/season_master/.
+	{top: "cache", base: roboDataset, tree: "season_master"},
+	// Butler skin pictures (butlers.json skin_image, ButlerSkinInfo skinImgUrl): the server's skin and main pictures as the
+	// robo iOS device cached them; served at /cherry/butler/<id>.png from static/cache/butler/.
+	{top: "cache", base: roboDataset, tree: "butler/butler_skin_master"},
+	{top: "cache", base: roboDataset, tree: "butler/butler_main"},
 }
 
 // origRoot is the folder a source's files are under.

@@ -307,18 +307,18 @@ func treasurePhaseName(p economy.TreasurePhase) string {
 }
 
 // treasureSeasonInfo is SeasonInfo with all 25 fields: the names from the data, the picture paths (economy.TreasureSeasonPicture:
-// the original HUD art and the Cherry-drawn buttons; SkinUrl and BgImgUrl come from the data's art names), the other picture
+// the original season pictures; SkinUrl and BgImgUrl come from the data's art names), the other picture
 // paths empty (the client draws nothing for an empty path, treasure-spec 9.2). The dates (f23 start, f24 end of the play window)
 // are Unix seconds: the client multiplies them by 1000 for its date text (season-end-spec 8).
 func treasureSeasonInfo(d *economy.TreasureData, cyc economy.TreasureCycle) []byte {
 	var b []byte
 	text := func(field uint64, v string) { b = pbLen(b, field, []byte(v)) }
-	text(1, economy.TreasureBoardPicture(d)) // SkinUrl: the board picture (Cherry-drawn, data art.board)
+	text(1, economy.TreasureBoardPicture(d)) // SkinUrl: the board picture (data art.board)
 	text(2, economy.TreasureSeasonPicture(2))
-	text(3, "") // DiceType (no reader found)
-	text(4, "") // MainBannerNomalUrl
-	text(5, "") // MainBannerRewardUrl
-	text(6, "") // RankingPointFontColor (no reader found)
+	text(3, "")                               // DiceType (no reader found)
+	text(4, economy.TreasureSeasonPicture(4)) // MainBannerNomalUrl
+	text(5, economy.TreasureSeasonPicture(5)) // MainBannerRewardUrl
+	text(6, "")                               // RankingPointFontColor (no reader found)
 	b = pbVar(b, 7, uint64(d.Tickets.PerRoll))
 	text(8, d.Names.Ticket)
 	text(9, d.Names.Coin)
@@ -328,7 +328,7 @@ func treasureSeasonInfo(d *economy.TreasureData, cyc economy.TreasureCycle) []by
 	b = pbLen(b, 13, treasureAvatar(d.NPCs[1]))
 	for f := uint64(14); f <= 22; f++ { // RankingPointOneUrl .. BgImgUrl .. QuestButtonUrl: image paths
 		if f == 20 {
-			text(f, economy.TreasureBackgroundPicture(d)) // BgImgUrl: the background (Cherry-drawn, data art.background)
+			text(f, economy.TreasureBackgroundPicture(d)) // BgImgUrl: the background (data art.background)
 			continue
 		}
 		text(f, economy.TreasureSeasonPicture(f))

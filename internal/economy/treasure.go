@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand/v2"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -181,13 +182,15 @@ type TreasureArt struct {
 	Background string `json:"background"`
 }
 
-// checkTreasureArt refuses a picture name Cherry does not draw for that field.
-func checkTreasureArt(a TreasureArt) error {
+// checkTreasureArt refuses a picture name Cherry has no picture for, and the original board over another ring.
+func checkTreasureArt(a TreasureArt, ring []int) error {
 	switch {
-	case a.Board != "" && a.Board != treasureBoardV1Stem && a.Board != treasureBoardCalStem:
-		return fmt.Errorf("art.board %q is not a board picture Cherry draws (%q, %q or \"\")", a.Board, treasureBoardV1Stem, treasureBoardCalStem)
-	case a.Background != "" && a.Background != treasureBgV1Stem && a.Background != treasureBgCalStem:
-		return fmt.Errorf("art.background %q is not a background picture Cherry draws (%q, %q or \"\")", a.Background, treasureBgV1Stem, treasureBgCalStem)
+	case a.Board != "" && a.Board != treasureOriginalStem && a.Board != treasureBoardV1Stem && a.Board != treasureBoardCalStem:
+		return fmt.Errorf("art.board %q is not a board picture (%q, %q, %q or \"\")", a.Board, treasureOriginalStem, treasureBoardV1Stem, treasureBoardCalStem)
+	case a.Background != "" && a.Background != treasureOriginalStem && a.Background != treasureBgV1Stem && a.Background != treasureBgCalStem:
+		return fmt.Errorf("art.background %q is not a background picture (%q, %q, %q or \"\")", a.Background, treasureOriginalStem, treasureBgV1Stem, treasureBgCalStem)
+	case a.Board == treasureOriginalStem && !slices.Equal(ring, treasureOriginalRing):
+		return fmt.Errorf("art.board %q paints its squares: board.ring must be %v", treasureOriginalStem, treasureOriginalRing)
 	}
 	return nil
 }
@@ -584,7 +587,7 @@ func checkTreasureData(t *TreasureData) error {
 	case r.Start.Tickets < 0 || r.Start.Tickets > 100:
 		return errors.New("rewards.start.tickets must be 0 to 100")
 	}
-	if err := checkTreasureArt(t.Art); err != nil {
+	if err := checkTreasureArt(t.Art, t.Board.Ring); err != nil {
 		return err
 	}
 	if len(t.NPCs) != 2 {
