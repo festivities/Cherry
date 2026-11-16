@@ -29,6 +29,12 @@ var saveLimits = [saveBuckets - 1]time.Duration{time.Millisecond, 5 * time.Milli
 
 var saveNames = [saveBuckets]string{"le_1ms", "le_5ms", "le_20ms", "le_100ms", "gt_100ms"}
 
+// saveLabels are the buckets' names as the staff dashboard shows them.
+var saveLabels = [saveBuckets]string{"up to 1 ms", "1 to 5 ms", "5 to 20 ms", "20 to 100 ms", "over 100 ms"}
+
+// started is when the process started: this package initialises before main, which is near enough.
+var started = time.Now()
+
 // ObserveSave records one save that held its lock for d.
 func ObserveSave(d time.Duration) {
 	ns := int64(d)
@@ -75,5 +81,19 @@ func publish(name string, v *atomic.Int64) {
 	expvar.Publish("cherry."+name, expvar.Func(func() any { return v.Load() }))
 }
 
-// Saves is the number of store saves so far (the staff dashboard reads it).
-func Saves() int64 { return saves.Load() }
+// Started is when the process started.
+func Started() time.Time { return started }
+
+// SaveStats is the number of store saves so far, the time they held the store's lock in total and the longest hold.
+func SaveStats() (n int64, total, longest time.Duration) {
+	return saves.Load(), time.Duration(saveNs.Load()), time.Duration(saveMaxNs.Load())
+}
+
+// SaveHistogram is the save-time buckets' labels and counts, in order (the staff dashboard reads them).
+func SaveHistogram() (labels []string, counts []int64) {
+	for i := range saveBuckets {
+		labels = append(labels, saveLabels[i])
+		counts = append(counts, saveBucket[i].Load())
+	}
+	return labels, counts
+}
