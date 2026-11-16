@@ -419,3 +419,61 @@ func verifyGroup(key string) string {
 	}
 	return "bulk:" + parts[1]
 }
+
+// runPrune deletes the converted-item objects (cherry/item/) and their D1 generated rows that the plan no longer
+// has: items a newer device backup now holds as originals (convert skips those ids). It never touches static/
+// or the indexes. Without yes it only prints what it would delete.
+func runPrune(ctx context.Context, objs []*object, yes bool) error {
+	cfg, err := loadR2()
+	if err != nil {
+		return err
+	}
+	client := assets.NewClient(cfg)
+	want := map[string]bool{}
+	for _, o := range objs {
+		want[o.key] = true
+	}
+	var stale []string
+	prefix := assets.CherryPrefix + "item/"
+	for token := ""; ; {
+		page, next, err := client.ListPage(ctx, prefix, token)
+		if err != nil {
+			return err
+		}
+		for _, o := range page {
+			if !want[o.Key] {
+				stale = append(stale, o.Key)
+			}
+		}
+		if next == "" {
+			break
+		}
+		token = next
+	}
+	fmt.Printf("prune: %d stale objects under %s\n", len(stale), prefix)
+	if !yes || len(stale) == 0 {
+		return nil
+	}
+	for _, k := range stale {
+		if err := retry(ctx, func() error { return client.Delete(ctx, k) }); err != nil {
+			return fmt.Errorf("delete %s: %w", k, err)
+		}
+	}
+	creds, err := loadD1Creds()
+	if err != nil {
+		return err
+	}
+	d1 := &d1Client{creds: creds, api: d1API, hc: &http.Client{Timeout: 60 * time.Second}}
+	for i := 0; i < len(stale); i += d1Batch {
+		end := min(i+d1Batch, len(stale))
+		quoted := make([]string, 0, end-i)
+		for _, k := range stale[i:end] {
+			quoted = append(quoted, sqlStr(k))
+		}
+		if _, err := d1.query(ctx, "DELETE FROM generated WHERE key IN ("+strings.Join(quoted, ", ")+")"); err != nil {
+			return fmt.Errorf("d1 generated rows %d-%d: %w", i, end, err)
+		}
+	}
+	fmt.Printf("prune: %d objects and their D1 rows deleted\n", len(stale))
+	return nil
+}

@@ -149,7 +149,12 @@ func TestBuildObjectsLaterRootsFillGaps(t *testing.T) {
 		"item/custom/123/extra.png",                       // added to a shared id
 		"item/custom/224301832/dp.png",                    // added id
 		"item/dress/225103469/dp.png",                     // added id
+		"item/dress/225103469/fl_l1_a00.png__",            // a partial download: never served
 	)
+	// An empty file is a partial download too.
+	if err := os.WriteFile(filepath.Join(second, "item", "dress", "225103469", "b_14.png"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	objs, err := buildObjects([]string{first, second})
 	if err != nil {
 		t.Fatal(err)
