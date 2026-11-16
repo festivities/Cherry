@@ -353,6 +353,7 @@ func newMux(svc *auth.Service) http.Handler {
 	mux.HandleFunc("/cherry/fish/", economy.HandleFishImage)
 	mux.HandleFunc("/cherry/fishing/", economy.HandleFishingItemImage)
 	mux.HandleFunc("/cherry/butler/", economy.HandleButlerImage)
+	mux.HandleFunc("/butler_voice_master/", economy.HandleButlerVoiceZip) // a voice pack zip (butler-robo-spec 1.4)
 	mux.HandleFunc("/cherry/spin/", economy.HandleSpinImage)
 	mux.HandleFunc("/cherry/dye/", economy.HandleDyeImage)
 	mux.HandleFunc("/cherry/menu/", handleMenuIcon)

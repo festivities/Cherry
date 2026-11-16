@@ -362,7 +362,7 @@ func TestButlerConfigRefusesIdOutsideCherryBlock(t *testing.T) {
 		t.Fatalf("embedded butlers: origin=%q n=%d", b.Origin, len(b.Butlers))
 	}
 	for _, d := range ActiveButlers().Butlers {
-		if !IsCherryButler(d.ID) || !strings.HasPrefix(d.Skin, "cherry_") {
+		if !IsCherryButler(d.ID) || !strings.HasPrefix(d.Skins[0].Code, "cherry_") {
 			t.Fatalf("embedded butler %+v has a non-Cherry id or skin", d)
 		}
 	}
@@ -370,7 +370,7 @@ func TestButlerConfigRefusesIdOutsideCherryBlock(t *testing.T) {
 	valid := func(id int64) *Butlers {
 		return &Butlers{Origin: "mixed", Note: "n", FreeDays: 3, Hire: []ButlerPrice{{Days: 30, Cash: 30}},
 			Gathering: ButlerGathering{Gems: 3, GemsCap: 10, GathersPerDay: 10, DurationMinutes: 60},
-			Butlers: []ButlerDef{{ID: id, Name: "X", Gender: "FEMALE", Skin: "cherry_x", Outfit: []string{"CUON004BH"},
+			Butlers: []ButlerDef{{ID: id, Name: "X", Gender: "FEMALE", Skins: []ButlerSkin{{ID: DefaultSkinID(id), Code: "cherry_x", Name: "X", Outfit: []string{"CUON004BH"}}},
 				Abilities: []string{"essence"}, Art: "b1"}}}
 	}
 	if err := checkButlers(valid(CherryButlerFirst)); err != nil {
@@ -427,7 +427,7 @@ func TestButlerConfigRefusesIdOutsideCherryBlock(t *testing.T) {
 	bad := filepath.Join(t.TempDir(), "butlers.json")
 	raw := `{"origin":"mixed","note":"n","free_days":3,"hire":[{"days":30,"cash":30}],` +
 		`"gathering":{"gems":3,"gems_cap":10,"gathers_per_day":10},` +
-		`"butlers":[{"id":5,"name":"Low","gender":"MALE","skin":"cherry_low","outfit":["CUON004BH"],"abilities":["ore"],"art":"b1"}]}`
+		`"butlers":[{"id":5,"name":"Low","gender":"MALE","skins":[{"id":5,"code":"cherry_low","name":"Low","outfit":["CUON004BH"]}],"abilities":["ore"],"art":"b1"}]}`
 	if err := os.WriteFile(bad, []byte(raw), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -471,8 +471,8 @@ func TestButlerRosterIsOriginal(t *testing.T) {
 // parts. The skin colour is palette index 1 (the untinted base) for the six human butlers and 0 for Merry (ANIMAL, ignored).
 func TestButlerLookalikesAndSkins(t *testing.T) {
 	for _, d := range ActiveButlers().Butlers {
-		for _, code := range d.Lookalikes {
-			if !slices.Contains(d.Outfit, code) {
+		for _, code := range d.Skins[0].Lookalikes {
+			if !slices.Contains(d.Skins[0].Outfit, code) {
 				t.Fatalf("%s: look-alike %s is not in the outfit", d.Name, code)
 			}
 		}
@@ -480,11 +480,11 @@ func TestButlerLookalikesAndSkins(t *testing.T) {
 		if d.Gender == "ANIMAL" {
 			want = 0
 		}
-		if d.SkinColor != want {
-			t.Fatalf("%s: skin_color %d, want %d", d.Name, d.SkinColor, want)
+		if d.Skins[0].SkinColor != want {
+			t.Fatalf("%s: skin_color %d, want %d", d.Name, d.Skins[0].SkinColor, want)
 		}
 	}
-	if d, ok := ButlerByID(merry); !ok || !slices.Equal(d.Lookalikes, []string{"CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"}) {
+	if d, ok := ButlerByID(merry); !ok || !slices.Equal(d.Skins[0].Lookalikes, []string{"CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"}) {
 		t.Fatalf("merry look-alikes = %+v, want her five animal parts", d)
 	}
 }
@@ -495,8 +495,8 @@ func TestButlerOutfitRefusesTwoOfASlotAndUnlistedLookalike(t *testing.T) {
 	valid := func(outfit, lookalikes []string) *Butlers {
 		return &Butlers{Origin: "mixed", Note: "n", FreeDays: 3, Hire: []ButlerPrice{{Days: 30, Cash: 30}},
 			Gathering: ButlerGathering{Gems: 3, GemsCap: 10, GathersPerDay: 10, DurationMinutes: 60},
-			Butlers: []ButlerDef{{ID: CherryButlerFirst, Name: "X", Gender: "FEMALE", Skin: "cherry_x", Outfit: outfit,
-				Lookalikes: lookalikes, Abilities: []string{"essence"}, Art: "b1"}}}
+			Butlers: []ButlerDef{{ID: CherryButlerFirst, Name: "X", Gender: "FEMALE", Abilities: []string{"essence"}, Art: "b1",
+				Skins: []ButlerSkin{{ID: DefaultSkinID(CherryButlerFirst), Code: "cherry_x", Name: "X", Outfit: outfit, Lookalikes: lookalikes}}}}}
 	}
 	if err := checkButlers(valid([]string{"CUON009D6", "CUEY002AF", "CAEA0004N"}, []string{"CUEY002AF"})); err != nil {
 		t.Fatalf("one item per slot with a look-alike: %v", err)
@@ -525,7 +525,7 @@ func TestButlerOutfitAcceptsFaceParts(t *testing.T) {
 	check := func(outfit ...string) error {
 		b := *ActiveButlers()
 		b.Butlers = slices.Clone(b.Butlers)
-		b.Butlers[0].Outfit = outfit
+		b.Butlers[0].Skins = withOutfit(b.Butlers[0].Skins, outfit)
 		return verifyButlers(&b)
 	}
 	if err := check("CUON009D6", "CUEY002AF", "CUEB000J2", "CAEA0004N"); err != nil {
@@ -552,11 +552,11 @@ func TestButlerOutfitAndPortrait(t *testing.T) {
 	}
 	bad := *ActiveButlers()
 	bad.Butlers = slices.Clone(bad.Butlers)
-	bad.Butlers[0].Outfit = []string{"CUON00000"}
+	bad.Butlers[0].Skins = withOutfit(bad.Butlers[0].Skins, []string{"CUON00000"})
 	if err := verifyButlers(&bad); err == nil || !strings.Contains(err.Error(), "not a shop item with art") {
 		t.Fatalf("unknown outfit code: err = %v", err)
 	}
-	bad.Butlers[0].Outfit = ActiveButlers().Butlers[0].Outfit
+	bad.Butlers[0].Skins = ActiveButlers().Butlers[0].Skins
 	bad.Butlers[0].Art = "b99"
 	if err := verifyButlers(&bad); err == nil || !strings.Contains(err.Error(), "not in the archive") {
 		t.Fatalf("missing portrait: err = %v", err)
@@ -598,7 +598,7 @@ func TestHireMakesFirstHireChief(t *testing.T) {
 	if _, _, book, _ := butlerState(t, "3104"); book.Leader != ophelia {
 		t.Fatalf("second hire replaced the chief: leader = %d", book.Leader)
 	}
-	if d, _, ok := ButlerChief("3104", now); !ok || d.ID != ophelia {
+	if d, _, _, ok := ButlerChief("3104", now); !ok || d.ID != ophelia {
 		t.Fatalf("ButlerChief = %+v ok=%v, want ophelia", d, ok)
 	}
 }
@@ -621,7 +621,7 @@ func TestChiefFallbackAndPromotion(t *testing.T) {
 	if id := ButlerViewOf("3105", t0.Add(time.Hour)).Chief(); id != ophelia {
 		t.Fatalf("view chief = %d, want ophelia (earliest running)", id)
 	}
-	if d, _, ok := ButlerChief("3105", t0.Add(time.Hour)); !ok || d.ID != ophelia {
+	if d, _, _, ok := ButlerChief("3105", t0.Add(time.Hour)); !ok || d.ID != ophelia {
 		t.Fatalf("ButlerChief = %+v ok=%v, want ophelia", d, ok)
 	}
 
@@ -735,4 +735,11 @@ func TestButlerOriginalPictures(t *testing.T) {
 			t.Fatalf("%s does not serve %s", path, file)
 		}
 	}
+}
+
+// withOutfit returns skins with the default skin's outfit replaced (a copy: the roster's skins are shared).
+func withOutfit(skins []ButlerSkin, outfit []string) []ButlerSkin {
+	out := slices.Clone(skins)
+	out[0].Outfit = outfit
+	return out
 }

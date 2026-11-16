@@ -4,6 +4,7 @@ import (
 	"log"
 	"math"
 	"math/rand/v2"
+	"path"
 	"strconv"
 	"time"
 
@@ -12,8 +13,9 @@ import (
 )
 
 // Garden butlers (Garden LPN agent 10; spec butler-spec.md): the Shop (51 list, 52 hire), the Book (53 list,
-// 50 gather, 56 chief) and Skin Select (62). Every other butler request gets a refusal with no data and no
-// spend, so the client's spinner clears. Field numbers and wire types are the spec's contract (section 3).
+// 50 gather, 56 chief), Skin Select (62), the Skin Shop (60 list, 61 buy, 59 wear; butler-robo-spec section 2) and the
+// Voice Book (63; section 1) and the Memories (69 list, 70 open; section 3). Every other butler request gets a refusal
+// with no data and no spend, so the client's spinner clears. Field numbers and wire types are the spec's contract (section 3).
 // Reply msgids differ from request msgids (section 2). The roster is original data with Cherry-made ids and prices:
 // economy/butler.go and data/butlers.json. The chief spawns through hc_room_relaystart_res fields 8 and 9 (garden.go
 // relay start).
@@ -39,13 +41,19 @@ func gardenButlerMsg(msgid uint16) bool {
 	return ok
 }
 
-// butlerSkinID is the skin number of a roster butler: its place in the Cherry block [I].
-func butlerSkinID(b economy.ButlerDef) uint64 { return uint64(b.ID - economy.CherryButlerFirst + 1) }
-
-// butlerImageURL is the portrait of a roster butler: a RELATIVE path (the client prefixes its static base), served by
-// economy.HandleButlerImage at /cherry/butler/<id>.png with the original art (the form the client already loads).
+// butlerImageURL is the default skin's picture of a roster butler: a RELATIVE path (the client prefixes its static base),
+// served by economy.HandleButlerImage at /cherry/butler/<id>.png with the original picture (the form the client already loads).
 func butlerImageURL(b economy.ButlerDef) string {
 	return "cherry/butler/" + strconv.FormatInt(b.ID, 10) + ".png"
+}
+
+// butlerSkinURL is the picture of skin s of butler b (skinImgUrl, ThumbnailInfo f5): the default's /cherry/butler/<id>.png,
+// a further skin's /cherry/butler/skin/<skin id>.png.
+func butlerSkinURL(b economy.ButlerDef, s economy.ButlerSkin) string {
+	if s.ID == b.Skins[0].ID {
+		return butlerImageURL(b)
+	}
+	return "cherry/butler/skin/" + strconv.FormatInt(s.ID, 10) + ".png"
 }
 
 // butlerRewardURL is the gather-reward picture (ButlerRewardInfo butlerRewardImg): /cherry/butler/<id>-reward.png when the
@@ -57,17 +65,17 @@ func butlerRewardURL(b economy.ButlerDef) string {
 	return "cherry/butler/" + strconv.FormatInt(b.ID, 10) + "-reward.png"
 }
 
-// butlerSkin is ButlerSkinInfo (spec 12.1): skinId, skinCd, the portrait (skinImgUrl, f3), avatarSkinColor (f4), the
+// butlerSkin is ButlerSkinInfo (spec 12.1): skinId, skinCd, the picture (skinImgUrl, f3), avatarSkinColor (f4), the
 // outfit (f5, one ItemInfo per item: the numeric id and dyeType 0) and skinName. The client does not read skinCd.
-func butlerSkin(b economy.ButlerDef) []byte {
-	skin := pbVar(nil, 1, butlerSkinID(b))
-	skin = pbLen(skin, 2, []byte(b.Skin))
-	skin = pbLen(skin, 3, []byte(butlerImageURL(b)))
-	skin = pbVar(skin, 4, uint64(b.SkinColor))
-	for _, id := range economy.ButlerOutfitIDs(b) {
+func butlerSkin(b economy.ButlerDef, s economy.ButlerSkin) []byte {
+	skin := pbVar(nil, 1, uint64(s.ID))
+	skin = pbLen(skin, 2, []byte(s.Code))
+	skin = pbLen(skin, 3, []byte(butlerSkinURL(b, s)))
+	skin = pbVar(skin, 4, uint64(s.SkinColor))
+	for _, id := range economy.ButlerOutfitIDs(s) {
 		skin = pbLen(skin, 5, pbVar(pbVar(nil, 1, uint64(id)), 3, 0))
 	}
-	return pbLen(skin, 6, []byte(b.Name))
+	return pbLen(skin, 6, []byte(s.Name))
 }
 
 // butlerSeconds is a stored epoch-millisecond time as the wire carries it: epoch SECONDS (the client reads the
@@ -86,14 +94,15 @@ func butlerEmployment(h store.ButlerHire, now time.Time) []byte {
 	return pbVar(body, 6, uint64(max(left/1000, 0)))
 }
 
-// butlerInfo is ButlerInfo (spec 3.3): id, name, gender (the client's sex enum), isLeader, skinInfo, and for a
-// contract the employmentInfo. The chief also gets positionInfo (MovePoint, the varint px/py the Garden NPCs use).
-func butlerInfo(b economy.ButlerDef, hire *store.ButlerHire, chief bool, now time.Time) []byte {
+// butlerInfo is ButlerInfo (spec 3.3): id, name, gender (the client's sex enum), isLeader, skinInfo (the skin the butler
+// wears, worn), and for a contract the employmentInfo. The chief also gets positionInfo (MovePoint, the varint px/py the
+// Garden NPCs use).
+func butlerInfo(b economy.ButlerDef, worn economy.ButlerSkin, hire *store.ButlerHire, chief bool, now time.Time) []byte {
 	body := pbVar(nil, 1, uint64(b.ID))
 	body = pbLen(body, 2, []byte(b.Name))
 	body = pbVar(body, 3, squareSex(b.Gender))
 	body = pbVar(body, 4, squareBool(chief))
-	body = pbLen(body, 5, butlerSkin(b))
+	body = pbLen(body, 5, butlerSkin(b, worn))
 	if hire != nil {
 		body = pbLen(body, 6, butlerEmployment(*hire, now))
 	}
@@ -122,8 +131,8 @@ func butlerGatherState(g *store.ButlerGather, now time.Time) (status, end uint64
 // vipGrade (f2) is left unset on purpose: a grade would trigger the client's VIP gate (spec 12.3) and its "Become VIP"
 // route, which is real money. Without a grade the line "Hiring available for  and above." reads blank. That is
 // client-inherent, not a bug.
-func butlerDetail(b economy.ButlerDef, hire *store.ButlerHire, chief bool, gathers int64, gather *store.ButlerGather, now time.Time) []byte {
-	body := pbLen(nil, 1, butlerInfo(b, hire, chief, now))
+func butlerDetail(b economy.ButlerDef, worn economy.ButlerSkin, hire *store.ButlerHire, chief bool, gathers int64, gather *store.ButlerGather, now time.Time) []byte {
+	body := pbLen(nil, 1, butlerInfo(b, worn, hire, chief, now))
 	status, end := butlerGatherState(gather, now)
 	body = pbVar(body, 4, status) // gatheringStatus
 	body = pbVar(body, 5, end)    // gatheringRemainTime: an absolute end time, epoch seconds
@@ -148,7 +157,7 @@ func butlerCoin(coinType, value int64) []byte {
 // is the charged amount, spec 4). The sale and sell windows never end.
 func butlerBuyInfo(b economy.ButlerDef, v economy.ButlerView, now time.Time) []byte {
 	days := uint64(economy.ActiveButlers().FreeDays)
-	body := pbLen(nil, 1, pbLen(nil, 1, butlerInfo(b, nil, false, now)))
+	body := pbLen(nil, 1, pbLen(nil, 1, butlerInfo(b, v.Worn(b), nil, false, now)))
 	body = pbVar(body, 2, uint64(economy.ButlerCoinCash))
 	body = pbVar(body, 3, 0)
 	body = pbVar(body, 4, days)
@@ -180,7 +189,7 @@ func butlerShopBody(v economy.ButlerView, now time.Time) []byte {
 // contractTime and isFirstButler meanings are [I].
 func butlerBuyBody(got economy.ButlerHired, now time.Time) []byte {
 	body := pbVar(nil, 1, 0)
-	body = pbLen(body, 2, pbLen(nil, 1, butlerInfo(got.Butler, &got.Hire, false, now)))
+	body = pbLen(body, 2, pbLen(nil, 1, butlerInfo(got.Butler, got.Worn, &got.Hire, false, now)))
 	body = pbLen(body, 3, butlerCoin(economy.ButlerCoinCash, got.Price))
 	body = pbVar(body, 4, butlerSeconds(got.Hire.Begin))
 	body = pbVar(body, 5, butlerSeconds(got.Hire.End))
@@ -208,7 +217,7 @@ func butlerBookBody(v economy.ButlerView, expired []economy.ButlerDef, now time.
 				body = pbLen(body, 2, nil)
 				entries++
 			}
-			body = pbLen(body, 2, butlerDetail(b, &h, b.ID == chief, gathers, v.Gathering(b.ID), now))
+			body = pbLen(body, 2, butlerDetail(b, v.Worn(b), &h, b.ID == chief, gathers, v.Gathering(b.ID), now))
 			entries++
 		}
 	}
@@ -221,14 +230,146 @@ func butlerBookBody(v economy.ButlerView, expired []economy.ButlerDef, now time.
 	return body
 }
 
-// butlerThumb is one Skin Select row (ButlerThumbnailInfo): the id, name, whether it is under contract, its skin and
-// its portrait (skinImgUrl, f5; an empty URL leaves the cell spinning, spec 12.2).
-func butlerThumb(b economy.ButlerDef, employed bool) []byte {
+// butlerThumb is one Skin Select row (ButlerThumbnailInfo): the id, name, whether it is under contract, the skin it
+// wears (f4) and that skin's picture (f5; an empty URL leaves the cell spinning, spec 12.2).
+func butlerThumb(b economy.ButlerDef, worn economy.ButlerSkin, employed bool) []byte {
 	t := pbVar(nil, 1, uint64(b.ID))
 	t = pbLen(t, 2, []byte(b.Name))
 	t = pbVar(t, 3, squareBool(employed))
-	t = pbVar(t, 4, butlerSkinID(b))
-	return pbLen(t, 5, []byte(butlerImageURL(b)))
+	t = pbVar(t, 4, uint64(worn.ID))
+	return pbLen(t, 5, []byte(butlerSkinURL(b, worn)))
+}
+
+// butlerThumbOf is butler b's thumbnail as view v shows it: the skin it wears and whether a contract runs.
+func butlerThumbOf(b economy.ButlerDef, v economy.ButlerView) []byte {
+	_, employed := v.Hire(b.ID)
+	return butlerThumb(b, v.Worn(b), employed)
+}
+
+// butlerSkinRow is one Skin Shop row (ButlerSkinBuyInfo, spec 2.6): f1 the butler id, f2 its sex (the older spec's name),
+// f3 the skin (ButlerSkinInfo: picture, outfit, name), f4 owned and f5 worn (1 or 0: the field numbers are a probe, see
+// butler-robo-spec 2.6), f6 the price (CoinInfo: cost) and f9 the same price as the sale cost, so either reading shows
+// it; the sell and sale windows never end (f7, f10); no sale and no free hire (f8, f11).
+func butlerSkinRow(b economy.ButlerDef, s economy.ButlerSkin, v economy.ButlerView) []byte {
+	row := pbVar(nil, 1, uint64(b.ID))
+	row = pbVar(row, 2, squareSex(b.Gender))
+	row = pbLen(row, 3, butlerSkin(b, s))
+	row = pbVar(row, 4, squareBool(v.Owns(b, s.ID)))
+	row = pbVar(row, 5, squareBool(v.Worn(b).ID == s.ID))
+	price := butlerCoin(economy.ButlerCoinCash, s.Price)
+	row = pbLen(row, 6, price)
+	row = pbVar(row, 7, butlerNoDate)
+	row = pbVar(row, 8, 0)
+	row = pbLen(row, 9, price)
+	row = pbVar(row, 10, butlerNoDate)
+	return pbVar(row, 11, 0)
+}
+
+// appendSkinRows adds one butlerSkinRow per skin of b to body as repeated field f.
+func appendSkinRows(body []byte, f uint64, b economy.ButlerDef, v economy.ButlerView) []byte {
+	for _, s := range b.Skins {
+		body = pbLen(body, f, butlerSkinRow(b, s, v))
+	}
+	return body
+}
+
+// butlerSkinBody is the Skin Shop list (hc 71) and the reply to a buy (hc 72): result 0, the butler's thumbnail (f2), one
+// row per skin (f3) and the Cash balance (f4, CoinInfo).
+func butlerSkinBody(b economy.ButlerDef, v economy.ButlerView) []byte {
+	body := pbVar(nil, 1, 0)
+	body = pbLen(body, 2, butlerThumbOf(b, v))
+	body = appendSkinRows(body, 3, b, v)
+	return pbLen(body, 4, butlerCoin(economy.ButlerCoinCash, v.Cash))
+}
+
+// butlerEquipBody is the reply to a wear (hc 70): result 0, the skin now worn (f2), the rows (f3) and the thumbnail (f4).
+func butlerEquipBody(b economy.ButlerDef, v economy.ButlerView) []byte {
+	body := pbVar(nil, 1, 0)
+	body = pbVar(body, 2, uint64(v.Worn(b).ID))
+	body = appendSkinRows(body, 3, b, v)
+	return pbLen(body, 4, butlerThumbOf(b, v))
+}
+
+// butlerVoiceBody is the Voice Book (hc 74): result 0, the butler's thumbnail (f2) and, for a butler with a voice pack, its
+// revision and zip record (f3: revision f1, one record with the zip's path in f4) and one script row per line (f4: N, 0, 1,
+// the label "Voice N", the empty text, the file's path under cache/butler/). A butler without voices gets neither f3 nor
+// f4: an empty voiceInfo means no pack (spec 1.2), so the download popup does nothing (not a refusal, which would show an
+// error).
+func butlerVoiceBody(b economy.ButlerDef, v economy.ButlerView) []byte {
+	body := pbVar(nil, 1, 0)
+	body = pbLen(body, 2, butlerThumbOf(b, v))
+	if b.Voices == nil {
+		return body
+	}
+	info := pbVar(nil, 1, uint64(b.Voices.Revision))
+	info = pbLen(info, 2, pbLen(nil, 4, []byte(b.Voices.ZipPath())))
+	body = pbLen(body, 3, info)
+	for _, n := range b.Voices.Lines {
+		row := pbVar(nil, 1, uint64(n))
+		row = pbVar(row, 2, 0)
+		row = pbVar(row, 3, 1)
+		row = pbLen(row, 4, []byte("Voice "+strconv.FormatInt(n, 10)))
+		row = pbLen(row, 5, nil)
+		row = pbLen(row, 6, []byte(b.Voices.FilePath(n)))
+		body = pbLen(body, 4, row)
+	}
+	return body
+}
+
+// memoryURL is a memory picture's relative URL (SIMPLE_INFO f6, SCENE_INFO f4): /cherry/butler/memory/<file>.png, served by
+// economy.HandleButlerImage for the pictures the data lists.
+func memoryURL(p string) string { return "cherry/butler/memory/" + path.Base(p) }
+
+// butlerMemoryRow is one memory card (BUTLER_MEMORY_SIMPLE_INFO, spec 3.2): the butler id (f1), the memory id (f2: the popup
+// sends it back in ch 70), the title (f3, SetTitle), the list picture (f6: the list cell's background, DownloadBGImage; the one
+// picture a row carries, so the thumbnail has no field), open (f7) and can open (f8). The open window (f4, f5), the need (f9)
+// and the open condition text (f10) are left unset: every memory is open.
+func butlerMemoryRow(b economy.ButlerDef, m economy.ButlerMemory) []byte {
+	row := pbVar(nil, 1, uint64(b.ID))
+	row = pbVar(row, 2, uint64(m.ID))
+	row = pbLen(row, 3, []byte(m.Title))
+	row = pbLen(row, 6, []byte(memoryURL(m.ListPicture)))
+	row = pbVar(row, 7, 1)
+	return pbVar(row, 8, 1)
+}
+
+// butlerMemoryList is the Memories popup's list (hc 80, spec 3.1): the butler id, the top message (f2), one row per memory
+// (f3), the butler's picture (f4) and name (f5). A butler without memories gets no rows.
+func butlerMemoryList(b economy.ButlerDef) []byte {
+	body := pbVar(nil, 1, uint64(b.ID))
+	body = pbLen(body, 2, []byte(b.MemoryMessage))
+	for _, m := range b.Memories {
+		body = pbLen(body, 3, butlerMemoryRow(b, m))
+	}
+	body = pbLen(body, 4, []byte(butlerImageURL(b)))
+	return pbLen(body, 5, []byte(b.Name))
+}
+
+// butlerMemoryOpen is the memory's story (hc 81, spec 3.1): result 0, the butler and memory ids, one SCENE_INFO per scene
+// (f4: the scene number f3 from 1 and its back picture f4) and the butler's name (f5) and ButlerInfo (f6) with the skin
+// it wears. Each scene carries one DETAIL row (f5): step 1, talker 0 (no character sprite), the line (f3) and an empty
+// voice (f4). The ENDSCENE (f6) is left unset, so the client reads its defaults.
+//
+// Field choice (the one place, butler-robo-spec 3.2, decompiled 2026-11-16): SCENE f4 is the back picture (SetScene loads
+// scene+8 as the texture). DETAIL f3 is the line (SetStep sets it as the text label) and DETAIL f4 the voice (SetStep plays
+// it only when non-empty). No DETAIL string is a picture: the brief's "DETAIL rows (picture strings)" does not match the
+// decompile. Not taken: a picture in DETAIL f4 would play as a voice and fail.
+func butlerMemoryOpen(b economy.ButlerDef, m economy.ButlerMemory, worn economy.ButlerSkin, now time.Time) []byte {
+	body := pbVar(nil, 1, 0)
+	body = pbVar(body, 2, uint64(b.ID))
+	body = pbVar(body, 3, uint64(m.ID))
+	for i, s := range m.Scenes {
+		line := pbVar(nil, 1, 1)
+		line = pbVar(line, 2, 0)
+		line = pbLen(line, 3, []byte(s.Line))
+		line = pbLen(line, 4, nil)
+		scene := pbVar(nil, 3, uint64(i+1))
+		scene = pbLen(scene, 4, []byte(memoryURL(s.Picture)))
+		scene = pbLen(scene, 5, line)
+		body = pbLen(body, 4, scene)
+	}
+	body = pbLen(body, 5, []byte(b.Name))
+	return pbLen(body, 6, butlerInfo(b, worn, nil, false, now))
 }
 
 // butlerGatherBody is the gather reply (hc 59): the result, the NEW gathering status, its absolute end time in epoch
@@ -269,8 +410,8 @@ func butlerRewardBody(b economy.ButlerDef, g store.ButlerGather) []byte {
 func butlerClaimBody() []byte { return pbLen(pbVar(nil, 1, 0), 2, nil) }
 
 // butlerChangeLeader is the chief push (hc 68): the new chief's ButlerInfo and its icon.
-func butlerChangeLeader(b economy.ButlerDef, h store.ButlerHire, now time.Time) []byte {
-	body := pbLen(nil, 1, butlerInfo(b, &h, true, now))
+func butlerChangeLeader(b economy.ButlerDef, worn economy.ButlerSkin, h store.ButlerHire, now time.Time) []byte {
+	body := pbLen(nil, 1, butlerInfo(b, worn, &h, true, now))
 	return pbLen(body, 2, pbVar(nil, 1, 0))
 }
 
@@ -290,11 +431,11 @@ func butlerRefusal(reply uint16) []byte {
 // gardenButlerRelay is what relay start adds for the owner's chief (hc_room_relaystart_res fields 8 ButlerInfo and
 // 9 ButlerIconInfo, spec 6): nothing when no chief is under contract. Visitors see the owner's chief.
 func gardenButlerRelay(owner uint64, now time.Time) []byte {
-	b, h, ok := economy.ButlerChief(strconv.FormatUint(owner, 10), now)
+	b, worn, h, ok := economy.ButlerChief(strconv.FormatUint(owner, 10), now)
 	if !ok {
 		return nil
 	}
-	body := pbLen(nil, 8, butlerInfo(b, &h, true, now))
+	body := pbLen(nil, 8, butlerInfo(b, worn, &h, true, now))
 	return pbLen(body, 9, pbVar(nil, 1, 0))
 }
 
@@ -369,7 +510,7 @@ func gardenButlerReply(msgid uint16, viewer uint64, data []byte, now time.Time, 
 		}
 		_, gathers := v.Today()
 		body := pbVar(nil, 1, 0)
-		body = pbLen(body, 2, butlerDetail(b, hire, v.Chief() == b.ID, gathers, v.Gathering(b.ID), now))
+		body = pbLen(body, 2, butlerDetail(b, v.Worn(b), hire, v.Chief() == b.ID, gathers, v.Gathering(b.ID), now))
 		return []gardenMsg{{67, body}}
 	case 52: // buy {butler_id, cost_type, cost_value (ignored: the server prices it), is_free, employ_days}
 		id, _ := protobufUintField(data, 1)
@@ -397,18 +538,65 @@ func gardenButlerReply(msgid uint16, viewer uint64, data []byte, now time.Time, 
 		}
 		logger.Printf("BUTLER chief aid=%s butler=%d result=0", aid, id)
 		msgs := []gardenMsg{{66, pbVar(nil, 1, 0)}}
-		if b, h, ok := economy.ButlerChief(aid, now); ok {
-			msgs = append(msgs, gardenMsg{68, butlerChangeLeader(b, h, now)})
+		if b, worn, h, ok := economy.ButlerChief(aid, now); ok {
+			msgs = append(msgs, gardenMsg{68, butlerChangeLeader(b, worn, h, now)})
 		}
 		return msgs
 	case 62: // thumbnail_list {}
 		v := economy.ButlerViewOf(aid, now)
 		body := pbVar(nil, 1, 0)
 		for _, b := range economy.ActiveButlers().Butlers {
-			_, employed := v.Hire(b.ID)
-			body = pbLen(body, 2, butlerThumb(b, employed))
+			body = pbLen(body, 2, butlerThumbOf(b, v))
 		}
 		return []gardenMsg{{73, body}}
+	case 59: // skin_equip {butler_id, skin_id}: wear an owned skin (hc 70)
+		id, _ := protobufUintField(data, 1)
+		skin, _ := protobufUintField(data, 2)
+		if err := economy.EquipButlerSkin(aid, int64(id), int64(skin), now); err != nil {
+			logger.Printf("BUTLER skin equip aid=%s butler=%d skin=%d result=%d err=%v", aid, id, skin, butlerRefused, err)
+			return []gardenMsg{{70, pbVar(nil, 1, butlerRefused)}}
+		}
+		logger.Printf("BUTLER skin equip aid=%s butler=%d skin=%d result=0", aid, id, skin)
+		b, _ := economy.ButlerByID(int64(id))
+		return []gardenMsg{{70, butlerEquipBody(b, economy.ButlerViewOf(aid, now))}}
+	case 60: // skin_shop {butler_id}: the butler's skins with their owned and worn state (hc 71)
+		id, _ := protobufUintField(data, 1)
+		if b, ok := economy.ButlerByID(int64(id)); ok {
+			return []gardenMsg{{71, butlerSkinBody(b, economy.ButlerViewOf(aid, now))}}
+		}
+		// an unknown butler is refused below
+	case 61: // skin_buy {butler_id, butler_skin_id, coin_info, is_free}: the server's Cash price (the request's coin is not read) (hc 72)
+		id, _ := protobufUintField(data, 1)
+		skin, _ := protobufUintField(data, 2)
+		if err := economy.BuyButlerSkin(aid, int64(id), int64(skin), now); err != nil {
+			logger.Printf("BUTLER skin buy aid=%s butler=%d skin=%d result=%d err=%v", aid, id, skin, butlerRefused, err)
+			return []gardenMsg{{72, pbVar(nil, 1, butlerRefused)}}
+		}
+		logger.Printf("BUTLER skin buy aid=%s butler=%d skin=%d result=0", aid, id, skin)
+		b, _ := economy.ButlerByID(int64(id))
+		return []gardenMsg{{72, butlerSkinBody(b, economy.ButlerViewOf(aid, now))}}
+	case 63: // voicebook {butler_id}: the butler's voice pack and its lines (hc 74)
+		id, _ := protobufUintField(data, 1)
+		if b, ok := economy.ButlerByID(int64(id)); ok {
+			return []gardenMsg{{74, butlerVoiceBody(b, economy.ButlerViewOf(aid, now))}}
+		}
+		// an unknown butler is refused below
+	case 69: // memory_list {butler_id}: the Memories popup's list, for any roster butler (hc 80)
+		id, _ := protobufUintField(data, 1)
+		if b, ok := economy.ButlerByID(int64(id)); ok {
+			return []gardenMsg{{80, butlerMemoryList(b)}}
+		}
+		// an unknown butler is refused below
+	case 70: // memory_open {butler_id, memory_id}: one memory's scenes, for any roster butler (hc 81)
+		id, _ := protobufUintField(data, 1)
+		mem, _ := protobufUintField(data, 2)
+		if b, ok := economy.ButlerByID(int64(id)); ok {
+			if m, ok := b.Memory(int64(mem)); ok {
+				logger.Printf("BUTLER memory open aid=%s butler=%d memory=%d scenes=%d result=0", aid, id, mem, len(m.Scenes))
+				return []gardenMsg{{81, butlerMemoryOpen(b, m, economy.ButlerViewOf(aid, now).Worn(b), now)}}
+			}
+		}
+		// an unknown butler or memory is refused below
 	}
 	reply := butlerReplies[msgid]
 	logger.Printf("BUTLER refused aid=%s msgid=%d reply=%d", aid, msgid, reply)

@@ -52,6 +52,20 @@ var butlerSpec = map[string]map[uint64]butlerWire{
 	"itemlist":   {1: {2, "rewarditem"}},
 	"rewarditem": {1: {2, ""}, 2: {2, ""}, 3: {0, ""}, 4: {0, ""}, 5: {0, ""}, 6: {2, ""}, 7: {0, ""}},
 	"claim":      {1: {0, ""}, 2: {2, "icon"}},
+	// The Skin Shop (hc 70 to 72, spec section 2.6) and the Voice Book (hc 74, section 1).
+	"skinshop":    {1: {0, ""}, 2: {2, "thumb"}, 3: {2, "skinrow"}, 4: {2, "coin"}},
+	"skinequip":   {1: {0, ""}, 2: {0, ""}, 3: {2, "skinrow"}, 4: {2, "thumb"}},
+	"skinrow":     {1: {0, ""}, 2: {0, ""}, 3: {2, "skin"}, 4: {0, ""}, 5: {0, ""}, 6: {2, "coin"}, 7: {0, ""}, 8: {0, ""}, 9: {2, "coin"}, 10: {0, ""}, 11: {0, ""}},
+	"voice":       {1: {0, ""}, 2: {2, "thumb"}, 3: {2, "voiceinfo"}, 4: {2, "voicescript"}},
+	"voiceinfo":   {1: {0, ""}, 2: {2, "voicerecord"}},
+	"voicerecord": {4: {2, ""}},
+	"voicescript": {1: {0, ""}, 2: {0, ""}, 3: {0, ""}, 4: {2, ""}, 5: {2, ""}, 6: {2, ""}},
+	// The Memories (hc 80 and 81, spec section 3): the list, its rows, the open reply, a scene and a DETAIL row.
+	"memorylist":  {1: {0, ""}, 2: {2, ""}, 3: {2, "memoryrow"}, 4: {2, ""}, 5: {2, ""}},
+	"memoryrow":   {1: {0, ""}, 2: {0, ""}, 3: {2, ""}, 4: {0, ""}, 5: {0, ""}, 6: {2, ""}, 7: {0, ""}, 8: {0, ""}, 9: {0, ""}, 10: {2, ""}},
+	"memoryopen":  {1: {0, ""}, 2: {0, ""}, 3: {0, ""}, 4: {2, "memoryscene"}, 5: {2, ""}, 6: {2, "info"}},
+	"memoryscene": {3: {0, ""}, 4: {2, ""}, 5: {2, "memoryline"}, 6: {2, ""}},
+	"memoryline":  {1: {0, ""}, 2: {0, ""}, 3: {2, ""}, 4: {2, ""}, 5: {0, ""}, 6: {0, ""}},
 }
 
 // checkButlerWire walks body as the spec table name and fails on a field the table does not list, a field with
@@ -107,6 +121,14 @@ func TestButlerRepliesMatchSpecWire(t *testing.T) {
 	}
 	expired := &store.ButlerBook{Hired: []store.ButlerHire{{ID: ian, Begin: now.UnixMilli() - 40*86400000, End: now.UnixMilli() - 3600000}}}
 	buy := pbVar(pbVar(pbVar(pbVar(pbVar(nil, 1, ophelia), 2, uint64(economy.ButlerCoinCash)), 3, 0), 4, 0), 5, 30)
+	const merry, merryPicture = 1900000006, 1900001601 // Merry's first further skin (Silver Beret)
+	owned := func(b *store.ButlerBook) *store.ButlerBook {
+		b.Skins = []store.ButlerSkinOwned{{Butler: merry, Skin: merryPicture}}
+		return b
+	}
+	skinBuy := pbVar(pbVar(nil, 1, merry), 2, merryPicture)
+	skinEquip := pbVar(pbVar(nil, 1, merry), 2, merryPicture)
+	merryPlain := pbVar(nil, 1, merry)
 
 	rows := []struct {
 		name  string
@@ -129,6 +151,11 @@ func TestButlerRepliesMatchSpecWire(t *testing.T) {
 		{name: "chief", req: 56, reply: 66, spec: "leader", data: pbVar(nil, 1, ophelia), book: hired(ophelia), push: true},
 		{name: "reward info refused", req: 54, reply: 64, spec: "result"},
 		{name: "hire refused", req: 52, reply: 61, spec: "result"},
+		{name: "skin shop", req: 60, reply: 71, spec: "skinshop", data: merryPlain, book: hired(merry)},
+		{name: "skin buy", req: 61, reply: 72, spec: "skinshop", data: skinBuy, book: hired(merry)},
+		{name: "skin equip", req: 59, reply: 70, spec: "skinequip", data: skinEquip, book: owned(hired(merry))},
+		{name: "voice book", req: 63, reply: 74, spec: "voice", data: merryPlain},
+		{name: "voice book without voices", req: 63, reply: 74, spec: "voice", data: pbVar(nil, 1, ophelia)},
 		{name: "skin equip refused", req: 59, reply: 70, spec: "result"},
 		{name: "skin shop refused", req: 60, reply: 71, spec: "result"},
 		{name: "skin buy refused", req: 61, reply: 72, spec: "result"},
@@ -218,14 +245,14 @@ func TestButlerRelayFallbackChief(t *testing.T) {
 // butler path uses itemcode.ID). avatarSkinColor (field 4) is the shipped skin_color. Spec 12.1 field numbers are checked.
 func TestButlerSkinItemsAreNumericIDs(t *testing.T) {
 	for _, d := range economy.ActiveButlers().Butlers {
-		skin := butlerSkin(d)
+		skin := butlerSkin(d, d.Skins[0])
 		checkButlerWire(t, "skin", skin)
 		var got, want []uint64
 		for _, item := range pbAll(t, skin, 5) {
 			id, _ := protobufUintField(item, 1)
 			got = append(got, id)
 		}
-		for _, code := range d.Outfit {
+		for _, code := range d.Skins[0].Outfit {
 			id, ok := itemcode.ID(code)
 			if !ok {
 				t.Fatalf("%s: outfit code %s is not an item code", d.Name, code)
@@ -235,8 +262,8 @@ func TestButlerSkinItemsAreNumericIDs(t *testing.T) {
 		if !slices.Equal(got, want) {
 			t.Fatalf("%s: skin items %v, want %v", d.Name, got, want)
 		}
-		if c, _ := protobufUintField(skin, 4); c != uint64(d.SkinColor) {
-			t.Fatalf("%s: avatarSkinColor %d, want %d", d.Name, c, d.SkinColor)
+		if c, _ := protobufUintField(skin, 4); c != uint64(d.Skins[0].SkinColor) {
+			t.Fatalf("%s: avatarSkinColor %d, want %d", d.Name, c, d.Skins[0].SkinColor)
 		}
 	}
 	merry, ok := economy.ButlerByID(1900000006)
@@ -244,7 +271,7 @@ func TestButlerSkinItemsAreNumericIDs(t *testing.T) {
 		t.Fatal("merry is not in the roster")
 	}
 	items := map[uint64]bool{}
-	for _, item := range pbAll(t, butlerSkin(merry), 5) {
+	for _, item := range pbAll(t, butlerSkin(merry, merry.Skins[0]), 5) {
 		id, _ := protobufUintField(item, 1)
 		items[id] = true
 	}

@@ -42,6 +42,10 @@ var origSources = []origSource{
 	// robo iOS device cached them; served at /cherry/butler/<id>.png from static/cache/butler/.
 	{top: "cache", base: roboDataset, tree: "butler/butler_skin_master"},
 	{top: "cache", base: roboDataset, tree: "butler/butler_main"},
+	// Butler voice lines (butlers.json voices, economy.ButlerVoiceZip): the original audio the robo iOS cache holds.
+	{top: "cache", base: roboDataset, tree: "butler/butler_voice_master"},
+	// Butler memory pictures (butlers.json memories, economy memoryPicture): the robo iOS cache's memory art, served at /cherry/butler/memory/<file>.png.
+	{top: "cache", base: roboDataset, tree: "butler/butler_memory_master"},
 }
 
 // origRoot is the folder a source's files are under.

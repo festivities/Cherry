@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -26,10 +27,20 @@ import (
 // codes, skin colours, prices and gathering amounts are Cherry's own, in a reserved block.
 
 // CherryButlerFirst and CherryButlerLast bound the butler ids Cherry makes. checkButlers refuses an id outside it.
+//
+// CherryButlerSkinFirst and CherryButlerSkinLast bound the skin ids beyond a butler's default (Cherry-made, 2026-11-16):
+// butler b's further skins are CherryButlerSkinFirst + 100 × (b − CherryButlerFirst) + k, k from 1 to 99. A default
+// skin's id is the butler's number, DefaultSkinID. Ids never change once shown: a bought skin is kept by its id.
 const (
-	CherryButlerFirst int64 = 1900000000
-	CherryButlerLast  int64 = 1900000999
+	CherryButlerFirst     int64 = 1900000000
+	CherryButlerLast      int64 = 1900000999
+	CherryButlerSkinFirst int64 = 1900001000
+	CherryButlerSkinLast  int64 = 1900100999
 )
+
+// DefaultSkinID is the wire id of roster butler id's default skin: its place in the Cherry block [I], as it was before
+// the skins list (ids 5 to 11 for the seven roster butlers).
+func DefaultSkinID(id int64) int64 { return id - CherryButlerFirst + 1 }
 
 // retiredButlerIDs are the ids of the first Cherry roster (Hazel, Wren and Oswin). They are never reused: a contract
 // that names one is retired by MigrateButlerRoster.
@@ -92,33 +103,69 @@ type ButlerGathering struct {
 //	id         in the Cherry block, never a retired id (Cherry-made)
 //	name       the original name (string table 9854-9860)
 //	gender     "MALE", "FEMALE" or "ANIMAL" (the client's sex enum 0, 1, 2); from the portrait [I]
-//	skin       the one default skin code, "cherry_" + a name (Cherry-made)
-//	skin_color avatarSkinColor: an index into the client's skin palette g_akHBC (0 to 16; 0 is a tan tint, 1 the
-//	           untinted base). Cherry chose the values from the portraits (original palette indices). ANIMAL is ignored
-//	           by the client. Sent as is; an absent field would read as 0
-//	outfit     item codes the skin wears: original items (checked at load: a shop fashion item with art, or a Face
-//	           Shop part, human CU or animal CA). At most one item per 2-letter slot (EY, ON, AH, ...). A slot no
-//	           archive item matches is left out, or filled by a look-alike (lookalikes), and the note says so
-//	lookalikes Cherry-picked look-alikes: codes of outfit (checked at load) that stand in for a true item no archive
-//	           has. Cherry-made choice, not the true item. Optional; absent means none. Added 2026-10-29
+//	skins      the skins, the first one the default (always owned, see ButlerSkin); at least one
 //	abilities  gather kinds ("fish", "essence", "ore") of the original abilities: Fishing, collecting Drops, mining
 //	art        the original portrait slot b1 to b7: UIResource/UIImage_hd/butler_event_profile_<art>.png, served as is
+//	reward_image the original gather-reward picture (butlerRewardImg); "" sends the default skin's picture
+//	voices     the voice pack (Voice Book), optional
+//	memories   the butler's memories (Memories popup, butler_memory.go), optional
+//	memory_message  the Memories popup's top line (Cherry-made); "" when the butler has no memories
 //	profile    the original blood type, birthday, keywords and quote: kept for the record (no verified protocol field)
 //	note       what is empty or uncertain in this butler (optional)
 type ButlerDef struct {
-	ID          int64         `json:"id"`
-	Name        string        `json:"name"`
-	Gender      string        `json:"gender"`
-	Skin        string        `json:"skin"`
-	SkinColor   int64         `json:"skin_color"`
-	Outfit      []string      `json:"outfit"`
-	Lookalikes  []string      `json:"lookalikes,omitempty"`
-	Abilities   []string      `json:"abilities"`
-	Art         string        `json:"art"`
-	SkinImage   string        `json:"skin_image,omitempty"`   // the original skin picture (a device files/ path); "" sends the portrait
-	RewardImage string        `json:"reward_image,omitempty"` // the original gather-reward picture (butlerRewardImg); "" sends the skin picture
-	Profile     ButlerProfile `json:"profile"`
-	Note        string        `json:"note,omitempty"`
+	ID            int64          `json:"id"`
+	Name          string         `json:"name"`
+	Gender        string         `json:"gender"`
+	Skins         []ButlerSkin   `json:"skins"`
+	Abilities     []string       `json:"abilities"`
+	Art           string         `json:"art"`
+	RewardImage   string         `json:"reward_image,omitempty"`
+	Voices        *ButlerVoices  `json:"voices,omitempty"`
+	Memories      []ButlerMemory `json:"memories,omitempty"`
+	MemoryMessage string         `json:"memory_message,omitempty"`
+	Profile       ButlerProfile  `json:"profile"`
+	Note          string         `json:"note,omitempty"`
+}
+
+// ButlerSkin is one skin of a butler: the default (the first of ButlerDef.Skins, owned from the start) or a further
+// skin the account buys (Cherry-made price and name).
+//
+//	id          the wire skin id (DefaultSkinID for the default; a further skin's id is in its butler's sub-block)
+//	code        skinCd: the client does not read it; "cherry_" + a name (Cherry-made)
+//	name        skinName (the default: the butler's name)
+//	skin_color  avatarSkinColor: an index into the client's skin palette g_akHBC (0 to 16; 0 is a tan tint, 1 the
+//	            untinted base). Cherry chose the values from the portraits (original palette indices). ANIMAL is ignored
+//	            by the client. Sent as is; an absent field would read as 0
+//	outfit      item codes the skin wears: original items (checked at load: a shop fashion item with art, or a Face
+//	            Shop part, human CU or animal CA). At most one item per 2-letter slot (EY, ON, AH, ...). A slot no
+//	            archive item matches is left out, or filled by a look-alike (lookalikes), and the note says so
+//	lookalikes  Cherry-picked look-alikes: codes of outfit (checked at load) that stand in for a true item no archive
+//	            has. Cherry-made choice, not the true item. Optional; absent means none
+//	skin_image  the original picture (a device files/ path under cache/butler/); "" sends the portrait (default only)
+//	price       earned Cash to buy a further skin (Cherry-made); 0 for the default
+//	note        optional
+type ButlerSkin struct {
+	ID         int64    `json:"id"`
+	Code       string   `json:"code"`
+	Name       string   `json:"name"`
+	SkinColor  int64    `json:"skin_color"`
+	Outfit     []string `json:"outfit"`
+	Lookalikes []string `json:"lookalikes,omitempty"`
+	SkinImage  string   `json:"skin_image,omitempty"`
+	Price      int64    `json:"price,omitempty"`
+	Note       string   `json:"note,omitempty"`
+}
+
+// ButlerVoices is a butler's voice pack (butler-robo-spec, section 1): the original audio lines of the robo iOS cache,
+// downloaded by the client as one zip it unpacks beside the lines.
+//
+//	pack      the cache folder of the lines, relative to cache/butler/ (e.g. "butler_voice_master/3")
+//	revision  the pack's revision: a higher one makes the client download the zip again
+//	lines     the voice numbers N: the files voice_NNN.ogg of the pack (N is the Voice Book row's key)
+type ButlerVoices struct {
+	Pack     string  `json:"pack"`
+	Revision int64   `json:"revision"`
+	Lines    []int64 `json:"lines"`
 }
 
 // ButlerProfile is the original profile text of a roster butler (its name card and quote in the client files).
@@ -163,6 +210,8 @@ func checkButlers(b *Butlers) error {
 		return errors.New("butlers must list at least one butler")
 	}
 	ids := map[int64]bool{}
+	skinIDs := map[int64]bool{}
+	packs := map[string]bool{}
 	for _, d := range b.Butlers {
 		switch {
 		case !IsCherryButler(d.ID):
@@ -175,12 +224,8 @@ func checkButlers(b *Butlers) error {
 			return fmt.Errorf("butler %d: name must not be empty", d.ID)
 		case d.Gender != "MALE" && d.Gender != "FEMALE" && d.Gender != "ANIMAL":
 			return fmt.Errorf(`butler %d: gender must be "MALE", "FEMALE" or "ANIMAL"`, d.ID)
-		case !strings.HasPrefix(d.Skin, "cherry_") || len(d.Skin) == len("cherry_"):
-			return fmt.Errorf(`butler %d: skin must start with "cherry_"`, d.ID)
-		case d.SkinColor < 0:
-			return fmt.Errorf("butler %d: skin_color must not be negative", d.ID)
-		case len(d.Outfit) == 0:
-			return fmt.Errorf("butler %d: outfit must list item codes", d.ID)
+		case len(d.Skins) == 0:
+			return fmt.Errorf("butler %d: skins must list the default skin first", d.ID)
 		case len(d.Abilities) == 0:
 			return fmt.Errorf("butler %d: abilities must list fish, essence or ore", d.ID)
 		case d.Art == "":
@@ -193,31 +238,95 @@ func checkButlers(b *Butlers) error {
 			}
 			seen[a] = true
 		}
-		slots := map[string]bool{}
-		for _, code := range d.Outfit {
-			if _, ok := itemcode.ID(code); !ok {
-				return fmt.Errorf("butler %d: outfit code %q is not an item code", d.ID, code)
+		for i, s := range d.Skins {
+			if err := checkButlerSkin(d, i, s, skinIDs); err != nil {
+				return err
 			}
-			slot := store.ItemSlot(code)
-			if slots[slot] {
-				return fmt.Errorf("butler %d: outfit wears two %s items (one item per slot): %s", d.ID, slot, code)
-			}
-			slots[slot] = true
 		}
-		for _, code := range d.Lookalikes {
-			if !slices.Contains(d.Outfit, code) {
-				return fmt.Errorf("butler %d: look-alike %s is not in outfit", d.ID, code)
+		if v := d.Voices; v != nil {
+			switch {
+			case v.Pack == "" || strings.HasPrefix(v.Pack, "/") || path.Clean(v.Pack) != v.Pack:
+				return fmt.Errorf("butler %d: voices pack %q must be a relative folder such as butler_voice_master/3", d.ID, v.Pack)
+			case packs[v.Pack]:
+				return fmt.Errorf("butler %d: voices pack %q is used by another butler", d.ID, v.Pack)
+			case v.Revision < 1:
+				return fmt.Errorf("butler %d: voices revision must be at least 1", d.ID)
+			case len(v.Lines) == 0:
+				return fmt.Errorf("butler %d: voices must list at least one line", d.ID)
 			}
+			lines := map[int64]bool{}
+			for _, n := range v.Lines {
+				if n < 1 || lines[n] {
+					return fmt.Errorf("butler %d: voice line %d must be at least 1, listed once", d.ID, n)
+				}
+				lines[n] = true
+			}
+			packs[v.Pack] = true
+		}
+		if err := checkButlerMemories(d); err != nil {
+			return err
 		}
 		ids[d.ID] = true
 	}
 	return nil
 }
 
+// checkButlerSkin checks skin i of roster butler d (ButlerSkin): the default is first, with its number and no price; a
+// further skin sits in its butler's sub-block, costs Cash and has its own picture. seen holds the skin ids of every butler.
+func checkButlerSkin(d ButlerDef, i int, s ButlerSkin, seen map[int64]bool) error {
+	switch {
+	case seen[s.ID]:
+		return fmt.Errorf("butler %d: skin %d is listed twice", d.ID, s.ID)
+	case !strings.HasPrefix(s.Code, "cherry_") || len(s.Code) == len("cherry_"):
+		return fmt.Errorf(`butler %d: skin %d: code must start with "cherry_"`, d.ID, s.ID)
+	case strings.TrimSpace(s.Name) == "":
+		return fmt.Errorf("butler %d: skin %d: name must not be empty", d.ID, s.ID)
+	case s.SkinColor < 0:
+		return fmt.Errorf("butler %d: skin %d: skin_color must not be negative", d.ID, s.ID)
+	case len(s.Outfit) == 0:
+		return fmt.Errorf("butler %d: skin %d: outfit must list item codes", d.ID, s.ID)
+	case s.Price < 0:
+		return fmt.Errorf("butler %d: skin %d: price must not be negative", d.ID, s.ID)
+	}
+	seen[s.ID] = true
+	base := CherryButlerSkinFirst + (d.ID-CherryButlerFirst)*100
+	if i == 0 {
+		if s.ID != DefaultSkinID(d.ID) || s.Price != 0 {
+			return fmt.Errorf("butler %d: the first skin is the default: id %d and no price", d.ID, DefaultSkinID(d.ID))
+		}
+	} else {
+		switch {
+		case s.ID <= base || s.ID > base+99:
+			return fmt.Errorf("butler %d: skin %d is outside the butler's sub-block %d-%d", d.ID, s.ID, base+1, base+99)
+		case s.Price < 1:
+			return fmt.Errorf("butler %d: skin %d: a further skin needs a price of at least 1 Cash", d.ID, s.ID)
+		case s.SkinImage == "":
+			return fmt.Errorf("butler %d: skin %d: a further skin needs its picture (skin_image)", d.ID, s.ID)
+		}
+	}
+	slots := map[string]bool{}
+	for _, code := range s.Outfit {
+		if _, ok := itemcode.ID(code); !ok {
+			return fmt.Errorf("butler %d: skin %d: outfit code %q is not an item code", d.ID, s.ID, code)
+		}
+		slot := store.ItemSlot(code)
+		if slots[slot] {
+			return fmt.Errorf("butler %d: skin %d: outfit wears two %s items (one item per slot): %s", d.ID, s.ID, slot, code)
+		}
+		slots[slot] = true
+	}
+	for _, code := range s.Lookalikes {
+		if !slices.Contains(s.Outfit, code) {
+			return fmt.Errorf("butler %d: skin %d: look-alike %s is not in outfit", d.ID, s.ID, code)
+		}
+	}
+	return nil
+}
+
 // verifyButlers runs at load (not for the embedded default alone): every outfit code must be a shop fashion item with
-// art, or a part the Face Shop lists (faceForSale: human faces, animal parts, converted ones), and every portrait must be
-// in the archive. No outfit slot is required: an archive without an item for a slot leaves it empty. The archive is read
-// here, as the shop catalog reads it.
+// art, or a part the Face Shop lists (faceForSale: human faces, animal parts, converted ones), and every portrait, skin
+// picture and voice line must be in the archive. No outfit slot is required: an archive without an item for a slot leaves
+// it empty. The archive is read here, as the shop catalog reads it.
 func verifyButlers(b *Butlers) error {
 	if !artVerifiable() { // no asset store: nothing has art, Cherry still starts (isolated instances, a host before its bucket)
 		return nil
@@ -227,18 +336,35 @@ func verifyButlers(b *Butlers) error {
 		fashion[it.Code] = true
 	}
 	for _, d := range b.Butlers {
-		for _, code := range d.Outfit {
-			if !fashion[code] && !faceForSale(code) {
-				return fmt.Errorf("butler %d: outfit item %s is not a shop item with art or a Face Shop part", d.ID, code)
+		for _, s := range d.Skins {
+			for _, code := range s.Outfit {
+				if !fashion[code] && !faceForSale(code) {
+					return fmt.Errorf("butler %d: skin %d: outfit item %s is not a shop item with art or a Face Shop part", d.ID, s.ID, code)
+				}
+			}
+			if s.SkinImage != "" {
+				if _, err := fs.Stat(butlerSkinFS, s.SkinImage); err != nil {
+					return fmt.Errorf("butler %d: skin %d: picture %s is not in the archive", d.ID, s.ID, s.SkinImage)
+				}
 			}
 		}
 		if _, err := fs.Stat(butlerArtFS, butlerArtFile(d)); err != nil {
 			return fmt.Errorf("butler %d: portrait %s is not in the archive", d.ID, butlerArtFile(d))
 		}
-		for _, f := range []string{d.SkinImage, d.RewardImage} {
-			if _, err := fs.Stat(butlerSkinFS, f); f != "" && err != nil {
-				return fmt.Errorf("butler %d: picture %s is not in the archive", d.ID, f)
+		if d.RewardImage != "" {
+			if _, err := fs.Stat(butlerSkinFS, d.RewardImage); err != nil {
+				return fmt.Errorf("butler %d: picture %s is not in the archive", d.ID, d.RewardImage)
 			}
+		}
+		if d.Voices != nil {
+			for _, n := range d.Voices.Lines {
+				if _, err := fs.Stat(butlerSkinFS, d.Voices.storeFile(n)); err != nil {
+					return fmt.Errorf("butler %d: voice line %s is not in the archive", d.ID, d.Voices.storeFile(n))
+				}
+			}
+		}
+		if err := verifyButlerMemories(d); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -247,10 +373,10 @@ func verifyButlers(b *Butlers) error {
 // butlerArtFile is the original portrait file of a roster butler.
 func butlerArtFile(d ButlerDef) string { return "butler_event_profile_" + d.Art + ".png" }
 
-// ButlerOutfitIDs returns the numeric item ids of d's outfit, in the outfit's order.
-func ButlerOutfitIDs(d ButlerDef) []int64 {
-	ids := make([]int64, 0, len(d.Outfit))
-	for _, code := range d.Outfit {
+// ButlerOutfitIDs returns the numeric item ids of skin s's outfit, in the outfit's order.
+func ButlerOutfitIDs(s ButlerSkin) []int64 {
+	ids := make([]int64, 0, len(s.Outfit))
+	for _, code := range s.Outfit {
 		if id, ok := itemcode.ID(code); ok {
 			ids = append(ids, id)
 		}
@@ -258,45 +384,62 @@ func ButlerOutfitIDs(d ButlerDef) []int64 {
 	return ids
 }
 
-// ButlerPortrait returns the picture of roster butler id: its original skin picture (skin_image) when the data names one,
-// else its event portrait; the original art, read as it is from the store. ok is false for a butler outside the roster or
-// a missing file. Nothing is generated.
-func ButlerPortrait(id int64) ([]byte, bool) {
-	d, ok := ButlerByID(id)
-	if !ok {
-		return nil, false
-	}
-	if d.SkinImage != "" {
-		b, err := fs.ReadFile(butlerSkinFS, d.SkinImage)
+// ButlerSkinPicture returns the picture of skin s of butler d: its original skin picture (skin_image) when the data names
+// one, else the event portrait (the default only); the original art, read as it is from the store. ok is false for a
+// missing file. Nothing is generated.
+func ButlerSkinPicture(d ButlerDef, s ButlerSkin) ([]byte, bool) {
+	if s.SkinImage != "" {
+		b, err := fs.ReadFile(butlerSkinFS, s.SkinImage)
 		return b, err == nil
 	}
 	b, err := fs.ReadFile(butlerArtFS, butlerArtFile(d))
 	return b, err == nil
 }
 
-// HandleButlerImage serves GET /cherry/butler/<id>.png, the roster butler's picture (ButlerPortrait), and
-// /cherry/butler/<id>-reward.png, its gather-reward picture (reward_image). The route is Cherry's; the pictures are the
-// client's.
+// HandleButlerImage serves GET /cherry/butler/<tail>.png: <id> is the roster butler's default picture, <id>-reward its
+// gather-reward picture (reward_image; the default's when none is named), skin/<skin id> a further skin's picture and
+// memory/<file> a memory picture the data lists (butler_memory.go). The route is Cherry's; the pictures are the client's.
 func HandleButlerImage(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/cherry/butler/"), ".png")
-	stem, reward := strings.CutSuffix(name, "-reward")
-	id, err := strconv.ParseInt(stem, 10, 64)
-	if err != nil || r.Method != http.MethodGet {
-		http.NotFound(w, r)
-		return
-	}
-	b, ok := ButlerPortrait(id)
-	if d, _ := ButlerByID(id); reward && d.RewardImage != "" {
-		var err error
-		b, err = fs.ReadFile(butlerSkinFS, d.RewardImage)
-		ok = err == nil
-	}
-	if !ok {
+	b, ok := butlerPicture(name)
+	if !ok || r.Method != http.MethodGet {
 		http.NotFound(w, r)
 		return
 	}
 	w.Header().Set("Content-Type", "image/png")
 	_, _ = w.Write(b)
+}
+
+// butlerPicture reads the picture a HandleButlerImage tail names.
+func butlerPicture(name string) ([]byte, bool) {
+	if file, ok := strings.CutPrefix(name, "memory/"); ok {
+		return memoryPicture(file)
+	}
+	if rest, ok := strings.CutPrefix(name, "skin/"); ok {
+		id, err := strconv.ParseInt(rest, 10, 64)
+		if err != nil {
+			return nil, false
+		}
+		d, s, ok := ButlerSkinByID(id)
+		if !ok {
+			return nil, false
+		}
+		return ButlerSkinPicture(d, s)
+	}
+	stem, reward := strings.CutSuffix(name, "-reward")
+	id, err := strconv.ParseInt(stem, 10, 64)
+	if err != nil {
+		return nil, false
+	}
+	d, ok := ButlerByID(id)
+	if !ok {
+		return nil, false
+	}
+	if reward && d.RewardImage != "" {
+		b, err := fs.ReadFile(butlerSkinFS, d.RewardImage)
+		return b, err == nil
+	}
+	return ButlerSkinPicture(d, d.Skins[0])
 }
 
 // ButlerByID returns the roster butler with id.
@@ -492,12 +635,14 @@ func ExpireButlers(aid string, now time.Time) ([]ButlerDef, error) {
 	return gone, nil
 }
 
-// ButlerHired is one hire: the roster butler, its contract, the Cash charged and whether it was the free first hire.
+// ButlerHired is one hire: the roster butler, its contract, the Cash charged, whether it was the free first hire and the
+// skin the butler wears.
 type ButlerHired struct {
 	Butler ButlerDef
 	Hire   store.ButlerHire
 	Price  int64
 	Free   bool
+	Worn   ButlerSkin
 }
 
 // HireButler hires butler id for aid for employDays days. The price is the server's: the earned Cash of that
@@ -547,7 +692,7 @@ func HireButler(aid string, id, costType, employDays int64, wantFree bool, now t
 		*acc = prev
 		return ButlerHired{}, err
 	}
-	return ButlerHired{Butler: butler, Hire: h, Price: price, Free: free}, nil
+	return ButlerHired{Butler: butler, Hire: h, Price: price, Free: free, Worn: butlerWornIn(&next, butler)}, nil
 }
 
 // SetButlerChief makes butler id the chief of aid's Garden. The butler must be under contract now.
@@ -572,23 +717,26 @@ func SetButlerChief(aid string, id int64, now time.Time) error {
 	return nil
 }
 
-// ButlerChief returns aid's chief and its contract when the contract runs at now. The Garden shows it to every
-// visitor, so the relay start reads the owner's chief.
-func ButlerChief(aid string, now time.Time) (ButlerDef, store.ButlerHire, bool) {
+// ButlerChief returns aid's chief, the skin it wears and its contract when the contract runs at now. The Garden shows it
+// to every visitor, so the relay start reads the owner's chief.
+func ButlerChief(aid string, now time.Time) (ButlerDef, ButlerSkin, store.ButlerHire, bool) {
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
 	acc := store.AccountByAidLocked(aid)
 	if acc == nil || acc.Butlers == nil {
-		return ButlerDef{}, store.ButlerHire{}, false
+		return ButlerDef{}, ButlerSkin{}, store.ButlerHire{}, false
 	}
 	book := butlerBookOf(acc)
 	id, ok := butlerChiefOf(&book, now)
 	if !ok {
-		return ButlerDef{}, store.ButlerHire{}, false
+		return ButlerDef{}, ButlerSkin{}, store.ButlerHire{}, false
 	}
 	h, _ := butlerHireOf(&book, id, now)
 	d, ok := ButlerByID(id)
-	return d, h, ok
+	if !ok {
+		return ButlerDef{}, ButlerSkin{}, store.ButlerHire{}, false
+	}
+	return d, butlerWornIn(&book, d), h, true
 }
 
 // StartButlerGather starts butler id's gathering for aid: it runs for gathering.duration_minutes, then can be collected.

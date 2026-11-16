@@ -141,14 +141,15 @@ type GatherDay struct {
 // edited in place. Free is the list of the per-butler free hires written before the account-wide flag: a non-empty
 // list counts as used, and it is never written again (butlerBookOf drops it).
 type ButlerBook struct {
-	Hired     []ButlerHire   `json:"hired,omitempty"`
-	Leader    int64          `json:"leader,omitempty"`
-	FreeUsed  bool           `json:"freeUsed,omitempty"`
-	Free      []int64        `json:"free,omitempty"`
-	Day       int64          `json:"day,omitempty"`
-	Gems      int64          `json:"gems,omitempty"`    // Gems reserved by butler gathering started on Day
-	Gathers   int64          `json:"gathers,omitempty"` // butler gathers started on Day
-	Gathering []ButlerGather `json:"gathering,omitempty"`
+	Hired     []ButlerHire      `json:"hired,omitempty"`
+	Leader    int64             `json:"leader,omitempty"`
+	FreeUsed  bool              `json:"freeUsed,omitempty"`
+	Free      []int64           `json:"free,omitempty"`
+	Day       int64             `json:"day,omitempty"`
+	Gems      int64             `json:"gems,omitempty"`    // Gems reserved by butler gathering started on Day
+	Gathers   int64             `json:"gathers,omitempty"` // butler gathers started on Day
+	Gathering []ButlerGather    `json:"gathering,omitempty"`
+	Skins     []ButlerSkinOwned `json:"skins,omitempty"` // bought skins (economy/butler_skin.go); a butler's default skin is always owned
 }
 
 // ButlerHire is one butler's contract: Begin and End are epoch milliseconds, and the butler leaves the
@@ -157,6 +158,14 @@ type ButlerHire struct {
 	ID    int64 `json:"id"`
 	Begin int64 `json:"begin"`
 	End   int64 `json:"end"`
+}
+
+// ButlerSkinOwned is one skin an account bought: the butler, the skin id and whether the butler wears it now. At most
+// one skin per butler is Equipped; none means the butler wears its default skin.
+type ButlerSkinOwned struct {
+	Butler   int64 `json:"butler"`
+	Skin     int64 `json:"skin"`
+	Equipped bool  `json:"equipped,omitempty"`
 }
 
 // ButlerGather is one butler's gathering (economy/butler.go). Begin is when it started and End when it is ready to

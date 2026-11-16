@@ -36,9 +36,9 @@ func NewPlainMux() http.Handler {
 	})
 }
 
-// staticPrefixes are the GET paths that serve files: the asset store, the Cherry pictures and the profile and diary
-// pictures. Everything else is a game request.
-var staticPrefixes = []string{"/arts_", "/img/read/", "/notice/", "/cherry/", "/web/", "/lineplay/", "/r/lineplay/", "/v4/resource/splash/"}
+// staticPrefixes are the GET paths that serve files: the asset store, the Cherry pictures, the butler voice packs and the
+// profile and diary pictures. Everything else is a game request.
+var staticPrefixes = []string{"/arts_", "/img/read/", "/notice/", "/cherry/", "/web/", "/lineplay/", "/r/lineplay/", "/v4/resource/splash/", "/butler_voice_master/"}
 
 // isStaticGET reports whether r is a file read the limits exempt: a GET or HEAD of a static prefix, or a map pack ("/../").
 func isStaticGET(r *http.Request) bool {

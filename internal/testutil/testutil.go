@@ -105,14 +105,16 @@ func SantiItems() string { return filepath.Join(santiFiles, "item") }
 func LPBackupItems() string { return filepath.Join(lpFiles, "item") }
 
 // ArchiveMounts maps the original keys to the device backups, as production R2 holds them. The item folders are given
-// (exactly those, in order, for a fixture) or, by default, santi's then lpbackup's, the order the uploader reads them
-// (the first folder holding a file wins). lpbackup is left out when it is absent; every other key reads santi, then
+// (exactly those, in order, for a fixture) or, by default, santi's, lpbackup's and the robo iOS cache's, the order the
+// uploader reads them (the first folder holding a file wins). A missing one is left out; every other key reads santi, then
 // lpbackup.
 func ArchiveMounts(items ...string) map[string][]string {
 	if len(items) == 0 {
 		items = []string{SantiItems()}
-		if _, err := os.Stat(LPBackupItems()); err == nil {
-			items = append(items, LPBackupItems())
+		for _, more := range []string{LPBackupItems(), filepath.Join(roboCaches, "item")} { // R2 holds both since the uploads
+			if _, err := os.Stat(more); err == nil {
+				items = append(items, more)
+			}
 		}
 	}
 	craft := filepath.Join(santiFiles, "item", "craftitem")
