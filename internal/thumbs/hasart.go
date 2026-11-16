@@ -39,8 +39,12 @@ func HasArt(kind string, id int64) bool {
 
 // dpHasArt is the index form of the generator's inputs: an authentic dp.png, a cached composite, then the parts a
 // composite needs (a part sheet with at least one non-dp picture or an animation, a pet's skeleton, atlas and texture,
-// a room's layer picture).
+// a room's layer picture). A garment or face part always needs its parts: a dp.png alone draws a shop cell but nothing
+// on the avatar (the robo iOS cache, 2026-11-16, holds 2,569 such folders: the client fetched only the preview).
 func dpHasArt(ix *assets.ItemIndex, kind string, n int64) bool {
+	if kind == "custom" || kind == "dress" {
+		return wearableArt(ix, kind, n)
+	}
 	if ix.HasFile(kind, n, "dp.png") {
 		return true
 	}
@@ -52,14 +56,18 @@ func dpHasArt(ix *assets.ItemIndex, kind string, n int64) bool {
 		return ix.HasFile(kind, n, "skeleton.xml") && ix.HasFile(kind, n, "texture.xml") && ix.HasFile(kind, n, "texture.png")
 	case "interior", "tile":
 		return roomHasArt(ix, kind, n)
-	case "custom", "dress":
-		if !ix.HasFile(kind, n, "1409_iteminfo.artsitem") {
-			return false
-		}
-		for _, name := range ix.Names(kind, n) {
-			if strings.HasSuffix(name, ".aniproj") || (strings.HasSuffix(name, ".png") && !strings.HasPrefix(name, "dp")) {
-				return true
-			}
+	}
+	return false
+}
+
+// wearableArt: the artsitem and at least one part picture (not a dp*) or an animation.
+func wearableArt(ix *assets.ItemIndex, kind string, n int64) bool {
+	if !ix.HasFile(kind, n, "1409_iteminfo.artsitem") {
+		return false
+	}
+	for _, name := range ix.Names(kind, n) {
+		if strings.HasSuffix(name, ".aniproj") || (strings.HasSuffix(name, ".png") && !strings.HasPrefix(name, "dp")) {
+			return true
 		}
 	}
 	return false

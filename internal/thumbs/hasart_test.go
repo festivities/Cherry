@@ -12,7 +12,7 @@ func TestHasArtSources(t *testing.T) {
 	dot := solidPNG(t, 1, 1, color.RGBA{R: 0xff, A: 0xff})
 	part := dressItemInfo("4", "10", "0", "0", "0_0.png")
 
-	writeItemFile(t, itemRoot, "dress", "1", "dp.png", []byte("x")) // authentic preview wins
+	writeItemFile(t, itemRoot, "dress", "1", "dp.png", []byte("x")) // a preview alone: no parts to wear
 	writeItemFile(t, itemRoot, "dress", "2", "1409_iteminfo.artsitem", []byte(part))
 	writeItemFile(t, itemRoot, "dress", "2", "0_0.png", red)                         // drawable part sprite
 	writeItemFile(t, itemRoot, "dress", "3", "1409_iteminfo.artsitem", []byte(part)) // part PNG absent: no art
@@ -37,7 +37,7 @@ func TestHasArtSources(t *testing.T) {
 		id   int64
 		want bool
 	}{
-		{"dress", 1, true},
+		{"dress", 1, false},
 		{"dress", 2, true},
 		{"dress", 3, false},
 		{"dress", 4, true},
@@ -71,7 +71,7 @@ func TestHasArtCachedPerStore(t *testing.T) {
 	if v, ok := artCache.m["dress/12"]; !ok || v {
 		t.Fatalf("cache entry = %v %v, want false stored", v, ok)
 	}
-	writeItemFile(t, itemRoot, "dress", "12", "dp.png", []byte("x"))
+	writeItemFile(t, itemRoot, "dress", "12", "0_0.png", []byte("x"))
 	if !HasArt("dress", 12) {
 		t.Fatal("a new store did not answer afresh")
 	}

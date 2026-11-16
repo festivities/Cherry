@@ -38,6 +38,14 @@ func writeThumbItem(t *testing.T, itemRoot, kind, id, name string, data []byte) 
 	if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// The "x" art marker on a garment or face part stands for a complete item: thumbs.HasArt wants its parts too.
+	if name == "dp.png" && string(data) == "x" && (kind == "dress" || kind == "custom") {
+		for _, part := range []string{"1409_iteminfo.artsitem", "0_0.png"} {
+			if _, err := os.Stat(filepath.Join(dir, part)); os.IsNotExist(err) {
+				writeThumbItem(t, itemRoot, kind, id, part, []byte("x"))
+			}
+		}
+	}
 }
 
 // solidThumbPNG returns an opaque RGBA PNG of w*h filled with c.

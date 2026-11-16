@@ -63,12 +63,14 @@ func TestGardensLandscapeData(t *testing.T) {
 			generated = append(generated, l.ID)
 		}
 	}
-	if len(lands) != 24 || len(generated) != 14 || len(lands)-len(generated) != 10 {
-		t.Fatalf("%d landscapes, %d generated, want 24 and 14", len(lands), len(generated))
+	// 2026-11-16: Moonlit lawn and Under the sea got their original landscapes (robo GULS0001E, GULS00035); their
+	// generated ids GULS0255N and GULS0255I are retired, never reused (devices keep the old files).
+	if len(lands) != 24 || len(generated) != 12 {
+		t.Fatalf("%d landscapes, %d generated, want 24 and 12", len(lands), len(generated))
 	}
 	slices.Sort(generated)
-	if generated[0] != 428499986 || generated[13] != 428499999 {
-		t.Errorf("generated ids %v, want 428499986..428499999", generated)
+	if generated[0] != 428499986 || generated[11] != 428499999 || slices.Contains(generated, 428499995) || slices.Contains(generated, 428499990) {
+		t.Errorf("generated ids %v, want 428499986..428499999 without the retired 428499990 and 428499995", generated)
 	}
 	for _, code := range []string{"GULS0004V", "GULS0005B"} {
 		if _, ok := listedLandscape(code); ok {
