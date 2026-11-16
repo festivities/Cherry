@@ -48,6 +48,15 @@ func butlerImageURL(b economy.ButlerDef) string {
 	return "cherry/butler/" + strconv.FormatInt(b.ID, 10) + ".png"
 }
 
+// butlerRewardURL is the gather-reward picture (ButlerRewardInfo butlerRewardImg): /cherry/butler/<id>-reward.png when the
+// data names an original reward picture (reward_image, butler-robo-spec 2026-11-16), else the butler's picture.
+func butlerRewardURL(b economy.ButlerDef) string {
+	if b.RewardImage == "" {
+		return butlerImageURL(b)
+	}
+	return "cherry/butler/" + strconv.FormatInt(b.ID, 10) + "-reward.png"
+}
+
 // butlerSkin is ButlerSkinInfo (spec 12.1): skinId, skinCd, the portrait (skinImgUrl, f3), avatarSkinColor (f4), the
 // outfit (f5, one ItemInfo per item: the numeric id and dyeType 0) and skinName. The client does not read skinCd.
 func butlerSkin(b economy.ButlerDef) []byte {
@@ -248,7 +257,7 @@ func butlerRewardBody(b economy.ButlerDef, g store.ButlerGather) []byte {
 	}
 	info := pbVar(nil, 1, uint64(b.ID))
 	info = pbVar(info, 2, 1)                            // rewardType: gathering
-	info = pbLen(info, 3, []byte(butlerImageURL(b)))    // butlerRewardImg: the portrait
+	info = pbLen(info, 3, []byte(butlerRewardURL(b)))   // butlerRewardImg: the reward picture
 	info = pbLen(info, 4, list)                         // itemList
 	info = pbVar(info, 7, uint64((g.End-g.Begin)/1000)) // gatheringIngTime: the gathering's length in seconds
 	info = pbVar(info, 8, uint64(len(g.Items)))         // totalRewardCount

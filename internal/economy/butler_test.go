@@ -709,3 +709,30 @@ func TestMigrateButlerRosterRefundsOnce(t *testing.T) {
 		t.Fatalf("second run changed the account: cash=%d ledger=%v", cash, ledgerReasons(t, dir))
 	}
 }
+
+// TestButlerOriginalPictures: Merry's picture route serves her original skin picture and Kai's reward route his
+// original reward picture (the robo iOS cache, butler-robo-spec); a butler without reward_image answers its picture there.
+func TestButlerOriginalPictures(t *testing.T) {
+	testutil.UseArchive(t)
+	get := func(path string) []byte {
+		rec := httptest.NewRecorder()
+		HandleButlerImage(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status %d", path, rec.Code)
+		}
+		return rec.Body.Bytes()
+	}
+	for path, file := range map[string]string{
+		"/cherry/butler/1900000006.png":        "cache/butler/butler_skin_master/skin_1597832311.png", // Merry
+		"/cherry/butler/1900000007-reward.png": "cache/butler/butler_main/20201020112817335.png",      // Kai
+		"/cherry/butler/1900000006-reward.png": "cache/butler/butler_skin_master/skin_1597832311.png", // Merry: no reward_image
+	} {
+		want, err := fs.ReadFile(butlerSkinFS, file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(get(path), want) {
+			t.Fatalf("%s does not serve %s", path, file)
+		}
+	}
+}

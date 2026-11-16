@@ -106,18 +106,19 @@ type ButlerGathering struct {
 //	profile    the original blood type, birthday, keywords and quote: kept for the record (no verified protocol field)
 //	note       what is empty or uncertain in this butler (optional)
 type ButlerDef struct {
-	ID         int64         `json:"id"`
-	Name       string        `json:"name"`
-	Gender     string        `json:"gender"`
-	Skin       string        `json:"skin"`
-	SkinColor  int64         `json:"skin_color"`
-	Outfit     []string      `json:"outfit"`
-	Lookalikes []string      `json:"lookalikes,omitempty"`
-	Abilities  []string      `json:"abilities"`
-	Art        string        `json:"art"`
-	SkinImage  string        `json:"skin_image,omitempty"` // the original skin picture (a device files/ path); "" sends the portrait
-	Profile    ButlerProfile `json:"profile"`
-	Note       string        `json:"note,omitempty"`
+	ID          int64         `json:"id"`
+	Name        string        `json:"name"`
+	Gender      string        `json:"gender"`
+	Skin        string        `json:"skin"`
+	SkinColor   int64         `json:"skin_color"`
+	Outfit      []string      `json:"outfit"`
+	Lookalikes  []string      `json:"lookalikes,omitempty"`
+	Abilities   []string      `json:"abilities"`
+	Art         string        `json:"art"`
+	SkinImage   string        `json:"skin_image,omitempty"`   // the original skin picture (a device files/ path); "" sends the portrait
+	RewardImage string        `json:"reward_image,omitempty"` // the original gather-reward picture (butlerRewardImg); "" sends the skin picture
+	Profile     ButlerProfile `json:"profile"`
+	Note        string        `json:"note,omitempty"`
 }
 
 // ButlerProfile is the original profile text of a roster butler (its name card and quote in the client files).
@@ -234,9 +235,9 @@ func verifyButlers(b *Butlers) error {
 		if _, err := fs.Stat(butlerArtFS, butlerArtFile(d)); err != nil {
 			return fmt.Errorf("butler %d: portrait %s is not in the archive", d.ID, butlerArtFile(d))
 		}
-		if d.SkinImage != "" {
-			if _, err := fs.Stat(butlerSkinFS, d.SkinImage); err != nil {
-				return fmt.Errorf("butler %d: skin_image %s is not in the archive", d.ID, d.SkinImage)
+		for _, f := range []string{d.SkinImage, d.RewardImage} {
+			if _, err := fs.Stat(butlerSkinFS, f); f != "" && err != nil {
+				return fmt.Errorf("butler %d: picture %s is not in the archive", d.ID, f)
 			}
 		}
 	}
@@ -273,15 +274,23 @@ func ButlerPortrait(id int64) ([]byte, bool) {
 	return b, err == nil
 }
 
-// HandleButlerImage serves GET /cherry/butler/<id>.png: the roster butler's original portrait (ButlerPortrait). The
-// route is Cherry's; the picture is the client's.
+// HandleButlerImage serves GET /cherry/butler/<id>.png, the roster butler's picture (ButlerPortrait), and
+// /cherry/butler/<id>-reward.png, its gather-reward picture (reward_image). The route is Cherry's; the pictures are the
+// client's.
 func HandleButlerImage(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/cherry/butler/"), ".png"), 10, 64)
+	name := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/cherry/butler/"), ".png")
+	stem, reward := strings.CutSuffix(name, "-reward")
+	id, err := strconv.ParseInt(stem, 10, 64)
 	if err != nil || r.Method != http.MethodGet {
 		http.NotFound(w, r)
 		return
 	}
 	b, ok := ButlerPortrait(id)
+	if d, _ := ButlerByID(id); reward && d.RewardImage != "" {
+		var err error
+		b, err = fs.ReadFile(butlerSkinFS, d.RewardImage)
+		ok = err == nil
+	}
 	if !ok {
 		http.NotFound(w, r)
 		return
