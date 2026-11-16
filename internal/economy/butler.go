@@ -76,6 +76,7 @@ var butlerSkinFS fs.FS = assets.DeviceFiles("")
 //	gathering   gems: Gems per gather; gems_cap: Gems a game day from butler gathering, per account; gathers_per_day:
 //	            gathers a game day per account (0 turns butler gathering off); duration_minutes: how long a gather runs
 //	            before it can be collected. A gather pays one drop of each of the butler's abilities (ButlerDef.Abilities)
+//	special_order  the butler special order (butler_order.go): the materials, count, reward and daily limit
 //	butlers     one or more roster butlers
 type Butlers struct {
 	Origin       string          `json:"origin"`
@@ -85,6 +86,7 @@ type Butlers struct {
 	FreeDays     int64           `json:"free_days"`
 	Hire         []ButlerPrice   `json:"hire"`
 	Gathering    ButlerGathering `json:"gathering"`
+	SpecialOrder SpecialOrder    `json:"special_order"`
 	Butlers      []ButlerDef     `json:"butlers"`
 }
 
@@ -215,6 +217,9 @@ func checkButlers(b *Butlers) error {
 	}
 	if g.DurationMinutes < 1 {
 		return errors.New("gathering: duration_minutes must be at least 1")
+	}
+	if err := checkSpecialOrder(b.SpecialOrder); err != nil {
+		return err
 	}
 	if len(b.Butlers) < 1 {
 		return errors.New("butlers must list at least one butler")

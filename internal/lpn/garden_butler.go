@@ -1,6 +1,7 @@
 package lpn
 
 import (
+	"errors"
 	"log"
 	"math"
 	"math/rand/v2"
@@ -14,7 +15,8 @@ import (
 
 // Garden butlers (Garden LPN agent 10; spec butler-spec.md): the Shop (51 list, 52 hire), the Book (53 list,
 // 50 gather, 56 chief), Skin Select (62), the Skin Shop (60 list, 61 buy, 59 wear; butler-robo-spec section 2), the
-// Voice Book (63; section 1), the Memories (69 list, 70 open; section 3) and the Chat (48 dialog, 49 talk; section 10).
+// Voice Book (63; section 1), the Memories (69 list, 70 open; section 3), the Chat (48 dialog, 49 talk; section 10) and
+// the special order (64 order, 66 bag list, 65 deliver; section 11).
 // Every other butler request gets a refusal with no data and no spend, so the client's spinner clears. Field numbers
 // and wire types are the spec's contract (section 3).
 // Reply msgids differ from request msgids (section 2). The roster is original data with Cherry-made ids and prices:
@@ -23,6 +25,18 @@ import (
 
 // butlerRefused is the generic refusal result of a butler reply: nothing changed, no data.
 const butlerRefused = 1
+
+// Special order results (butler-robo-spec 11.5). The Chat (hc 75) shows the daily limit (217116), closes on a butler
+// whose contract ran out (217103) and stays open on a failed load (217114). Popup 218 (hc 76) keeps itself open on bad
+// materials (217117), closes on an ended order (217118) and shows the network error (3039) for anything else.
+const (
+	butlerDailyLimit    = 217116
+	butlerContractEnded = 217103
+	butlerLoadFailed    = 217114
+	orderKeepOpen       = 217117
+	orderEnded          = 217118
+	butlerNetworkError  = 3039
+)
 
 // butlerNoDate is "no date" for the v64 sale, sell and free end times (int64 -1; 0 would read as 1970).
 const butlerNoDate = math.MaxUint64
@@ -490,6 +504,52 @@ func butlerTalkBody(b economy.ButlerDef, v economy.ButlerView, h store.ButlerHir
 	return pbLen(pbVar(nil, 1, 0), 2, info)
 }
 
+// currencyRow is a ButlerRewardItemInfo for a currency reward (butler-robo-spec 11.6): the amount (f3) and the reward type
+// (f4). It has no item code, name or picture: the popup words a currency by its type.
+func currencyRow(r economy.SpecialOrderReward) []byte {
+	return pbVar(pbVar(nil, 3, uint64(r.Amount)), 4, uint64(r.Type))
+}
+
+// specialOrderInfoBody is the order (hc 75, butler-robo-spec 11.2): result 0, the butler's thumbnail (f2: id, name and
+// portrait), the order id (f3, echoed by ch 65), its end in epoch seconds (f4), the star grade on the wire (f5, 0-based),
+// the material count (f6) and the reward (f7).
+func specialOrderInfoBody(b economy.ButlerDef, o store.ButlerOrder) []byte {
+	thumb := pbVar(nil, 1, uint64(b.ID))
+	thumb = pbLen(thumb, 2, []byte(b.Name))
+	thumb = pbLen(thumb, 5, []byte(butlerImageURL(b)))
+	body := pbVar(nil, 1, 0)
+	body = pbLen(body, 2, thumb)
+	body = pbVar(body, 3, uint64(o.ID))
+	body = pbVar(body, 4, butlerSeconds(o.End))
+	body = pbVar(body, 5, uint64(o.Grade-1))
+	body = pbVar(body, 6, uint64(o.Count))
+	return pbLen(body, 7, currencyRow(economy.ActiveButlers().SpecialOrder.Reward))
+}
+
+// specialOrderBagItem is one picker cell (ButlerSpecialOrderBagItem, butler-robo-spec 11.4): the serial (the item id, which
+// keys the Bag's stacks), the item, its owned count, its Bag tab (the item type), the grade on the wire and the craft picture
+// the Bag shows.
+func specialOrderBagItem(s store.GardenBagStack, grade uint64) []byte {
+	it := pbVar(nil, 1, uint64(s.Item))
+	it = pbVar(it, 2, uint64(s.Item))
+	it = pbVar(it, 3, uint64(s.Count))
+	it = pbVar(it, 4, uint64(s.Item/100000))
+	it = pbVar(it, 5, grade)
+	return pbLen(it, 6, []byte(economy.GatherCraftImage(s.Item)))
+}
+
+// specialOrderRewardBody is the reply to a delivery (hc 76, butler-robo-spec 11.4): result 0 and the reward popup's
+// ButlerRewardInfo: the butler (f1), the reward type (f2), the butler's reward picture (f3), one currency row (f4) and the
+// line (f5, the popup's dialogue).
+func specialOrderRewardBody(p economy.SpecialOrderPaid) []byte {
+	info := pbVar(nil, 1, uint64(p.Butler.ID))
+	info = pbVar(info, 2, uint64(p.Reward.Type))
+	info = pbLen(info, 3, []byte(butlerRewardURL(p.Butler)))
+	info = pbLen(info, 4, pbLen(nil, 1, currencyRow(p.Reward)))
+	info = pbLen(info, 5, []byte(p.Thanks))
+	return pbLen(pbVar(nil, 1, 0), 2, info)
+}
+
 // butlerRefusal is the reply to a request the butlers do not serve here: result butlerRefused, or the
 // message the Garden's popup shows for it (reward info: "not available"), or an empty reply where the reply
 // has no result field (spec 3.2). Nothing is spent.
@@ -691,7 +751,61 @@ func gardenButlerReply(msgid uint16, viewer uint64, data []byte, now time.Time, 
 				return []gardenMsg{{81, butlerMemoryOpen(b, m, economy.ButlerViewOf(aid, now).Worn(b), now)}}
 			}
 		}
-		// an unknown butler or memory is refused below
+	// an unknown butler or memory is refused below
+	case 64: // special_order_info {butler_id}: the butler's open order, or a new one under contract (hc 75)
+		id, _ := protobufUintField(data, 1)
+		o, err := economy.IssueSpecialOrder(aid, int64(id), now)
+		if err != nil {
+			code := uint64(butlerLoadFailed)
+			switch {
+			case errors.Is(err, economy.ErrButlerRefused):
+				code = butlerContractEnded
+			case errors.Is(err, economy.ErrOrderDaily):
+				code = butlerDailyLimit
+			}
+			logger.Printf("BUTLER order aid=%s butler=%d result=%d err=%v", aid, id, code, err)
+			return []gardenMsg{{75, pbVar(nil, 1, code)}}
+		}
+		b, _ := economy.ButlerByID(int64(id))
+		logger.Printf("BUTLER order aid=%s butler=%d order=%d grade=%d count=%d result=0", aid, id, o.ID, o.Grade, o.Count)
+		return []gardenMsg{{75, specialOrderInfoBody(b, o)}}
+	case 66: // special_order_bagitem {req_item_grade}: the Bag's materials of that grade, for the picker (hc 77)
+		grade, _ := protobufUintField(data, 1)
+		stacks := economy.SpecialOrderBag(aid, int64(grade)+1)
+		var body []byte
+		for _, s := range stacks {
+			body = pbLen(body, 1, specialOrderBagItem(s, grade))
+		}
+		logger.Printf("BUTLER order bag aid=%s grade=%d stacks=%d result=0", aid, grade, len(stacks))
+		return []gardenMsg{{77, body}}
+	case 65: // special_order_reward {butler_id, special_order_id, items {itemid, count}}: deliver the materials (hc 76)
+		id, _ := protobufUintField(data, 1)
+		orderID, _ := protobufUintField(data, 2)
+		var items []store.GardenBagStack
+		if !pbScan(data, func(f, _ uint64, d []byte) {
+			if f == 3 && d != nil {
+				item, _ := protobufUintField(d, 2)
+				count, _ := protobufUintField(d, 3)
+				items = append(items, store.GardenBagStack{Item: int64(item), Count: int64(count)})
+			}
+		}) {
+			logger.Printf("BUTLER order reward aid=%s butler=%d result=%d err=malformed", aid, id, butlerNetworkError)
+			return []gardenMsg{{76, pbVar(nil, 1, butlerNetworkError)}}
+		}
+		paid, err := economy.DeliverSpecialOrder(aid, int64(id), int64(orderID), items, now)
+		if err != nil {
+			code := uint64(butlerNetworkError)
+			switch {
+			case errors.Is(err, economy.ErrOrderEnded):
+				code = orderEnded
+			case errors.Is(err, economy.ErrOrderItems):
+				code = orderKeepOpen
+			}
+			logger.Printf("BUTLER order reward aid=%s butler=%d order=%d items=%d result=%d err=%v", aid, id, orderID, len(items), code, err)
+			return []gardenMsg{{76, pbVar(nil, 1, code)}}
+		}
+		logger.Printf("BUTLER order reward aid=%s butler=%d order=%d items=%d reward=%d result=0", aid, id, orderID, len(items), paid.Reward.Amount)
+		return []gardenMsg{{76, specialOrderRewardBody(paid)}}
 	}
 	reply := butlerReplies[msgid]
 	logger.Printf("BUTLER refused aid=%s msgid=%d reply=%d", aid, msgid, reply)

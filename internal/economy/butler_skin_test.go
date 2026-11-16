@@ -17,8 +17,9 @@ const merrySilver = 1900001601
 // butlersWith is a one-butler config for checkButlers: the default skin of d plus extra.
 func butlersWith(d ButlerDef) *Butlers {
 	return &Butlers{Origin: "mixed", Note: "n", ChatGreeting: "Hi.", TalkLine: "Fun.", FreeDays: 3, Hire: []ButlerPrice{{Days: 30, Cash: 30}},
-		Gathering: ButlerGathering{Gems: 3, GemsCap: 10, GathersPerDay: 10, DurationMinutes: 60},
-		Butlers:   []ButlerDef{d}}
+		Gathering:    ButlerGathering{Gems: 3, GemsCap: 10, GathersPerDay: 10, DurationMinutes: 60},
+		SpecialOrder: validSpecialOrder(),
+		Butlers:      []ButlerDef{d}}
 }
 
 // validMerry is a roster-shaped butler with a default skin and one further skin, for the skin checks.

@@ -72,6 +72,10 @@ var butlerSpec = map[string]map[uint64]butlerWire{
 	"talk":     {1: {0, ""}, 2: {2, "intimacy"}},
 	"intimacy": {1: {2, "gauge"}, 2: {2, "info"}, 3: {2, ""}, 4: {2, ""}},
 	"gauge":    {1: {0, ""}, 2: {0, ""}, 3: {0, ""}},
+	// The special order (hc 75 and 77, butler-robo-spec 11.2 and 11.4): the order with its reward row and the picker cells.
+	"order":    {1: {0, ""}, 2: {2, "thumb"}, 3: {0, ""}, 4: {0, ""}, 5: {0, ""}, 6: {0, ""}, 7: {2, "rewarditem"}},
+	"bagitems": {1: {2, "bagitem"}},
+	"bagitem":  {1: {0, ""}, 2: {0, ""}, 3: {0, ""}, 4: {0, ""}, 5: {0, ""}, 6: {2, ""}},
 }
 
 // checkButlerWire walks body as the spec table name and fails on a field the table does not list, a field with
@@ -168,8 +172,10 @@ func TestButlerRepliesMatchSpecWire(t *testing.T) {
 		{name: "intimacy shop refused", req: 67, reply: 78, spec: "result"},
 		{name: "intimacy buy refused", req: 68, reply: 79, spec: "result"},
 		{name: "memory open refused", req: 70, reply: 81, spec: "result"},
+		{name: "special order", req: 64, reply: 75, spec: "order", data: pbVar(nil, 1, ophelia), book: hired(ophelia)},
+		{name: "special order without a contract", req: 64, reply: 75, spec: "result", data: pbVar(nil, 1, ophelia)},
 		{name: "special order reward refused", req: 65, reply: 76, spec: "result"},
-		{name: "special order bag refused", req: 66, reply: 77, spec: ""},
+		{name: "special order bag empty", req: 66, reply: 77, spec: ""},
 		{name: "memory list refused", req: 69, reply: 80, spec: ""},
 		{name: "chat", req: 48, reply: 57, spec: "dialog", data: pbVar(nil, 1, merry), book: hired(merry)},
 		{name: "chat without a contract", req: 48, reply: 57, spec: "result", data: pbVar(nil, 1, merry)},

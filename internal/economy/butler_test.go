@@ -369,7 +369,8 @@ func TestButlerConfigRefusesIdOutsideCherryBlock(t *testing.T) {
 
 	valid := func(id int64) *Butlers {
 		return &Butlers{Origin: "mixed", Note: "n", ChatGreeting: "Hi.", TalkLine: "Fun.", FreeDays: 3, Hire: []ButlerPrice{{Days: 30, Cash: 30}},
-			Gathering: ButlerGathering{Gems: 3, GemsCap: 10, GathersPerDay: 10, DurationMinutes: 60},
+			Gathering:    ButlerGathering{Gems: 3, GemsCap: 10, GathersPerDay: 10, DurationMinutes: 60},
+			SpecialOrder: validSpecialOrder(),
 			Butlers: []ButlerDef{{ID: id, Name: "X", Gender: "FEMALE", Skins: []ButlerSkin{{ID: DefaultSkinID(id), Code: "cherry_x", Name: "X", Outfit: []string{"CUON004BH"}}},
 				Abilities: []string{"essence"}, Art: "b1"}}}
 	}
@@ -501,7 +502,8 @@ func TestButlerLookalikesAndSkins(t *testing.T) {
 func TestButlerOutfitRefusesTwoOfASlotAndUnlistedLookalike(t *testing.T) {
 	valid := func(outfit, lookalikes []string) *Butlers {
 		return &Butlers{Origin: "mixed", Note: "n", ChatGreeting: "Hi.", TalkLine: "Fun.", FreeDays: 3, Hire: []ButlerPrice{{Days: 30, Cash: 30}},
-			Gathering: ButlerGathering{Gems: 3, GemsCap: 10, GathersPerDay: 10, DurationMinutes: 60},
+			Gathering:    ButlerGathering{Gems: 3, GemsCap: 10, GathersPerDay: 10, DurationMinutes: 60},
+			SpecialOrder: validSpecialOrder(),
 			Butlers: []ButlerDef{{ID: CherryButlerFirst, Name: "X", Gender: "FEMALE", Abilities: []string{"essence"}, Art: "b1",
 				Skins: []ButlerSkin{{ID: DefaultSkinID(CherryButlerFirst), Code: "cherry_x", Name: "X", Outfit: outfit, Lookalikes: lookalikes}}}}}
 	}

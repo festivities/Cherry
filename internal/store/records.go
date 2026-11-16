@@ -149,7 +149,22 @@ type ButlerBook struct {
 	Gems      int64             `json:"gems,omitempty"`    // Gems reserved by butler gathering started on Day
 	Gathers   int64             `json:"gathers,omitempty"` // butler gathers started on Day
 	Gathering []ButlerGather    `json:"gathering,omitempty"`
-	Skins     []ButlerSkinOwned `json:"skins,omitempty"` // bought skins (economy/butler_skin.go); a butler's default skin is always owned
+	Skins     []ButlerSkinOwned `json:"skins,omitempty"`     // bought skins (economy/butler_skin.go); a butler's default skin is always owned
+	Orders    []ButlerOrder     `json:"orders,omitempty"`    // open special orders (economy/butler_order.go), at most one per butler
+	OrderDay  int64             `json:"orderDay,omitempty"`  // the game day OrderDone counts
+	OrderDone int64             `json:"orderDone,omitempty"` // special orders delivered on OrderDay
+}
+
+// ButlerOrder is one open butler special order (economy/butler_order.go): the butler, the star grade (1 to 3) and the
+// count of materials it asks for, the order id the client echoes back, the game day it was given on and its end (epoch
+// milliseconds, the day's 06:00 JST boundary). A delivered order leaves the book.
+type ButlerOrder struct {
+	ID     int64 `json:"id"`
+	Butler int64 `json:"butler"`
+	Grade  int64 `json:"grade"`
+	Count  int64 `json:"count"`
+	Day    int64 `json:"day"`
+	End    int64 `json:"end"`
 }
 
 // ButlerHire is one butler's contract: Begin and End are epoch milliseconds, and the butler leaves the
