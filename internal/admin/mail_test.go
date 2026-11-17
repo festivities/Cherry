@@ -89,7 +89,7 @@ func TestMailOneReviewThenSendOnce(t *testing.T) {
 		t.Fatalf("the review sent %d mails", n)
 	}
 	sendID := hiddenValue(t, review.body, "send")
-	form := sendForm(c.csrf(), sendID, "player", id, 1, "gems", "500", "", "Thanks for testing", "30", "event prize")
+	form := sendForm(c.csrf(), sendID, "player", id, 1, "gems", "500", "", "Thanks for testing\r\nsee you", "30", "event prize") // a browser sends CRLF
 
 	first := c.post("/mail/send", form)
 	expect(t, first, http.StatusSeeOther)
@@ -103,7 +103,7 @@ func TestMailOneReviewThenSendOnce(t *testing.T) {
 	}
 
 	rows := mailboxes(t, id)
-	if len(rows) != 1 || rows[0].Type != store.MailTypeGems || rows[0].Amount != 500 || rows[0].Message != "Thanks for testing" || rows[0].Sender == "" {
+	if len(rows) != 1 || rows[0].Type != store.MailTypeGems || rows[0].Amount != 500 || rows[0].Message != "Thanks for testing\nsee you" || rows[0].Sender == "" {
 		t.Fatalf("mailbox = %+v, want one 500 Gems row", rows)
 	}
 	list := sends(t)

@@ -76,12 +76,14 @@ type mailPage struct {
 	NewestHref string
 }
 
-// mailFormOf reads the form posted by the compose or the review page.
+// mailFormOf reads the form posted by the compose or the review page. Browsers submit a textarea's line breaks as CRLF; the
+// message goes to the game with LF, so the player's mail and the 500-byte limit do not carry the browser's CRs.
 func mailFormOf(r *http.Request) mailForm {
+	message := strings.ReplaceAll(r.PostFormValue("message"), "\r\n", "\n")
 	return mailForm{
 		Audience: r.PostFormValue("audience"), Player: strings.TrimSpace(r.PostFormValue("player")),
 		Kind: r.PostFormValue("kind"), Amount: r.PostFormValue("amount"), Item: strings.TrimSpace(r.PostFormValue("item")),
-		Message: strings.TrimSpace(r.PostFormValue("message")), Days: r.PostFormValue("days"), Reason: r.PostFormValue("reason"),
+		Message: strings.TrimSpace(message), Days: r.PostFormValue("days"), Reason: r.PostFormValue("reason"),
 	}
 }
 
