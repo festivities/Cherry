@@ -87,7 +87,7 @@ func TestOnlinePlacesFromEachRegistry(t *testing.T) {
 	sess := dialSession(t, addr)
 	sendInit(t, sess, "sk-9102")
 
-	square := defaultSquares.room(2202250100)
+	square := defaultSquares.room(2202250100, 1)
 	square.mu.Lock()
 	square.players = append(square.players, &squarePlayer{aid: loginAidB})
 	square.mu.Unlock()
@@ -109,7 +109,7 @@ func TestOnlinePlacesFromEachRegistry(t *testing.T) {
 		t.Fatalf("%d rows for aid %d, want 1", len(rows), loginAidB)
 	}
 	got := rows[0].Places
-	if len(got) != 2 || !slices.Contains(got, Place{Kind: "square", ID: "2202250100"}) || !slices.Contains(got, Place{Kind: "circle", ID: "1940000001"}) {
+	if len(got) != 2 || !slices.Contains(got, Place{Kind: "square", ID: "2202250100", Room: "1"}) || !slices.Contains(got, Place{Kind: "circle", ID: "1940000001"}) {
 		t.Errorf("places %v, want the Square and the circle", got)
 	}
 

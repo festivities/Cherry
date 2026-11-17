@@ -2,6 +2,7 @@ package lpn
 
 import (
 	"cherry/internal/itemcode"
+	"cmp"
 	"encoding/binary"
 	"log"
 	"net"
@@ -43,17 +44,16 @@ const (
 const (
 	squareSpawnStepX = 40
 	squareSpawnStepY = 20
-	squareMaxPlayers = 100
 )
 
-// squareRoomEnter is rc_room_enter_res (idx 6): npcs is the NpcList field (nil = none), theme the world
-// type the client switches to.
-func squareRoomEnter(npcs []byte, theme uint64, mapFile string) []byte {
+// squareRoomEnter is rc_room_enter_res (idx 6): npcs is the NpcList field (nil = none), number the room the banner shows
+// ([0001]), theme the world type the client switches to.
+func squareRoomEnter(npcs []byte, number, theme uint64, mapFile string) []byte {
 	body := pbVar(nil, 1, squareEnterResult)
 	if npcs != nil {
 		body = pbLen(body, 2, npcs)
 	}
-	body = pbVar(body, 3, 1) // squareCode
+	body = pbVar(body, 3, number) // squareCode: the room number
 	body = pbVar(body, 4, theme)
 	body = pbVar(body, 5, 1) // clientMapRevision
 	body = pbLen(body, 6, []byte(mapFile))
@@ -130,34 +130,156 @@ type squarePlayer struct {
 	seat    []byte // encoded _player_interaction while seated (PlayerInfo.Interaction); guarded by squareRoom.mu
 }
 
+// squareRoom is one room of a Square: the players in it see each other and no one else. number is the room's number within
+// its Square (SquareCode, [0001] on the banner); theme and number never change.
 type squareRoom struct {
 	mu         sync.Mutex
+	theme      uint64
+	number     uint64
 	players    []*squarePlayer // join order
 	chatSerial uint64
-	bosses     []*squareBossRoom // boss lobbies and battles of this Square, oldest first (square_boss_room.go); guarded by mu
+	bosses     []*squareBossRoom // boss lobbies and battles opened in this room, oldest first (square_boss_room.go); guarded by mu
 }
 
-// squareRooms holds one room per Square (world type): players in different Squares do not see each
-// other. A room is created on first use and kept.
+// squareRooms holds the rooms of each Square (world type), by number, lowest first. Players in different rooms do not see
+// each other. A room is made when a player is placed in it and removed once its last player has left and no boss lobby is
+// open in it, so its number is free again. Each room holds up to the staff panel's cap (squareRoomCap).
 type squareRooms struct {
 	mu    sync.Mutex
-	rooms map[uint64]*squareRoom
+	rooms map[uint64][]*squareRoom
 }
 
 var defaultSquares = &squareRooms{}
 
-func (rs *squareRooms) room(theme uint64) *squareRoom {
+// squareRoomCap is the players one Square room holds: the staff panel's value, else the default.
+func squareRoomCap() uint64 { return uint64(store.SquareRoomCap(store.SquareRoomCapDefault)) }
+
+// room is the room of theme with that number, made when absent.
+func (rs *squareRooms) room(theme, number uint64) *squareRoom {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
+	return rs.roomLocked(theme, number)
+}
+
+// roomLocked is room for a caller that holds rs.mu.
+func (rs *squareRooms) roomLocked(theme, number uint64) *squareRoom {
 	if rs.rooms == nil {
-		rs.rooms = map[uint64]*squareRoom{}
+		rs.rooms = map[uint64][]*squareRoom{}
 	}
-	r := rs.rooms[theme]
-	if r == nil {
-		r = &squareRoom{}
-		rs.rooms[theme] = r
+	list := rs.rooms[theme]
+	i, found := slices.BinarySearchFunc(list, number, func(r *squareRoom, n uint64) int { return cmp.Compare(r.number, n) })
+	if found {
+		return list[i]
 	}
+	r := &squareRoom{theme: theme, number: number}
+	rs.rooms[theme] = slices.Insert(list, i, r)
 	return r
+}
+
+// chooseLocked is the room number aid enters theme in, given want (0 for none, else the number the client asked for or
+// the room a lobby master is in): aid's own room when it is in one (a re-enter keeps it); else want when that room has
+// space; else the lowest-numbered room with space; else the lowest number no room holds. aid 0 never matches a room.
+// The caller holds rs.mu.
+func (rs *squareRooms) chooseLocked(theme, aid, want, limit uint64) uint64 {
+	rooms := rs.rooms[theme]
+	counts := make([]uint64, len(rooms))
+	for i, r := range rooms {
+		r.mu.Lock()
+		counts[i] = uint64(len(r.players))
+		holds := aid != 0 && slices.ContainsFunc(r.players, func(p *squarePlayer) bool { return p.aid == aid })
+		r.mu.Unlock()
+		if holds {
+			return r.number
+		}
+	}
+	next := uint64(1) // the lowest number no room holds: rooms are sorted by number
+	low := uint64(0)  // the lowest-numbered room with space
+	for i, r := range rooms {
+		if r.number == next {
+			next++
+		}
+		if counts[i] < limit {
+			if r.number == want {
+				return want
+			}
+			if low == 0 {
+				low = r.number
+			}
+		}
+	}
+	if low != 0 {
+		return low
+	}
+	return next
+}
+
+// pick is the room number aid enters theme in (chooseLocked under the registry lock). The reply names it; the relaystart
+// joins it, or the next room with space when it has filled meanwhile.
+func (rs *squareRooms) pick(theme, aid, want, limit uint64) uint64 {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	return rs.chooseLocked(theme, aid, want, limit)
+}
+
+// join places p in the room chooseLocked picks and returns that room with the roster and the rejoined and wasSeated flags
+// of squareRoom.join.
+func (rs *squareRooms) join(theme uint64, p *squarePlayer, want, limit, spawnX, spawnY uint64) (*squareRoom, []byte, bool, bool) {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	r := rs.roomLocked(theme, rs.chooseLocked(theme, p.aid, want, limit))
+	roster, rejoined, wasSeated := r.join(p, spawnX, spawnY)
+	return r, roster, rejoined, wasSeated
+}
+
+// leave removes p from r if still there and tells the rest of r. Idempotent. An emptied room is removed.
+func (rs *squareRooms) leave(logger *log.Logger, r *squareRoom, p *squarePlayer) {
+	rs.mu.Lock()
+	r.mu.Lock()
+	found := false
+	for i, o := range r.players {
+		if o == p {
+			r.players = append(r.players[:i], r.players[i+1:]...)
+			found = true
+			break
+		}
+	}
+	r.mu.Unlock()
+	rs.pruneLocked(r)
+	rs.mu.Unlock()
+	if found {
+		logger.Printf("SQUARE deluser aid=%d room=%d", p.aid, r.number)
+		r.broadcast(logger, nil, 3, squareDelUser(p.aid))
+	}
+}
+
+// prune removes r when it is empty (no player, no boss lobby). A boss lobby that has just left its room calls it.
+func (rs *squareRooms) prune(r *squareRoom) {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	rs.pruneLocked(r)
+}
+
+// pruneLocked is prune for a caller that holds rs.mu.
+func (rs *squareRooms) pruneLocked(r *squareRoom) {
+	r.mu.Lock()
+	empty := len(r.players) == 0 && len(r.bosses) == 0
+	r.mu.Unlock()
+	if empty {
+		rs.rooms[r.theme] = slices.DeleteFunc(rs.rooms[r.theme], func(o *squareRoom) bool { return o == r })
+	}
+}
+
+// population is the players in every room of theme: the Square list's UserCount.
+func (rs *squareRooms) population(theme uint64) uint64 {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	var n uint64
+	for _, r := range rs.rooms[theme] {
+		r.mu.Lock()
+		n += uint64(len(r.players))
+		r.mu.Unlock()
+	}
+	return n
 }
 
 func squareFrame(b1 byte, sid []byte, msgid uint16, body []byte) []byte {
@@ -398,29 +520,12 @@ func (r *squareRoom) join(p *squarePlayer, spawnX, spawnY uint64) (roster []byte
 	return roster, index >= 0, wasSeated
 }
 
-// leave removes p if still registered and tells the rest. Idempotent.
-func (r *squareRoom) leave(logger *log.Logger, p *squarePlayer) {
-	r.mu.Lock()
-	found := false
-	for i, o := range r.players {
-		if o == p {
-			r.players = append(r.players[:i], r.players[i+1:]...)
-			found = true
-			break
-		}
-	}
-	r.mu.Unlock()
-	if found {
-		logger.Printf("SQUARE deluser aid=%d", p.aid)
-		r.broadcast(logger, nil, 3, squareDelUser(p.aid))
-	}
-}
-
 // squareSession is the per-connection agent-7 state, used from the single
 // handler goroutine of that connection.
 type squareSession struct {
 	rooms    *squareRooms
-	room     *squareRoom // the room of the Square entered last (nil before the first enter)
+	room     *squareRoom // the room the player is in (set at relaystart; nil before)
+	roomNo   uint64      // the room number of the Square entered last: the enter's pick, which the relaystart joins
 	square   Square      // the Square entered last: its spawn and map
 	conn     *lockedConn
 	logger   *log.Logger
@@ -463,7 +568,7 @@ func (s *squareSession) close() {
 			s.fish, s.fishing = nil, false
 		}
 		s.logger.Printf("SQUARE leave aid=%d moves=%d", s.aid, s.moves)
-		s.room.leave(s.logger, s.player)
+		s.rooms.leave(s.logger, s.room, s.player)
 		s.player = nil
 	}
 }
@@ -496,26 +601,23 @@ func (s *squareSession) handleData(frame []byte) error {
 	case 1: // cr_themelist_req -> rc_themelist_res: every visible Square with its user count
 		var body []byte
 		for _, sq := range squaresFile.Get().listed() {
-			room := s.rooms.room(sq.Theme)
-			room.mu.Lock()
-			count := uint64(len(room.players))
-			room.mu.Unlock()
-			body = pbLen(body, 1, squareThemeInfo(sq, count))
+			body = pbLen(body, 1, squareThemeInfo(sq, s.rooms.population(sq.Theme)))
 		}
 		body = pbVar(body, 3, 0) // result=0 [I]
 		s.logger.Printf("SQUARE themelist squares=%d", len(squaresFile.Get().listed()))
 		return s.reply(frame, 1, body)
-	case 2: // cr_room_enter_req -> rc_room_enter_res (idx6): the Square the client asked for (Theme)
+	case 2: // cr_room_enter_req -> rc_room_enter_res (idx6): the Square the client asked for (Theme), in the room it names (SquareCode) when that has space
 		theme, _ := protobufUintField(data, 1)
+		want, _ := protobufUintField(data, 2)
 		sq := squaresFile.Get().entry(theme)
-		room := s.rooms.room(sq.Theme)
 		s.bossLeave() // back from a boss lobby or battle: the Square is entered again
 		s.stopRacing()
-		if s.player != nil && room != s.room { // another Square: leave the one we were in
+		if s.player != nil && s.square.Theme != sq.Theme { // another Square: leave the one we were in
 			s.close()
 		}
-		s.room, s.square, s.entered = room, sq, true
-		s.logger.Printf("SQUARE enter aid=%d theme=%d map=%s", s.aid, sq.Theme, sq.Map)
+		s.roomNo = s.rooms.pick(sq.Theme, s.aid, want, squareRoomCap())
+		s.square, s.entered = sq, true
+		s.logger.Printf("SQUARE enter aid=%d theme=%d room=%d map=%s", s.aid, sq.Theme, s.roomNo, sq.Map)
 		MarkQuest(s.aid, "square")
 		var npcs []byte // the minigame NPCs: fishing, shop and Soff on Treasure Island, the race and Ride Point in LINE City
 		switch sq.Theme {
@@ -524,7 +626,7 @@ func (s *squareSession) handleData(frame []byte) error {
 		case squareCityThemeID:
 			npcs = squareLineCityNpcList()
 		}
-		return s.reply(frame, 6, squareRoomEnter(npcs, sq.Theme, sq.Map))
+		return s.reply(frame, 6, squareRoomEnter(npcs, s.roomNo, sq.Theme, sq.Map))
 	case 5: // cr_room_relaystart_req -> rc_room_relaystart_res + adduser_all
 		if !s.entered {
 			s.logger.Printf("SQUARE relaystart before enter ignored")
@@ -533,12 +635,15 @@ func (s *squareSession) handleData(frame []byte) error {
 		p := &squarePlayer{aid: s.aid, conn: s.conn, b1: frame[1], avatar: squareAvatarInfo(s.aid)}
 		copy(p.sid[:], frame[2:10])
 		spawnX, spawnY := s.square.spawnPx()
-		roster, rejoined, wasSeated := s.room.join(p, spawnX, spawnY)
-		s.player = p
-		s.room.mu.Lock()
-		n := len(s.room.players)
-		s.room.mu.Unlock()
-		s.logger.Printf("SQUARE relaystart aid=%d roster=%d rejoined=%v", s.aid, n, rejoined)
+		room, roster, rejoined, wasSeated := s.rooms.join(s.square.Theme, p, s.roomNo, squareRoomCap(), spawnX, spawnY)
+		if s.roomNo != 0 && s.roomNo != room.number { // the room the enter named filled since: the next one with space
+			s.logger.Printf("SQUARE room %d full aid=%d placed in room %d", s.roomNo, s.aid, room.number)
+		}
+		s.room, s.roomNo, s.player = room, room.number, p
+		room.mu.Lock()
+		n := len(room.players)
+		room.mu.Unlock()
+		s.logger.Printf("SQUARE relaystart aid=%d room=%d roster=%d rejoined=%v", s.aid, room.number, n, rejoined)
 		if err := s.reply(frame, 8, append(pbVar(nil, 1, squareRelayResult), roster...)); err != nil {
 			return err
 		}
@@ -658,7 +763,7 @@ func (s *squareSession) handleData(frame []byte) error {
 	case 24: // cr_current_player_list_req -> rc_current_player_list_res
 		var body []byte
 		members := s.room.members(nil)
-		body = pbVar(pbVar(nil, 1, uint64(len(members))), 2, squareMaxPlayers)
+		body = pbVar(pbVar(nil, 1, uint64(len(members))), 2, squareRoomCap())
 		for _, p := range members {
 			name := "cherry"
 			if acc, ok := store.AccountByAvatarID(strconv.FormatUint(p.aid, 10)); ok {

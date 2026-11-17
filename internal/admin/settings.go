@@ -23,13 +23,16 @@ type settingsRow struct {
 
 // settingsPage is what the Settings page shows.
 type settingsPage struct {
-	ChatDays   int           // the retention in effect
-	FromPanel  bool          // the retention is the panel's value (else the server's configuration)
-	ConfigDays int           // the server's configured retention, the value the reset returns to
-	Owner      string        // the owner's identity, from the server's configuration
-	Members    []settingsRow // the staff members added here, in the order they were added
-	Allowlist  bool          // a staff allowlist file is configured as well
-	DevNames   bool          // dev-fake: the add field also takes dev-<name>
+	ChatDays         int           // the retention in effect
+	FromPanel        bool          // the retention is the panel's value (else the server's configuration)
+	ConfigDays       int           // the server's configured retention, the value the reset returns to
+	Owner            string        // the owner's identity, from the server's configuration
+	Members          []settingsRow // the staff members added here, in the order they were added
+	Allowlist        bool          // a staff allowlist file is configured as well
+	DevNames         bool          // dev-fake: the add field also takes dev-<name>
+	RoomCap          int           // the players a Square room holds in effect
+	RoomCapFromPanel bool          // the room size is the panel's value (else the default)
+	RoomCapDefault   int           // the default the reset returns to
 }
 
 // settingsOwner answers the refusal for anyone but the owner and reports whether the request may go on. The log line names
@@ -65,10 +68,49 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, sess ses
 	for _, m := range members {
 		rows = append(rows, settingsRow{Identity: m.Identity, Note: m.Note, Added: m.Added, By: auth.MaskIdentity(m.By)})
 	}
+	roomCap, roomSet, err := store.SquareRoomCapSetting()
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
+	if !roomSet {
+		roomCap = store.SquareRoomCapDefault
+	}
 	v := s.base(r, sess, "Settings")
 	v.Settings = settingsPage{ChatDays: days, FromPanel: set, ConfigDays: s.cfg.ChatDays, Owner: s.owner, Members: rows,
-		Allowlist: s.cfg.StaffAllowlistFile != "", DevNames: s.cfg.AuthMode == config.AuthDevFake}
+		Allowlist: s.cfg.StaffAllowlistFile != "", DevNames: s.cfg.AuthMode == config.AuthDevFake,
+		RoomCap: roomCap, RoomCapFromPanel: roomSet, RoomCapDefault: store.SquareRoomCapDefault}
 	s.render(w, http.StatusOK, "settings", v)
+}
+
+// handleSquareRoomCap: POST /settings/square-room-cap (privileged, owner). The form: players, 2 to 100 (the store refuses
+// anything else). A lower size never moves anyone already inside a room.
+func (s *Server) handleSquareRoomCap(w http.ResponseWriter, r *http.Request, sess session) {
+	if !s.settingsOwner(w, sess) {
+		return
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(r.PostFormValue("players")))
+	if err != nil {
+		s.fail(w, http.StatusBadRequest, "A Square room holds a whole number of players, from 2 to 100.")
+		return
+	}
+	if err := store.SetSquareRoomCap(n, sess.identity); err != nil {
+		s.storeError(w, err)
+		return
+	}
+	redirect(w, http.StatusSeeOther, "/settings?notice=square-room-cap-saved")
+}
+
+// handleSquareRoomCapReset: POST /settings/square-room-cap/reset (privileged, owner): the default room size applies again.
+func (s *Server) handleSquareRoomCapReset(w http.ResponseWriter, r *http.Request, sess session) {
+	if !s.settingsOwner(w, sess) {
+		return
+	}
+	if err := store.ClearSquareRoomCap(sess.identity); err != nil {
+		s.storeError(w, err)
+		return
+	}
+	redirect(w, http.StatusSeeOther, "/settings?notice=square-room-cap-reset")
 }
 
 // handleChatDays: POST /settings/chat-days (privileged, owner). The form: days, 0 to 3650.

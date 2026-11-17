@@ -58,7 +58,12 @@ func placeText(p lpn.Place) string {
 	case "garden":
 		return "Garden of " + p.ID
 	case "square":
-		return "Square theme " + p.ID
+		theme, _ := strconv.ParseUint(p.ID, 10, 64)
+		name := lpn.SquareName(theme)
+		if name == "" {
+			name = "Square theme " + p.ID
+		}
+		return name + " room " + p.Room
 	case "circle":
 		return "Circle " + p.ID
 	case "party":

@@ -57,6 +57,8 @@ var notices = map[string]string{
 	"draft-checked-art-skipped": "The draft is saved and it passes the checks this process can run. The art checks were skipped: this process has no asset store.",
 	"chat-days-saved":           "The chat log keeps messages for the new number of days. The next hourly sweep applies it; lowering the number deletes the older messages then, and they cannot be brought back.",
 	"chat-days-reset":           "The chat log uses the server's configured retention again. The next hourly sweep applies it.",
+	"square-room-cap-saved":     "The room size is saved. New players go to the first room with space from now on; anyone already inside stays where they are.",
+	"square-room-cap-reset":     "Square rooms hold the default number of players again. The next entry uses it.",
 	"staff-added":               "The staff member is added. They can sign in at this panel from now on.",
 	"staff-removed":             "The staff member is removed. Their open sessions end now.",
 }

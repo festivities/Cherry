@@ -95,6 +95,17 @@ func checkSquares(s *Squares) error {
 }
 
 // listed returns the visible Squares in list order.
+// SquareName is the name the operator file gives the Square with that theme, hidden ones included ("" for none). The staff
+// Online page names a room with it.
+func SquareName(theme uint64) string {
+	for _, sq := range squaresFile.Get().Squares {
+		if sq.Theme == theme {
+			return sq.Name
+		}
+	}
+	return ""
+}
+
 func (s *Squares) listed() []Square {
 	out := []Square{}
 	for _, sq := range s.Squares {

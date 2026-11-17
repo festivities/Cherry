@@ -18,6 +18,22 @@
 <p class="muted small"><a href="/chat">Back to the chat log</a></p>
 </section>
 
+<section class="card stack">
+<h2>Square room size</h2>
+<p>{{if .Settings.RoomCapFromPanel}}Set in this panel{{else}}The default ({{.Settings.RoomCapDefault}}){{end}}: each Square room holds {{.Settings.RoomCap}} players.</p>
+<form method="post" action="/settings/square-room-cap" data-confirm="Save this room size? New players go to the first room with space; anyone already inside stays where they are.">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<label><span class="label">Players per room</span>
+<input type="number" name="players" value="{{.Settings.RoomCap}}" min="2" max="100" step="1" required>
+<small class="help">From 2 to 100. New players go to the first room with space; lowering the size does not move anyone already inside.</small></label>
+<div class="actions"><button type="submit">Save room size</button></div>
+</form>
+{{if .Settings.RoomCapFromPanel}}<form method="post" action="/settings/square-room-cap/reset" data-confirm="Use the default room size again? New players go to the first room with space from then on.">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<button type="submit" class="ghost">Reset to default ({{.Settings.RoomCapDefault}} players)</button>
+</form>{{end}}
+</section>
+
 <section class="card">
 <h2>Photos</h2>
 <p>Photos have no expiry. The <a href="/photos">Photos page</a> shows the pictures players have now (diary, room and profile), not a copy, so each one stays until the player or staff removes it.</p>

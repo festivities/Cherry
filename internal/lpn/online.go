@@ -13,10 +13,11 @@ import (
 // The staff Online page (PLAN Roadmap 8, staff "Insights") reads the live game connections that hold a login. It is a
 // read-only copy of the registries: each one is locked on its own and copied, and no lock is held while the rows are built.
 
-// Place is a room a logged-in account is in now. Kind is "garden" (ID: the owner's avatar id), "square" (the Square's theme),
-// "circle" (the circle id), "party" (the Room Party host's avatar id) or "lounge" (the Lounge room id).
+// Place is a room a logged-in account is in now. Kind is "garden" (ID: the owner's avatar id), "square" (ID: the Square's
+// theme, Room: its room number), "circle" (the circle id), "party" (the Room Party host's avatar id) or "lounge" (the Lounge
+// room id). Room is set for a Square only.
 type Place struct {
-	Kind, ID string
+	Kind, ID, Room string
 }
 
 // Connection is one live connection that holds a login: the avatar id, the listener ("session" for :10123, "gateway" for
@@ -80,15 +81,15 @@ func placesByAid() map[uint64][]Place {
 	gardensMu.Unlock()
 
 	defaultSquares.mu.Lock()
-	themes := make(map[uint64]*squareRoom, len(defaultSquares.rooms))
-	for theme, r := range defaultSquares.rooms {
-		themes[theme] = r
+	var rooms []*squareRoom
+	for _, list := range defaultSquares.rooms {
+		rooms = append(rooms, list...)
 	}
 	defaultSquares.mu.Unlock()
-	for theme, r := range themes {
+	for _, r := range rooms {
 		r.mu.Lock()
 		for _, p := range r.players {
-			add(p.aid, "square", strconv.FormatUint(theme, 10))
+			out[p.aid] = append(out[p.aid], Place{Kind: "square", ID: strconv.FormatUint(r.theme, 10), Room: strconv.FormatUint(r.number, 10)})
 		}
 		r.mu.Unlock()
 	}

@@ -20,10 +20,11 @@ type sqClient struct {
 	sid  [8]byte
 }
 
-// newSqClient is a client in a registry where Treasure Island is room (other Squares are new rooms).
+// newSqClient is a client in a registry where room is room 1 of Treasure Island (other rooms are new ones).
 func newSqClient(t *testing.T, room *squareRoom, sid byte) *sqClient {
 	t.Helper()
-	return newSqClientIn(t, &squareRooms{rooms: map[uint64]*squareRoom{squareThemeID: room}}, sid)
+	room.theme, room.number = squareThemeID, 1
+	return newSqClientIn(t, &squareRooms{rooms: map[uint64][]*squareRoom{squareThemeID: {room}}}, sid)
 }
 
 // newSqClientIn is a client of the shared registry rooms (several Squares in one test).
@@ -143,7 +144,8 @@ func (c *sqClient) joinTheme(aid, theme uint64) []byte {
 }
 
 // checkEnter decodes rc_room_enter_res (result, NpcList, SquareCode, ThemeId4, MapFileName6,
-// PlayerType) and fails unless it names theme and map; it reports whether an NpcList came along.
+// PlayerType) and fails unless it names theme and map; it reports whether an NpcList came along. The room number is
+// enterRoom's.
 func (c *sqClient) checkEnter(enter []byte, theme uint64, mapName string) (hasNpc bool) {
 	c.t.Helper()
 	var result, code, themeID, playerType uint64
@@ -164,7 +166,7 @@ func (c *sqClient) checkEnter(enter []byte, theme uint64, mapName string) (hasNp
 			playerType = v
 		}
 	})
-	if !ok || result != squareEnterResult || code != 1 || themeID != theme || mapFile != mapName || playerType != 0 {
+	if !ok || result != squareEnterResult || code == 0 || themeID != theme || mapFile != mapName || playerType != 0 {
 		c.t.Fatalf("room enter = %x, want theme %d map %s", enter, theme, mapName)
 	}
 	return hasNpc

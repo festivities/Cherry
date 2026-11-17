@@ -12,18 +12,24 @@ import (
 	"unicode/utf8"
 )
 
-// The settings the owner changes from the staff panel (the Settings page): the chat log's retention and the staff members
-// added there. Both live in the meta table of cherry.db, so they need no schema change. Each change writes its audit row in
-// the same transaction as the change. A read that finds no database, or a stored value that does not parse, gives the
-// configured answer (retention) or no member (staff).
+// The settings the owner changes from the staff panel (the Settings page): the chat log's retention, the staff members
+// added there and the players a Square room holds. All live in the meta table of cherry.db, so they need no schema change.
+// Each change writes its audit row in the same transaction as the change. A read that finds no database, or a stored value
+// that does not parse, gives the configured answer (retention), no member (staff) or the default room size.
 
 const (
-	chatDaysKey     = "retention.chat-days"
-	staffMembersKey = "staff.members"
+	chatDaysKey      = "retention.chat-days"
+	staffMembersKey  = "staff.members"
+	squareRoomCapKey = "square.room-cap"
 	// ChatDaysMax is the longest retention the panel takes: ten years.
 	ChatDaysMax  = 3650
 	staffMax     = 50  // staff members the panel keeps
 	staffNoteMax = 100 // characters of a member's note
+	// SquareRoomCapDefault is the players a Square room holds when the panel sets no value; the panel takes
+	// SquareRoomCapMin to SquareRoomCapMax.
+	SquareRoomCapDefault = 20
+	SquareRoomCapMin     = 2
+	SquareRoomCapMax     = 100
 )
 
 // The identities a staff member may have: a Discord user id (17 to 20 digits), or in dev-fake mode a dev name (the sign-in
@@ -142,6 +148,108 @@ func ClearChatRetention(actor string) error {
 			return err
 		}
 		return auditTx(tx, actor, "setting", chatDaysKey, map[string]any{"old": old, "new": "default"})
+	})
+}
+
+// squareCapOverride reads the stored room size: the players and whether a valid value is stored. A stored value that is not a
+// whole number from SquareRoomCapMin to SquareRoomCapMax counts as no value.
+func squareCapOverride(q Querier) (int, bool, error) {
+	v, err := metaValue(q, squareRoomCapKey)
+	if err != nil || v == "" {
+		return 0, false, err
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < SquareRoomCapMin || n > SquareRoomCapMax {
+		return 0, false, nil
+	}
+	return n, true, nil
+}
+
+// SquareRoomCap is the players a Square room holds: the panel's value when one is stored, else fallback. Without a database,
+// or when the read fails, it is fallback.
+func SquareRoomCap(fallback int) int {
+	d := attachedDB()
+	if d == nil {
+		return fallback
+	}
+	var n int
+	var set bool
+	if err := d.View(func(q Querier) error {
+		var err error
+		n, set, err = squareCapOverride(q)
+		return err
+	}); err != nil || !set {
+		return fallback
+	}
+	return n
+}
+
+// SquareRoomCapSetting is the panel's room size as stored: the players and whether one is stored (false means the default
+// applies). ErrNoDatabase without a database.
+func SquareRoomCapSetting() (int, bool, error) {
+	d, err := docDB()
+	if err != nil {
+		return 0, false, err
+	}
+	var n int
+	var set bool
+	err = d.View(func(q Querier) error {
+		var err error
+		n, set, err = squareCapOverride(q)
+		return err
+	})
+	return n, set, err
+}
+
+// squareCapBefore is the stored room size as an audit row names it: the value, or "default" when none is stored.
+func squareCapBefore(tx *sql.Tx) (string, error) {
+	v, err := metaValue(tx, squareRoomCapKey)
+	if err != nil {
+		return "", err
+	}
+	if v == "" {
+		return "default", nil
+	}
+	return v, nil
+}
+
+// SetSquareRoomCap stores n as the players a Square room holds and writes the audit row, in one transaction. n is
+// SquareRoomCapMin to SquareRoomCapMax; anything else is ErrBadInput. A change never moves anyone already inside a room.
+func SetSquareRoomCap(n int, actor string) error {
+	if n < SquareRoomCapMin || n > SquareRoomCapMax {
+		return fmt.Errorf("%w: a Square room holds %d to %d players", ErrBadInput, SquareRoomCapMin, SquareRoomCapMax)
+	}
+	d, err := docDB()
+	if err != nil {
+		return err
+	}
+	return d.Update(func(tx *sql.Tx) error {
+		old, err := squareCapBefore(tx)
+		if err != nil {
+			return err
+		}
+		if err := setMetaTx(tx, squareRoomCapKey, strconv.Itoa(n)); err != nil {
+			return err
+		}
+		return auditTx(tx, actor, "setting", squareRoomCapKey, map[string]any{"old": old, "new": strconv.Itoa(n)})
+	})
+}
+
+// ClearSquareRoomCap deletes the panel's room size, so the default applies again, and writes the audit row, in one transaction.
+func ClearSquareRoomCap(actor string) error {
+	d, err := docDB()
+	if err != nil {
+		return err
+	}
+	return d.Update(func(tx *sql.Tx) error {
+		old, err := squareCapBefore(tx)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM meta WHERE key = ?`, squareRoomCapKey); err != nil {
+			return err
+		}
+		return auditTx(tx, actor, "setting", squareRoomCapKey, map[string]any{"old": old, "new": "default"})
 	})
 }
 

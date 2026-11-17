@@ -429,7 +429,7 @@ func (s *squareSession) handleRacing(frame []byte, msgid uint16, data []byte) er
 		}
 		r.phase = raceLoading
 		s.logger.Printf("SQUARE racing move aid=%d theme=%d map=%s", s.aid, squareRacingTheme, squareRacingMap)
-		if err := r.push(6, squareRoomEnter(nil, squareRacingTheme, squareRacingMap)); err != nil {
+		if err := r.push(6, squareRoomEnter(nil, max(s.roomNo, 1), squareRacingTheme, squareRacingMap)); err != nil {
 			return err
 		}
 		r.after(time.Duration(racing.RosterDelayMs)*time.Millisecond, func() {

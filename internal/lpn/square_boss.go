@@ -62,7 +62,7 @@ func (s *squareSession) handleBoss(frame []byte, msgid uint16, data []byte) erro
 		if err := s.reply(frame, 57, squareBossTry(true, boss, left)); err != nil {
 			return err
 		}
-		return s.reply(frame, 6, squareRoomEnter(nil, squareBossThemeID, squareBossMapFileName))
+		return s.reply(frame, 6, squareRoomEnter(nil, max(s.roomNo, 1), squareBossThemeID, squareBossMapFileName))
 	case 46: // cr_fishing_boss_roominfo_req (empty) -> rc_fishing_boss_roominfo_res (59): the lobby and its members
 		body, ok := s.bossRoster()
 		if !ok {
@@ -121,7 +121,7 @@ func (s *squareSession) handleBoss(frame []byte, msgid uint16, data []byte) erro
 		if err := rc72(0, left); err != nil {
 			return err
 		}
-		return s.reply(frame, 6, squareRoomEnter(nil, squareBossThemeID, squareBossMapFileName))
+		return s.reply(frame, 6, squareRoomEnter(nil, max(s.roomNo, 1), squareBossThemeID, squareBossMapFileName))
 	case 55: // cr_inGame_loading_complete_req (empty) -> rc_inGame_loading_complete_push (73) to this member
 		if started, _ := s.bossBattling(); !started {
 			s.logger.Printf("SQUARE fishing boss loaded aid=%d ignored", aid)

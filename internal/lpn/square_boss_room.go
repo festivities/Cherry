@@ -13,8 +13,9 @@ import (
 )
 
 // Square boss rooms (multiplayer, Economy Phase DE; wire notes %TEMP%\opencode\cherry\leftovers-20261026\
-// boss-mp-spec.md sections 2 to 4 and 7, boss-mp-addendum.md 1d, 1e, 1j and 3; the room policy is the user's). A lobby belongs to one Square
-// (squareRoom.bosses, oldest first) and holds up to max_players members. The first member is the master; when
+// boss-mp-spec.md sections 2 to 4 and 7, boss-mp-addendum.md 1d, 1e, 1j and 3; the room policy is the user's). A lobby belongs to
+// the room it was opened in (squareRoom.bosses, oldest first; the GO join searches every room of the Square) and holds up to
+// max_players members. A lobby is not a room: its members may be in different rooms of the Square. The first member is the master; when
 // the master leaves, the earliest remaining member is the master. A member is a session: its seat keeps the
 // session's transport (a squarePlayer: conn and frame header), so the pushes reach every member from any
 // session's goroutine. Every room and seat field is guarded by the Square's squareRoom.mu. Pushes are built
@@ -45,12 +46,13 @@ type squareBossSeat struct {
 
 func (m *squareBossSeat) aid() uint64 { return m.p.aid }
 
-// bossSquare is the Square the session is in: its boss lobbies are that Square's.
-func (s *squareSession) bossSquare() *squareRoom {
-	if s.room != nil {
+// bossSquareLocked is the room a session's new lobby belongs to: the room the session is in, else room 1 of Treasure
+// Island. The caller holds rs.mu, so the room cannot be pruned before the lobby is attached to it.
+func (s *squareSession) bossSquareLocked() *squareRoom {
+	if s.player != nil && s.room != nil {
 		return s.room
 	}
-	return s.rooms.room(squareThemeID)
+	return s.rooms.roomLocked(squareThemeID, 1)
 }
 
 // bossSeatFor is a new seat in sq for the session, with the frame's tunnel as its transport.
@@ -64,7 +66,10 @@ func (s *squareSession) bossSeatFor(frame []byte, sq *squareRoom) *squareBossSea
 // wherever its session is (a Garden, another Square), so the lobby is searched in every Square, not in the session's.
 func (rs *squareRooms) bossLobbyOf(owner uint64) *squareRoom {
 	rs.mu.Lock()
-	rooms := slices.Collect(maps.Values(rs.rooms))
+	var rooms []*squareRoom
+	for _, list := range rs.rooms {
+		rooms = append(rooms, list...)
+	}
 	rs.mu.Unlock()
 	for _, sq := range rooms {
 		sq.mu.Lock()
@@ -193,34 +198,51 @@ func pushMembers(logger *log.Logger, members []*squareBossSeat, msgid uint16, bo
 
 // bossOpen puts the session into a new lobby as its master (cr45: a start always opens its own lobby).
 func (s *squareSession) bossOpen(frame []byte) {
-	sq := s.bossSquare()
+	s.rooms.mu.Lock()
+	seat := s.openLobbyLocked(frame, s.bossSquareLocked())
+	s.rooms.mu.Unlock()
+	s.boss = seat
+}
+
+// openLobbyLocked opens a lobby in sq, its master the session's seat, which it returns. The caller holds the registry lock.
+func (s *squareSession) openLobbyLocked(frame []byte, sq *squareRoom) *squareBossSeat {
 	seat := s.bossSeatFor(frame, sq)
 	sq.mu.Lock()
 	r := &squareBossRoom{invited: map[uint64]bool{}}
 	sq.bosses = append(sq.bosses, r)
 	r.addLocked(seat)
 	sq.mu.Unlock()
-	s.boss = seat
+	return seat
 }
 
-// bossJoinLobby puts the session into the oldest lobby of its Square that has room, or opens one when none has.
-// The members already there get rc70 with the newcomer. The try is already spent.
+// bossJoinLobby puts the session into the oldest lobby of its Square that has room, or opens one when none has. A lobby
+// belongs to the room it was opened in, not to the joiner's room, so every room of the Square is searched, lowest number
+// first. The members already there get rc70 with the newcomer. The try is already spent.
 func (s *squareSession) bossJoinLobby(frame []byte) {
-	sq := s.bossSquare()
-	seat := s.bossSeatFor(frame, sq)
 	seats := int(economy.ActiveFishBoss().MaxPlayers)
-	sq.mu.Lock()
-	r := sq.bossLobbyLocked(seats)
-	if r == nil {
-		r = &squareBossRoom{invited: map[uint64]bool{}}
-		sq.bosses = append(sq.bosses, r)
-	}
-	others := r.addLocked(seat)
+	s.rooms.mu.Lock()
+	own := s.bossSquareLocked()
+	var seat *squareBossSeat
+	var others []*squareBossSeat
 	var body []byte
-	if len(others) > 0 {
-		body = pbLen(nil, 2, r.entryLocked(seat))
+	for _, sq := range s.rooms.rooms[own.theme] {
+		sq.mu.Lock()
+		if r := sq.bossLobbyLocked(seats); r != nil {
+			seat = s.bossSeatFor(frame, sq)
+			others = r.addLocked(seat)
+			if len(others) > 0 {
+				body = pbLen(nil, 2, r.entryLocked(seat))
+			}
+		}
+		sq.mu.Unlock()
+		if seat != nil {
+			break
+		}
 	}
-	sq.mu.Unlock()
+	if seat == nil {
+		seat = s.openLobbyLocked(frame, own)
+	}
+	s.rooms.mu.Unlock()
 	s.boss = seat
 	s.logger.Printf("SQUARE fishing boss lobby join aid=%d members=%d", s.aid, len(others)+1)
 	pushMembers(s.logger, others, 70, body)
@@ -248,6 +270,7 @@ func (s *squareSession) bossLeave() {
 		sq.dropLocked(r)
 	}
 	sq.mu.Unlock()
+	s.rooms.prune(sq) // the room may now be empty: its number is free again
 	s.logger.Printf("SQUARE fishing boss leave aid=%d rest=%d fight=%v", s.aid, len(rest), fight)
 	pushMembers(s.logger, rest, 70, body)
 }
@@ -484,16 +507,21 @@ func (s *squareSession) bossAccept(frame []byte, owner uint64) []byte {
 	delete(r.invited, s.aid) // the invitation is used up: a later leave does not leave it open
 	body := pbLen(nil, 2, r.entryLocked(seat))
 	sq.mu.Unlock()
-	// The accept is the invitee's Square enter (it sends no cr2): its cr10 and relaystart (cr5) follow at once, so the
-	// session counts as entered in the lobby's Square, leaving any other Square it was in.
-	if s.player != nil && sq != s.room {
+	// The invitee goes to the master's room when it has space, else to the normal placement (logged). The accept is the
+	// invitee's Square enter (it sends no cr2): its cr10 and relaystart (cr5) follow at once and join the number chosen
+	// here. The invitee leaves its own room only when the number changes, so an accept in the same room keeps its avatar.
+	number := s.rooms.pick(squareThemeID, 0, sq.number, squareRoomCap())
+	if number != sq.number {
+		s.logger.Printf("SQUARE fishing boss accept aid=%d room %d full, placed in room %d", s.aid, sq.number, number)
+	}
+	if s.player != nil && (s.square.Theme != squareThemeID || number != s.roomNo) {
 		s.close()
 	}
-	s.room, s.square, s.entered = sq, squaresFile.Get().entry(squareThemeID), true
+	s.roomNo, s.square, s.entered = number, squaresFile.Get().entry(squareThemeID), true
 	s.boss = seat
 	s.logger.Printf("SQUARE fishing boss accept aid=%d owner=%d members=%d left=%d", s.aid, owner, len(others)+1, left)
 	pushMembers(s.logger, others, 70, body)
-	return squareRoomEnter(nil, squareBossThemeID, squareBossMapFileName)
+	return squareRoomEnter(nil, number, squareBossThemeID, squareBossMapFileName)
 }
 
 // bossSticker answers cr60: a lobby sticker to every member of the session's lobby, the sender included (rc79).
