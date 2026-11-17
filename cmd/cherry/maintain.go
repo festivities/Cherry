@@ -37,10 +37,11 @@ func maintain(ctx context.Context, logger *log.Logger, c config.Config) {
 // sweep is one round of the retention work of the hourly timer (and of the start).
 func sweep(logger *log.Logger, c config.Config) {
 	now := time.Now()
-	if n, err := store.PruneChatLog(now, c.ChatDays); err != nil {
+	days := store.ChatRetention(c.ChatDays) // the staff panel's value when one is set, else retention.chat-days
+	if n, err := store.PruneChatLog(now, days); err != nil {
 		logger.Printf("cherry: prune chat log failed: %v", err)
 	} else if n > 0 {
-		logger.Printf("cherry: chat log deleted %d messages older than %d days", n, c.ChatDays)
+		logger.Printf("cherry: chat log deleted %d messages older than %d days", n, days)
 	}
 	if n, err := store.PruneIdleTokens(now, c.IdleTokenDays); err != nil {
 		logger.Printf("cherry: prune idle tokens failed: %v", err)

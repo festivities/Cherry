@@ -34,7 +34,7 @@ var navGroups = []navGroup{
 	{"Moderation", []link{{Href: "/chat", Label: "Chat log"}, {Href: "/photos", Label: "Photos"}}},
 	{"Insights", []link{{Href: "/online", Label: "Online now"}, {Href: "/economy", Label: "Economy"}, {Href: "/activity", Label: "Activity"}}},
 	{"Content", []link{{Href: "/docs", Label: "Documents"}}},
-	{"System", []link{{Href: "/audit", Label: "Audit log"}}},
+	{"System", []link{{Href: "/audit", Label: "Audit log"}, {Href: "/settings", Label: "Settings"}}},
 }
 
 // notices are the flash texts a redirect may name with ?notice=<code>. The code picks a fixed text; a code that is not in the
@@ -55,6 +55,10 @@ var notices = map[string]string{
 	"draft-checked":     "The draft is saved and it passes its checks. Publish it when it is ready.",
 	// draft-checked-art-skipped: the art checks could not run in this process (no asset store), so the note says so.
 	"draft-checked-art-skipped": "The draft is saved and it passes the checks this process can run. The art checks were skipped: this process has no asset store.",
+	"chat-days-saved":           "The chat log keeps messages for the new number of days. The next hourly sweep applies it; lowering the number deletes the older messages then, and they cannot be brought back.",
+	"chat-days-reset":           "The chat log uses the server's configured retention again. The next hourly sweep applies it.",
+	"staff-added":               "The staff member is added. They can sign in at this panel from now on.",
+	"staff-removed":             "The staff member is removed. Their open sessions end now.",
 }
 
 // check is a validation result shown on a version page, or next to the draft editor when a draft just saved was refused
@@ -117,7 +121,7 @@ type view struct {
 	ChatFilter  store.ChatFilter
 	ChatKinds   []string
 	ChatContext string // the context line of a context link
-	Keep        int    // retention.chat-days: days the chat log keeps a message (0 = no limit)
+	Keep        int    // days the chat log keeps a message (0 = no limit): the panel's value, else retention.chat-days
 	Pictures    []pictureRow
 	PicFilter   store.PictureFilter
 	PicKinds    []string
@@ -128,10 +132,11 @@ type view struct {
 	Activity activityPage
 	Summary  insightsSummary // the dashboard's row
 
-	// the player page (playerpage.go), mail (mail.go), search (search.go)
-	Page   playerPage
-	Mail   mailPage
-	Search searchPage
+	// the player page (playerpage.go), mail (mail.go), search (search.go), settings (settings.go)
+	Page     playerPage
+	Mail     mailPage
+	Search   searchPage
+	Settings settingsPage
 }
 
 // base is the view of a signed-in page: the sidebar, the identity and role in the header, the session's CSRF token and the
@@ -143,7 +148,7 @@ func (s *Server) base(r *http.Request, sess session, title string) view {
 	}
 	return view{
 		Title: title, Server: s.cfg.ServerName, Who: whoOf(sess), Role: role, CSRF: sess.csrf, SessionLeft: sessionLeft(sess, s.now()),
-		Nav: true, NavGroups: navFor(r.URL.Path), Notice: notices[r.URL.Query().Get("notice")],
+		Nav: true, NavGroups: navFor(r.URL.Path, s.isOwner(sess)), Notice: notices[r.URL.Query().Get("notice")],
 	}
 }
 
@@ -173,12 +178,16 @@ func whoOf(sess session) string {
 	return id
 }
 
-// navFor copies the sidebar and marks the entry of the area p is in ("/players/5" is in "/players").
-func navFor(p string) []navGroup {
+// navFor copies the sidebar and marks the entry of the area p is in ("/players/5" is in "/players"). The Settings entry is the
+// owner's only: the copy for anyone else leaves it out.
+func navFor(p string, owner bool) []navGroup {
 	area := "/" + strings.Split(strings.TrimPrefix(p, "/"), "/")[0]
 	out := make([]navGroup, len(navGroups))
 	for i, g := range navGroups {
 		out[i] = navGroup{Title: g.Title, Links: slices.Clone(g.Links)}
+		if !owner {
+			out[i].Links = slices.DeleteFunc(out[i].Links, func(l link) bool { return l.Href == "/settings" })
+		}
 		for j := range out[i].Links {
 			out[i].Links[j].Current = out[i].Links[j].Href == area
 		}

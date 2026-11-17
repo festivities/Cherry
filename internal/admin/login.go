@@ -228,9 +228,9 @@ func (s *Server) identify(code string) (identity, name string, mfa bool, reason 
 	return "discord:" + u.ID, cleanName(display), u.MFAEnabled, ""
 }
 
-// mayStaff: the owner, or an identity on the staff allowlist.
+// mayStaff: the owner, an identity on the staff allowlist, or a staff member added from the Settings page.
 func (s *Server) mayStaff(identity string) bool {
-	return identity != "" && (identity == s.owner || s.allow.Has(identity))
+	return identity != "" && (identity == s.owner || s.allow.Has(identity) || store.IsStaffMember(identity))
 }
 
 // cleanName is a display name a page may show: no control characters, at most 64 characters.

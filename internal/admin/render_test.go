@@ -80,6 +80,7 @@ func TestPagesHaveNoInlineMarkup(t *testing.T) {
 		"/chat", "/chat?kind=private&text=hi", "/photos", "/photos?kind=diary&player=7101",
 		"/online", "/online?notice=kicked", "/economy", "/economy?window=7d", "/activity",
 		"/mail", "/mail?player=" + strconv.FormatInt(id, 10), "/mail/sent", "/search?q=render", "/search",
+		"/settings", "/settings?notice=staff-added", "/settings?notice=chat-days-saved",
 		base + "?window=7d", base + "?window=all",
 	}
 	for _, target := range targets {

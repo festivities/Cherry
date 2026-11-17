@@ -1,0 +1,59 @@
+{{define "page"}}<h1>Settings</h1>
+<p class="muted">Owner only. Each change is a privileged action: it needs a Discord sign-in in the last five minutes, and it writes an audit row.</p>
+
+<section class="card stack">
+<h2>Chat log retention</h2>
+<p>{{if .Settings.FromPanel}}Set in this panel{{else}}From the server's configuration{{end}}: {{if .Settings.ChatDays}}the chat log keeps messages for {{.Settings.ChatDays}} days, then deletes them.{{else}}the chat log keeps every message.{{end}}</p>
+<form method="post" action="/settings/chat-days" data-confirm="Save this retention? At the next hourly sweep, messages older than the new number of days are deleted, and they cannot be brought back.">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<label><span class="label">Days to keep a message</span>
+<input type="text" name="days" value="{{.Settings.ChatDays}}" inputmode="numeric" maxlength="4" required>
+<small class="help">0 keeps every message. At most 3650. The change applies at the next hourly sweep. Lowering it deletes the older messages then, and they cannot be brought back.</small></label>
+<div class="actions"><button type="submit">Save retention</button></div>
+</form>
+{{if .Settings.FromPanel}}<form method="post" action="/settings/chat-days/reset" data-confirm="Use the server's configured retention again? At the next hourly sweep, messages older than that many days are deleted, and they cannot be brought back.">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<button type="submit" class="ghost">Use the server's configured value ({{.Settings.ConfigDays}} days)</button>
+</form>{{end}}
+<p class="muted small"><a href="/chat">Back to the chat log</a></p>
+</section>
+
+<section class="card">
+<h2>Photos</h2>
+<p>Photos have no expiry. The <a href="/photos">Photos page</a> shows the pictures players have now (diary, room and profile), not a copy, so each one stays until the player or staff removes it.</p>
+</section>
+
+<h2>Staff members</h2>
+<p class="muted">Staff sign in at this panel with Discord. Their account needs two-factor authentication turned on in Discord, or the sign-in is refused. A staff member gets every staff action except mail to every account and this page. Removing one ends their open sessions at once.</p>
+{{if .Settings.Allowlist}}<p class="small">A staff allowlist file is also configured: the people listed in it can sign in too. Its contents are not shown here.</p>{{else}}<p class="small muted">No staff allowlist file is configured. Only the owner and the members below can sign in.</p>{{end}}
+<div class="scroll"><table>
+<thead><tr><th>Identity</th><th>Note</th><th>Added (UTC)</th><th>Added by</th><th>Remove</th></tr></thead>
+<tbody>
+<tr><td class="mono">{{.Settings.Owner}}</td><td><span class="pill">Owner</span> from the server's configuration</td><td class="muted">—</td><td class="muted">—</td><td class="muted">not removable</td></tr>
+{{range .Settings.Members}}<tr>
+<td class="mono">{{.Identity}}</td>
+<td>{{with .Note}}{{.}}{{else}}<span class="muted">—</span>{{end}}</td>
+<td>{{utc .Added}}</td>
+<td class="mono">{{.By}}</td>
+<td><form method="post" action="/settings/staff/remove" class="row-form" data-confirm="Remove this staff member? Their open sessions end now, and they cannot sign in again unless they are added back.">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<input type="hidden" name="identity" value="{{.Identity}}">
+<button type="submit" class="danger">Remove</button>
+</form></td>
+</tr>
+{{else}}<tr class="empty"><td colspan="5">No staff member was added from this panel.</td></tr>
+{{end}}</tbody>
+</table></div>
+
+<form method="post" action="/settings/staff/add" class="card stack">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<h2>Add a staff member</h2>
+<label><span class="label">Discord user ID</span>
+<input type="text" name="identity" required maxlength="40"{{if not .Settings.DevNames}} inputmode="numeric"{{end}} placeholder="e.g. 123456789012345678">
+<small class="help">The person's Discord user ID, digits only.{{if .Settings.DevNames}} In dev-fake mode a dev name works too: dev-&lt;name&gt;.{{end}} To find a user ID, turn on Developer Mode in Discord (User Settings, Advanced), then right-click the user and choose Copy User ID.</small></label>
+<label><span class="label">Note (optional)</span>
+<input type="text" name="note" maxlength="100" placeholder="Who this is">
+<small class="help">Up to 100 characters. Shown in this list only.</small></label>
+<div class="actions"><button type="submit">Add staff member</button></div>
+</form>
+{{end}}

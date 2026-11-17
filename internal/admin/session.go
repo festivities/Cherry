@@ -190,6 +190,17 @@ func (s *Server) dropSession(id string) {
 	delete(s.sessions, key)
 }
 
+// endSessionsOf removes every live session of identity: a staff member who is removed loses their open sessions at once.
+func (s *Server) endSessionsOf(identity string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for k, sess := range s.sessions {
+		if sess.identity == identity {
+			delete(s.sessions, k)
+		}
+	}
+}
+
 // purgeSessionsLocked removes the sessions past either lifetime. Caller holds s.mu.
 func (s *Server) purgeSessionsLocked(now time.Time) {
 	for k, sess := range s.sessions {

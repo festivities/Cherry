@@ -171,7 +171,7 @@ func (s *Server) handleChatLog(w http.ResponseWriter, r *http.Request, sess sess
 	}
 	v := s.base(r, sess, "Chat log")
 	v.ChatRows, v.ChatFilter, v.ChatKinds = chatRows(msgs), f, store.ChatKinds
-	v.Keep = s.cfg.ChatDays
+	v.Keep = store.ChatRetention(s.cfg.ChatDays)
 	v.NewestHref = chatHref(f, 0)
 	if len(msgs) == chatPage {
 		v.OlderHref = chatHref(f, msgs[len(msgs)-1].ID)

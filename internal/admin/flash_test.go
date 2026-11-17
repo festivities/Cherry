@@ -126,7 +126,7 @@ func TestRoleBadgeShowsOwnerOrStaff(t *testing.T) {
 func TestNavMarksTheArea(t *testing.T) {
 	for path, want := range map[string]string{"/": "/", "/players/5": "/players", "/docs/x.json/3": "/docs", "/audit": "/audit"} {
 		marked := ""
-		for _, g := range navFor(path) {
+		for _, g := range navFor(path, true) {
 			for _, l := range g.Links {
 				if l.Current {
 					marked = l.Href

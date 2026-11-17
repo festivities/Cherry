@@ -1,5 +1,5 @@
 {{define "page"}}<h1>Chat log</h1>
-<p class="muted">Messages players typed in chat channels, newest first. {{if .Keep}}Kept for {{.Keep}} days (retention.chat-days), then deleted.{{else}}Kept without a time limit (retention.chat-days is 0).{{end}} Each text is shown as plain text, as it was sent.</p>
+<p class="muted">Messages players typed in chat channels, newest first. {{if .Keep}}Kept for {{.Keep}} days, then deleted.{{else}}Kept without a time limit.{{end}}{{if eq .Role "Owner"}} <a href="/settings">Change in Settings</a>.{{end}} Each text is shown as plain text, as it was sent.</p>
 <form method="get" action="/chat" class="filters" role="search">
 <label><span class="label">Kind</span>
 <select name="kind"><option value="">Any</option>{{range .ChatKinds}}<option value="{{.}}"{{if eq . $.ChatFilter.Kind}} selected{{end}}>{{.}}</option>{{end}}</select></label>

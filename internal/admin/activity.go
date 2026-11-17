@@ -82,7 +82,7 @@ func activityAt(now time.Time) (activityPage, error) {
 	}
 	return activityPage{Days: days, Charts: []chart{
 		newChart("Sign-ups per day", "Accounts created that UTC day.", days, func(d activityDay) int64 { return d.Signups }),
-		newChart("Chat messages per day", "Chat messages the chat log kept that UTC day (the log keeps retention.chat-days days).", days, func(d activityDay) int64 { return d.Chat }),
+		newChart("Chat messages per day", "Chat messages the chat log kept that UTC day (older days are missing once the retention set in Settings deletes them).", days, func(d activityDay) int64 { return d.Chat }),
 		newChart("Ledger lines per day", "Balance changes written that UTC day.", days, func(d activityDay) int64 { return d.Lines }),
 		newChart("Daily active players (proxy)", "Avatars with a ledger line or a chat message that UTC day. It counts activity, not logins: an avatar that only played a game without a balance change is not in it.", days, func(d activityDay) int64 { return d.Active }),
 	}}, nil
