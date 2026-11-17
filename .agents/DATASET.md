@@ -21,7 +21,7 @@ Two top-level trees. They never mix (AGENTS "R2 layout"):
 | `static/subui/MarbleChallengePopup.plist` | the subui category (one plist) | `files/UIResource/` |
 | `static/tx/arts_strings.ast` | string table (SQLite), MD5 checked against `web.artsStringsMD5` | `files/stringtable/arts_strings.ast` |
 | `static/item/<kind>/<numeric id>/<file>` | items: kinds `custom dress interior tile pet garden` (`assets.ItemKinds`); `1409_iteminfo.artsitem`, part PNGs, optional `dp.png`, `<id>.aniproj` / `<id>_<name>.aniproj` | `files/item/<kind>/<id>/` |
-| `static/garden/<stem>.mworldpack`, `static/world/<stem>.mworldpack` | map packs (`assets.PackDirs`, names checked by `assets.ValidPack`) | `files/garden/`, `files/world/` |
+| `static/garden/<stem>.mworldpack`, `static/world/<stem>.mworldpack`, `static/circle/<stem>.mworldpack` (the circle room, robo only) | map packs (`assets.PackDirs`, names checked by `assets.ValidPack`) | `files/garden/`, `files/world/`, `Library/Caches/circle/` (robo) |
 | `static/chatting/action_hd/<name>.png` | chat action icons (served without the version prefix) | `files/cache/action/00005_chatting_deco_action_<name>.png` |
 | `static/garden01/…`, `static/craft01/…`, `static/photozone/frame/…` | Garden craft art, Avatar Pic frames (`assets.CraftDirs`) | `files/item/craftitem/<dir>/…`, else `files/cache/<dir>/…` |
 | `static/DailyBonus/…` | calendar skin plist + PNGs (origin source `DailyBonus`) | `files/DailyBonus/` of a device that never used Cherry (Cherry writes `cherry_day*.png` there) |

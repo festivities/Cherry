@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"cherry/internal/assets"
 	"cherry/internal/economy"
 	"cherry/internal/store"
 	"cherry/internal/testutil"
@@ -195,7 +196,7 @@ func (c *cirClient) enter() []byte {
 // The point refresh (msgid 48) that follows must carry the same PointInfo, and is read here.
 func (c *cirClient) relay() []byte {
 	c.t.Helper()
-	c.send(circleCsRelayStart, pbLen(nil, 1, []byte("2202250100")))
+	c.send(circleCsRelayStart, pbLen(nil, 1, []byte("2012221744")))
 	body := c.expectID(circleRcRelayStart)
 	refresh := c.expectID(circleRcPointRefresh)
 	if !bytes.Equal(cirBytes(refresh, 1), cirBytes(body, 7)) {
@@ -369,8 +370,8 @@ func TestCircleLoginAndEnterRules(t *testing.T) {
 	leader := newCirClient(t, rooms, chats, 1101, 4)
 	leader.login()
 	body := leader.enter()
-	if cirVar(body, 1) != circleEnterResult || string(cirBytes(body, 4)) != "../world/2202250100" || cirVar(body, 5) != 2 {
-		t.Fatalf("enter = %x, want result 196609, map ../world/2202250100, PlayerType 2", body)
+	if cirVar(body, 1) != circleEnterResult || string(cirBytes(body, 4)) != "2012221744" || cirVar(body, 5) != 2 {
+		t.Fatalf("enter = %x, want result 196609, map 2012221744, PlayerType 2", body)
 	}
 	members := cirMembers(cirList(body, 6))
 	if len(members) != 4 || members[0].aid != 1101 || members[0].role != 2 || members[1].role != 1 || members[2].role != 0 {
@@ -381,7 +382,7 @@ func TestCircleLoginAndEnterRules(t *testing.T) {
 		t.Fatalf("roster of one = %d entries", len(list))
 	}
 	p := cirPlayerInfo(list[0])
-	spawnX, spawnY := tilePx(160, Tile{X: 87, Y: 85})
+	spawnX, spawnY := tilePx(60, Tile{X: 40, Y: 42}) // data/circle.json room: the original map's size and AVATAR_START
 	if p.aid != 1101 || p.role != 2 || p.x != spawnX || p.y != spawnY || p.name != "Leader" {
 		t.Fatalf("self in roster = %+v, want the spawn %d,%d", p, spawnX, spawnY)
 	}
@@ -397,7 +398,7 @@ func TestCircleRelayBeforeEnterIgnored(t *testing.T) {
 	rooms, chats := cirRegistry()
 	c := newCirClient(t, rooms, chats, 1101, 5)
 	c.login()
-	c.send(circleCsRelayStart, pbLen(nil, 1, []byte("2202250100")))
+	c.send(circleCsRelayStart, pbLen(nil, 1, []byte("2012221744")))
 	c.none()
 }
 
@@ -723,7 +724,7 @@ func TestCircleShapeCheckerRejectsDrift(t *testing.T) {
 	if err := lpCheck(pbVar(pbVar(nil, 1, circleEnterResult), 3, 1), cirEnter, "enter"); err != nil {
 		t.Fatalf("a refusal-shaped enter with only the result is refused: %v", err)
 	}
-	extra := pbVar(pbLen(pbVar(pbVar(nil, 1, circleEnterResult), 3, 1), 4, []byte("2202250100")), 9, 1)
+	extra := pbVar(pbLen(pbVar(pbVar(nil, 1, circleEnterResult), 3, 1), 4, []byte("2012221744")), 9, 1)
 	if err := lpCheck(extra, cirEnter, "enter"); err == nil {
 		t.Fatal("unknown field 9 was accepted")
 	}
@@ -1157,5 +1158,12 @@ func TestCircleSpawnSkipsTakenSlot(t *testing.T) {
 	}
 	if c.x != 1000 || c.y != 1000 {
 		t.Fatalf("newcomer at (%d,%d), want the free slot 0 (1000,1000)", c.x, c.y)
+	}
+}
+
+// The circle room's map is a pack the server lists and serves under files/circle/ (a bare id: PackDirs "circle").
+func TestCircleRoomMapIsAPack(t *testing.T) {
+	if room := economy.ActiveCircleData().Room; !assets.ValidPack("circle", room.Map+".mworldpack") {
+		t.Fatalf("room map %q is not a circle pack name", room.Map)
 	}
 }

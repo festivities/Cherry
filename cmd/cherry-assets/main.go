@@ -60,7 +60,8 @@ const miawDataset = `D:\Dev\projects\Cherry\.opencode\line-play-artifacts\miaw-b
 // Its Library/Caches folder has the Android files/ layout, and the shared files are byte-identical to santi
 // (artsitem, png, avb, avc; aniproj differ only by CRLF line ends). Audit 2026-11-16: no Cherry markers (no
 // -cherry/, cherry_day*, Cherry id block; Cherry never served an iOS client), three partial downloads (empty or
-// "*__" files, skipped by partialFile). Like lpbackup only what the earlier roots lack is added.
+// "*__" files, skipped by partialFile). Like lpbackup only what the earlier roots lack is added. It is the only source of
+// the circle room's map pack (circle/2012221744.mworldpack, the original cat-hot-spa room; 2026-11-17).
 const roboDataset = `D:\Dev\projects\Cherry\.opencode\line-play-artifacts\robo-backup-20261113\Library\Caches`
 
 // The roots are fixed on purpose: santi and lpbackup were taken before any device talked to Cherry, and the
@@ -235,7 +236,7 @@ func underAny(p string, roots []string) bool {
 
 // listRoot lists the objects of one dataset root. first marks the upload source: only it has bulk categories and
 // chat icons, and it must have every folder. A later root without a folder (lpbackup has no world/) contributes
-// nothing for it.
+// nothing for it. The first root must have every folder except the circle map pack folder (see the pack loop).
 func listRoot(dataset string, first bool) ([]*object, error) {
 	var objs []*object
 	for _, src := range bulkSources {
@@ -269,13 +270,14 @@ func listRoot(dataset string, first bool) ([]*object, error) {
 			return nil, fmt.Errorf("%s: %w", src.dir, err)
 		}
 	}
-	// Map packs: the top-level <digits>.mworldpack files of garden and world. The extracted folders beside them
+	// Map packs: the top-level <digits>.mworldpack files of garden, world and circle. The extracted folders beside them
 	// are not served.
 	for _, dir := range assets.PackDirs {
 		root := filepath.Join(dataset, dir)
 		ents, err := os.ReadDir(root)
 		if err != nil {
-			if !first && errors.Is(err, fs.ErrNotExist) {
+			// santi (the first root) has no circle/: the circle room's map is only in the robo donation.
+			if errors.Is(err, fs.ErrNotExist) && (!first || dir == "circle") {
 				continue
 			}
 			return nil, err

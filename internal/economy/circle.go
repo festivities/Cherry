@@ -92,7 +92,7 @@ var circleInterestCodes = []int64{
 //
 //	origin, note  mixed: the ids and the product are Cherry-made, the pictures are the client's (opdata.Provenance)
 //	product       code (the create request must send it), name, price_gems (Gems; paymentType GEM), max_members
-//	room          the circle room's map and spawn (a Cherry-made stand-in, see note)
+//	room          the circle room's map, size and spawn (the original room, see note)
 //	logos         symbols a circle may use: id in the logo block, art = a file in UIResource/UIImage_hd (read from the store)
 //	backgrounds   backgrounds a circle may use: the same rules
 //	points        season length, triggers, the daily cap and the point steps (circle_points.go)
@@ -175,7 +175,7 @@ type CircleProduct struct {
 }
 
 // CircleRoom is the circle room's map: its folder id, its size in tiles per side and the spawn tile (the same
-// conversion as a Square's). Cherry uses the LINE Café Square map as a stand-in (user decision 2026-11-01).
+// conversion as a Square's). The map is the original cat hot spa room (robo iOS cache; data/circle.json note).
 type CircleRoom struct {
 	Map     string     `json:"map"`
 	MapSize uint64     `json:"map_size"`
@@ -955,10 +955,11 @@ func CloseCircle(token string, id int64) error {
 
 // circleMapID reports whether s is a map folder id (digits only, as the Square maps are).
 //
-// The circle room loader (NaLayerCircleRoomLoading::InitLoader 0x25f9758) opens files/circle/<map>.mworldpack only, and
-// the client never downloads a circle pack; a missing pack silently returns the player to the Garden (12693 -> 12694,
-// device 2026-11-01). So room.map is a pack name RELATIVE to files/circle/ that names a pack the device already has:
-// "../world/<id>" (Square worlds) or "../garden/<id>" (Garden packs); spec room-enter-bounce.md.
+// The circle room loader (NaLayerCircleRoomLoading::InitLoader 0x25f9758) opens files/circle/<map>.mworldpack only; a
+// missing pack silently returns the player to the Garden (12693 -> 12694, device 2026-11-01). So room.map is a pack name
+// RELATIVE to files/circle/: a bare id is the circle's own pack, delivered as a pack record (PackDirs "circle", the
+// original room 2012221744); "../world/<id>" (Square worlds) and "../garden/<id>" (Garden packs) name packs the device
+// already has; spec room-enter-bounce.md (2026-11-01) and the robo pack check (2026-11-17).
 func circleMapID(s string) bool {
 	for _, dir := range []string{"../world/", "../garden/"} {
 		if rest, ok := strings.CutPrefix(s, dir); ok {

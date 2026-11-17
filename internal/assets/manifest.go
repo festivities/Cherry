@@ -80,8 +80,9 @@ func Version(entries []Entry) int {
 	return int(binary.BigEndian.Uint32(h.Sum(nil)[:4])%99999) + 1
 }
 
-// PackDirs are the map pack directories. The client keeps a pack in files/<dir>/.
-var PackDirs = []string{"garden", "world"}
+// PackDirs are the map pack directories. The client keeps a pack in files/<dir>/, and its download makes that folder
+// (MakeDirectory on the "/../<dir>/" record, patchfail-spec.md). circle holds the circle room's original map.
+var PackDirs = []string{"garden", "world", "circle"}
 
 // PackEntry is one map pack. An original is stored at static/<dir>/<name>; a Cherry-generated pack (origin
 // OriginCherry, Garden only) at GeneratedPackKey(name). Name is "<digits>.mworldpack" (ValidPack).

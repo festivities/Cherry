@@ -13,8 +13,8 @@ import (
 	"testing"
 )
 
-// packFixture publishes the 23 garden and 4 world packs (small bodies) and cherry/manifest/packs.json to f. It
-// returns the entries in manifest order.
+// packFixture publishes the 23 garden, 4 world and the circle room pack (small bodies) and cherry/manifest/packs.json
+// to f. It returns the entries in manifest order.
 func packFixture(t *testing.T, f *fakeR2) []PackEntry {
 	t.Helper()
 	var packs []PackEntry
@@ -24,6 +24,7 @@ func packFixture(t *testing.T, f *fakeR2) []PackEntry {
 	for i := 0; i < 4; i++ {
 		packs = append(packs, packEntry(f, "world", fmt.Sprintf("22%08d.mworldpack", i), fmt.Sprintf("world %d", i)))
 	}
+	packs = append(packs, packEntry(f, "circle", "2012221744.mworldpack", "circle room"))
 	b, err := json.Marshal(PackManifest{Entries: packs})
 	if err != nil {
 		t.Fatal(err)
@@ -51,6 +52,10 @@ func TestValidPackNames(t *testing.T) {
 		{"garden", "1908231803", false},
 		{"garden", "1908231803.mworldpack.bak", false},
 		{"garden", "garden.mworldpack", false},
+		{"circle", "2012221744.mworldpack", true},
+		{"circle", "../2012221744.mworldpack", false},
+		{"circle", "circle.mworldpack", false},
+		{"sound", "2012221744.mworldpack", false},
 	} {
 		if got := ValidPack(c.dir, c.name); got != c.ok {
 			t.Errorf("ValidPack(%q, %q) = %v, want %v", c.dir, c.name, got, c.ok)
@@ -93,8 +98,8 @@ func TestAnimationListCarriesPackRecordsAfterOwnRecords(t *testing.T) {
 	f := newFakeR2(t)
 	entries := fixture(t, f)
 	packs := packFixture(t, f)
-	if len(packs) != 27 {
-		t.Fatalf("fixture has %d packs, want 27", len(packs))
+	if len(packs) != 28 {
+		t.Fatalf("fixture has %d packs, want 28", len(packs))
 	}
 	s, _ := webStore(t, f)
 	rec, ok := get(t, s, "/arts_animation_ini_00001/update_en.ini")
@@ -152,13 +157,14 @@ func TestPackRoutesServeListedNamesOnly(t *testing.T) {
 	fixture(t, f)
 	packs := packFixture(t, f)
 	s, _ := webStore(t, f)
-	garden, world := packs[0], packs[23]
+	garden, world, circle := packs[0], packs[23], packs[27]
 	for target, want := range map[string]string{
 		"/garden/" + garden.Name:                            "static/garden/" + garden.Name,
 		"/arts_animation_en_00531/../garden/" + garden.Name: "static/garden/" + garden.Name,
 		"/arts_animation_ja_99999/../garden/" + garden.Name: "static/garden/" + garden.Name,
 		"/world/" + world.Name:                              "static/world/" + world.Name,
 		"/arts_animation_tw_00001/../world/" + world.Name:   "static/world/" + world.Name,
+		"/arts_animation_en_00531/../circle/" + circle.Name: "static/circle/" + circle.Name,
 	} {
 		rec, ok := get(t, s, target)
 		if !ok || rec.Code != http.StatusOK || rec.Body.String() != string(f.objs[want]) {
@@ -169,6 +175,8 @@ func TestPackRoutesServeListedNamesOnly(t *testing.T) {
 		"/garden/1999999999.mworldpack",                            // not listed
 		"/world/" + garden.Name,                                    // listed under garden only
 		"/garden/" + world.Name,                                    // listed under world only
+		"/circle/" + garden.Name,                                   // listed under garden only
+		"/arts_animation_en_00531/../circle/" + garden.Name,        // listed under garden only, un-normalised
 		"/garden/" + garden.Name + "/x",                            // not a pack name
 		"/arts_animation_en_00531/../garden/1999999999.mworldpack", // not listed, un-normalised
 		"/arts_animation_en_00531/../sound/BGM.ogg",                // other directory: safeRel refuses the ".."

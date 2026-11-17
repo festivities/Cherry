@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -188,6 +189,37 @@ func TestBuildObjectsLaterRootsFillGaps(t *testing.T) {
 		if got[k] != v {
 			t.Errorf("%s = %q, want %q", k, got[k], v)
 		}
+	}
+}
+
+// The circle room's map pack is only in the robo donation: the first root may lack circle/ (a later root's pack is
+// planned under static/circle/), while any other pack folder the first root lacks still fails the plan.
+func TestCirclePackFromLaterRoot(t *testing.T) {
+	first := []string{
+		"animation/a.png",
+		"sound/BGM.ogg",
+		"stringtable/arts_strings.ast",
+		"UIResource/UIImage_hd/c.png",
+		"item/custom/README", "item/dress/README", "item/interior/README", "item/tile/README", "item/pet/README", "item/garden/README",
+		"cache/action/00005_chatting_deco_action_hello.png",
+	}
+	if _, err := buildObjects([]string{writeTree(t, first...)}); err == nil {
+		t.Fatal("a first root without garden/ and world/ was planned")
+	}
+	root := writeTree(t, append(first, "garden/1908231803.mworldpack", "world/2201202900.mworldpack")...)
+	robo := writeTree(t, "circle/2012221744.mworldpack", "circle/2012221744/circle_cathotspa.mworld")
+	objs, err := buildObjects([]string{root, robo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, o := range objs {
+		if o.pack == "circle" {
+			got = append(got, o.key+"|"+o.rel)
+		}
+	}
+	if !slices.Equal(got, []string{"static/circle/2012221744.mworldpack|2012221744.mworldpack"}) {
+		t.Fatalf("circle packs = %v", got)
 	}
 }
 
