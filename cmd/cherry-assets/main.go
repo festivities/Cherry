@@ -92,9 +92,12 @@ var bulkSources = []bulkSource{
 	{cat: "tx", dir: "stringtable", only: []string{"arts_strings.ast"}},
 	// Square list pictures (squares.json icon, theme_info IconPath). The 10.1 client never fetches its squareui
 	// category, so they ride the animation list like its stock world_icon/ files (square-thumbs-spec, 2026-11-16);
-	// the originals are in the robo iOS cache's world/icon/.
+	// the originals are in the robo iOS cache's world/icon/. One picture per squares.json icon (Runway Square has none);
+	// square_thum_city234.png is byte-identical to square_thum_city.png (Shibuya's picture).
 	{cat: "animation", dir: "world/icon", prefix: "world_icon/", anyRoot: true,
-		only: []string{"square_thum_city.png", "square_thum_cafe.png", "square_thum_riding_pet.png"}},
+		only: []string{"square_thum_city.png", "square_thum_cafe.png", "square_thum_riding_pet.png",
+			"square_thum_park.png", "square_thum_island.png", "square_thum_city234.png", "square_thum_disney_03.png",
+			"squarethumb_dd.png", "squarethumb_HM.png", "square_thum_sanrio.png"}},
 }
 
 // object is one R2 object to upload. Bulk objects also feed their category's index.

@@ -107,7 +107,11 @@ func (c *sqClient) none() {
 func loginBody(aid uint64) []byte { return loginFor(aid) } // presents the key the installed account holds
 
 // squareTestMaps is the map each listed Square loads (data/squares.json).
-var squareTestMaps = map[uint64]string{6: "2401039000", 32: "2202250100", 33: "2310272600", 34: "2201202900"}
+var squareTestMaps = map[uint64]string{
+	6: "2401039000", 32: "2202250100", 33: "2310272600", 34: "2201202900",
+	35: "2202253000", 36: "2108176000", 37: "2202254000", 10: "2212231000",
+	27: "2208162700", 38: "2210312600", 39: "2304052600",
+}
 
 func (c *sqClient) join(aid uint64) []byte { return c.joinTheme(aid, squareThemeID) }
 
@@ -240,7 +244,7 @@ func TestSquareThemeList(t *testing.T) {
 	a.send(1, pbVar(nil, 1, 0))
 	id, body := a.read()
 	infos, result := themeList(t, body)
-	if id != 1 || result != 0 || len(infos) != 4 {
+	if id != 1 || result != 0 || len(infos) != 11 {
 		t.Fatalf("themelist msgid=%d result=%d entries=%d", id, result, len(infos))
 	}
 	want := []themeInfo{
@@ -248,6 +252,13 @@ func TestSquareThemeList(t *testing.T) {
 		{id: 32, index: 1, group: 32, count: 0, visible: 1, enabled: 1, name: "LINE Café", listName: "LINE Café"},
 		{id: 33, index: 2, group: 33, count: 0, visible: 1, enabled: 1, name: "Runway Square", listName: "Runway Square"},
 		{id: 34, index: 3, group: 34, count: 0, visible: 1, enabled: 1, name: "Pet Theme Park", listName: "Pet Theme Park"},
+		{id: 35, index: 4, group: 35, count: 0, visible: 1, enabled: 1, name: "LINE Park", listName: "LINE Park"},
+		{id: 36, index: 5, group: 36, count: 0, visible: 1, enabled: 1, name: "Treasure Island", listName: "Treasure Island"},
+		{id: 37, index: 6, group: 37, count: 0, visible: 1, enabled: 1, name: "LINE City Shibuya", listName: "LINE City Shibuya"},
+		{id: 10, index: 7, group: 10, count: 0, visible: 1, enabled: 1, name: "Disney Square", listName: "Disney Square"},
+		{id: 27, index: 8, group: 27, count: 0, visible: 1, enabled: 1, name: "Disney Disco", listName: "Disney Disco"},
+		{id: 38, index: 9, group: 38, count: 0, visible: 1, enabled: 1, name: "Hatsune Miku Square", listName: "Hatsune Miku Square"},
+		{id: 39, index: 10, group: 39, count: 0, visible: 1, enabled: 1, name: "SANRIO CHARACTERS Square", listName: "SANRIO CHARACTERS Square"},
 	}
 	for i := range want {
 		if infos[i] != want[i] {

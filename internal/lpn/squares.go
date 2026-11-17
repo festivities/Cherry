@@ -47,7 +47,8 @@ var squaresFile = opdata.New("squares.json", data.SquaresJSON, checkSquares, nil
 func LoadOperatorData() error { return squaresFile.Load() }
 
 // checkSquares: unique themes, names and map folder set, spawn inside the map, and LINE City (theme 6)
-// listed on its own map: the fishing, boss, exchange, race and Ride Point NPCs are placed there.
+// listed on its own map: the fishing, boss, exchange, race and Ride Point NPCs are placed there. Themes 28-31 (boss,
+// race, pet park) are never listed: the client enters them from the Square and entry() sends them back to LINE City.
 func checkSquares(s *Squares) error {
 	if err := s.CheckOrigin("mixed"); err != nil {
 		return err
@@ -64,6 +65,8 @@ func checkSquares(s *Squares) error {
 			return fmt.Errorf("theme %d: map must be a map folder name", sq.Theme)
 		case sq.MapSize == 0 || sq.Spawn.X >= sq.MapSize || sq.Spawn.Y >= sq.MapSize:
 			return fmt.Errorf("theme %d: spawn %d,%d is outside the %d-tile map", sq.Theme, sq.Spawn.X, sq.Spawn.Y, sq.MapSize)
+		case sq.Theme >= 28 && sq.Theme <= 31:
+			return fmt.Errorf("theme %d is the boss or race/pet world: it is entered from the Square, not listed", sq.Theme)
 		case sq.Icon != "" && (!strings.HasPrefix(sq.Icon, "animation/world_icon/") || strings.Contains(sq.Icon, "..")):
 			return fmt.Errorf("theme %d: icon %q must be an animation/world_icon/ file", sq.Theme, sq.Icon)
 		}
