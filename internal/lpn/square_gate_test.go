@@ -83,12 +83,12 @@ func TestSquareSpotsOnMarkers(t *testing.T) {
 }
 
 // TestSquareTreasureIslandNpcKeys: every NPC of the Treasure Island list has its own (serial, InteriorID) key, and the
-// Treasure World entry is the thirteenth: serial 6 on host RUTD000R8, with its link and button flag.
+// list holds nothing else (no Treasure World entry: the client drops a link tapped inside a Square).
 func TestSquareTreasureIslandNpcKeys(t *testing.T) {
 	list := squareTreasureIslandNpcList()
 	n := len(squareRepeated(t, list, 1))
-	if n != len(squareSpotTiles)+3 {
-		t.Fatalf("Treasure Island has %d NPCs, want the spots, the shop, the office and the entry", n)
+	if n != len(squareSpotTiles)+2 {
+		t.Fatalf("Treasure Island has %d NPCs, want the spots, the shop and the office", n)
 	}
 	keys := map[[2]uint64]bool{}
 	for i := range n {
@@ -98,27 +98,6 @@ func TestSquareTreasureIslandNpcKeys(t *testing.T) {
 			t.Fatalf("NPC %d repeats serial %d / InteriorID %d", i, key[0], key[1])
 		}
 		keys[key] = true
-	}
-	npc := squareFirstInteriorNpc(t, list, n-1)
-	interior := squareNested(t, npc, 2)
-	if got := squareUint(t, squareNested(t, interior, 1), 1); got != 0x3010033 {
-		t.Fatalf("entry NpcIndex = %#x, want 0x3010033", got)
-	}
-	if squareUint(t, npc, 1) != squareTreasureNpcSerial || squareUint(t, interior, 5) != 121700980 {
-		t.Fatalf("entry serial/host = %d/%d", squareUint(t, npc, 1), squareUint(t, interior, 5))
-	}
-	if x, y := tilePx(squareIslandSize, squareTreasureTile); squareUint(t, npc, 10) != x || squareUint(t, npc, 11) != y || x != 5120 || y != 2820 {
-		t.Fatalf("entry Px/Py = (%d,%d), tile (73,105) = (5120,2820)", squareUint(t, npc, 10), squareUint(t, npc, 11))
-	}
-	link, found, _ := pbBytesField(npc, 73)
-	if !found || string(link) != "goSomewhere(treasureWorld)" {
-		t.Fatalf("entry KeyLink = %q, want goSomewhere(treasureWorld)", link)
-	}
-	if _, found, _ := pbBytesField(npc, 74); found {
-		t.Fatal("entry KeyLinkParam is set, want none")
-	}
-	if squareUint(t, npc, 75) != 1 {
-		t.Fatalf("entry AniButtonVisible = %d, want 1", squareUint(t, npc, 75))
 	}
 }
 

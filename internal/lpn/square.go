@@ -517,7 +517,7 @@ func (s *squareSession) handleData(frame []byte) error {
 		s.room, s.square, s.entered = room, sq, true
 		s.logger.Printf("SQUARE enter aid=%d theme=%d map=%s", s.aid, sq.Theme, sq.Map)
 		MarkQuest(s.aid, "square")
-		var npcs []byte // the minigame NPCs: fishing, shop, Soff and the Treasure World entry on Treasure Island, the race and Ride Point in LINE City
+		var npcs []byte // the minigame NPCs: fishing, shop and Soff on Treasure Island, the race and Ride Point in LINE City
 		switch sq.Theme {
 		case squareThemeID:
 			npcs = squareTreasureIslandNpcList()

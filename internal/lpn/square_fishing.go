@@ -94,8 +94,10 @@ func squareInteriorNpc(serial, npcIndex, interiorID, px, py uint64) []byte {
 
 // squareTreasureIslandNpcList is rc_room_enter_res.NpcList (field 2) of Treasure Island: NPCEnumList{NpcList:
 // [NPCEnum{InteriorNpc: _SQInteriorNpc}, ...]} with one fishing spot per marker tile, the fish shop, the Boss Coin
-// exchange office (square_exchange.go) and the Treasure World entry (square_treasure_entry.go). Every IsInitialized on
-// this path returns true (no required fields).
+// exchange office (square_exchange.go). Every IsInitialized on this path returns true (no required fields). No Treasure
+// World entry: the 10.1 client drops a goSomewhere link tapped inside a Square (SceneChangeInSquareByLinkType 0x1cbabac
+// has no case for link 93, so it returns before the scene change; entry-keylink.md, 2026-11-17), so Treasure World stays
+// on the MENU row (user decision, 2026-11-17).
 func squareTreasureIslandNpcList() []byte {
 	var list []byte
 	for i, t := range squareSpotTiles {
@@ -104,8 +106,7 @@ func squareTreasureIslandNpcList() []byte {
 	}
 	px, py := tilePx(squareIslandSize, squareShopTile)
 	list = append(list, pbLen(nil, 1, pbLen(nil, 2, squareInteriorNpc(squareShopSerial, squareShopNpcIndex, squareShopInteriorID, px, py)))...)
-	list = append(list, squareExchangeNpcEntry()...)
-	return append(list, squareTreasureNpcEntry()...)
+	return append(list, squareExchangeNpcEntry()...)
 }
 
 // squareLineCityNpcList is rc_room_enter_res.NpcList (field 2) of LINE City: the Riding Pet race entrance

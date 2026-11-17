@@ -68,8 +68,8 @@ func TestSquareExchangeNpcEncoding(t *testing.T) {
 	if squareUint(t, npc, 1) != squareExchangeSerial || squareUint(t, npc, 10) != px || squareUint(t, npc, 11) != py {
 		t.Fatalf("serial/Px/Py = %d/%d/%d", squareUint(t, npc, 1), squareUint(t, npc, 10), squareUint(t, npc, 11))
 	}
-	if n := len(squareRepeated(t, list, 1)); n != 13 {
-		t.Fatalf("NPC list has %d entries, want ten spots, the shop, the office and the Treasure World entry", n)
+	if n := len(squareRepeated(t, list, 1)); n != 12 {
+		t.Fatalf("NPC list has %d entries, want ten spots, the shop and the office", n)
 	}
 }
 
