@@ -1928,3 +1928,82 @@ Context loaded: AGENTS, PLAN, TESTING, CONTRACT, DATASET and JICAMA in full, REF
 - YunDetectService is PID 33236 now (never stop it).
 - Repo: `main` clean at `565af34`, level with origin; CI green on it; local `prototype` still `91c52c2` (22 behind, as noted). `config\` holds only `streaming.json`. `.opencode\line-play-artifacts`: the seven entries, ignored at `.gitignore:35`.
 - Raspberry's CONTRACT §4 has entries up to 2026-11-12 (outgoing handoff): it read the 2026-11-11 replies, still wants a browser-trusted `dev-fake` peer (needs the user's certificate setup), asks for no Cherry change. Nothing new to answer.
+
+## From PLAN.md — handoff 2026-11-16 ~14:00 (INITIATED only; moved verbatim 2026-11-17 ~22:30; production on `1a0b679`, sign-up closed, before the robo originals, the butler features, the staff panel overhaul and the Square and Circle work)
+
+No HANDOFF ACCEPTED was appended: the next Cherry session (2026-11-16 afternoon → 2026-11-17) worked from this block without recording one. Its corrections are in the 2026-11-17 block that replaced it.
+
+### HANDOFF INITIATED — 2026-11-16 ~14:00 host time (Claude Code, Cherry session → new Claude Code session with no context)
+
+**In one paragraph.** Cherry runs on the user's Oracle host (slice 8.8a) and is device-verified there with Raspberry's patched Android client. Every go-live prerequisite the user approved is built, deployed and device-tested (8.6b parts 3–5, derived session keys, the restore drill with rows). **The only go-live step left is opening sign-up, and the user said "I'll let you know": do not open it until they say so.** Before that the user works with the **Raspberry session on patching the iOS `.ipa` client**; this session's part is to answer its requests (CONTRACT §10 has a 2026-11-16 entry listing what the server assumes about Android).
+
+**Two sessions exist (user, 2026-11-09):** the **Cherry session** (this block: the server, this repo, the Oracle host, the Windows lab) and a **Raspberry session** (the client patcher, `D:\Dev\projects\Raspberry`, GitHub `festivities/Raspberry`, public; its context is `D:\Dev\projects\Raspberry\.agents\`). You are the Cherry session unless your working directory is Raspberry. Never edit Raspberry's files; put requests in [CONTRACT.md](CONTRACT.md) §10 and read its `.agents\CONTRACT.md` §4 "Requests to Cherry" at the start of the session. **Since 2026-11-15 the Cherry session may use AVD `Raspberry` (`emulator-5559`) for patched-client tests; AVDs Cherry and Jerry are dropped** (user).
+
+You are the receiving agent with **zero context**. Read all of [AGENTS.md](AGENTS.md) first. Above all:
+- **"Baseline"**, incl. **`D:\Dev\projects\Cherry\.opencode\line-play-artifacts` must be preserved NO MATTER WHAT**.
+- **"Policies"**: client modifications, dependencies (`modernc.org/sqlite` only), no real-money paths, no runtime archive reads, never restore the account data wholesale, operator-editable fabricated content.
+- **"Workflow"**: delegation, device testing ([TESTING.md](TESTING.md) before a tester brief), autonomous commits, the gate, **"Production deploy"**, **"Patched client"**, "Two sessions".
+- **"Production"** (the Oracle host: main agent only, the host's own `AGENTS.md`, the private values) and **"Lab"** (the Windows lab is idle on an old build).
+- **"Code map"**, incl. "Platform state".
+
+Then read [CONTRACT.md](CONTRACT.md), this block and **Roadmap 8** (its "Progress" list first). [REFERENCE.md](REFERENCE.md) by section when a task touches that feature. Do not edit `JICAMA.md`.
+
+**The Read tool refuses large reads.** Read PLAN.md, REFERENCE.md and HISTORY.md in chunks of 70–150 lines; several lines are very long (Grep them or read them alone).
+
+The previous pair (INITIATED 2026-11-12 ~05:00, ACCEPTED 2026-11-15 ~02:15) is HISTORY's LAST section. The dated log of this session's work is in Roadmap 8 "Progress" (the entries dated 2026-11-15 and 2026-11-16).
+
+Recheck and append **HANDOFF ACCEPTED** with any corrections:
+- `git status`, the branches and the last CI run (`gh run list --limit 1`);
+- **production**, read-only, through the `oracle-ubuntu-ssh` MCP tools (main agent only): read `/home/cherry/AGENTS.md` on the host first; then `cat /home/cherry/bin/cherry.commit`, `curl -s 127.0.0.1:8099/healthz`, `systemctl is-active cherry litestream`;
+- `adb devices`, plus `adb -s <serial> emu avd name` for each device;
+- the local lab process (`Get-Process cherry`: the repo-root exe) and whether it is still wanted;
+- `.opencode\line-play-artifacts` (seven entries, ignored at `.gitignore:35`).
+
+The host clock (this PC and the Oracle host) is UTC+8; the emulators run UTC. The game day resets at 06:00 JST (05:00 host time).
+
+**State snapshot (2026-11-16 ~13:45, each line observed at that time):**
+- **Repo:** `main`, level with origin; this handoff is the commit after `2bc90c9`. The last code commit is `1a0b679` (derived session keys). CI green on `2bc90c9`. `prototype` is final at `6c49273` on origin (never rebase, reset, force-push or delete it; the local branch still points at `91c52c2`, harmless, do not push it). One leftover Git worktree of an older session exists under `%TEMP%` (`git worktree list`; detached at `6603f9d`, harmless; `git worktree prune` once its folder is gone).
+- **Production (the Oracle host):** commit **`1a0b679`**, started 2026-11-16 04:23, `/healthz` ok, Litestream active, schema v4, about 23 MB of memory at idle. `auth.mode discord`, **`auth.signup allowlist` (two entries: the owner and their alt)**, `server.public`, staff UI on, uploads on, DNS off. The database is small (the user's own test accounts; the avatar on AVD Raspberry is aid 11). Everything about the host (names, ports, paths, deploy log) is in **`/home/cherry/AGENTS.md` on the host** and in the private `%LOCALAPPDATA%\Cherry\deploy\oci.md`; none of it may enter this repo.
+- **Session secret:** the server derives every session key from a 48-byte secret on the host and **refuses to start without it**. An offline copy is in the private `deploy\` folder (`cherry-session.key`, owner-only ACL, hash checked against the host on 2026-11-16). Never print it, never commit it.
+- **Device:** `emulator-5559` = AVD **Raspberry** (Android 17), running. It holds the patched client built from Raspberry `bf11b05` for the production endpoint, signed in with the user's Discord alt, avatar aid 11 in its Garden. No other device is attached.
+- **Windows lab: idle.** Cherry PID 44612 (repo-root `cherry.exe`, built from `684c9b2`, started 2026-11-15 02:13, `lab-guest`, defaults) still runs, but no device uses it: the lab AVDs lost their stock app and logins on 2026-11-15. Its `%LOCALAPPDATA%\Cherry\cherry.db` is schema v3 and holds the lab accounts 1001, 1002 and 1006; a build from `5b5dfab` or later migrates it to v4 at its first start and cannot go back (copy the three `cherry.db*` files first, with Cherry stopped). It is safe to stop (`taskkill /F /PID <pid>` after checking the path; never `/T`). YunDetectService on loopback :10000: never stop it.
+- **Private folders (never commit):** `%LOCALAPPDATA%\Cherry\deploy\` (`oci.md`, the Discord secret, the Litestream keys, the certificate token, the session secret) and `%LOCALAPPDATA%\Cherry\keys\` (the keystore and password file that sign the patched APK).
+- **`.opencode\line-play-artifacts`:** seven entries, unchanged (the `.ipa` there is the one the Raspberry session patches). Ignored at `.gitignore:35`.
+- **Backups on the host** (delete once Litestream holds some days of the current schema; the host notes list them): two `backup-pre-*-20261116` folders in the state directory, `cherry.json.pre-1a0b679`, and one deploy log under `/root`.
+
+**Done in this session (2026-11-15 → 2026-11-16; commits `565af34` … `2bc90c9`; details in Roadmap 8 "Progress"):**
+- **Staff UI part 2a and 2b** (player lookup, grants, bans that close live connections, post removal), **real Discord proven** for players and staff.
+- **The user's setup checklist** (all seven items) and **slice 8.8a**: the first deploy, Litestream with two restore drills (empty, then with rows), the asset store with a read-only key, the operator certificate on the game HTTPS port (`7e433be`), `/healthz`.
+- **Patched-client device test passed** on AVD Raspberry against production: Discord sign-in, the 348 MB download, automatic guest login, avatar creation, Garden, Square, My Room, Delete Avatar. Three client bugs were reported to Raspberry and fixed there (CONTRACT §10).
+- **Create-flow guide** wears the closet mascot's look (`ad3a3aa`).
+- **8.6b part 3** uploads bound to the signed account, quotas, staff removal (`5b5dfab`, schema v4); **part 4** hardening: cookie flags, the plain-port allowlist, rate limits, connection caps, retention, token pruning (`a3e282c`, `7407a46`); **part 5** the main agent's go-live review of the public surface and its fixes (`3cc61fb`).
+- **Derived session keys** (`1a0b679`): no session key is stored any more.
+- **User decisions 2026-11-16:** session-key hashing approved (done); gift farming accepted as the original game had it (no cap); sign-up opens when the user says.
+
+**Open tasks.** The user's standing instructions: fix or classify every gap with evidence (memories `gaps-fix-or-classify`, `user-game-memory-wins`); ask the user when a decision is theirs; commit and push verified work without asking.
+
+1. **Waiting on the user: open sign-up (slice 8.8b's last step).** Only on their word. Then, on the host (main agent; recipe in the host notes "Opening sign-up"): back up `cherry.json`, set `"auth.signup": "open"`, restart `cherry` (a restart drops every game connection), check `/healthz`, and watch `journalctl -u cherry` for the first hours: lines with `refused`, `status=429`, `status=5`, `frame limit`, memory against the unit's 2 GB cap, Litestream still active. Record it in the host notes and in Roadmap 8 (8.8b done).
+2. **iOS (the Raspberry session's work; the user is there next).** Nothing is asked of Cherry yet. What is known from the server side is in CONTRACT §10 (2026-11-16, "iOS"): four routes carry the literal `Android`, the plain-HTTP allowlist is the Android client's exact paths, and the asset store holds the Android 10.1 device dataset only — whether the iOS client asks for the same resource tree is unknown. Expect requests about these; device-test anything that changes what the stock Android client sees.
+3. **Raspberry, open:** after Delete Avatar the stock login page shows until the app restarts (CONTRACT §10, 2026-11-16; the user is handling it with the Raspberry session). The `create/avatar` capture request of 2026-11-12 is still unanswered (the face exemption is wide until then).
+4. **8.8b, not done:** the restart behaviour was never watched on a device with the app open (every deploy so far was followed by a cold start). Worth one tester run before or right after sign-up opens: app in the Garden, restart the server, see whether a foreground resume reconnects or the player must relaunch.
+5. **Not blocked, when the user wants more (Roadmap 8 "Progress" has each "Open" list):**
+   - Staff UI part 2, the rest: mute, the report queue (the report routes only log), season force and date tools, forms for the frequent documents, staff management by the owner, sessions in the database.
+   - Hot swap for the documents that need it (prices, rewards, calendars, mail first); today a published document applies at the next restart.
+   - Watch items from the go-live review: per-address rate buckets are shared behind carrier NAT (raise `limits.*` if honest players see 429); R2 miss cost; the stock "Connection unstable due to heavy traffic" popup seen once on a Square entry (client-side timeout, no server difference); the 1:1 chat `AVCHAT 3003` loop of the stock client.
+   - Clean-up: the host backups above; the Windows firewall rules `Cherry DNS` and `Cherry game` and the lab process once the user ends the lab.
+
+**Hazards (carried, plus this session's):**
+- **The Oracle host is main-agent-only and shared.** Other users' services run there (a reverse proxy in Docker owns ports 80 and 443, a VPN, more): never stop, restart, reconfigure or read them; never run `netfilter-persistent save`; change only the firewall line commented `cherry`; never open UDP 53. Read the host's `AGENTS.md` before any change and add a log line after it.
+- **SSH tool limits:** a call times out after about two minutes, so run `cherry-deploy` through `systemd-run` (host notes; a deploy that died mid-way once left the server down for 28 minutes); the privileged tool refuses multi-line commands (upload a script with `sftp-upload` and run it); file streaming does not work from Windows (the user copies files with `scp`; do not work around a refused `scp`); the host has no `sqlite3` CLI (python3 `sqlite3`).
+- **A deploy restarts the server and drops every game connection.** A schema migration cannot be undone: stop the server and copy the three `cherry.db*` files before a deploy that changes the schema.
+- **The staff UI's address needs its port** (the proxy on 443 does not know the staff hostname and answers with a TLS error). The staff hostname is deliberately absent from certificate logs: do not request a certificate that names it.
+- **Storage (lab and production):** back up `cherry.db` only with Cherry stopped; never edit it while Cherry runs; a wholesale restore older than a device's last `checkSession` logs that device out.
+- **Every save names what it changed.** In test builds a save panics when an account it did not name changed: when a handler touches a second account or a new kind of row, name it.
+- **Gateway logins are verified** (`store.HoldsSessionKeyLocked`). Tests that log in over the gateway install real accounts with session keys (`loginFor`, `withLoginAccounts` in `internal/lpn`).
+- **`lab-guest` must stay byte-for-byte the lab's behaviour.** Public-server rules hang on `config.IdentityMode()`.
+- **Limits are sized from stock-client bursts** (a fresh install: ~195 static GETs/s; the 1:1 chat: ~250 session frames/s; creation sends stock face codes that are not in the starter set). Before tightening one, device-test a cold start, a fresh install and the feature.
+- **The gate has a CI view:** run `CHERRY_TEST_NO_ARCHIVE=1 go test ./...` before pushing anything that touches tests of `economy`, `lpn`, `thumbs` or `web`. `gofmt -l cmd internal data`, never `gofmt -l .`.
+- **Workers:** a worker in a worktree returned CRLF files after a merge (normalise before the gate); a worker's "race tests passed" was once a run that stopped partway — the main agent runs the gate itself.
+- **Testers** refuse "Start as Guest", Delete Avatar and app-data resets unless both the brief and `.claude/agents/cherry-tester.md` allow it; the one-off Delete Avatar exception of 2026-11-16 is used up.
+- **Harness:** PowerShell is the primary shell; a foreground sleep longer than about 15 s is blocked; Bash heredocs with long bodies have failed here (write scripts with the file tool).
+- **Two sessions share one machine:** one adb server (never `adb kill-server`), `%TEMP%\opencode\` (Cherry: `cherry\`, Raspberry: `raspberry\`), IDA copies (per-job copies of the pristine database only).
