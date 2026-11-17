@@ -46,15 +46,16 @@ var squaresFile = opdata.New("squares.json", data.SquaresJSON, checkSquares, nil
 // LoadOperatorData loads the game-connection operator data (squares.json) at startup.
 func LoadOperatorData() error { return squaresFile.Load() }
 
-// checkSquares: unique themes, names and map folder set, spawn inside the map, and LINE City (theme 6)
-// listed on its own map: the fishing, boss, exchange, race and Ride Point NPCs are placed there. Themes 28-31 (boss,
-// race, pet park) are never listed: the client enters them from the Square and entry() sends them back to LINE City.
+// checkSquares: unique themes, names and map folder set, spawn inside the map, and the two Squares that carry
+// NPCs listed on their own maps: Treasure Island (theme 6: fishing, Soff, Treasure World) and LINE City (theme 36: the
+// race and the Ride Point shop). Themes 28-31 (boss, race, pet park) are never listed: the client enters them from
+// the Square and entry() sends them back.
 func checkSquares(s *Squares) error {
 	if err := s.CheckOrigin("mixed"); err != nil {
 		return err
 	}
 	seen := map[uint64]bool{}
-	city := false
+	island, city := false, false
 	for _, sq := range s.Squares {
 		switch {
 		case seen[sq.Theme]:
@@ -71,15 +72,24 @@ func checkSquares(s *Squares) error {
 			return fmt.Errorf("theme %d: icon %q must be an animation/world_icon/ file", sq.Theme, sq.Icon)
 		}
 		seen[sq.Theme] = true
-		if sq.Theme == squareThemeID {
+		switch sq.Theme {
+		case squareThemeID:
 			if sq.Map != squareMapFileName || !sq.Visible {
-				return fmt.Errorf("theme %d (LINE City) must be visible on map %s", sq.Theme, squareMapFileName)
+				return fmt.Errorf("theme %d (Treasure Island) must be visible on map %s", sq.Theme, squareMapFileName)
+			}
+			island = true
+		case squareCityThemeID:
+			if sq.Map != squareCityMapFileName || !sq.Visible {
+				return fmt.Errorf("theme %d (LINE City) must be visible on map %s", sq.Theme, squareCityMapFileName)
 			}
 			city = true
 		}
 	}
+	if !island {
+		return errors.New("theme 6 (Treasure Island) must be listed")
+	}
 	if !city {
-		return errors.New("theme 6 (LINE City) must be listed")
+		return errors.New("theme 36 (LINE City) must be listed")
 	}
 	return nil
 }
@@ -96,19 +106,26 @@ func (s *Squares) listed() []Square {
 	return out
 }
 
-// entry returns the visible Square with that theme. Any other theme (unknown, hidden, or the boss world
-// 28 and race 31 that return to the Square) goes to LINE City, as before the Square list existed.
+// entry returns the visible Square with that theme. The boss world (28) returns to Treasure Island and the race
+// (31) to LINE City; any other theme (unknown or hidden) falls back to theme 6, Treasure Island, which the fallback
+// has always used.
 func (s *Squares) entry(theme uint64) Square {
-	var city Square
+	switch theme {
+	case squareBossThemeID:
+		theme = squareThemeID
+	case squareRacingTheme:
+		theme = squareCityThemeID
+	}
+	var island Square
 	for _, sq := range s.Squares {
 		if sq.Visible && sq.Theme == theme {
 			return sq
 		}
 		if sq.Theme == squareThemeID {
-			city = sq
+			island = sq
 		}
 	}
-	return city
+	return island
 }
 
 // spawnPx is the game-px position of the spawn tile: X=40*(wx-wy+N), Y=20*(2N-1-wx-wy) with N the map

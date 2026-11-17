@@ -20,7 +20,7 @@ type sqClient struct {
 	sid  [8]byte
 }
 
-// newSqClient is a client in a registry where LINE City is room (other Squares are new rooms).
+// newSqClient is a client in a registry where Treasure Island is room (other Squares are new rooms).
 func newSqClient(t *testing.T, room *squareRoom, sid byte) *sqClient {
 	t.Helper()
 	return newSqClientIn(t, &squareRooms{rooms: map[uint64]*squareRoom{squareThemeID: room}}, sid)
@@ -108,15 +108,15 @@ func loginBody(aid uint64) []byte { return loginFor(aid) } // presents the key t
 
 // squareTestMaps is the map each listed Square loads (data/squares.json).
 var squareTestMaps = map[uint64]string{
-	6: "2401039000", 32: "2202250100", 33: "2310272600", 34: "2201202900",
-	35: "2202253000", 36: "2108176000", 37: "2202254000", 10: "2212231000",
+	6: "2108176000", 32: "2202250100", 33: "2310272600", 34: "2201202900",
+	35: "2202253000", 36: "2401039000", 37: "2202254000", 10: "2212231000",
 	27: "2208162700", 38: "2210312600", 39: "2304052600",
 }
 
 func (c *sqClient) join(aid uint64) []byte { return c.joinTheme(aid, squareThemeID) }
 
-// joinTheme logs in, enters the Square theme and relays in. Only LINE City gets the fishing UI's rod
-// list request, and the boss icon (rc58) follows its reply.
+// joinTheme logs in, enters the Square theme and relays in. Only Treasure Island gets the fishing UI's rod
+// list request, and the boss icon (rc58) follows its reply. Treasure Island and LINE City carry NPCs.
 func (c *sqClient) joinTheme(aid, theme uint64) []byte {
 	c.t.Helper()
 	c.send(0, loginBody(aid))
@@ -126,7 +126,7 @@ func (c *sqClient) joinTheme(aid, theme uint64) []byte {
 	if id != 6 {
 		c.t.Fatalf("room enter msgid = %d", id)
 	}
-	if npc := c.checkEnter(enter, theme, squareTestMaps[theme]); npc != (theme == squareThemeID) {
+	if npc := c.checkEnter(enter, theme, squareTestMaps[theme]); npc != (theme == squareThemeID || theme == squareCityThemeID) {
 		c.t.Fatalf("theme %d NpcList present = %v", theme, npc)
 	}
 	c.send(5, nil)
@@ -248,12 +248,12 @@ func TestSquareThemeList(t *testing.T) {
 		t.Fatalf("themelist msgid=%d result=%d entries=%d", id, result, len(infos))
 	}
 	want := []themeInfo{
-		{id: 6, index: 0, group: 6, count: 0, visible: 1, enabled: 1, name: "LINE City", listName: "LINE City"},
+		{id: 36, index: 0, group: 36, count: 0, visible: 1, enabled: 1, name: "LINE City", listName: "LINE City"},
 		{id: 32, index: 1, group: 32, count: 0, visible: 1, enabled: 1, name: "LINE Café", listName: "LINE Café"},
 		{id: 33, index: 2, group: 33, count: 0, visible: 1, enabled: 1, name: "Runway Square", listName: "Runway Square"},
 		{id: 34, index: 3, group: 34, count: 0, visible: 1, enabled: 1, name: "Pet Theme Park", listName: "Pet Theme Park"},
 		{id: 35, index: 4, group: 35, count: 0, visible: 1, enabled: 1, name: "LINE Park", listName: "LINE Park"},
-		{id: 36, index: 5, group: 36, count: 0, visible: 1, enabled: 1, name: "Treasure Island", listName: "Treasure Island"},
+		{id: 6, index: 5, group: 6, count: 0, visible: 1, enabled: 1, name: "Treasure Island", listName: "Treasure Island"},
 		{id: 37, index: 6, group: 37, count: 0, visible: 1, enabled: 1, name: "LINE City Shibuya", listName: "LINE City Shibuya"},
 		{id: 10, index: 7, group: 10, count: 0, visible: 1, enabled: 1, name: "Disney Square", listName: "Disney Square"},
 		{id: 27, index: 8, group: 27, count: 0, visible: 1, enabled: 1, name: "Disney Disco", listName: "Disney Disco"},
@@ -441,7 +441,7 @@ func TestSquarePlayerListAndSpawn(t *testing.T) {
 	b.join(22)
 	a.read() // adduser for 22
 	room.mu.Lock()
-	if p := room.players; p[0].x != 6920 || p[0].y != 2920 || p[1].x != 6960 || p[1].y != 2900 {
+	if p := room.players; p[0].x != 5400 || p[0].y != 2960 || p[1].x != 5440 || p[1].y != 2940 { // Treasure Island's spawn (73,98)
 		t.Fatalf("spawns = (%d,%d) (%d,%d)", p[0].x, p[0].y, p[1].x, p[1].y)
 	}
 	room.mu.Unlock()
@@ -563,6 +563,6 @@ func TestSquareReenterStandsUpSeat(t *testing.T) {
 	if id != 8 || bytes.Contains(roster, pbLen(nil, 4, sitInfo())) {
 		t.Fatalf("re-enter roster = %d/%x, want no own seat", id, roster)
 	}
-	b.expect(9, pbLen(pbVar(nil, 1, 11), 2, squarePositionInfo(6920, 2920, 0)))
+	b.expect(9, pbLen(pbVar(nil, 1, 11), 2, squarePositionInfo(5400, 2960, 0))) // Treasure Island's spawn
 	b.none()
 }

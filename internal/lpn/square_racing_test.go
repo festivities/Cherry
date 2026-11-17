@@ -60,7 +60,7 @@ func racingAccount(t *testing.T, aid string, pets []store.PetItem) *sqClient {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.join(n)
+	c.joinTheme(n, squareCityThemeID) // the race is entered from LINE City
 	t.Cleanup(c.sess.stopRacing)
 	return c
 }
@@ -352,9 +352,9 @@ func TestRacingExitClearsTimers(t *testing.T) {
 	if id, _ := c.read(); id != 6 {
 		t.Fatalf("move = %d, want rc6", id)
 	}
-	c.send(2, pbVar(nil, 1, 1)) // back to the Square: rc6 theme 6
-	if id, enter := c.read(); id != 6 || squareUint(t, enter, 4) != squareThemeID {
-		t.Fatalf("re-enter = %d/%x, want theme %d", id, enter, squareThemeID)
+	c.send(2, pbVar(nil, 1, squareCityThemeID)) // back to the Square the race came from: LINE City
+	if id, enter := c.read(); id != 6 || squareUint(t, enter, 4) != squareCityThemeID {
+		t.Fatalf("re-enter = %d/%x, want theme %d", id, enter, squareCityThemeID)
 	}
 	time.Sleep(400 * time.Millisecond) // past the roster delay
 	c.none()

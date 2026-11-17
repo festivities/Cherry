@@ -9,8 +9,9 @@ import (
 
 // Square Boss Coin exchange office (economy/exchange.go; wire notes %TEMP%\opencode\cherry\
 // phaseDE-20261022\exchange-spec.md, sections 0 to 5 and 7). The office NPC is _SQInteriorNpc NpcIndex
-// 0x3010034 (NaWorldInteriorManager::Create case 52). It links to the unique root floor object RUGO002IG
-// (interior item 122003256) at tile (89,90), near the Square spawn: the client keeps root floors (kind
+// 0x3010034 (NaWorldInteriorManager::Create case 52). It links to the root floor object RUGO002IG (interior item
+// 122003256), which only LINE City's map has: on Treasure Island (theme 6, 2026-11-17) the office stands on the
+// Cherry-made tile squareExchangeTile, with no host. The client keeps root floors (kind
 // 0x14, like the fish shop's host) in its object cache, while a tile deco such as RUTD001LS was dropped
 // with its parent and the bubble never showed (device 2026-10-25, exchange-spec section 9). Tapping it pushes popup 116, which sends cr52 GroupId 1 (rc68 list). A row is bought with
 // cr53 GachaId (rc69, result 0 = done). Every other result shows the client's "Network Error." box.
@@ -18,10 +19,8 @@ const (
 	squareExchangeNpcIndex   = 0x3010034
 	squareExchangeSerial     = 3
 	squareExchangeInteriorID = 122003256
-	squareExchangePX         = 6360 // X=40*(89-90+160)
-	squareExchangePY         = 2800 // Y=20*(2*160-1-89-90)
-	squareExchangeCoinType   = 3    // Boss Coins: the client's "Not enough Boss Coins." pre-check is for coin 3 (spec 5)
-	squareExchangeCashType   = 2    // Cash: the header's second balance (SetTopCurrency 0x1db7474, spec 10.4) [I]
+	squareExchangeCoinType   = 3 // Boss Coins: the client's "Not enough Boss Coins." pre-check is for coin 3 (spec 5)
+	squareExchangeCashType   = 2 // Cash: the header's second balance (SetTopCurrency 0x1db7474, spec 10.4) [I]
 	// squareExchangeChest is GachaData.gacha_type 3, the bronze chest: its confirm reads "Open the bronze
 	// chest with %s Boss Coin?" (string 1859). Type 1 (gold) asks for cash (1857), 2 (silver) shows a
 	// silver title over the coin-3 copper box (spec 10.1).
@@ -31,9 +30,14 @@ const (
 	squareExchangeFail = 10130
 )
 
+// squareExchangeTile is the office's tile on Treasure Island: Cherry-made walkable land 3 tiles from the spawn (73,98)
+// (see squareTreasureIslandNpcList), since the stock host is not on that map.
+var squareExchangeTile = Tile{70, 98}
+
 // squareExchangeNpcEntry is one rc_room_enter_res NpcList entry: the exchange office.
 func squareExchangeNpcEntry() []byte {
-	npc := squareInteriorNpc(squareExchangeSerial, squareExchangeNpcIndex, squareExchangeInteriorID, squareExchangePX, squareExchangePY)
+	px, py := tilePx(squareIslandSize, squareExchangeTile)
+	npc := squareInteriorNpc(squareExchangeSerial, squareExchangeNpcIndex, squareExchangeInteriorID, px, py)
 	// ViewIconStatus (63) non-zero: the office draws its bubble only then (ShowAnimationButton 0x186194c;
 	// the fish shop has no such check). 1 is the value used; only zero vs non-zero is known.
 	npc = pbVar(npc, 63, 1)

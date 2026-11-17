@@ -53,8 +53,8 @@ func TestRideShopNpcEncoding(t *testing.T) {
 	if x, y := 40*(84-85+160), 20*(2*160-1-84-85); x != squareRideShopPX || y != squareRideShopPY {
 		t.Fatalf("shop px = (%d,%d), tile (84,85) = (%d,%d)", squareRideShopPX, squareRideShopPY, x, y)
 	}
-	list := squareFishingSpotList()
-	npc := squareFirstInteriorNpc(t, list, 4)
+	list := squareLineCityNpcList()
+	npc := squareFirstInteriorNpc(t, list, 1)
 	interior := squareNested(t, npc, 2)
 	if got := squareUint(t, squareNested(t, interior, 1), 1); got != 0x3010035 {
 		t.Fatalf("NpcIndex = %#x, want 0x3010035", got)
@@ -68,7 +68,7 @@ func TestRideShopNpcEncoding(t *testing.T) {
 	if squareUint(t, npc, 63) != 1 || squareUint(t, npc, 75) != 1 || squareUint(t, npc, 76) != 2 {
 		t.Fatalf("f63/f75/f76 = %d/%d/%d, want 1/1/2", squareUint(t, npc, 63), squareUint(t, npc, 75), squareUint(t, npc, 76))
 	}
-	race := squareFirstInteriorNpc(t, list, 3)
+	race := squareFirstInteriorNpc(t, list, 0)
 	if squareUint(t, race, 1) != 4 || squareUint(t, race, 76) != 4 {
 		t.Fatalf("race entrance serial/state = %d/%d, want 4/4", squareUint(t, race, 1), squareUint(t, race, 76))
 	}
@@ -81,7 +81,7 @@ func TestRideShopListShape(t *testing.T) {
 	rideShopAccount(t, "9861", 50, nil)
 	exchangeAt(t, time.Date(2026, time.October, 26, 12, 0, 0, 0, exchangeJST))
 	c := newSqClient(t, &squareRoom{}, 5)
-	c.join(9861)
+	c.joinTheme(9861, squareCityThemeID)
 
 	c.send(61, pbVar(nil, 1, 1))
 	id, body := c.read()
@@ -128,7 +128,7 @@ func TestRideShopBuyCharges(t *testing.T) {
 	rideShopAccount(t, "9862", 50, nil)
 	exchangeAt(t, time.Date(2026, time.October, 26, 12, 0, 0, 0, exchangeJST))
 	c := newSqClient(t, &squareRoom{}, 6)
-	c.join(9862)
+	c.joinTheme(9862, squareCityThemeID)
 	_, gems0, cash0 := rideShopBalances(t, "9862") // the join may pay the day's login gift
 
 	c.send(62, pbVar(pbVar(nil, 1, 1), 2, 1)) // ShopId 1, ItemId 1 (the row id)
@@ -188,7 +188,7 @@ func TestRideShopRefusals(t *testing.T) {
 
 	rideShopAccount(t, "9863", 20, nil)
 	c := newSqClient(t, &squareRoom{}, 7)
-	c.join(9863)
+	c.joinTheme(9863, squareCityThemeID)
 	_, gems0, cash0 := rideShopBalances(t, "9863")
 	c.send(62, pbVar(pbVar(nil, 1, 1), 2, 2)) // row 2 costs 30, 20 held
 	rideShopRefused(t, c, 1, 2, 30, 20)
@@ -204,7 +204,7 @@ func TestRideShopRefusals(t *testing.T) {
 
 	rideShopAccount(t, "9864", 50, []string{"CUTO0018W"})
 	owned := newSqClient(t, &squareRoom{}, 8)
-	owned.join(9864)
+	owned.joinTheme(9864, squareCityThemeID)
 	owned.send(62, pbVar(pbVar(nil, 1, 1), 2, 1)) // already owned
 	rideShopRefused(t, owned, 1, 1, 20, 50)
 	if points, _, _ := rideShopBalances(t, "9864"); points != 50 {

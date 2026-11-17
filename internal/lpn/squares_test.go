@@ -55,13 +55,14 @@ func TestSquaresListedEntries(t *testing.T) {
 	}
 }
 
-// The embedded default lists the eleven Squares in order, each on its own map.
+// The embedded default lists the eleven Squares in order, each on its own map. Treasure Island (theme 6) and LINE City
+// (theme 36) keep their list positions (5 and 0).
 func TestSquaresDefaultList(t *testing.T) {
 	list := squaresFile.Get().listed()
 	if len(list) != 11 {
 		t.Fatalf("listed = %d, want 11", len(list))
 	}
-	for i, theme := range []uint64{6, 32, 33, 34, 35, 36, 37, 10, 27, 38, 39} {
+	for i, theme := range []uint64{36, 32, 33, 34, 35, 6, 37, 10, 27, 38, 39} {
 		if list[i].Theme != theme || list[i].Map != squareTestMaps[theme] {
 			t.Fatalf("entry %d = theme %d map %s", i, list[i].Theme, list[i].Map)
 		}
@@ -76,34 +77,38 @@ func TestSquaresDefaultList(t *testing.T) {
 }
 
 func TestSquaresCheckRejectsBadData(t *testing.T) {
-	city := `{"theme":6,"name":"LINE City","list_name":"LINE City","map":"2401039000","map_size":160,"spawn":{"x":93,"y":80},"index":0,"visible":true}`
+	city := `{"theme":36,"name":"LINE City","list_name":"LINE City","map":"2401039000","map_size":160,"spawn":{"x":93,"y":80},"index":0,"visible":true}`
+	island := `{"theme":6,"name":"Treasure Island","list_name":"Treasure Island","map":"2108176000","map_size":160,"spawn":{"x":73,"y":98},"index":5,"visible":true}`
 	cafe := `{"theme":32,"name":"LINE Café","list_name":"LINE Café","map":"2202250100","map_size":160,"spawn":{"x":87,"y":85},"index":1,"visible":true}`
 	doc := func(entries ...string) string {
 		return `{"origin":"mixed","note":"test","squares":[` + strings.Join(entries, ",") + `]}`
 	}
 	for name, bad := range map[string]string{
-		"no LINE City":            doc(cafe),
-		"City listed twice":       doc(city, city),
-		"City hidden":             doc(strings.Replace(city, `"visible":true`, `"visible":false`, 1)),
-		"City on other map":       doc(strings.Replace(city, "2401039000", "2202250100", 1)),
-		"empty name":              doc(strings.Replace(city, `"name":"LINE City"`, `"name":""`, 1), cafe),
-		"empty list name":         doc(strings.Replace(city, `"list_name":"LINE City"`, `"list_name":""`, 1)),
-		"empty map":               doc(city, strings.Replace(cafe, "2202250100", "", 1)),
-		"map is a path":           doc(city, strings.Replace(cafe, "2202250100", "../x", 1)),
-		"spawn off the map":       doc(city, strings.Replace(cafe, `"x":87`, `"x":160`, 1)),
-		"zero map size":           doc(city, strings.Replace(cafe, `"map_size":160`, `"map_size":0`, 1)),
-		"unknown key":             doc(city, strings.Replace(cafe, `"visible":true`, `"visible":true,"extra":1`, 1)),
+		"no Treasure Island":      doc(city, cafe),
+		"no LINE City":            doc(island, cafe),
+		"City listed twice":       doc(city, city, island),
+		"City hidden":             doc(strings.Replace(city, `"visible":true`, `"visible":false`, 1), island, cafe),
+		"City on other map":       doc(strings.Replace(city, "2401039000", "2108176000", 1), island, cafe),
+		"Island on other map":     doc(city, strings.Replace(island, "2108176000", "2401039000", 1), cafe),
+		"Island hidden":           doc(city, strings.Replace(island, `"visible":true`, `"visible":false`, 1), cafe),
+		"empty name":              doc(strings.Replace(city, `"name":"LINE City"`, `"name":""`, 1), island, cafe),
+		"empty list name":         doc(strings.Replace(city, `"list_name":"LINE City"`, `"list_name":""`, 1), island, cafe),
+		"empty map":               doc(city, island, strings.Replace(cafe, "2202250100", "", 1)),
+		"map is a path":           doc(city, island, strings.Replace(cafe, "2202250100", "../x", 1)),
+		"spawn off the map":       doc(city, island, strings.Replace(cafe, `"x":87`, `"x":160`, 1)),
+		"zero map size":           doc(city, island, strings.Replace(cafe, `"map_size":160`, `"map_size":0`, 1)),
+		"unknown key":             doc(city, island, strings.Replace(cafe, `"visible":true`, `"visible":true,"extra":1`, 1)),
 		"not an object list":      `{"name":"LINE City"}`,
-		"icon outside world_icon": doc(city, strings.Replace(cafe, `"visible":true`, `"visible":true,"icon":"UIResource/x.png"`, 1)),
-		"icon climbs out":         doc(city, strings.Replace(cafe, `"visible":true`, `"visible":true,"icon":"animation/world_icon/../x.png"`, 1)),
-		"boss world listed":       doc(city, strings.Replace(cafe, `"theme":32`, `"theme":28`, 1)),
-		"race world listed":       doc(city, strings.Replace(cafe, `"theme":32`, `"theme":31`, 1)),
+		"icon outside world_icon": doc(city, island, strings.Replace(cafe, `"visible":true`, `"visible":true,"icon":"UIResource/x.png"`, 1)),
+		"icon climbs out":         doc(city, island, strings.Replace(cafe, `"visible":true`, `"visible":true,"icon":"animation/world_icon/../x.png"`, 1)),
+		"boss world listed":       doc(city, island, strings.Replace(cafe, `"theme":32`, `"theme":28`, 1)),
+		"race world listed":       doc(city, island, strings.Replace(cafe, `"theme":32`, `"theme":31`, 1)),
 	} {
 		if _, err := opdata.Decode([]byte(bad), checkSquares); err == nil {
 			t.Fatalf("%s accepted: %s", name, bad)
 		}
 	}
-	if _, err := opdata.Decode([]byte(doc(city, cafe)), checkSquares); err != nil {
+	if _, err := opdata.Decode([]byte(doc(city, island, cafe)), checkSquares); err != nil {
 		t.Fatalf("valid document refused: %v", err)
 	}
 }

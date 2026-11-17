@@ -15,22 +15,23 @@ import (
 // loading barrier (cr55 -> rc73), the finish (cr58 -> rc65) and the results. Reset (cr54 with ResetTryCount1 ->
 // rc72) refills the tries for Gems. rc74 (test mode) is never sent. The boss book (cr56 -> rc75, claim cr57 -> rc76)
 // is answered here too. The tries, chart, boss, rewards and seat count are operator data (data/fishboss.json,
-// economy/fishboss.go).
+// economy/fishboss.go). These requests are answered only on Treasure Island (squareGatedTheme); the boss world
+// returns there (entry, theme 28 -> 6).
 const (
-	squareBossThemeID     = 28                // rc_room_enter_res ThemeId4 of the boss world (spec 11.1)
-	squareBossMapFileName = squareMapFileName // the boss world loads the Square map: no boss map is in the client files (spec 11.2) [I]
-	squareRcBossRooms     = 58                // rc_fish_boss_rooms_all: the boss icon on the Square
-	squareBossRoomsReady  = 1                 // RoomCountReady1: the icon shows
-	squareBossRoomState   = 1                 // rc59 RoomState1 of a lobby that can still be joined (spec 3.2; 1 is a lone-master value, spec 4.1)
-	squareBossRoomRunning = 4                 // rc59 RoomState1 of a battle that started: above 3 shows "Participate" (spec 3.2)
-	squareBossUnready     = 0                 // cr47 StateReq: a member leaves the ready state
-	squareBossReadyReq    = 1                 // cr47 StateReq: a member is ready
-	squareBossStateStart  = 2                 // cr47 StateReq: the master's start button
-	squareBossNotReady    = 1                 // FishBossUserInLobby.State3: not ready
-	squareBossReady       = 2                 // FishBossUserInLobby.State3: ready (the master always is)
-	squareCoinGems        = 4                 // COST CoinType of Gems (spec 2.3)
-	squareBossBookPages   = 1                 // boss book MaxPage: one page per boss, and fishboss.json holds one boss
-	squareBossBookSeason  = 1                 // CollectionBossInfo season: fishboss.json has none, so always 1
+	squareBossThemeID     = 28                    // rc_room_enter_res ThemeId4 of the boss world (spec 11.1)
+	squareBossMapFileName = squareCityMapFileName // the boss world loads LINE City's global map as a stand-in: no boss map is in the client files (spec 11.2) [I]; it stays on global when fishing moved to Treasure Island
+	squareRcBossRooms     = 58                    // rc_fish_boss_rooms_all: the boss icon on the Square
+	squareBossRoomsReady  = 1                     // RoomCountReady1: the icon shows
+	squareBossRoomState   = 1                     // rc59 RoomState1 of a lobby that can still be joined (spec 3.2; 1 is a lone-master value, spec 4.1)
+	squareBossRoomRunning = 4                     // rc59 RoomState1 of a battle that started: above 3 shows "Participate" (spec 3.2)
+	squareBossUnready     = 0                     // cr47 StateReq: a member leaves the ready state
+	squareBossReadyReq    = 1                     // cr47 StateReq: a member is ready
+	squareBossStateStart  = 2                     // cr47 StateReq: the master's start button
+	squareBossNotReady    = 1                     // FishBossUserInLobby.State3: not ready
+	squareBossReady       = 2                     // FishBossUserInLobby.State3: ready (the master always is)
+	squareCoinGems        = 4                     // COST CoinType of Gems (spec 2.3)
+	squareBossBookPages   = 1                     // boss book MaxPage: one page per boss, and fishboss.json holds one boss
+	squareBossBookSeason  = 1                     // CollectionBossInfo season: fishboss.json has none, so always 1
 )
 
 // handleBoss answers the boss requests. A request that needs a lobby or a battle the session is not in is

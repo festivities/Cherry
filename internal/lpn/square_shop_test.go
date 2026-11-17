@@ -45,11 +45,11 @@ func squareRepeated(t *testing.T, data []byte, field uint64) [][]byte {
 }
 
 func TestSquareFishShopNpcEncoding(t *testing.T) {
-	// Tile (115,94) on the N=160 Square map: the unique RUGO0049C host of the shop's InteriorID.
-	if x, y := 40*(115-94+160), 20*(2*160-1-115-94); x != squareShopPX || y != squareShopPY {
-		t.Fatalf("shop px = (%d,%d), tile (115,94) = (%d,%d)", squareShopPX, squareShopPY, x, y)
+	// Tile (76,97) on the Treasure Island map (N=160): Cherry-made, no stock host there (the InteriorID is the stock item).
+	if x, y := tilePx(squareIslandSize, squareShopTile); x != 5560 || y != 2920 || squareShopTile != (Tile{76, 97}) {
+		t.Fatalf("shop tile = %v at px (%d,%d), want (76,97) at (5560,2920)", squareShopTile, x, y)
 	}
-	npc := squareFirstInteriorNpc(t, squareFishingSpotList(), 1)
+	npc := squareFirstInteriorNpc(t, squareTreasureIslandNpcList(), 10)
 	interior := squareNested(t, npc, 2)
 	npcApp := squareNested(t, interior, 1)
 	if got := squareUint(t, npcApp, 1); got != 0x3010001 {
@@ -58,7 +58,8 @@ func TestSquareFishShopNpcEncoding(t *testing.T) {
 	if got := squareUint(t, interior, 5); got != squareShopInteriorID || squareShopInteriorID != 122005520 {
 		t.Fatalf("InteriorID = %d", got)
 	}
-	if squareUint(t, npc, 1) != squareShopSerial || squareUint(t, npc, 10) != squareShopPX || squareUint(t, npc, 11) != squareShopPY {
+	px, py := tilePx(squareIslandSize, squareShopTile)
+	if squareUint(t, npc, 1) != squareShopSerial || squareUint(t, npc, 10) != px || squareUint(t, npc, 11) != py {
 		t.Fatalf("serial/Px/Py = %d/%d/%d", squareUint(t, npc, 1), squareUint(t, npc, 10), squareUint(t, npc, 11))
 	}
 }

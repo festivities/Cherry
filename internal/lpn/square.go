@@ -25,12 +25,17 @@ const (
 	squareLoginResult = 131073
 	squareEnterResult = 196609
 	squareRelayResult = 196623
-	squareMapFileName = "2401039000"
-	// World type 6 is the Square with fishing: NaWorldManager::GetConnectedWorldType == 6 shows the
-	// book (WorldMain tag 1) and the bait/rod buttons (WorldChatNotificationBg4 tags 5/2), and makes the
-	// client ask for rods (59) and bait (91). Stock fishing returns sent to type 6 as well.
-	squareThemeID        = 6
-	squareDefaultCountry = "JP"
+	// World type 6 is Treasure Island, the Square with fishing: NaWorldManager::GetConnectedWorldType == 6 shows the
+	// book (WorldMain tag 1) and the bait/rod buttons (WorldChatNotificationBg4 tags 5/2), and makes the client ask
+	// for rods (59) and bait (91). Only this Square answers the fishing, boss and Boss Coin requests (squareGatedTheme).
+	// Map 2108176000 is the beach with the round fish markers (user decision, 2026-11-17).
+	squareThemeID     = 6
+	squareMapFileName = "2108176000"
+	// LINE City (theme 36, a Cherry-made id) is the Square with the race balloon and the Ride Point shop. Its map is the
+	// global one, which holds their stock hosts.
+	squareCityThemeID     = 36
+	squareCityMapFileName = "2401039000"
+	squareDefaultCountry  = "JP"
 )
 
 // Each Square's spawn tile (AVATAR_START, data/squares.json) is converted by Square.spawnPx. Square never
@@ -484,6 +489,9 @@ func (s *squareSession) handleData(frame []byte) error {
 		s.logger.Printf("SQUARE msgid=%d before login ignored", msgid)
 		return nil
 	}
+	if want, gated := squareGatedTheme(msgid); gated && s.entered && s.square.Theme != want { // never entered: ignored as before
+		return s.refuseSquare(frame, msgid)
+	}
 	switch msgid {
 	case 1: // cr_themelist_req -> rc_themelist_res: every visible Square with its user count
 		var body []byte
@@ -509,9 +517,12 @@ func (s *squareSession) handleData(frame []byte) error {
 		s.room, s.square, s.entered = room, sq, true
 		s.logger.Printf("SQUARE enter aid=%d theme=%d map=%s", s.aid, sq.Theme, sq.Map)
 		MarkQuest(s.aid, "square")
-		var npcs []byte // the minigame NPCs are placed on LINE City's map only
-		if sq.Theme == squareThemeID {
-			npcs = squareFishingSpotList()
+		var npcs []byte // the minigame NPCs: fishing, shop, Soff and the Treasure World entry on Treasure Island, the race and Ride Point in LINE City
+		switch sq.Theme {
+		case squareThemeID:
+			npcs = squareTreasureIslandNpcList()
+		case squareCityThemeID:
+			npcs = squareLineCityNpcList()
 		}
 		return s.reply(frame, 6, squareRoomEnter(npcs, sq.Theme, sq.Map))
 	case 5: // cr_room_relaystart_req -> rc_room_relaystart_res + adduser_all

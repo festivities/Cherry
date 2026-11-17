@@ -33,18 +33,19 @@ func squareUint(t *testing.T, data []byte, field uint64) uint64 {
 }
 
 func TestSquareFishingSpotEncoding(t *testing.T) {
-	// Tile (106,92) on the N=160 Square map, in game px: the nearest chair to the spawn (93,80).
-	if x, y := 40*(106-92+160), 20*(2*160-1-106-92); x != squareSpotPX || y != squareSpotPY {
-		t.Fatalf("spot px = (%d,%d), tile (106,92) = (%d,%d)", squareSpotPX, squareSpotPY, x, y)
+	// The first marker on Treasure Island (N=160): tile (70,105), game px (5000,2880).
+	if x, y := tilePx(squareIslandSize, squareSpotTiles[0]); x != 5000 || y != 2880 {
+		t.Fatalf("spot px = (%d,%d), tile (70,105) = (5000,2880)", x, y)
 	}
 	// The 10082 gate needs the host's kind (CInObject::GetType = interior id / 1e5 mod 100) to be 4.
 	if kind := (squareSpotInteriorID % 10000000) / 100000; kind != 4 {
 		t.Fatalf("host kind = %d, want 4", kind)
 	}
-	list := squareFishingSpotList()
-	npc := squareFirstInteriorNpc(t, list, 0) // NPCEnumList.NpcList[0] -> NPCEnum.InteriorNpc: the spot
-	interior := squareNested(t, npc, 2)       // _SQInteriorNpc.Appearance
-	npcApp := squareNested(t, interior, 1)    // _SQInteriorAppearance.Apperance
+	list := squareTreasureIslandNpcList()
+	npc := squareFirstInteriorNpc(t, list, 0) // NPCEnumList.NpcList[0] -> NPCEnum.InteriorNpc: the first spot
+	px, py := tilePx(squareIslandSize, squareSpotTiles[0])
+	interior := squareNested(t, npc, 2)    // _SQInteriorNpc.Appearance
+	npcApp := squareNested(t, interior, 1) // _SQInteriorAppearance.Apperance
 	if got := squareUint(t, npcApp, 1); got != 0x3010007 {
 		t.Fatalf("NpcIndex = %#x, want the fishing spot type 0x3010007", got)
 	}
@@ -58,10 +59,10 @@ func TestSquareFishingSpotEncoding(t *testing.T) {
 		t.Fatalf("Serial = %d", got)
 	}
 	pos := squareNested(t, npc, 3)
-	if squareUint(t, pos, 1) != squareSpotPX || squareUint(t, pos, 2) != squareSpotPY {
+	if squareUint(t, pos, 1) != px || squareUint(t, pos, 2) != py {
 		t.Fatalf("PositionInfo = (%d,%d)", squareUint(t, pos, 1), squareUint(t, pos, 2))
 	}
-	if squareUint(t, npc, 10) != squareSpotPX || squareUint(t, npc, 11) != squareSpotPY {
+	if squareUint(t, npc, 10) != px || squareUint(t, npc, 11) != py {
 		t.Fatalf("Px/Py = (%d,%d)", squareUint(t, npc, 10), squareUint(t, npc, 11))
 	}
 	for _, f := range []uint64{42, 43, 44} { // IsShow, Attackable, IsVisible

@@ -48,14 +48,14 @@ func requireExchangeArchive(t *testing.T) {
 	}
 }
 
-// TestSquareExchangeNpcEncoding: the office is the third NPC of the room enter list, on the unique
-// RUGO002IG host (interior 122003256) at tile (89,90), and the fishing spot and the fish shop are unchanged.
+// TestSquareExchangeNpcEncoding: the office is the twelfth NPC of the Treasure Island list (after the ten spots and
+// the fish shop), on its Cherry-made tile (70,98) with the stock host id 122003256 (no host on that map).
 func TestSquareExchangeNpcEncoding(t *testing.T) {
-	if x, y := 40*(89-90+160), 20*(2*160-1-89-90); x != squareExchangePX || y != squareExchangePY {
-		t.Fatalf("office px = (%d,%d), tile (89,90) = (%d,%d)", squareExchangePX, squareExchangePY, x, y)
+	if x, y := tilePx(squareIslandSize, Tile{70, 98}); x != 5280 || y != 3020 || squareExchangeTile != (Tile{70, 98}) {
+		t.Fatalf("office tile = %v at px (%d,%d), want (70,98) at (5280,3020)", squareExchangeTile, x, y)
 	}
-	list := squareFishingSpotList()
-	npc := squareFirstInteriorNpc(t, list, 2)
+	list := squareTreasureIslandNpcList()
+	npc := squareFirstInteriorNpc(t, list, 11)
 	interior := squareNested(t, npc, 2)
 	npcApp := squareNested(t, interior, 1)
 	if got := squareUint(t, npcApp, 1); got != 0x3010034 {
@@ -64,11 +64,12 @@ func TestSquareExchangeNpcEncoding(t *testing.T) {
 	if got := squareUint(t, interior, 5); got != 122003256 {
 		t.Fatalf("InteriorID = %d, want RUGO002IG 122003256", got)
 	}
-	if squareUint(t, npc, 1) != squareExchangeSerial || squareUint(t, npc, 10) != squareExchangePX || squareUint(t, npc, 11) != squareExchangePY {
+	px, py := tilePx(squareIslandSize, squareExchangeTile)
+	if squareUint(t, npc, 1) != squareExchangeSerial || squareUint(t, npc, 10) != px || squareUint(t, npc, 11) != py {
 		t.Fatalf("serial/Px/Py = %d/%d/%d", squareUint(t, npc, 1), squareUint(t, npc, 10), squareUint(t, npc, 11))
 	}
-	if n := len(squareRepeated(t, list, 1)); n != 5 {
-		t.Fatalf("NPC list has %d entries, want the spot, the shop, the office, the race entrance and the Ride Point shop", n)
+	if n := len(squareRepeated(t, list, 1)); n != 13 {
+		t.Fatalf("NPC list has %d entries, want ten spots, the shop, the office and the Treasure World entry", n)
 	}
 }
 

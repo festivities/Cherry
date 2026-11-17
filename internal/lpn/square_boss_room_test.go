@@ -667,7 +667,8 @@ func TestSquareBossSticker(t *testing.T) {
 	}
 }
 
-// TestSquareBossLobbiesPerSquare: a lobby belongs to one Square; the same boss banner in another Square opens its own.
+// TestSquareBossLobbiesPerSquare: boss lobbies belong to Treasure Island. A boss try from another Square is refused
+// (started false) and opens no lobby there; the Treasure Island lobby keeps its one member.
 func TestSquareBossLobbiesPerSquare(t *testing.T) {
 	rooms := &squareRooms{}
 	a := newSqClientIn(t, rooms, 1)
@@ -680,11 +681,11 @@ func TestSquareBossLobbiesPerSquare(t *testing.T) {
 	a.joinTheme(9901, squareThemeID)
 	b.joinTheme(9902, 32)
 	bossStart(t, a)
-	bossStart(t, b)
-	if _, users := bossLobby(t, b); len(users) != 1 || users[0].aid != 9902 {
-		t.Fatalf("Square 32 lobby = %+v, want B alone", users)
+	b.send(45, nil)
+	if id, _ := b.read(); id != 57 {
+		t.Fatalf("LINE Café boss try msgid = %d, want the refused try 57", id)
 	}
 	if _, users := bossLobby(t, a); len(users) != 1 || users[0].aid != 9901 {
-		t.Fatalf("Square 6 lobby = %+v, want A alone", users)
+		t.Fatalf("Treasure Island lobby = %+v, want A alone", users)
 	}
 }

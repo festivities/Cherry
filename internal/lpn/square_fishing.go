@@ -7,8 +7,8 @@ import (
 	"cherry/internal/economy"
 )
 
-// Square fishing (Economy Phase D slice 2): one fishing spot in the global Square room, and the
-// cast flow begin 27 -> 30, start 29 -> 32, finish 30 -> 33, end 28 -> 31. Replies go to the
+// Square fishing (Economy Phase D slice 2; moved to Treasure Island, theme 6, on 2026-11-17): the fishing spots on the
+// fish markers, and the cast flow begin 27 -> 30, start 29 -> 32, finish 30 -> 33, end 28 -> 31. Replies go to the
 // fisher only. Field numbers and the spot's graphic/tile rules come from
 // %TEMP%\opencode\cherry\phaseD-20261011\gathering.txt (sections 4, 7.2, 9 and Resolution).
 const (
@@ -16,15 +16,14 @@ const (
 	// switches on NpcIndex - 0x3010000 (50397184), so 0x3000007 fell through and no spot was built.
 	// NaWorldFishing registers the spot (msg 12390 -> AddFishingIterior) only for 0x3010007 too.
 	squareSpotNpcIndex = 0x3010007
-	squareSpotSerial   = 1
-	// The spot is hosted by the chair RUCH002F0 (interior item 120403132) at tile (106,92). Linking
-	// (NaFishingSpotInterior::LinkInteriorObject) calls SetInteractionTypeManual(14,1,true) on that
-	// object, so taps and the 10082 gate see type 14. Kind = (InteriorID % 1e7) / 1e5 = 4, which the
-	// gate also needs (CInObject::GetType). Game px for tile (106,92), N=160:
-	// X=40*(wx-wy+N), Y=20*(2N-1-wx-wy). The avatar spawns at (93,80) = (6920,2920).
-	squareSpotInteriorID = 120403132
-	squareSpotPX         = 6960
-	squareSpotPY         = 2420
+	// The first spot's serial: spot i has squareSpotSerial+i (the Treasure Island list is keyed by serial, see squareShopSerial).
+	squareSpotSerial = 7
+	// Each spot is hosted by the fish marker of pirateisland: the round wooden disc with a fish (item 120401834, floor art
+	// fl_l0_a00.png; kind 4 with the spot animation; its object records are the spot tiles, squareSpotTiles). Linking
+	// (NaFishingSpotInterior::LinkInteriorObject) calls SetInteractionTypeManual(14,1,true) on the first host with that item
+	// id, so taps and the 10082 gate see type 14 there. Kind = (InteriorID % 1e7) / 1e5 = 4, which the gate also needs
+	// (CInObject::GetType). Game px: X=40*(wx-wy+N), Y=20*(2N-1-wx-wy) with N = squareIslandSize (tilePx).
+	squareSpotInteriorID = 120401834
 
 	squareFishOK     = 393220 // success result for every fishing reply
 	squareFishMiss   = 0      // any result other than squareFishOK takes the client's fail branch
@@ -51,15 +50,28 @@ func squareBusyStatus(aid, status uint64) []byte {
 type squareFish struct{ def economy.FishDef }
 
 const (
-	// The fish shop (NaWorldInteriorManager::Create case 1 -> NaFishShopInterior). It links to the
-	// host object whose item id is InteriorID (FindInteiorByItemIndex, first match): RUGO0049C
-	// (122005520) is the only copy of that item on the Square map, at tile (115,94). Linking sets
-	// that object's interaction type to 39, and a tap there sends msg 39 -> cr_open_shop_req (87).
+	// The fish shop (NaWorldInteriorManager::Create case 1 -> NaFishShopInterior). It links to the host object whose item
+	// id is InteriorID (FindInteiorByItemIndex, first match). The stock host RUGO0049C (122005520) is on LINE City's map
+	// only (tile (115,94)), so on Treasure Island this NPC has no host: its tile is Cherry-made (squareShopTile) and the
+	// device test decides whether it opens. Linking would set the host's interaction type to 39, and a tap sends msg 39 ->
+	// cr_open_shop_req (87).
 	squareShopNpcIndex   = 0x3010001
 	squareShopSerial     = 2
 	squareShopInteriorID = 122005520
-	squareShopPX         = 7240 // X=40*(115-94+160)
-	squareShopPY         = 2200 // Y=20*(319-115-94)
+)
+
+// squareIslandSize is the Treasure Island map's size in tiles per side (pirateisland.mworld wh 160 x 160).
+const squareIslandSize = 160
+
+// The Treasure Island NPC tiles (wx, wy). The fishing spots stand on the marker tiles: every object
+// record of item 120401834 on pirateisland, 10 distinct tiles of 17 records (user, 2026-11-17: the markers along the
+// shoreline). Eight are within 4 tiles of the blue water, (103,77) on a water tile; (70,105) has none within 12 tiles and
+// (78,106) is 8 away (decoded map from the msector tile array, not checked on a device). The fish shop has no stock host
+// here: its tile is Cherry-made, walkable land 3 tiles from the spawn (73,98), not water and clear of objects (scan of the
+// msector tiles and records, 2026-11-17).
+var (
+	squareSpotTiles = []Tile{{70, 105}, {78, 106}, {84, 104}, {88, 99}, {91, 92}, {97, 67}, {97, 89}, {99, 83}, {103, 77}, {108, 77}}
+	squareShopTile  = Tile{76, 97}
 )
 
 // squareInteriorNpc is one _SQInteriorNpc (rc_room_enter_res NpcList entry) for a map host object.
@@ -80,16 +92,27 @@ func squareInteriorNpc(serial, npcIndex, interiorID, px, py uint64) []byte {
 	return npc
 }
 
-// squareFishingSpotList is rc_room_enter_res.NpcList (field 2): NPCEnumList{NpcList: [NPCEnum{
-// InteriorNpc: _SQInteriorNpc}, ...]}, the fishing spot, the fish shop, the Boss Coin exchange office
-// (square_exchange.go), the Riding Pet race entrance (square_racing.go) and the Ride Point exchange shop
-// (square_racing_exchange.go). Every IsInitialized on this path returns true (no required fields).
-func squareFishingSpotList() []byte {
-	list := pbLen(nil, 1, pbLen(nil, 2, squareInteriorNpc(squareSpotSerial, squareSpotNpcIndex, squareSpotInteriorID, squareSpotPX, squareSpotPY)))
-	list = append(list, pbLen(nil, 1, pbLen(nil, 2, squareInteriorNpc(squareShopSerial, squareShopNpcIndex, squareShopInteriorID, squareShopPX, squareShopPY)))...)
+// squareTreasureIslandNpcList is rc_room_enter_res.NpcList (field 2) of Treasure Island: NPCEnumList{NpcList:
+// [NPCEnum{InteriorNpc: _SQInteriorNpc}, ...]} with one fishing spot per marker tile, the fish shop, the Boss Coin
+// exchange office (square_exchange.go) and the Treasure World entry (square_treasure_entry.go). Every IsInitialized on
+// this path returns true (no required fields).
+func squareTreasureIslandNpcList() []byte {
+	var list []byte
+	for i, t := range squareSpotTiles {
+		px, py := tilePx(squareIslandSize, t)
+		list = append(list, pbLen(nil, 1, pbLen(nil, 2, squareInteriorNpc(squareSpotSerial+uint64(i), squareSpotNpcIndex, squareSpotInteriorID, px, py)))...)
+	}
+	px, py := tilePx(squareIslandSize, squareShopTile)
+	list = append(list, pbLen(nil, 1, pbLen(nil, 2, squareInteriorNpc(squareShopSerial, squareShopNpcIndex, squareShopInteriorID, px, py)))...)
 	list = append(list, squareExchangeNpcEntry()...)
-	list = append(list, squareRacingNpcEntry()...)
-	return append(list, squareRideShopNpcEntry()...)
+	return append(list, squareTreasureNpcEntry()...)
+}
+
+// squareLineCityNpcList is rc_room_enter_res.NpcList (field 2) of LINE City: the Riding Pet race entrance
+// (square_racing.go) and the Ride Point exchange shop (square_racing_exchange.go). Both have their stock hosts on the
+// global map.
+func squareLineCityNpcList() []byte {
+	return append(squareRacingNpcEntry(), squareRideShopNpcEntry()...)
 }
 
 // squareLang is a client Lang message (en = 1, ja = 3); the client picks its language. Cherry's

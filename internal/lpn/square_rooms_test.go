@@ -24,7 +24,7 @@ func rosterAids(body []byte) []uint64 {
 // Each listed Square enters its own map with its own spawn (the iso conversion of data/squares.json).
 func TestSquareEnterEachThemeSpawnsOnItsMap(t *testing.T) {
 	testutil.InstallAccounts(t, withLoginAccounts(nil, 11))
-	spawn := map[uint64][2]uint64{6: {6920, 2920}, 32: {6480, 2940}, 33: {7360, 3860}, 34: {6080, 2660}}
+	spawn := map[uint64][2]uint64{36: {6920, 2920}, 6: {5400, 2960}, 32: {6480, 2940}, 33: {7360, 3860}, 34: {6080, 2660}}
 	for theme, px := range spawn {
 		c := newSqClientIn(t, &squareRooms{}, 1)
 		roster := c.joinTheme(11, theme)
@@ -98,28 +98,29 @@ func TestSquareSwitchLeavesOldRoom(t *testing.T) {
 	b.none()
 }
 
-// Themes that are not listed, including the boss world (28) and the race (31), return to LINE City.
-func TestSquareUnlistedThemeReturnsToCity(t *testing.T) {
+// Themes that are not listed go to Treasure Island; the boss world (28) returns there and the race (31) to LINE City.
+func TestSquareUnlistedThemeFallsBack(t *testing.T) {
 	testutil.InstallAccounts(t, withLoginAccounts(nil, 11))
-	for _, theme := range []uint64{0, 2, 28, 31, 99} {
+	for _, tc := range []struct{ theme, want uint64 }{{0, 6}, {2, 6}, {28, 6}, {31, 36}, {99, 6}} {
 		c := newSqClientIn(t, &squareRooms{}, 1)
 		c.send(0, loginBody(11))
 		c.read()
-		c.send(2, pbVar(nil, 1, theme))
+		c.send(2, pbVar(nil, 1, tc.theme))
 		id, enter := c.read()
-		if id != 6 || !c.checkEnter(enter, squareThemeID, squareTestMaps[squareThemeID]) {
-			t.Fatalf("theme %d: enter msgid=%d (want City with NpcList)", theme, id)
+		if id != 6 || !c.checkEnter(enter, tc.want, squareTestMaps[tc.want]) {
+			t.Fatalf("theme %d: enter msgid=%d (want theme %d with NpcList)", tc.theme, id, tc.want)
 		}
 	}
 }
 
-// An operator file can hide a Square: it is not listed and a request for it goes to LINE City.
+// An operator file can hide a Square: it is not listed and a request for it goes to Treasure Island.
 func TestSquareOperatorFileHidesSquare(t *testing.T) {
 	testutil.InstallAccounts(t, withLoginAccounts(nil, 11))
 	path := filepath.Join(t.TempDir(), "squares.json")
 	doc := `{"origin":"mixed","note":"test","squares":[
-	  {"theme":6,"name":"LINE City","list_name":"LINE City","map":"2401039000","map_size":160,"spawn":{"x":93,"y":80},"index":0,"visible":true},
-	  {"theme":33,"name":"Runway Square","list_name":"Runway Square","map":"2310272600","map_size":180,"spawn":{"x":85,"y":81},"index":1,"visible":false}
+	  {"theme":36,"name":"LINE City","list_name":"LINE City","map":"2401039000","map_size":160,"spawn":{"x":93,"y":80},"index":0,"visible":true},
+	  {"theme":6,"name":"Treasure Island","list_name":"Treasure Island","map":"2108176000","map_size":160,"spawn":{"x":73,"y":98},"index":1,"visible":true},
+	  {"theme":33,"name":"Runway Square","list_name":"Runway Square","map":"2310272600","map_size":180,"spawn":{"x":85,"y":81},"index":2,"visible":false}
 	]}`
 	if err := os.WriteFile(path, []byte(doc), 0o600); err != nil {
 		t.Fatal(err)
@@ -133,8 +134,8 @@ func TestSquareOperatorFileHidesSquare(t *testing.T) {
 	c.read()
 	c.send(1, pbVar(nil, 1, 0))
 	_, body := c.read()
-	if infos, _ := themeList(t, body); len(infos) != 1 || infos[0].id != squareThemeID {
-		t.Fatalf("list = %+v, want City alone", infos)
+	if infos, _ := themeList(t, body); len(infos) != 2 || infos[0].id != squareCityThemeID || infos[1].id != squareThemeID {
+		t.Fatalf("list = %+v, want LINE City then Treasure Island", infos)
 	}
 	c.send(2, pbVar(nil, 1, 33))
 	id, enter := c.read()
