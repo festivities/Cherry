@@ -91,6 +91,10 @@ The host clock (this PC and the Oracle host) is UTC+8; the emulators run UTC. Th
 - **Testers** (TESTING "AVD Raspberry, 2026-11-17"): wait 5 s and screenshot after every tap (MENU and the Square list appear 10–25 s late, and an early tap lands on the next screen); a relaunch spends minutes on the splash with a green bar while it downloads (not a hang); the fishing instruction popup's HIT! is a picture (tap OK); the real HIT window is shorter than a tester's latency. Testers refuse "Start as Guest", Delete Avatar and app-data resets unless both the brief and `.claude/agents/cherry-tester.md` allow it.
 - **Two sessions share one machine:** one adb server (never `adb kill-server`), `%TEMP%\opencode\` (Cherry: `cherry\`, Raspberry: `raspberry\`), IDA copies (per-job copies of the pristine database only; its mtime reads 2026-10-22 04:05 or 14:01 depending on the tool, the size 896,663,562 B is the check).
 
+### HANDOFF ACCEPTED — 2026-11-18 (Claude Code, Cherry session)
+
+Rechecked: `main` level with origin, clean; CI green on `f6f4502`; production `bb6d81c`, `/healthz` ok, `cherry` and `litestream` active (host notes read first; one account row, aid 11); `adb devices` empty (AVD Raspberry off); no Cherry process on Windows; `.opencode\line-play-artifacts` has eight entries, ignored at `.gitignore:35`. Raspberry is at `af20e8e` (iOS work on macOS). No corrections to the snapshot. First task: Raspberry's iOS questions of 2026-11-17/18 (user relay): iOS route spellings added, Host/TLS answers and the Android capture status written to CONTRACT §10 (2026-11-18). Not deployed: deploy only on the user's go.
+
 ## Status (2026-11-17)
 
 | Milestone | Scope | Status |
