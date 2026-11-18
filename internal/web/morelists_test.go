@@ -121,6 +121,18 @@ func TestMoreShopListShapeAndLinks(t *testing.T) {
 	}
 }
 
+func TestMoreListsAnswerTheIOSSpellings(t *testing.T) {
+	for android, ios := range map[string]string{
+		"/v4/home/sublist/game/Android":                            "/v4/home/sublist/game/iPhone",
+		"/v4/home/sublist/shop/10.1.0.0/Android.nhn?parentIconId=": "/v4/home/sublist/shop/10.1.0/iPhone.nhn?parentIconId=",
+	} {
+		a, i := serve(t, http.MethodGet, android), serve(t, http.MethodGet, ios)
+		if i.Code != http.StatusOK || i.Body.String() != a.Body.String() {
+			t.Fatalf("%s: status %d, body differs from %s", ios, i.Code, android)
+		}
+	}
+}
+
 func TestMoreEventListIsEmpty(t *testing.T) {
 	for _, lang := range []string{"en", "ja"} {
 		rec := serve(t, http.MethodGet, "/v4/noti/event/"+lang+"/10.1.0.0/Android.nhn")

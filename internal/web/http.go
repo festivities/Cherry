@@ -456,6 +456,9 @@ func newMux(svc *auth.Service) http.Handler {
 	economy.RegisterTreasureRoutes(mux)
 	mux.HandleFunc("/v4/home/sublist/game/Android", handleMoreGameList)
 	mux.HandleFunc("/v4/home/sublist/shop/10.1.0.0/Android.nhn", handleMoreShopList)
+	// The iOS 10.1.0 spellings (Raspberry CONTRACT §4, 2026-11-17, static builder findings; not yet seen on the wire).
+	mux.HandleFunc("/v4/home/sublist/game/iPhone", handleMoreGameList)
+	mux.HandleFunc("/v4/home/sublist/shop/10.1.0/iPhone.nhn", handleMoreShopList)
 	mux.HandleFunc("/v4/noti/event/", handleMoreEventList)
 	mux.HandleFunc("/v4/friends/invitation/info", httpx.HandleJSONBody(inviteInfoBody))
 	mux.HandleFunc("/v4/timemagic/count", httpx.HandleJSONBody(timemagicCountBody))

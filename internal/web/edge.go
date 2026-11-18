@@ -21,7 +21,7 @@ import (
 // answer 404 as before). The lab logs of 2026-10 to 2026-11 (17 files, 482 plain requests: sni empty) show only these
 // shapes: notice2 /v1/lineplay/android and /img/read/notice/notice.json2 (all 404), and /img/read/arts_item_* (2026-10-03).
 func plainPathAllowed(path string) bool {
-	return strings.HasPrefix(path, "/img/read/arts_item_") || strings.HasPrefix(path, "/img/read/notice/") || path == "/v1/lineplay/android"
+	return strings.HasPrefix(path, "/img/read/arts_item_") || strings.HasPrefix(path, "/img/read/notice/") || path == "/v1/lineplay/android" || path == "/v1/lineplay/ios"
 }
 
 // NewPlainMux is the handler of the plain HTTP listener: the allowed paths of the game mux, nothing else (404).

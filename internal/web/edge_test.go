@@ -27,6 +27,8 @@ func TestPlainListenerAnswersOnlyTheClientPaths(t *testing.T) {
 		"/img/read/arts_item_garden_428400003/lpitem.aniproj": true,
 		"/img/read/notice/notice.json2":                       true,
 		"/v1/lineplay/android":                                true,
+		"/v1/lineplay/ios":                                    true,
+		"/img/read/notice/ios/checkresource2.json":            true, // allowed through; unrouted (404) until the iOS tree is known
 		"/v4/setInitConf":                                     false,
 		"/v4/create/avatar":                                   false,
 		"/arts_item_dress_225000263/dp.png":                   false, // HTTPS only: the plain client path has /img/read
