@@ -93,7 +93,7 @@ The host clock (this PC and the Oracle host) is UTC+8; the emulators run UTC. Th
 
 ### HANDOFF ACCEPTED — 2026-11-18 (Claude Code, Cherry session)
 
-Rechecked: `main` level with origin, clean; CI green on `f6f4502`; production `bb6d81c`, `/healthz` ok, `cherry` and `litestream` active (host notes read first; one account row, aid 11); `adb devices` empty (AVD Raspberry off); no Cherry process on Windows; `.opencode\line-play-artifacts` has eight entries, ignored at `.gitignore:35`. Raspberry is at `af20e8e` (iOS work on macOS). No corrections to the snapshot. First task: Raspberry's iOS questions of 2026-11-17/18 (user relay): iOS route spellings added, Host/TLS answers and the Android capture status written to CONTRACT §10 (2026-11-18). Not deployed: deploy only on the user's go.
+Rechecked: `main` level with origin, clean; CI green on `f6f4502`; production `bb6d81c`, `/healthz` ok, `cherry` and `litestream` active (host notes read first; one account row, aid 11); `adb devices` empty (AVD Raspberry off); no Cherry process on Windows; `.opencode\line-play-artifacts` has eight entries, ignored at `.gitignore:35`. Raspberry is at `af20e8e` (iOS work on macOS). No corrections to the snapshot. First task: Raspberry's iOS questions of 2026-11-17/18 (user relay): iOS route spellings added, Host/TLS answers and the Android capture status written to CONTRACT §10 (2026-11-18). Deployed on the user's go: production runs `0b01ce5` since 2026-11-18 23:42 (no schema change, healthz ok, iPhone routes 200).
 
 ## Status (2026-11-17)
 
