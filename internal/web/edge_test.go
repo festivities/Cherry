@@ -28,14 +28,26 @@ func TestPlainListenerAnswersOnlyTheClientPaths(t *testing.T) {
 		"/img/read/notice/notice.json2":                       true,
 		"/v1/lineplay/android":                                true,
 		"/v1/lineplay/ios":                                    true,
-		"/img/read/notice/ios/checkresource2.json":            true, // allowed through; unrouted (404) until the iOS tree is known
-		"/v4/setInitConf":                                     false,
-		"/v4/create/avatar":                                   false,
-		"/arts_item_dress_225000263/dp.png":                   false, // HTTPS only: the plain client path has /img/read
-		"/img/read/arts_session/sckey.enc":                    false,
-		"/img/read/arts_itemx":                                false,
-		"/lineplay/d/upload.nhn":                              false,
-		"/cherry/fish/4901.png":                               false,
+		"/img/read/notice/ios/checkresource2.json":            true,
+		// The iOS static base is http://…/img/read/ (Raspberry CONTRACT §4, 2026-11-20).
+		"/img/read/arts_animation_ini_00531/update_en.ini":                  true,
+		"/img/read/arts_ui_jp_00540/UIImage_hd/x.png":                       true,
+		"/img/read/arts_animation_en_00531/../garden/1908231803.mworldpack": true,
+		"/img/read/garden/1908231803.mworldpack":                            true,
+		"/img/read/circle/2012221744.mworldpack":                            true,
+		"/img/read/garden01/items/item110000.png":                           true,
+		"/img/read/photozone/frame/a/b.png":                                 true,
+		"/img/read/arts_session/sckey.enc":                                  true,
+		"/v4/setInitConf":                                                   false,
+		"/v4/create/avatar":                                                 false,
+		"/arts_item_dress_225000263/dp.png":                                 false, // HTTPS only: the plain client path has /img/read
+		"/img/read/v4/setInitConf":                                          false,
+		"/img/read/lineplay/d/upload.nhn":                                   false,
+		"/img/read/cherry/fish/4901.png":                                    false,
+		"/img/read/photozone/x.png":                                         false,
+		"/img/read/gardenx/a.mworldpack":                                    false,
+		"/lineplay/d/upload.nhn":                                            false,
+		"/cherry/fish/4901.png":                                             false,
 	} {
 		if got := plainPathAllowed(path); got != want {
 			t.Errorf("plainPathAllowed(%q) = %v, want %v", path, got, want)
@@ -52,6 +64,35 @@ func TestPlainListenerAnswersOnlyTheClientPaths(t *testing.T) {
 	NewPlainMux().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v4/setInitConf?nationCode=JP&appVer=10.1.0.0", nil))
 	if rec.Code != http.StatusNotFound || rec.Body.String() != httpx.NotFoundBody {
 		t.Fatalf("plain setInitConf = %d %q, want the 404 body", rec.Code, rec.Body.String())
+	}
+}
+
+// The plain listener serves an iOS /img/read/ path with the body the HTTPS route gives without the prefix.
+func TestPlainListenerServesTheIOSStaticBase(t *testing.T) {
+	webOperatorDir(t)
+	plain := NewPlainMux()
+	for ios, https := range map[string]string{
+		"/img/read/notice/ios/checkresource2.json":         "/notice/adr/checkresource2.json",
+		"/img/read/arts_animation_ini_00531/update_en.ini": "/arts_animation_ini_00531/update_en.ini",
+	} {
+		rec := httptest.NewRecorder()
+		plain.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, ios, nil))
+		want := serve(t, http.MethodGet, https)
+		if rec.Code != http.StatusOK || want.Code != http.StatusOK || rec.Body.String() != want.Body.String() {
+			t.Fatalf("plain %s = %d %q, want HTTPS %s = %d %q", ios, rec.Code, rec.Body, https, want.Code, want.Body)
+		}
+	}
+	var root struct {
+		IOS map[string]string `json:"ios"`
+	}
+	if err := json.Unmarshal([]byte(serve(t, http.MethodGet, "/notice/ios/checkresource2.json").Body.String()), &root); err != nil || root.IOS["10.1.0"] != "1" {
+		t.Fatalf("ios key: %v %v", root.IOS, err)
+	}
+	// Android's plain notice path still answers 404.
+	rec := httptest.NewRecorder()
+	plain.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/img/read/notice/notice.json2", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("notice.json2 = %d, want 404", rec.Code)
 	}
 }
 

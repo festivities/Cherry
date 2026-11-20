@@ -135,9 +135,11 @@ func TestMoreListsAnswerTheIOSSpellings(t *testing.T) {
 
 func TestMoreEventListIsEmpty(t *testing.T) {
 	for _, lang := range []string{"en", "ja"} {
-		rec := serve(t, http.MethodGet, "/v4/noti/event/"+lang+"/10.1.0.0/Android.nhn")
-		if rec.Code != http.StatusOK || rec.Body.String() != `{"result":[]}` {
-			t.Fatalf("%s: status %d body %s", lang, rec.Code, rec.Body)
+		for _, tail := range []string{"/10.1.0.0/Android.nhn", "/10.1.0/iPhone.nhn"} {
+			rec := serve(t, http.MethodGet, "/v4/noti/event/"+lang+tail)
+			if rec.Code != http.StatusOK || rec.Body.String() != `{"result":[]}` {
+				t.Fatalf("%s%s: status %d body %s", lang, tail, rec.Code, rec.Body)
+			}
 		}
 	}
 	if rec := serve(t, http.MethodGet, "/v4/noti/event/en/Android.nhn"); rec.Code != http.StatusNotFound {

@@ -2,9 +2,11 @@ package web
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
+	"cherry/internal/assets"
 	"cherry/internal/config"
 	"cherry/internal/httpx"
 	"cherry/internal/store"
@@ -20,13 +22,42 @@ import (
 // the notice requests of the Java and native notice stacks (notice2.line.me, index 22/23, and /img/read/notice/, which
 // answer 404 as before). The lab logs of 2026-10 to 2026-11 (17 files, 482 plain requests: sni empty) show only these
 // shapes: notice2 /v1/lineplay/android and /img/read/notice/notice.json2 (all 404), and /img/read/arts_item_* (2026-10-03).
+//
+// The iOS 10.1.0 client's static base is http://play-static.line-scdn.net/img/read/ (Raspberry CONTRACT §4, 2026-11-20,
+// static: InitFunc_634), so it asks for its manifest, update lists, category files, chat icons, diary skin, map packs and
+// craft art on the plain port under /img/read/: the /arts_ routes, the map pack folders and the craft folders.
 func plainPathAllowed(path string) bool {
-	return strings.HasPrefix(path, "/img/read/arts_item_") || strings.HasPrefix(path, "/img/read/notice/") || path == "/v1/lineplay/android" || path == "/v1/lineplay/ios"
+	if path == "/v1/lineplay/android" || path == "/v1/lineplay/ios" {
+		return true
+	}
+	rest, ok := strings.CutPrefix(path, "/img/read/")
+	if !ok {
+		return false
+	}
+	if strings.HasPrefix(rest, "arts_") || strings.HasPrefix(rest, "notice/") {
+		return true
+	}
+	for _, dir := range slices.Concat(assets.PackDirs, assets.CraftDirs) {
+		if strings.HasPrefix(rest, dir+"/") {
+			return true
+		}
+	}
+	return false
 }
 
-// NewPlainMux is the handler of the plain HTTP listener: the allowed paths of the game mux, nothing else (404).
+// NewPlainMux is the handler of the plain HTTP listener: the allowed paths of the game mux, nothing else (404). A path
+// under /img/read/ reaches the game mux without that prefix, at the route the HTTPS static base uses; item files keep
+// it (their routes take both forms, as before).
 func NewPlainMux() http.Handler {
-	game := newLimited(NewMux(), config.Current())
+	mux := NewMux()
+	strip := http.StripPrefix("/img/read", mux)
+	game := newLimited(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/img/read/") && !strings.HasPrefix(r.URL.Path, "/img/read/arts_item_") {
+			strip.ServeHTTP(w, r)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	}), config.Current())
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !plainPathAllowed(r.URL.Path) {
 			httpx.ServeNotFound(w)

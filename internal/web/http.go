@@ -39,8 +39,9 @@ const setInitConfBody = `{"result":{"sessionServerInfo":"XPN:/p=XTCP;ip=session.
 
 // checkResource2Body is the checkresource2.json served when streaming is off. ch is the chat action icon version
 // (arts_chatting_<ch>/ and cache/action/<ch>_...), read raw by the client, not a patcher category: "00005" names
-// the santi icon files. Keep it a JSON string.
-const checkResource2Body = `{"adr":{"10.1.0.0":"1"},"resource":{"1":{"animation":"531","he":"0","ch":"00005","sound":"530","subui":"0","tx":"543","squareui":"0","ui":"540"}}}`
+// the santi icon files. Keep it a JSON string. The iOS 10.1.0 client reads root["ios"]["10.1.0"] (Raspberry CONTRACT
+// §4, 2026-11-19) and is served the same resource tree (its robo cache has the Android files/ layout).
+const checkResource2Body = `{"adr":{"10.1.0.0":"1"},"ios":{"10.1.0":"1"},"resource":{"1":{"animation":"531","he":"0","ch":"00005","sound":"530","subui":"0","tx":"543","squareui":"0","ui":"540"}}}`
 
 const splashSkipBody = `{"result":{"update":false,"resourceID":-1,"resourceImageCount":0,"resourceImages":[]}}`
 
@@ -361,6 +362,7 @@ func newMux(svc *auth.Service) http.Handler {
 	mux.HandleFunc("/v4/setInitConf", handleSetInitConf)
 	mux.HandleFunc("/v4/resource/splash/", handleSplash)
 	mux.HandleFunc("/notice/adr/checkresource2.json", handleCheckResource2)
+	mux.HandleFunc("/notice/ios/checkresource2.json", handleCheckResource2) // iOS: plain /img/read/notice/ios/…, NewPlainMux strips /img/read
 	mux.HandleFunc("/v4/popup/isExists", economy.HandlePopupIsExists)
 	mux.HandleFunc("/v4/popup/list", economy.HandlePopupList)
 	mux.HandleFunc("/cherry/event/", economy.HandleEventPopupImage)

@@ -95,6 +95,8 @@ The host clock (this PC and the Oracle host) is UTC+8; the emulators run UTC. Th
 
 Rechecked: `main` level with origin, clean; CI green on `f6f4502`; production `bb6d81c`, `/healthz` ok, `cherry` and `litestream` active (host notes read first; one account row, aid 11); `adb devices` empty (AVD Raspberry off); no Cherry process on Windows; `.opencode\line-play-artifacts` has eight entries, ignored at `.gitignore:35`. Raspberry is at `af20e8e` (iOS work on macOS). No corrections to the snapshot. First task: Raspberry's iOS questions of 2026-11-17/18 (user relay): iOS route spellings added, Host/TLS answers and the Android capture status written to CONTRACT §10 (2026-11-18). Deployed on the user's go: production runs `0b01ce5` since 2026-11-18 23:42 (no schema change, healthz ok, iPhone routes 200).
 
+**2026-11-20 (Cherry session):** Raspberry's requests of 2026-11-19/20 (iOS first run stops at the 404 on `/img/read/notice/ios/checkresource2.json`) are built. `checkresource2` gains `ios`/`10.1.0`. The plain port serves the iOS static base `/img/read/`: lists, category files, packs, craft art and sckey, routed without the prefix (`web/edge.go`). The `iPhone.nhn` event list spelling is accepted. Answer in CONTRACT §10 (2026-11-20). Gate green; **not deployed (waiting on the user's go)**. Not iOS-device-proven: the Raspberry session's vphone run against production will show whether the iOS parsers take the Android tree.
+
 ## Status (2026-11-17)
 
 | Milestone | Scope | Status |

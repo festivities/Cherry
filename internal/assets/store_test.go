@@ -128,13 +128,14 @@ func TestCheckResource2Body(t *testing.T) {
 	body := checkResource2Body(map[string]int{"animation": 11, "sound": 22, "subui": 33, "tx": 44, "ui": 55})
 	var got struct {
 		Adr      map[string]string `json:"adr"`
+		IOS      map[string]string `json:"ios"`
 		Resource map[string]map[string]string
 	}
 	if err := json.Unmarshal([]byte(body), &got); err != nil {
 		t.Fatalf("body is not JSON: %v", err)
 	}
 	r := got.Resource["1"]
-	if got.Adr["10.1.0.0"] != "1" || r["animation"] != "11" || r["sound"] != "22" || r["subui"] != "33" ||
+	if got.Adr["10.1.0.0"] != "1" || got.IOS["10.1.0"] != "1" || r["animation"] != "11" || r["sound"] != "22" || r["subui"] != "33" ||
 		r["tx"] != "44" || r["ui"] != "55" || r["he"] != "0" || r["ch"] != "00005" || r["squareui"] != "0" {
 		t.Fatalf("body = %s", body)
 	}

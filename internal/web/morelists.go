@@ -103,9 +103,14 @@ func handleMoreShopList(w http.ResponseWriter, r *http.Request) {
 	}{rows})
 }
 
-// handleMoreEventList serves GET /v4/noti/event/<lang>/10.1.0.0/Android.nhn with no rows.
+// handleMoreEventList serves GET /v4/noti/event/<lang>/10.1.0.0/Android.nhn, and the iOS spelling
+// /v4/noti/event/<lang>/10.1.0/iPhone.nhn (Raspberry CONTRACT §4, 2026-11-19), with no rows.
 func handleMoreEventList(w http.ResponseWriter, r *http.Request) {
-	lang, ok := strings.CutSuffix(strings.TrimPrefix(r.URL.Path, "/v4/noti/event/"), "/10.1.0.0/Android.nhn")
+	rest := strings.TrimPrefix(r.URL.Path, "/v4/noti/event/")
+	lang, ok := strings.CutSuffix(rest, "/10.1.0.0/Android.nhn")
+	if !ok {
+		lang, ok = strings.CutSuffix(rest, "/10.1.0/iPhone.nhn")
+	}
 	if r.Method != http.MethodGet || !ok || lang == "" || strings.Contains(lang, "/") {
 		httpx.ServeNotFound(w)
 		return
