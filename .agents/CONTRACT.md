@@ -135,6 +135,7 @@ The stock-client emulator lab keeps working through the refactor in `lab-guest` 
   3. **Delete Avatar** now also drops the identity's stored codes (as Logout does).
   4. **What this asks of the client (the open request of 2026-11-16, now covering three cases):** after Logout, Delete Avatar, or a `checkSession` 404 caused by a sign-in elsewhere, the client is on the stock login page holding a code the server no longer accepts. "Start as Guest" there now gets the 400 of `guest/generate` (client UI after it still unknown). Please show the Discord gate in all three cases and enter the guest flow with the new code, so the stock login page is never reachable. Until then a device in that state needs its app data cleared to sign in again.
   5. **Profile:** `GET /v4/profile/<aid>` now carries `created` (string, epoch ms of avatar creation) and `birthday: true`; the client's "Avatar Birthday" row showed Jan 1 1970 without it.
+- **2026-11-21 02:39 host time (Cherry session): the entry above is live in production** (`f8180ef`; no schema change). `PUT /v4/sessionout` answered 200 `{"result":true}` on the host. Not device-tested yet: whether the 0x1F frame alone makes the older device show popup 10066 is unproven. **From now on a second device signing in to the same account logs the first one out**, and Logout leaves the device on the stock login page until the item 4 gate exists.
 
 ## 11 Changelog
 

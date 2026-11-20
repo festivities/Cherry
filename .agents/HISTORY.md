@@ -2096,3 +2096,117 @@ The host clock (this PC and the Oracle host) is UTC+8; the emulators run UTC. Th
 Rechecked: `main` level with origin, clean; CI green on `f6f4502`; production `bb6d81c`, `/healthz` ok, `cherry` and `litestream` active (host notes read first; one account row, aid 11); `adb devices` empty (AVD Raspberry off); no Cherry process on Windows; `.opencode\line-play-artifacts` has eight entries, ignored at `.gitignore:35`. Raspberry is at `af20e8e` (iOS work on macOS). No corrections to the snapshot. First task: Raspberry's iOS questions of 2026-11-17/18 (user relay): iOS route spellings added, Host/TLS answers and the Android capture status written to CONTRACT §10 (2026-11-18). Deployed on the user's go: production runs `0b01ce5` since 2026-11-18 23:42 (no schema change, healthz ok, iPhone routes 200).
 
 **2026-11-20 (Cherry session):** Raspberry's requests of 2026-11-19/20 (iOS first run stops at the 404 on `/img/read/notice/ios/checkresource2.json`) are built. `checkresource2` gains `ios`/`10.1.0`. The plain port serves the iOS static base `/img/read/`: lists, category files, packs, craft art and sckey, routed without the prefix (`web/edge.go`). The `iPhone.nhn` event list spelling is accepted. Answer in CONTRACT §10 (2026-11-20). Gate green; **not deployed (waiting on the user's go)**. Not iOS-device-proven: the Raspberry session's vphone run against production will show whether the iOS parsers take the Android tree.
+
+## From PLAN.md — handoff 2026-11-20 ~23:45 (INITIATED only; moved verbatim 2026-11-21 ~02:50; production on `5028068` (iOS first-run assets), before one login per account, Logout and Avatar Birthday `f8180ef`)
+
+### HANDOFF INITIATED — 2026-11-20 ~23:45 host time (Claude Code, Cherry session → new Claude Code session with no context)
+
+**In one paragraph.** Cherry runs on the user's Oracle host. It is device-verified there with Raspberry's patched Android client. Since the last handoff (2026-11-17 ~22:30) the work has been for **Raspberry's iOS client**: the iOS route spellings (`cfca500`, deployed as `0b01ce5` on 2026-11-18) and the iOS first-run assets (`79b621b`, 2026-11-20, deployed on the user's go as `5028068` at 23:47). Production runs **`5028068`**. **Sign-up is still closed and opens only when the user says so.** The likely next step is the Raspberry session's iOS first-run download against production; answer its next requests.
+
+**Two sessions exist (user, 2026-11-09):** the **Cherry session** (this block: the server, this repo, the Oracle host, the Windows lab) and a **Raspberry session** (the client patcher, `D:\Dev\projects\Raspberry`, GitHub `festivities/Raspberry`, public; its context is `D:\Dev\projects\Raspberry\.agents\`). Since 2026-11-17 the Raspberry session works on the iOS `.ipa` from macOS, on a virtual iPhone (`myphone`, through vphoned). Its CONTRACT names a macOS clone of this repo, read-only for it. You are the Cherry session unless your working directory is Raspberry. Never edit Raspberry's files. Put requests and answers in [CONTRACT.md](CONTRACT.md) §10. Read its `.agents\CONTRACT.md` §4 "Requests to Cherry" at the start of the session; the newest entry there (2026-11-20, iOS manifest and `/img/read/` routes) is answered by §10 2026-11-20. **The Cherry session may use AVD `Raspberry` (`emulator-5559`) for patched-client tests; AVDs Cherry and Jerry are dropped** (user, 2026-11-15).
+
+You are the receiving agent with **zero context**. Read all of [AGENTS.md](AGENTS.md) first. Above all:
+- **"Baseline"**, incl. **`D:\Dev\projects\Cherry\.opencode\line-play-artifacts` must be preserved NO MATTER WHAT**.
+- **"Policies"**: client modifications, dependencies (`modernc.org/sqlite` only), no real-money paths, no runtime archive reads, never restore the account data wholesale, operator-editable fabricated content, original vs Cherry-made.
+- **"Workflow"**: delegation, device testing ([TESTING.md](TESTING.md) before a tester brief), autonomous commits, the gate, **"Production deploy"**, **"Patched client"**, "Two sessions".
+- **"Production"** (the Oracle host: main agent only, the host's own `AGENTS.md`, the private values) and **"Lab"** (the Windows lab is not running).
+- **"Code map"**, incl. "Platform state" and the staff panel rows.
+
+Then read [CONTRACT.md](CONTRACT.md) (§10 from 2026-11-16 on is the iOS thread), this block and **Roadmap 8** (its "Progress" list first). Read [REFERENCE.md](REFERENCE.md) by section when a task touches that feature ("Squares since 2026-11-17" for anything in a Square). Do not edit `JICAMA.md`. The memories under `C:\Users\fes\.claude\projects\D--Dev-projects-Cherry\memory\` load by themselves. They hold the user's standing rules: deploy only on an explicit go, the user's game memory wins, stage named paths only while a worker has edits, and more.
+
+**The Read tool refuses large reads.** Read PLAN.md, REFERENCE.md and HISTORY.md in chunks of 70–150 lines. Several lines are very long; Grep them or read them alone.
+
+The previous handoff pair (INITIATED 2026-11-17 ~22:30, ACCEPTED 2026-11-18, plus the 2026-11-20 note) is HISTORY's LAST section.
+
+Recheck and append **HANDOFF ACCEPTED** with any corrections:
+- `git status`, the branches and the last CI run (`gh run list --limit 1`);
+- **production**, read-only, through the `oracle-ubuntu-ssh` MCP tools (main agent only). First read `/home/cherry/AGENTS.md` on the host: it is root-readable only, so use `sudo -n sed -n …` through `run-command`; `read-command` gets "Permission denied". Then `cat /home/cherry/bin/cherry.commit`, `curl -s 127.0.0.1:8099/healthz`, `systemctl is-active cherry litestream`;
+- `adb devices`, plus `adb -s <serial> emu avd name` for each device;
+- `Get-Process cherry` (expected: none);
+- `.opencode\line-play-artifacts` (eight entries, ignored at `.gitignore:35`);
+- Raspberry's `.agents\CONTRACT.md` §4 for entries newer than 2026-11-20.
+
+The host clock (this PC and the Oracle host) is UTC+8; the emulators run UTC. The game day resets at 06:00 JST (05:00 host time).
+
+**State snapshot (2026-11-20 ~23:41, each line observed at that time):**
+- **Repo:** `main`, level with origin; the handoff commits are `5028068` (the block) and the next one (the deploy record). The last code commit is `79b621b` (iOS first-run assets); CI green on it and on `5028068`. `prototype` is final at `6c49273` on origin (never rebase, reset, force-push or delete it). The local branch still points at `91c52c2`, 22 behind; that is harmless, do not push it. The leftover worktree `C:\Users\fes\AppData\Local\Temp\claude\D--Dev-projects-Cherry\9442a75f-fecd-439a-a130-d5008a4ed678\scratchpad\wt-build` (detached at `6603f9d`) still exists and is harmless.
+- **Production (the Oracle host):** commit **`5028068`** (code `79b621b`), deployed on the user's go and started 2026-11-20 23:47:43 (before: `0b01ce5`, kept as `cherry.prev`; `sudo cherry-deploy --rollback` returns to it). `/healthz` ok, `cherry` and `litestream` active, NRestarts 0, **schema v7**, about 90 MB of memory just after the start. One account row (the user's test avatar, aid 11), no circles. `auth.mode discord`, **`auth.signup allowlist`**, `server.public`, staff UI on, uploads on, DNS off. The host notes have the deploy line and a new "State" date. Checked on the host after the deploy:
+  - the plain-port `/img/read/notice/ios/checkresource2.json` is 200 with the `ios` key;
+  - the iOS animation list is 200 (475 KB);
+  - the iPhone event list is 200;
+  - `/v4/…` and `/img/read/v4/…` are 404 on the plain port;
+  - the journal has no `refused`, 5xx, 429 or `frame limit` lines.
+  The virtual iPhone connected at 23:47:45 (gateway hello and `/img/read/notice/notice.json2` 404, as on Android), and nothing more had arrived by 23:50. Everything about the host (names, ports, paths, deploy log) is in **`/home/cherry/AGENTS.md` on the host** and in the private `%LOCALAPPDATA%\Cherry\deploy\oci.md`. None of it may enter this repo.
+- **Session secret:** the server derives every session key from a 48-byte secret on the host and **refuses to start without it**. An offline copy is in the private `deploy\` folder. Never print it, never commit it.
+- **Asset store (R2):** unchanged since 2026-11-17 (uploader plan 323,878 objects, 4 roots: santi, lpbackup, miaw, robo; `cherry/manifest/packs.json` lists 176 packs). The iOS client is served this same tree: no iOS-specific objects exist or are planned.
+- **Device:** `adb devices` empty (AVD Raspberry off; the adb daemon was started by the check). Its patched Android client (Raspberry `bf11b05`) holds the user's Discord alt, aid 11.
+- **Raspberry:** `d184b2d` on 2026-11-20. Real Discord sign-in and ticket exchange work end to end on the virtual iPhone, which then stopped at the network-error dialog because production answered 404 on `/img/read/notice/ios/checkresource2.json`. That is served since the `5028068` deploy; their next run shows how far the first-run download gets.
+- **Windows lab: not running** (no `cherry` process). Its data is intact: `%LOCALAPPDATA%\Cherry\cherry.db`, schema v3, accounts 1001, 1002 and 1006. A build from `5b5dfab` or later migrates it one way, so copy the three `cherry.db*` files first. YunDetectService on loopback :10000: never stop it.
+- **Private folders (never commit):** `%LOCALAPPDATA%\Cherry\deploy\` (`oci.md`, the Discord secret, the Litestream keys, the certificate token, the session secret) and `%LOCALAPPDATA%\Cherry\keys\` (the keystore and password file that sign the patched APK).
+- **`.opencode\line-play-artifacts`:** eight entries (`lineplay-original-assets`, `lpbackup`, `lpbase`, `miaw-backup`, `robo-backup-20261113`, `santi-backup-20260921`, the decrypted 10.1.0 `.ipa`, the 10.1.0.0 APK), ignored at `.gitignore:35`.
+- **Backups on the host:** unchanged. The host notes' "Clean-up" lists them. Delete them once Litestream holds some days of schema v7, and only on the user's word.
+
+**Done since the last handoff (2026-11-17 ~22:30 → 2026-11-20 ~23:45; commits `0b01ce5` … `79b621b`):**
+- **2026-11-18:** the iOS 10.1.0 spellings `GET /v4/home/sublist/game/iPhone`, `/v4/home/sublist/shop/10.1.0/iPhone.nhn` and `/v1/lineplay/ios` on the plain port (`cfca500`). CONTRACT §10 answered the Host/TLS questions: operator TLS name plus operator Host is the recommended iOS design, and no proxy is supported. It also gave the Android capture status. Deployed `0b01ce5` on the user's go (no schema change).
+- **2026-11-20, `79b621b`:** Raspberry's requests of 2026-11-19/20.
+  - `checkresource2.json` gains `"ios":{"10.1.0":"1"}` on the same resource tree, with streaming on and off; route `/notice/ios/checkresource2.json`.
+  - The plain listener admits the iOS static base `/img/read/arts_*`, `/img/read/notice/*` and the pack and craft folders (`assets.PackDirs`, `assets.CraftDirs`).
+  - `NewPlainMux` strips `/img/read` before the game mux, except for `/img/read/arts_item_*`, which keeps its old path. The limiter sees the unstripped path, so these count as static GETs.
+  - `/v4/noti/event/<lang>/10.1.0/iPhone.nhn` gets the empty list.
+  - CONTRACT §10 2026-11-20 answers Raspberry and lists what is not admitted (`/img/read/cherry/…`, `butler_voice_master`, `lineplay`, APIs). A raw dot-segment pack path gets a 307 to a prefix-less path that the plain port refuses; this was checked in a scratch test, and iOS must send the normalised path.
+  - The main agent wrote this change itself: ~30 lines, where a worker brief would have cost more. The user was told.
+
+**Open tasks.** The user's standing instructions apply: fix or classify every gap with evidence (memories `gaps-fix-or-classify`, `user-game-memory-wins`); ask the user when a decision is theirs; commit and push verified work without asking; **deploy only on an explicit go each time** (memory `deploy-needs-explicit-go`).
+
+1. **Done: `79b621b` deployed as `5028068` (2026-11-20 23:47, the user's go).** The post-deploy checks, the host notes, AGENTS "Production" and the §10 "live" entry are all done (snapshot above). **Not run:** an Android cold start on AVD Raspberry. The Android manifest only gained a key, so the risk is low; do it with the next Android device test.
+2. **iOS, after the deploy (the Raspberry session's run).** Expect its first-run capture or new requests in its §4. Open questions:
+   - whether the iOS parsers accept the Android lists and files;
+   - whether iOS asks for `/img/read/cherry/…` or other paths on the plain port;
+   - whether the first-run download is burstier than Android's (the static bucket is 200/s + 5,000 per address).
+   Do not alias or invent an iOS tree without evidence. Serve what the iOS client provably asks for.
+3. **Waiting on the user: open sign-up (slice 8.8b's last step).** Only on their word. The recipe is in the host notes, "Opening sign-up". Record it there and in Roadmap 8 (8.8b done).
+4. **Raspberry, open on Android:**
+   - after Delete Avatar the stock login page shows until the app restarts;
+   - the `create/avatar` item-code capture (only human creations seen, none animal in an identity mode);
+   - the client UI after a refused `guest/generate` (never seen).
+5. **Not device-verified yet** (carried):
+   - the split of a Square into a second room (needs three players; unit-tested);
+   - the Settings page on production;
+   - the butler Gem HUD refresh and Bag stars (`4f7b030`, `eac5b67`);
+   - the restart behaviour with the app open (8.8b);
+   - the artless Disney Square object 121701943.
+6. **Watch: cold first loads of big maps.** The first entry into a Square whose items are not in the server's read-through cache can time out on the client. Disney Square needs ~600 item files from R2. A server-side pre-warm is a possible fix (not built). An iOS first run will also hit the cold cache for anything Android never fetched.
+7. **Not blocked, when the user wants more** (carried):
+   - **Staff panel:** mute, the report queue, season and date tools, sessions in the database, hot swap of documents.
+   - **Butlers:** look-alike outfits for Merry's further skins, and Memories for Merry; Layla and Cassim are deferred.
+   - **Squares:** a room picker (`cr_room_move_req`, msg 43: research first).
+   - **Circle:** room skins.
+   - **Clean-up:** the host backups and deploy logs (user's word), the Windows firewall rules `Cherry DNS` and `Cherry game` if the user ends the lab, the old worktree.
+
+**Hazards (carried, plus this session's):**
+- **The Oracle host is main-agent-only and shared.** Other users' services run there (a reverse proxy in Docker owns ports 80 and 443, a VPN, more): never stop, restart, reconfigure or read them; never run `netfilter-persistent save`; change only the firewall line commented `cherry`; never open UDP 53. Read the host's `AGENTS.md` before any change and add a log line after it.
+- **SSH tool limits:**
+  - A call times out after about two minutes, so run `cherry-deploy` through `systemd-run` (host notes).
+  - The privileged tool refuses multi-line commands: upload a script with `sftp-upload` and run it, or use one-line `sed -e … -e …`.
+  - File streaming does not work from Windows.
+  - The host has no `sqlite3` CLI: use python3 `sqlite3` with a read-only URI, under `sudo -n`.
+  - `read-command` cannot read Cherry's root-owned files.
+- **The auto-mode classifier once refused the deploy call (2026-11-17)** although the user had said go. If it refuses, do not work around it: give the user the exact one-line command.
+- **A deploy restarts the server and drops every game connection.** A schema migration cannot be undone: stop the server and copy the three `cherry.db*` files before a deploy that changes the schema.
+- **Uploads are outward-facing: get the user's go for each.** A full `cherry-assets upload` HEADs all ~324k objects (about 90 minutes); `upload -packs-only` takes seconds. The animation version changes with the list, so clients take an "Additional download" at their next start.
+- **The plain HTTP port is an allowlist** (`web/edge.go` `plainPathAllowed`): whatever it admits travels without TLS. Keep APIs, uploads and anything cookie-bearing off it. A path under `/img/read/` is routed without the prefix, so a new game route whose path starts with an allowed folder becomes reachable on the plain port too.
+- **The staff UI's address needs its port.** Its hostname is deliberately absent from certificate logs: do not request a certificate that names it.
+- **Panel settings live in `meta`** (`retention.chat-days`, `staff.members`, `square.room-cap`). Recorded chat text is in `cherry.db` and so in the Litestream replicas until they age out.
+- **Storage (lab and production):** back up `cherry.db` only with Cherry stopped; never edit it while Cherry runs; a wholesale restore older than a device's last `checkSession` logs that device out.
+- **Every save names what it changed.** In test builds a save panics when an account it did not name changed.
+- **Gateway logins are verified** (`store.HoldsSessionKeyLocked`). Tests that log in over the gateway install real accounts with session keys (`loginFor`, `withLoginAccounts` in `internal/lpn`).
+- **`lab-guest` must stay byte-for-byte the lab's behaviour.** Public-server rules hang on `config.IdentityMode()`.
+- **Limits are sized from stock-client bursts.** Before tightening one, device-test a cold start, a fresh install and the feature.
+- **The gate has a CI view:** run `CHERRY_TEST_NO_ARCHIVE=1 go test ./...` before pushing anything that touches tests of `economy`, `lpn`, `thumbs` or `web`. Use `gofmt -l cmd internal data`, never `gofmt -l .`. The whole gate takes about 5 minutes: run it as one `pwsh -File` script in the background.
+- **Workers:** stage named paths only, never `git commit -a` while a worker has edits (memory `no-commit-a-with-workers`). The main agent runs the gate itself.
+- **Shell:**
+  - **A bare `python -` with a heredoc hung the Bash tool again on 2026-11-20.** Write scripts with the Write tool and run them by path (`C:\Users\fes\AppData\Local\Python\bin\python.exe <script>`).
+  - Bash heredocs also mangle backslashes in Windows paths.
+  - PowerShell is the primary shell; a foreground sleep longer than about 15 s is blocked.
+- **Testers** (TESTING "AVD Raspberry, 2026-11-17"): wait 5 s and screenshot after every tap. A relaunch spends minutes on the splash with a green bar while it downloads; that is not a hang. Testers refuse "Start as Guest", Delete Avatar and app-data resets unless both the brief and `.claude/agents/cherry-tester.md` allow it.
+- **Two sessions share one machine** (the Raspberry session now mostly on macOS): one adb server (never `adb kill-server`), `%TEMP%\opencode\` (Cherry: `cherry\`, Raspberry: `raspberry\`), IDA copies (per-job copies of the pristine database only).
