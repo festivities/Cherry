@@ -2,6 +2,7 @@ package store
 
 import (
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"errors"
 	"net/http"
@@ -137,6 +138,7 @@ type Account struct {
 	Dyes           map[string]int        // dye items owned by item number (economy/dye.go); replaced, never edited in place
 	DyeColors      map[string][]DyeColor // colours of dyed garments by item code (economy/dye.go); replaced, never edited in place
 	LuckySpinDay   int64                 // game day (economy.AttendDayKey) of the last free Lucky Spin (economy/spin.go); 0 = none
+	AvatarCreated  int64                 // create/avatar time in Unix ms: the profile's "Avatar Birthday" (result.created); 0 = unknown
 	GuestCode      string                // device uniqueCode bound by the guest login (GuestLogin); "" = none
 	Identity       string                // provider identity ("discord:<id>" or "dev-<name>"), discord and dev-fake modes (identity.go); "" = none
 	CodeHashes     []string              // SHA-256 hex of the uniqueCodes minted for Identity, oldest first, at most maxCodeHashes (identity.go)
@@ -471,11 +473,11 @@ func DeleteAccountLocked(acc *Account, lines []LedgerLine) (undo func() error, e
 	return undo, nil
 }
 
-// ResetIdentityLocked is Delete Avatar in identity mode (discord, dev-fake). acc keeps its identity (Identity, CodeHashes),
-// Welcomed and the once-only grants (BossBook, the butler free hire) and loses every other field: aid becomes "0" and the
-// session key changes. Every token of the account ends, its own and its aliases, in memory and in the database: the save
-// deletes the account's token rows first (rowState.revoke) in the same transaction, then writes the fresh own token that
-// acc gets here. The same identity signs in again through exchange and guest/generate, which mints an alias. The undo puts
+// ResetIdentityLocked is Delete Avatar in identity mode (discord, dev-fake). acc keeps its Identity, Welcomed and the
+// once-only grants (BossBook, the butler free hire) and loses every other field: aid becomes "0", the session key changes
+// and the stored codes go (the next avatar needs a new Discord sign-in). Every token of the account ends, its own and its
+// aliases, in memory and in the database: the save deletes the account's token rows first (rowState.revoke) in the same
+// transaction, then writes the fresh own token that acc gets here. The same identity signs in again through exchange and guest/generate, which mints an alias. The undo puts
 // the account, its previous tokens and their rows back. On error acc is as it was. Caller holds AccountsMu.
 func ResetIdentityLocked(acc *Account, lines []LedgerLine) (undo func() error, err error) {
 	rs := accountRows[acc]
@@ -492,7 +494,7 @@ func ResetIdentityLocked(acc *Account, lines []LedgerLine) (undo func() error, e
 	*acc = Account{
 		AccessToken: own, Mid: prev.Mid, AvatarUserID: prev.AvatarUserID, Aid: "0",
 		SessionSalt: prev.SessionSalt, SessionEpoch: prev.SessionEpoch,
-		Identity: prev.Identity, CodeHashes: prev.CodeHashes, Welcomed: prev.Welcomed, BossBook: prev.BossBook, Ban: prev.Ban,
+		Identity: prev.Identity, Welcomed: prev.Welcomed, BossBook: prev.BossBook, Ban: prev.Ban, // no CodeHashes: a new Discord sign-in
 	}
 	rotateSessionKey(acc)
 	if b := prev.Butlers; b != nil && (b.FreeUsed || len(b.Free) > 0) {
@@ -595,4 +597,34 @@ func accountForToken(token string) (AccountSnapshot, bool) {
 	}
 	AccountsMu.Unlock()
 	return snapshot, true
+}
+
+// AvatarBirthday is the creation time of the avatar aid in Unix ms, the profile's "Avatar Birthday" (result.created). An
+// avatar made before AvatarCreated was kept gets, once, the time of its first ledger line (the welcome gift follows
+// create/avatar), and that value is saved; 0 when neither is known (the client then shows Jan 1 1970).
+func AvatarBirthday(aid string) int64 {
+	AccountsMu.Lock()
+	defer AccountsMu.Unlock()
+	acc := AccountByAidLocked(aid)
+	if acc == nil || acc.AvatarCreated != 0 || acc.Aid == "0" || database.Load() == nil {
+		if acc == nil {
+			return 0
+		}
+		return acc.AvatarCreated
+	}
+	var first sql.NullString
+	if err := database.Load().View(func(q Querier) error {
+		return q.QueryRow(`SELECT time FROM ledger WHERE aid = ? ORDER BY id LIMIT 1`, acc.Aid).Scan(&first)
+	}); err != nil || !first.Valid {
+		return 0
+	}
+	t, err := time.Parse(time.RFC3339, first.String)
+	if err != nil {
+		return 0
+	}
+	acc.AvatarCreated = t.UnixMilli()
+	if err := SaveLocked(nil, acc); err != nil {
+		acc.AvatarCreated = 0
+	}
+	return acc.AvatarCreated
 }

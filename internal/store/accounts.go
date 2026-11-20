@@ -71,6 +71,7 @@ type StoredAccount struct {
 	Dyes           map[string]int        `json:"dyes,omitempty"`
 	DyeColors      map[string][]DyeColor `json:"dyeColors,omitempty"`
 	LuckySpinDay   int64                 `json:"luckySpinDay,omitempty"`
+	AvatarCreated  int64                 `json:"avatarCreated,omitempty"`
 	GuestCode      string                `json:"guestCode,omitempty"`
 	Identity       string                `json:"identity,omitempty"`
 	CodeHashes     []string              `json:"codeHashes,omitempty"`
@@ -470,7 +471,7 @@ func StoredFrom(acc *Account) StoredAccount {
 		Smiles: acc.Smiles, GardenBag: acc.GardenBag, Gather: acc.Gather, Atelier: acc.Atelier,
 		Racing: acc.Racing, GardenMap: acc.GardenMap, Landscapes: acc.Landscapes, Pins: acc.Pins,
 		DiaryProfile: acc.DiaryProfile, Wishes: acc.Wishes, Butlers: acc.Butlers,
-		Dyes: acc.Dyes, DyeColors: acc.DyeColors, LuckySpinDay: acc.LuckySpinDay,
+		Dyes: acc.Dyes, DyeColors: acc.DyeColors, LuckySpinDay: acc.LuckySpinDay, AvatarCreated: acc.AvatarCreated,
 		Identity: acc.Identity, CodeHashes: acc.CodeHashes, Ban: acc.Ban,
 	}
 }
@@ -498,7 +499,7 @@ func accountFromStored(saved StoredAccount) *Account {
 		Atelier: saved.Atelier,
 		Racing:  saved.Racing, GardenMap: saved.GardenMap, Landscapes: saved.Landscapes,
 		Pins: saved.Pins, DiaryProfile: saved.DiaryProfile, Wishes: saved.Wishes, Butlers: saved.Butlers,
-		Dyes: saved.Dyes, DyeColors: saved.DyeColors, LuckySpinDay: saved.LuckySpinDay,
+		Dyes: saved.Dyes, DyeColors: saved.DyeColors, LuckySpinDay: saved.LuckySpinDay, AvatarCreated: saved.AvatarCreated,
 		GuestCode: saved.GuestCode, Identity: saved.Identity, CodeHashes: saved.CodeHashes, Ban: saved.Ban,
 	}
 }

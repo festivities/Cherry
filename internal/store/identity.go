@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
+	"slices"
 )
 
 // Provider identities (CONTRACT §3, slice 8.6a). An identity ("discord:<id>" or "dev-<name>") is stored on its account
@@ -98,17 +99,93 @@ func MintIdentityCode(identity, codeHash string, mayCreate bool) (aid string, is
 
 // CodeLogin serves guest/generate in discord and dev-fake modes: the account whose stored hashes include the hash of code
 // gets an access token as GuestLogin gives one. ErrUnknownCode when no account holds it (a deleted account takes its codes).
+// The newest sign-in wins, as on LINE's servers (client string 10066: "The same account has been used on another device"):
+// it ends every earlier login of the account and every other code (endLoginsLocked), then OnTakeover tells the older
+// device and closes its live connections. Only a fresh Discord sign-in (exchange) brings an older device back.
 // ponytail: linear scan over accounts; index the hashes when the account table grows.
 func CodeLogin(code string) (string, error) {
-	h := []byte(CodeHash(code))
+	h := CodeHash(code)
 	AccountsMu.Lock()
-	defer AccountsMu.Unlock()
-	for _, acc := range accountList {
-		for _, stored := range acc.CodeHashes {
-			if subtle.ConstantTimeCompare([]byte(stored), h) == 1 {
-				return loginAliasLocked(acc)
+	var acc *Account
+	for _, a := range accountList {
+		for _, stored := range a.CodeHashes {
+			if subtle.ConstantTimeCompare([]byte(stored), []byte(h)) == 1 {
+				acc = a
 			}
 		}
 	}
-	return "", ErrUnknownCode
+	if acc == nil {
+		AccountsMu.Unlock()
+		return "", ErrUnknownCode
+	}
+	token, err := endLoginsLocked(acc, h)
+	aid := acc.Aid
+	AccountsMu.Unlock()
+	if err == nil && OnTakeover != nil {
+		OnTakeover(aid)
+	}
+	return token, err
+}
+
+// OnTakeover is called after a sign-in ended the account's earlier logins, with its avatar id ("0" when it has none).
+// cmd/cherry sets it to lpn.KickAid: the older device is told and its live connections close. It runs after AccountsMu
+// is released. Nil does nothing.
+var OnTakeover func(aid string)
+
+// Logout serves PUT sessionout for the account a clear token resolves to: every login and every code of the account ends
+// (endLoginsLocked), then OnRevoke closes its live connections, so the player signs in with Discord again. It reports
+// whether an account was found. A failed save leaves the account as it was and returns the error.
+func Logout(token string) (bool, error) {
+	AccountsMu.Lock()
+	acc := AccountByTokenLocked(token)
+	if acc == nil {
+		AccountsMu.Unlock()
+		return false, nil
+	}
+	_, err := endLoginsLocked(acc, "")
+	aid := acc.Aid
+	AccountsMu.Unlock()
+	if err == nil && OnRevoke != nil {
+		OnRevoke(aid)
+	}
+	return true, err
+}
+
+// endLoginsLocked ends every login of the account: every token stops resolving (in memory and, in the same save, the
+// token rows) and the session key rotates, so an older device's checkSession, API calls, sendInit and gateway logins all
+// fail. The stored codes go too, except keepCode (a code hash): a sign-in keeps the code it used, a logout keeps none,
+// so a device that kept its code needs a new Discord sign-in. With keepCode the account then gets a new alias (returned)
+// and becomes the latest account, in the same save. A banned account gets ErrBanned. On error acc is as it was. Caller
+// holds AccountsMu.
+func endLoginsLocked(acc *Account, keepCode string) (string, error) {
+	if acc.Ban != nil {
+		return "", ErrBanned
+	}
+	rs := accountRows[acc]
+	prev, prevRS, prevPending, prevLatest := *acc, *rs, slices.Clone(pendingTokens), LatestAcc
+	prevHashes := AccountTokenHashesLocked(acc)
+	for _, h := range prevHashes {
+		delete(accountsByHash, h)
+	}
+	pendingTokens = slices.DeleteFunc(pendingTokens, func(p pendingToken) bool { return p.acc == acc })
+	rotateSessionKey(acc)
+	rs.revoke = true // the save deletes the account's token rows before it writes a new alias (as a ban does)
+	acc.CodeHashes = nil
+	var token string
+	if keepCode != "" {
+		acc.CodeHashes = []string{keepCode}
+		token = AddAliasLocked(acc)
+		LatestAcc = acc
+	}
+	if err := SaveLocked(nil, acc); err != nil {
+		if token != "" {
+			dropTokenLocked(CodeHash(token))
+		}
+		*acc, *rs, pendingTokens, LatestAcc = prev, prevRS, prevPending, prevLatest
+		for _, h := range prevHashes {
+			accountsByHash[h] = acc
+		}
+		return "", err
+	}
+	return token, nil
 }

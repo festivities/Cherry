@@ -76,14 +76,14 @@ func gatewayLoginCount() int {
 	return len(gatewayLogins)
 }
 
-// TestBanClosesTheBannedAccountsConnections: a ban (through the store's OnBan hook) ends the banned account's :10123 session
+// TestBanClosesTheBannedAccountsConnections: a ban (through the store's OnRevoke hook) ends the banned account's :10123 session
 // and its gateway connection, each through its own teardown; another account's connections stay open and answer.
 func TestBanClosesTheBannedAccountsConnections(t *testing.T) {
 	testutil.UseDatabase(t)
 	installLoginPair(t)
-	prev := store.OnBan
-	store.OnBan = CloseAid
-	t.Cleanup(func() { store.OnBan = prev })
+	prev := store.OnRevoke
+	store.OnRevoke = CloseAid
+	t.Cleanup(func() { store.OnRevoke = prev })
 
 	addr := listenSession(t)
 	sessA := dialSession(t, addr)
@@ -152,4 +152,29 @@ func TestCloseAidEndsEachAgentsLogin(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestKickAidPushesThenCloses: a sign-in elsewhere (KickAid) sends the older session the 0x1F frame (the client's
+// processPacket case 15, error 2002 = "used on another device"), then closes it and its gateway connection; another
+// account's session stays.
+func TestKickAidPushesThenCloses(t *testing.T) {
+	testutil.UseDatabase(t)
+	installLoginPair(t)
+	addr := listenSession(t)
+	sessA := dialSession(t, addr)
+	sendInit(t, sessA, "sk-9101")
+	sessB := dialSession(t, addr)
+	sendInit(t, sessB, "sk-9102")
+	gwA, _, doneA := gatewayConn(t)
+	sendAndPing(t, gwA, gwFrame(10, 0, loginRequest("sk-9101", loginAidA)))
+
+	KickAid("9101")
+	if got := readSessionFrame(t, sessA); !bytes.Equal(got, buildLOFrame(loOpKick, 0, []byte(kickPayload))) {
+		t.Fatalf("kick frame = %x", got)
+	}
+	expectClosed(t, sessA)
+	waitDone(t, doneA)
+	expectClosed(t, gwA)
+	sessionPing(t, sessB)
+	KickAid("0") // no avatar, no connections
 }

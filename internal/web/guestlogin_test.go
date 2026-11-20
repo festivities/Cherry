@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"cherry/internal/httpx"
 	"cherry/internal/store"
@@ -145,5 +147,49 @@ func TestGuestGenerateSkipsDeletedAccount(t *testing.T) {
 	fresh := sessionOf(t, guestGenerateCode(t, deviceA))
 	if fresh.Aid != "0" || fresh.SessionKey == acc.SessionKey {
 		t.Fatalf("device after delete got %+v, want a fresh account", fresh)
+	}
+}
+
+// TestSessionOutAndAvatarBirthday: the profile carries the avatar's creation time as result.created (epoch ms, the
+// client's "Avatar Birthday") with birthday true; PUT sessionout (the settings Logout) answers 200 {"result":true}, the
+// only reply the client logs out on, and ends the login (checkSession 404 after); a repeat still answers true.
+func TestSessionOutAndAvatarBirthday(t *testing.T) {
+	guestAccountTest(t)
+	before := time.Now().UnixMilli()
+	token := guestGenerateCode(t, deviceA)
+	avAuth := avAuthValue(t, createSession(t, token))
+	aid := createAvatarID(t, avAuth, `{"name":"Bday","avatarType":"FEMALE","nationCode":"JP","skinColor":"1","itemCodes":["CUON00164"]}`)
+
+	rec := serveRequest(t, httptest.NewRequest(http.MethodGet, "/v4/profile/"+aid+"?deviceType=Android", nil))
+	var profile struct {
+		Result struct {
+			Created  string `json:"created"`
+			Birthday bool   `json:"birthday"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &profile); err != nil || rec.Code != http.StatusOK {
+		t.Fatalf("profile = %d %s", rec.Code, rec.Body.String())
+	}
+	if ms, err := strconv.ParseInt(profile.Result.Created, 10, 64); err != nil || ms < before || ms > time.Now().UnixMilli() || !profile.Result.Birthday {
+		t.Fatalf("profile created %q birthday %v, want the creation time in ms", profile.Result.Created, profile.Result.Birthday)
+	}
+
+	live := avAuthValue(t, checkSession(t, avAuth))
+	out := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPut, "/v4/sessionout", strings.NewReader("null"))
+		req.AddCookie(&http.Cookie{Name: "AV_AUTH", Value: live})
+		return serveRequest(t, req)
+	}
+	if rec := out(); rec.Code != http.StatusOK || rec.Body.String() != `{"result":true}` {
+		t.Fatalf("sessionout = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := checkSession(t, live); rec.Code != http.StatusNotFound {
+		t.Fatalf("checkSession after logout = %d, want 404", rec.Code)
+	}
+	if rec := out(); rec.Code != http.StatusOK || rec.Body.String() != `{"result":true}` {
+		t.Fatalf("repeat sessionout = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := serveRequest(t, httptest.NewRequest(http.MethodGet, "/v4/sessionout", nil)); rec.Code != http.StatusNotFound {
+		t.Fatalf("GET sessionout = %d, want 404", rec.Code)
 	}
 }

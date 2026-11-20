@@ -173,6 +173,9 @@ func handleProfile(w http.ResponseWriter, r *http.Request) {
 			body["obsProfileImagePath"], body["obsWholeBodyProfileImagePath"], body["bg"] = pi.Image, pi.WholeBody, pi.Bg
 		}
 		body["intro"] = profileIntro(acc) // ParseJson (0x1b6f000) reads result.intro as the Status Message
+		// "Avatar Birthday" (NaProfilePopup::SetBirthday 0x21de278): result.created read asString, epoch ms, shown at GMT+9;
+		// birthday (asBool) shows the row. duplogin-spec.md section 6.
+		body["created"], body["birthday"] = strconv.FormatInt(store.AvatarBirthday(aid), 10), true
 		profileJSON(w, body)
 		return
 	}

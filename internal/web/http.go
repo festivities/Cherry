@@ -345,6 +345,7 @@ func newMux(svc *auth.Service) http.Handler {
 	mux.HandleFunc("/v4/account/guest/generate", handleGuestGenerate)
 	mux.HandleFunc("/v4/createSession", handleCreateSession)
 	mux.HandleFunc("/v4/checkSession", handleCheckSession)
+	mux.HandleFunc("/v4/sessionout", handleSessionOut)
 	mux.HandleFunc("/v4/create/avatar", handleCreateAvatar)
 	mux.HandleFunc("/v4/create/all/items", handleCreateAllItems)
 	mux.HandleFunc("/v4/create/face/setitems/roll", handleCreateFaceSetItemsRoll)
@@ -783,6 +784,22 @@ func handleCheckSession(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, fmt.Sprintf(`{"Timestamp":"%d","result":%s}`, time.Now().Unix(), sessionResultBody(acc)))
 }
 
+// handleSessionOut serves PUT /v4/sessionout, the settings Logout and the terms popup's X (ReqLogoutWithCachePolicy
+// 0x1bda75c, body "null"). The account of the AV_AUTH cookie loses every login and code (store.Logout), so it signs in with
+// Discord again. The client logs out locally only on 200 with result true (ResLogoutWithCachePolicy 0x1b6a4e8, asBool);
+// any error is its "Network Error". A request whose login is already gone gets true too: the device has nothing to keep.
+func handleSessionOut(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		httpx.ServeNotFound(w)
+		return
+	}
+	if _, err := store.Logout(httpx.CookieValue(r, "AV_AUTH")); err != nil {
+		httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, `{"result":true}`)
+}
+
 const maxCreateAvatarBody = httpx.MaxJSONBody
 
 type createAvatarRequest struct {
@@ -950,6 +967,7 @@ func handleCreateAvatar(w http.ResponseWriter, r *http.Request) {
 			store.NextAvatarID++
 		}
 		acc.Aid = strconv.FormatUint(store.NextAvatarID, 10)
+		acc.AvatarCreated = time.Now().UnixMilli() // the profile's "Avatar Birthday"
 	}
 	acc.Name = req.Name
 	acc.Gender = gender

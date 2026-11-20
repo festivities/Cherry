@@ -27,6 +27,7 @@ const (
 	loOpSendInit  = 0x00
 	loOpConfigure = 0x10
 	loOpPush      = 0x1B // a server push (type 27): the client's processPacket case 11 (boss-mp-addendum 1d)
+	loOpKick      = 0x1F // processPacket case 15 (parseBan 0x1b3c190): the client drops the session and sets error 2002 (duplogin-spec.md)
 	// maxSessionPreAuthFrameLen bounds a frame until the connection has bound an account. The largest legitimate one is
 	// sendInit's JSON (well under 1 KiB). ponytail: 64 KiB is over 60x that; measure before shrinking.
 	maxSessionPreAuthFrameLen = 64 << 10

@@ -173,8 +173,11 @@ func TestBanSurvivesResetIdentity(t *testing.T) {
 	if !IdentityBanned("dev-rs") {
 		t.Fatal("the reset dropped the ban")
 	}
-	if _, err := CodeLogin("dev-rs code"); !errors.Is(err, ErrBanned) {
-		t.Fatalf("code login after the reset: err %v, want ErrBanned", err)
+	if _, err := CodeLogin("dev-rs code"); !errors.Is(err, ErrUnknownCode) { // the reset dropped the codes
+		t.Fatalf("code login after the reset: err %v, want ErrUnknownCode", err)
+	}
+	if _, _, err := MintIdentityCode("dev-rs", CodeHash("new code"), true); !errors.Is(err, ErrBanned) {
+		t.Fatalf("a new sign-in after the reset: err %v, want ErrBanned", err)
 	}
 }
 
@@ -627,14 +630,14 @@ func TestRemovalFailureChangesNothing(t *testing.T) {
 	}
 }
 
-// TestBanCallsOnBanOnlyOnASavedBan: OnBan gets the banned avatar id after a ban is saved, and is not called for a refused one.
-func TestBanCallsOnBanOnlyOnASavedBan(t *testing.T) {
+// TestBanCallsOnRevokeOnlyOnASavedBan: OnRevoke gets the banned avatar id after a ban is saved, and is not called for a refused one.
+func TestBanCallsOnRevokeOnlyOnASavedBan(t *testing.T) {
 	socialDB(t)
 	_, id := staffAccount(t, "dev-hk", "1114", "Hooked", 0)
 	var got []string
-	prev := OnBan
-	OnBan = func(aid string) { got = append(got, aid) }
-	t.Cleanup(func() { OnBan = prev })
+	prev := OnRevoke
+	OnRevoke = func(aid string) { got = append(got, aid) }
+	t.Cleanup(func() { OnRevoke = prev })
 	if err := BanPlayer(id, "spam", "discord:1"); err != nil {
 		t.Fatal(err)
 	}
@@ -642,6 +645,6 @@ func TestBanCallsOnBanOnlyOnASavedBan(t *testing.T) {
 		t.Fatalf("second ban: err %v", err)
 	}
 	if len(got) != 1 || got[0] != "1114" {
-		t.Fatalf("OnBan calls = %v, want [1114]", got)
+		t.Fatalf("OnRevoke calls = %v, want [1114]", got)
 	}
 }

@@ -62,7 +62,7 @@ func unbindGatewayLogins(conn *lockedConn) {
 
 // CloseAid ends every live connection of the account with avatar id aid: its :10123 session and each gateway
 // connection that verified a login for it. Closing a connection makes its own goroutine run the usual teardown (unbind,
-// leave); this function does not wait for that and holds no lock while it closes. It is the store's OnBan hook (cmd/cherry)
+// leave); this function does not wait for that and holds no lock while it closes. It is the store's OnRevoke hook (cmd/cherry)
 // and the staff Kick (the account is not banned: it can sign in again at once).
 func CloseAid(aid string) {
 	n, err := strconv.ParseUint(aid, 10, 64)
@@ -85,4 +85,19 @@ func CloseAid(aid string) {
 	for _, c := range conns {
 		_ = c.Close()
 	}
+}
+
+// kickPayload is the 0x1F frame's JSON. parseBan reads these keys without requiring any; the client shows nothing of them.
+const kickPayload = `{"message":"","penaltyCode":"","penaltyStartDate":"0","penaltyEndDate":"0","penaltyDay":0}`
+
+// KickAid tells the account's older device that it signed in elsewhere, then ends its live connections (CloseAid). The
+// 0x1F push makes the stock client drop its session socket and queue error 2002, whose popup is string 10066 ("The same
+// account has been used on another device"). It is the store's OnTakeover hook (cmd/cherry).
+// ponytail: statically the 10066 popup also needs a maintenance-type push to become visible (duplogin-spec.md section 1);
+// add that only after a device run shows 0x1F alone draws nothing.
+func KickAid(aid string) {
+	if n, err := strconv.ParseUint(aid, 10, 64); err == nil && n != 0 {
+		_, _ = sessionPush(n, loOpKick, []byte(kickPayload))
+	}
+	CloseAid(aid)
 }

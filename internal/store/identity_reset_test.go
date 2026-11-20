@@ -138,7 +138,7 @@ func TestResetIdentityRevokesEveryToken(t *testing.T) {
 		if !got.Welcomed || !got.BossBook[4901] || got.Butlers == nil || !got.Butlers.FreeUsed || got.Butlers.Leader != 0 {
 			t.Fatalf("%s: once-only grants lost: welcomed=%v boss=%v butlers=%+v", when, got.Welcomed, got.BossBook, got.Butlers)
 		}
-		if len(got.CodeHashes) != 1 || got.SessionKey == session {
+		if len(got.CodeHashes) != 0 || got.SessionKey == session { // Delete Avatar drops the codes: a new Discord sign-in
 			t.Fatalf("%s: identity or session wrong (codes %d, session rotated %v)", when, len(got.CodeHashes), got.SessionKey != session)
 		}
 		if resolves(own) != nil || resolves(alias) != nil {
@@ -189,7 +189,7 @@ func TestResetIdentityRevokesEveryToken(t *testing.T) {
 	if reloaded == nil || resolves(token) != reloaded || resolves(own) != nil || resolves(alias) != nil {
 		t.Fatal("after a reload the sign-in or the revoked tokens differ from the record")
 	}
-	if rows := tokenRows(t, d, reloaded); len(rows) != 2 {
-		t.Fatalf("after a reload: %d token rows, want the fresh own token and the new alias", len(rows))
+	if rows := tokenRows(t, d, reloaded); !slices.Equal(rows, []string{CodeHash(token)}) {
+		t.Fatalf("after a reload: %d token rows, want only the new alias (the sign-in ends the reset's own token)", len(rows))
 	}
 }

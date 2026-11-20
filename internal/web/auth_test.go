@@ -90,9 +90,14 @@ func TestDevFakeRoundTripThroughRealMux(t *testing.T) {
 		t.Fatalf("create avatar = %d %s", created.Code, created.Body.String())
 	}
 
+	// A second sign-in reaches the same account and ends the first login (the newest device wins): the session key
+	// rotates and the first token no longer opens a session.
 	again := guestGenerateCode(t, minted.UniqueCode)
-	if got := sessionOf(t, again); got.Aid != avatar.Result.AvatarID || got.SessionKey != first.SessionKey {
-		t.Fatalf("second guest/generate gave aid %s, want the same account %s", got.Aid, avatar.Result.AvatarID)
+	if got := sessionOf(t, again); got.Aid != avatar.Result.AvatarID || got.SessionKey == first.SessionKey {
+		t.Fatalf("second guest/generate gave aid %s (want %s), session key rotated %v", got.Aid, avatar.Result.AvatarID, got.SessionKey != first.SessionKey)
+	}
+	if rec := createSession(t, token); rec.Code != http.StatusNotFound {
+		t.Fatalf("the first sign-in's token after the second sign-in: createSession = %d, want 404", rec.Code)
 	}
 
 	secrets := []string{ticket, verifier, minted.UniqueCode, "dev:alice", state}

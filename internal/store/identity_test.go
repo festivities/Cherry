@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // attachTestDB makes a fresh database the store's record for one test, with no accounts; cleanup detaches it and puts the
@@ -106,23 +108,23 @@ func TestMintIdentityCodeCapsAndLogsIn(t *testing.T) {
 	if n != maxCodeHashes || count != 1 {
 		t.Fatalf("codes = %d, accounts = %d; want %d codes on one account", n, count, maxCodeHashes)
 	}
-	for i, code := range codes {
-		token, err := CodeLogin(code)
-		if i == 0 {
-			if err != ErrUnknownCode {
-				t.Fatalf("dropped code: err = %v, want ErrUnknownCode", err)
-			}
-			continue
-		}
-		if err != nil {
-			t.Fatalf("code %d: %v", i, err)
-		}
-		AccountsMu.Lock()
-		got := AccountByTokenLocked(token)
-		AccountsMu.Unlock()
-		if got == nil || got.Identity != identity {
-			t.Fatalf("code %d logged in to %+v, want the identity's account", i, got)
-		}
+	if _, err := CodeLogin(codes[0]); err != ErrUnknownCode {
+		t.Fatalf("dropped code: err = %v, want ErrUnknownCode", err)
+	}
+	// Any kept code signs in; the sign-in then keeps only its own code (TestSignInEndsTheOtherDevicesLogin).
+	last := codes[len(codes)-1]
+	token, err := CodeLogin(last)
+	if err != nil {
+		t.Fatalf("newest code: %v", err)
+	}
+	AccountsMu.Lock()
+	got := AccountByTokenLocked(token)
+	AccountsMu.Unlock()
+	if got == nil || got.Identity != identity {
+		t.Fatalf("newest code logged in to %+v, want the identity's account", got)
+	}
+	if _, err := CodeLogin(codes[1]); err != ErrUnknownCode {
+		t.Fatalf("an older code after the sign-in: err = %v, want ErrUnknownCode", err)
 	}
 	if stored := rowText(t, d); strings.Contains(stored, codes[len(codes)-1]) || strings.Contains(stored, codes[1]) {
 		t.Fatal("a uniqueCode appears in the database; only its hash may")
@@ -133,7 +135,7 @@ func TestMintIdentityCodeCapsAndLogsIn(t *testing.T) {
 	AccountsMu.Lock()
 	reloaded := IdentityAccountLocked(identity)
 	AccountsMu.Unlock()
-	if reloaded == nil || len(reloaded.CodeHashes) != maxCodeHashes {
+	if reloaded == nil || !slices.Equal(reloaded.CodeHashes, []string{CodeHash(last)}) {
 		t.Fatalf("reloaded identity = %+v, want its codes back", reloaded)
 	}
 }
@@ -180,5 +182,150 @@ func TestCodeLoginRefusesUnknownCode(t *testing.T) {
 	attachTestDB(t)
 	if _, err := CodeLogin("00000000-0000-4000-8000-000000000001"); err != ErrUnknownCode {
 		t.Fatalf("err = %v, want ErrUnknownCode", err)
+	}
+}
+
+// TestSignInEndsTheOtherDevicesLogin: a sign-in on a second device (a second minted code) ends the first device's login,
+// as LINE's servers did (client string 10066): its own token and aliases stop resolving, in memory and in the token rows,
+// the session key rotates, the first device's code stops working, OnTakeover gets the avatar id, and the second device's
+// alias works. A failed save changes nothing.
+func TestSignInEndsTheOtherDevicesLogin(t *testing.T) {
+	d := attachTestDB(t)
+	var kicked []string
+	prev := OnTakeover
+	OnTakeover = func(aid string) { kicked = append(kicked, aid) }
+	t.Cleanup(func() { OnTakeover = prev })
+	if _, _, err := MintIdentityCode("dev-two", CodeHash("device a"), true); err != nil {
+		t.Fatal(err)
+	}
+	first, err := CodeLogin("device a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	AccountsMu.Lock()
+	acc := IdentityAccountLocked("dev-two")
+	acc.Aid = "1201"
+	later, err := MintAliasLocked(acc) // device a's createSession / checkSession alias
+	session := acc.SessionKey
+	AccountsMu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := MintIdentityCode("dev-two", CodeHash("device b"), true); err != nil { // device b's Discord sign-in
+		t.Fatal(err)
+	}
+	second, err := CodeLogin("device b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolves(first) != nil || resolves(later) != nil {
+		t.Fatal("device a's login still resolves after device b signed in")
+	}
+	if resolves(second) != acc {
+		t.Fatal("device b's alias does not resolve to the account")
+	}
+	AccountsMu.Lock()
+	rotated := acc.SessionKey != session && !HoldsSessionKeyLocked(acc, []byte(session))
+	codes := slices.Clone(acc.CodeHashes)
+	AccountsMu.Unlock()
+	if !rotated {
+		t.Fatal("device a's session key still holds")
+	}
+	if !slices.Equal(codes, []string{CodeHash("device b")}) {
+		t.Fatalf("stored codes %d, want only device b's", len(codes))
+	}
+	if _, err := CodeLogin("device a"); err != ErrUnknownCode {
+		t.Fatalf("device a's code after device b signed in: err %v, want ErrUnknownCode", err)
+	}
+	if !slices.Equal(kicked, []string{"0", "1201"}) {
+		t.Fatalf("OnTakeover calls = %v, want [0 1201]", kicked)
+	}
+	if rows := tokenRows(t, d, acc); !slices.Equal(rows, []string{CodeHash(second)}) {
+		t.Fatalf("token rows %d, want only device b's alias", len(rows))
+	}
+
+	if err := d.Close(); err != nil { // every save from now on fails
+		t.Fatal(err)
+	}
+	if _, err := CodeLogin("device b"); err == nil {
+		t.Fatal("a sign-in with a failing save succeeded")
+	}
+	if resolves(second) != acc || len(kicked) != 2 {
+		t.Fatal("a failed sign-in ended device b's login")
+	}
+}
+
+// TestLogoutEndsEveryLoginAndCode: Logout ends the account's tokens and codes and rotates its session key, so only a new
+// Discord sign-in (a new code) gets back in; OnRevoke gets the avatar id. An unknown token finds no account.
+func TestLogoutEndsEveryLoginAndCode(t *testing.T) {
+	d := attachTestDB(t)
+	var closed []string
+	prev := OnRevoke
+	OnRevoke = func(aid string) { closed = append(closed, aid) }
+	t.Cleanup(func() { OnRevoke = prev })
+	if _, _, err := MintIdentityCode("dev-out", CodeHash("out code"), true); err != nil {
+		t.Fatal(err)
+	}
+	token, err := CodeLogin("out code")
+	if err != nil {
+		t.Fatal(err)
+	}
+	AccountsMu.Lock()
+	acc := IdentityAccountLocked("dev-out")
+	acc.Aid = "1202"
+	session := acc.SessionKey
+	AccountsMu.Unlock()
+	if found, err := Logout(token); !found || err != nil {
+		t.Fatalf("logout = %v %v", found, err)
+	}
+	AccountsMu.Lock()
+	rotated, codes := acc.SessionKey != session, len(acc.CodeHashes)
+	AccountsMu.Unlock()
+	if resolves(token) != nil || !rotated || codes != 0 || len(tokenRows(t, d, acc)) != 0 {
+		t.Fatalf("after logout: token resolves %v, session rotated %v, codes %d", resolves(token) != nil, rotated, codes)
+	}
+	if !slices.Equal(closed, []string{"1202"}) {
+		t.Fatalf("OnRevoke calls = %v, want [1202]", closed)
+	}
+	if _, err := CodeLogin("out code"); err != ErrUnknownCode {
+		t.Fatalf("the logged-out code: err %v, want ErrUnknownCode", err)
+	}
+	if found, err := Logout(token); found || err != nil {
+		t.Fatalf("second logout = %v %v, want no account", found, err)
+	}
+}
+
+// TestAvatarBirthdayBackfill: an avatar made before AvatarCreated was kept gets the time of its first ledger line, once,
+// and keeps it after a reload; an unknown aid is 0.
+func TestAvatarBirthdayBackfill(t *testing.T) {
+	attachTestDB(t)
+	if _, _, err := MintIdentityCode("dev-bd", CodeHash("bd code"), true); err != nil {
+		t.Fatal(err)
+	}
+	AccountsMu.Lock()
+	acc := IdentityAccountLocked("dev-bd")
+	acc.Aid = "1301"
+	err := SaveLocked([]LedgerLine{
+		{Time: "2026-11-15T10:00:00Z", Aid: "1301", Currency: "gems", Delta: 300, Balance: 300, Reason: "welcome"},
+		{Time: "2026-11-16T10:00:00Z", Aid: "1301", Currency: "gems", Delta: 30, Balance: 330, Reason: "later"},
+	}, acc)
+	AccountsMu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, _ := time.Parse(time.RFC3339, "2026-11-15T10:00:00Z")
+	want := first.UnixMilli()
+	if got := AvatarBirthday("1301"); got != want {
+		t.Fatalf("backfilled birthday = %d, want %d", got, want)
+	}
+	if err := ReloadAccounts(); err != nil {
+		t.Fatal(err)
+	}
+	AccountsMu.Lock()
+	saved := IdentityAccountLocked("dev-bd").AvatarCreated
+	AccountsMu.Unlock()
+	if saved != want || AvatarBirthday("9999") != 0 {
+		t.Fatalf("after reload %d, unknown aid %d", saved, AvatarBirthday("9999"))
 	}
 }

@@ -33,9 +33,10 @@ var (
 	ErrNicknameCopies = errors.New("the nickname is saved, but its diary and guestbook copies are not; repeat the rename to write them")
 )
 
-// OnBan is called once a ban is saved, with the banned account's avatar id ("0" when it has none). cmd/cherry sets it to
-// lpn.CloseAid, which ends the account's live connections. It runs after AccountsMu is released. Nil does nothing.
-var OnBan func(aid string)
+// OnRevoke is called once a ban or a logout (Logout) is saved, with the account's avatar id ("0" when it has none).
+// cmd/cherry sets it to lpn.CloseAid, which ends the account's live connections. It runs after AccountsMu is released.
+// Nil does nothing.
+var OnRevoke func(aid string)
 
 const (
 	playerSearchMax = 50      // rows of a search; a search that has more says so
@@ -191,11 +192,11 @@ func PlayerLedger(id int64, limit int) ([]LedgerLine, error) {
 // BanPlayer bans the account with row id. Its record gets the ban; every token of the account stops resolving (its own and
 // its aliases, in memory and, in the same save, in the token rows); and its session key is replaced, so the gateway logins
 // that check it fail. A session key is replaced, not emptied: after an unban the sign-in hands out the key again, and an
-// empty one would be a broken login. Then OnBan ends the account's live connections. On error nothing changes.
+// empty one would be a broken login. Then OnRevoke ends the account's live connections. On error nothing changes.
 func BanPlayer(id int64, reason, actor string) error {
 	aid, err := banPlayer(id, reason, actor)
-	if err == nil && OnBan != nil {
-		OnBan(aid)
+	if err == nil && OnRevoke != nil {
+		OnRevoke(aid)
 	}
 	return err
 }
