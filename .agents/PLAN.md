@@ -8,43 +8,22 @@ Last revision: 2026-11-22 ~03:10 (main agent, handoff at the user's request afte
 
 When the user says they are **moving to another conversation whose agent has no context at all**, the outgoing agent MUST record it here as **HANDOFF INITIATED** with a self-sufficient state snapshot, and the receiving agent MUST append **HANDOFF ACCEPTED** (dated, with any state corrections) once it has loaded context. Older INITIATED/ACCEPTED pairs move to HISTORY.md once accepted.
 
-Earlier handoffs are in HISTORY.md: the LAST section is the 2026-11-21 ~23:45 → 2026-11-22 ~00:10 pair (Square chat & Square exit fix `6898539`, `ds_easter` removal `2b7c1e7`, social/diary/Diary Design fixes `777fd36`); above it the 2026-11-21 ~21:40 → 2026-11-21 pair (public launch on `4fd87ec`; README task, done).
+Earlier handoffs are in [HISTORY.md](HISTORY.md); the latest covers the 03:10 handoff and this session's Issue B triage.
 
-### HANDOFF INITIATED — 2026-11-22 ~03:10 host time (Antigravity, Cherry session → next agent; focus: Issue A pets not showing up, Issue B iOS chat ToS / Square keyboard crash)
+### HANDOFF INITIATED — 2026-11-22 (OpenCode, Cherry → next session; Raspberry's Issue B reply expected)
 
-**Production state:** Deploying `777fd36` (public sign-ups open `auth.signup = open`, real players online!). R2 bucket `cherry-assets` updated in this session:
-- Removed corrupted 101 MB `static/animation/world_icon/ds_easter_w_exchange_i0.png` and updated `cherry/manifest/animation.json` (`2b7c1e7`; fresh installs now ~247 MB instead of ~348 MB).
-- Uploaded 6 additional original `DiarySkin` `skin_info.json` files (`00002`, `00003`, `00015` from santi; `00005`, `00009`, `00016` from robo) to R2 `static/DiarySkin/` (8 objects total, 99 KB).
-- Rules as before: **never deploy, restart, or touch production data without explicit user approval**; Oracle host work is main-agent-only (read `/home/cherry/AGENTS.md` there first).
+**First action: read Raspberry's answer.** The user expects it to be ready when the next session starts. Read Raspberry's latest `.agents/CONTRACT.md` → “Requests to Cherry” and `.agents/PLAN.md` (macOS: `/Users/festivity/dev/Raspberry`; Windows: `D:\Dev\projects\Raspberry`; **read-only from Cherry**) alongside our [CONTRACT §10](CONTRACT.md#10-requests-to-raspberry-append-only-newest-last). Check what Raspberry actually reproduced or fixed on-device and whether it identifies a specific Cherry-served file or response. If the reply is absent from the checkout, check with the user before repeating the investigation. Recheck `git status`/tip and append **HANDOFF ACCEPTED** with Raspberry's actual findings and any state corrections.
 
-**Working tree & devices:** Clean on `main` (code commit `777fd36` + this handoff docs commit). AVD `Raspberry` (`emulator-5559`, `aid=10` `festivity`) is running. `.opencode/line-play-artifacts` is intact and git-ignored (8 entries, strictly read-only).
+**Issue B — current evidence, not a fix:**
+- **Square keyboard, physical iPhone on iOS 27:** UIKit abort from stock `PfEditText_iOS::TracePosition_x:y:width:height:` (preferred VA `0x1018493F0`) setting the multiline `LPTextView` frame. The relevant instruction windows match the unmodified IPA; Raspberry's Sideloadly startup-fix build has no keyboard-layout patch. The invalid value and its source are unknown. The journal matches a successful LINE Café (theme 3) entry/relay and immediate disconnect at the abort; no chat-send frame or server refusal. The login-time chat-background 404 was ~56 seconds earlier. This supports a client compatibility fix, but does **not** prove the original IPA would crash with LINE's original server and assets.
+- **Chat ToS Agree:** the supplied report only captures FrontBoard killing an exiting process after five seconds, while the stock thread-pool destructor is in `_pthread_join`. No agreement HTTP call matched the likely session; the journal has no tap timestamp. This is not evidence of the same keyboard defect or of a broken SNS login terms route. A fresh Agree-time console trace and the active `Chat_agreement.plist` layout/hash are missing, as are the Square exception reason and rejected frame, unless Raspberry's reply supplies them.
+- Keep Cherry's valid Square theme IDs and existing replies. If Raspberry confirms a client-only fix, record its build/device results; do not deploy Cherry for it. Reopen the server side only for an identified asset or wire discrepancy with evidence. The IDA spec (`cherry-issue-b-ios-spec.md` in this session's OpenCode scratch), raw `.ips` and IPA stay outside Git; CONTRACT §10 carries the portable evidence.
 
-**Read first:** [AGENTS.md](AGENTS.md) (Policies, Workflow, Production, Code map), [CONTRACT.md](CONTRACT.md) §10, [TESTING.md](TESTING.md) "AVD Raspberry", and for Issue B also **read** Raspberry's docs under `D:\Dev\projects\Raspberry\.agents\` (read-only from Cherry!).
+**Issue A — pets not showing up, not investigated yet.** After handling Raspberry's reply, scope the player report: bought versus equipped, representative versus arranged pet, and which scene. Inspect inventory/equip requests, `static/item/pet/` asset statuses and Garden/My Room/Square relay fields with privacy-preserving logs; relevant code is `internal/room/pet*`, `internal/lpn` and `internal/economy`. Reproduce and verify in the affected scene before changing replies. The catalog grew to 310 pets in `4fd87ec`; do not assume that is the cause.
 
-**Recheck and append HANDOFF ACCEPTED:** `git status` (clean on `main`), `cat /home/cherry/bin/cherry.commit` (`777fd36`) and `curl -s 127.0.0.1:8099/healthz` (`ok`) on the Oracle host if inspecting production.
+**Production and workspace:** Host notes confirm `777fd36` deployed at 03:08 +08:00 after both reports; public sign-ups are open. The `oracle-ubuntu` tool was used read-only. If returning to the host, the main agent reads `/home/cherry/AGENTS.md` first (sudo needed here). No deploy, restart, or production-data change without explicit user approval. No device run in this slice; verify AVD identity before testing. No archive is mounted in this Mac checkout; the user-supplied IPA and `.ips` were in Downloads. Never touch the archives or publish raw logs, IPAs, operator details or player data. Leave the unrelated untracked `.DS_Store` alone. This handoff changes docs only.
 
-**Issue A (primary): Pets are not showing up for people.**
-- User report (2026-11-22): "pets not showing up for people it seems."
-- Where to look first:
-  1. Read-only inspection of production `cherry.db` (`accounts` pets/equipped pets) and `journalctl -u cherry` for `/v4/pet/`, pet item GETs (`/arts_item_pet_...` or `/img/read/arts_item_pet_...`), Garden/Room/Square pet frames (`internal/room/pet*`, `internal/lpn/` pet relay/spawn packets, `internal/economy/` Minipet Shop & Pet Book).
-  2. Check whether bought/equipped pets are missing from `hc_room_relaystart_res` / Room Party / Garden / Square packets, whether pet `skinId` / `petId` / item art in R2 `static/item/pet/` is 404ing (remember `4fd87ec` expanded the Minipet Shop to 310 pets — check if newly added pets lack R2 art or have mismatched `skinId` / `petId` / `itemCode`), or whether `POST /v4/pet/...` equip/spawn state is not being saved or broadcast.
-  3. Reproduce and verify on AVD `Raspberry` (`emulator-5559`) once the root cause is identified and fixed.
-
-**Issue B: iOS crash on Chat ToS Agree button & Square (LINE Café) keyboard open — determine if Cherry or Raspberry bug.**
-- User report (2026-11-22):
-  - iOS users crash **immediately after tapping on the Agree button** for the Chat ToS prompt.
-  - Restarting the game and trying to chat in a Square (specifically **LINE Café**, theme `3`) by tapping the keyboard icon **immediately crashes the game as the iPhone keyboard shows up**.
-  - **Android users do not have Issue B** (Square chat in LINE Café/LINE City/Treasure Island was device-verified on Android AVD Raspberry after `6898539`).
-- **Explicit requirement:** Determine whether Issue B is a **Cherry** bug or a **Raspberry** (`D:\Dev\projects\Raspberry\.agents`, read-only) bug!
-- Where to look first:
-  1. Read `D:\Dev\projects\Raspberry\.agents\` (especially iOS patches, dylib/hooks, `CONTRACT.md`, UI/keyboard/ToS/entitlement/iOS 15–18 compatibility notes) to see what Raspberry patches on iOS (`jp.naver.lineplay_10.1.0_decrypted.ipa`).
-  2. Check production journal for iOS clients (`User-Agent="iphoneapp.lineplay/10.1.0 ..."`) around Square entry, Chat ToS (`terms` / `setting` / `diary` / `square`), and keyboard open to see if any HTTP 404/bad JSON or LPN frame precedes the crash, or if zero network traffic happens right at Agree / keyboard open (pointing to a client-side iOS UIKit / `UITextField` / `PfEditText` / ObjC selector / Raspberry patch crash).
-  3. Inspect `jp.naver.lineplay_10.1.0_decrypted.ipa` (read-only under `.opencode/line-play-artifacts/`) if needed via `reverse-engineer` to check the iOS Chat ToS Agree handler and iOS keyboard `ShowPlatformUI` / `PfEditText` path.
-  4. If it is a Cherry bug, fix it in Cherry; if it is a Raspberry bug, document the exact root cause, evidence, and requested fix in `CONTRACT.md` §10 (never edit `D:\Dev\projects\Raspberry` from this session).
-
-**Note on `777fd36` (just deployed):** Unit-tested and full-gate green (`-race` + `CHERRY_TEST_NO_ARCHIVE=1`), not yet device-tested on AVD Raspberry; optionally spot-check Profile Card Add Friend, Diary comment reply, and Diary Design picker on AVD Raspberry during testing.
-
-**Hazards:** Production is **LIVE & PUBLIC (`auth.signup = open`)** — never deploy, restart, or modify production data without explicit user approval; private production values never go into tracked files or commit messages; `.opencode/line-play-artifacts` is strictly read-only; stage named paths only; `D:\Dev\projects\Raspberry` is read-only; the Oracle host is main-agent-only.
+**Validation:** Formatting, native/cross Linux build and vet checks, and targeted Square/terms/iOS route race tests passed. The full local macOS test runs were not green on the unchanged code (operator/config and asset-switch tests, plus a gateway test in the no-archive run). The Linux CI gate passed on parent `2ff4ea3`, which has the identical code tree outside these docs.
 
 ## Status (2026-11-22)
 
