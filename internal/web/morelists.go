@@ -107,6 +107,10 @@ func handleMoreShopList(w http.ResponseWriter, r *http.Request) {
 // /v4/noti/event/<lang>/10.1.0/iPhone.nhn (Raspberry CONTRACT §4, 2026-11-19), with no rows.
 func handleMoreEventList(w http.ResponseWriter, r *http.Request) {
 	rest := strings.TrimPrefix(r.URL.Path, "/v4/noti/event/")
+	if count, ok := strings.CutPrefix(rest, "reddot/count/"); ok {
+		handleEventReddotCount(w, r, count)
+		return
+	}
 	lang, ok := strings.CutSuffix(rest, "/10.1.0.0/Android.nhn")
 	if !ok {
 		lang, ok = strings.CutSuffix(rest, "/10.1.0/iPhone.nhn")
@@ -117,6 +121,40 @@ func handleMoreEventList(w http.ResponseWriter, r *http.Request) {
 	}
 	httpx.WriteJSON(w, http.StatusOK, moreEventBody)
 }
+
+// eventReddotBody: no new events (ResEventMenuReddotCount 0x1a56f98: result asInt = the More Events dot count, timestamp
+// asString = what the client sends back next time). birthday-reddot-20261121/spec.md section 2.
+const eventReddotBody = `{"result":0,"timestamp":"0"}`
+
+// handleEventReddotCount serves GET /v4/noti/event/reddot/count/<lang>/10.1.0.0/Android/<ts>.nhn (eventMenuReddot
+// 0x1b7ee04, every 600 s) and the iOS spelling ending /iPhone/<ts>.nhn. rest is the path after "reddot/count/".
+func handleEventReddotCount(w http.ResponseWriter, r *http.Request, rest string) {
+	parts := strings.Split(strings.TrimSuffix(rest, ".nhn"), "/")
+	n := len(parts)
+	if r.Method != http.MethodGet || !strings.HasSuffix(rest, ".nhn") || n < 2 || !platformWord(parts[n-2]) || !httpx.IsAllDigits(parts[n-1]) {
+		httpx.ServeNotFound(w)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, eventReddotBody)
+}
+
+// settingMainBody is the badge-tick settings reply (ResSettingMainWithTimeStamp 0x1a8b794). The client keeps only
+// countryName from it (InitSettingMainFromServer; game sound comes from setting/all), so every value is the neutral one.
+// birthday-reddot-20261121/spec.md sections 3 and 4.5.
+const settingMainBody = `{"result":{"notiFlag":false,"noticeCount":"0","soundConfig":true,"changeCountry":false,"countryName":"","clover":0,"heart":0,"coin":0,"notiConfig":{"onlineNotiYn":true,"ingameNotiYn":true,"squareInvtNotiYn":true}}}`
+
+// handleSettingMain serves GET /v4/setting/Android/<n> and /v4/setting/iPhone/<n> (settingMainURLWithTimeStamp
+// 0x1acbf78; n is the client's stored time stamp, "0" on a fresh install).
+func handleSettingMain(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet || !platformWord(r.PathValue("platform")) || !httpx.IsAllDigits(r.PathValue("n")) {
+		httpx.ServeNotFound(w)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, settingMainBody)
+}
+
+// platformWord: the client's platform path segment, Android or (the iOS build) iPhone.
+func platformWord(s string) bool { return s == "Android" || s == "iPhone" }
 
 // handleSessionStatus serves POST /v4/session/status. The body is a bare JSON array of avatar id strings (chunks of
 // at most 200). The reply echoes each id in order; online = a live :10123 session (lpn.SessionOnline), busy is

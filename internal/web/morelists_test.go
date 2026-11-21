@@ -147,6 +147,35 @@ func TestMoreEventListIsEmpty(t *testing.T) {
 	}
 }
 
+// TestEventReddotAndSettingMain: the 600 s badge tick's two routes answer for Android and iPhone; other shapes stay 404.
+func TestEventReddotAndSettingMain(t *testing.T) {
+	for path, want := range map[string]string{
+		"/v4/noti/event/reddot/count/en/10.1.0.0/Android/0.nhn":          eventReddotBody,
+		"/v4/noti/event/reddot/count/ja/10.1.0/iPhone/1763700000000.nhn": eventReddotBody,
+		"/v4/setting/Android/0":            settingMainBody,
+		"/v4/setting/iPhone/1763700000000": settingMainBody,
+		"/v4/setting/all":                  settingAllBody,
+	} {
+		if rec := serve(t, http.MethodGet, path); rec.Code != http.StatusOK || rec.Body.String() != want {
+			t.Fatalf("%s: status %d body %s", path, rec.Code, rec.Body)
+		}
+	}
+	for _, path := range []string{
+		"/v4/noti/event/reddot/count/en/10.1.0.0/Windows/0.nhn",
+		"/v4/noti/event/reddot/count/en/10.1.0.0/Android/x.nhn",
+		"/v4/noti/event/reddot/count/en/10.1.0.0/Android/0",
+		"/v4/setting/Windows/0",
+		"/v4/setting/Android/abc",
+	} {
+		if rec := serve(t, http.MethodGet, path); rec.Code != http.StatusNotFound {
+			t.Fatalf("%s: status %d, want 404", path, rec.Code)
+		}
+	}
+	if rec := serve(t, http.MethodPost, "/v4/setting/Android/0"); rec.Code != http.StatusNotFound {
+		t.Fatalf("POST setting main: status %d, want 404", rec.Code)
+	}
+}
+
 func TestInviteInfoHasEmptyURLString(t *testing.T) {
 	rec := serve(t, http.MethodGet, "/v4/friends/invitation/info")
 	if rec.Code != http.StatusOK {
