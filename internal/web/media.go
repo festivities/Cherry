@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"image"
+	"image/color"
 	"image/draw"
 	"image/jpeg"
 	"image/png"
 	"io"
 	"log"
+	"math"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -25,11 +27,10 @@ import (
 
 const (
 	maxDiaryImageSize      int64 = 20 << 20
-	maxDiaryUploadSize     int64 = maxDiaryImageSize + (1 << 20)
 	diaryMultipartMemLimit       = 1 << 20
 	diaryImageMaxDimension       = 16_000
 	diaryImageMaxPixels          = 24_000_000
-	maxDiaryMediaStorage   int64 = 1 << 30
+	maxDiaryMediaStorage   int64 = config.DefaultUploadMaxTotalBytes
 	roomDownloadPath             = "/lineplay/r/download.nhn"
 )
 
@@ -45,7 +46,10 @@ const (
 	diaryMediaUnsignedBody   = `{"errorCode":"403","errorMessage":"cherry: sign in to upload"}`
 )
 
-var diaryMediaSaveMu sync.Mutex
+var (
+	diaryMediaSaveMu sync.Mutex
+	mediaCompressSem = make(chan struct{}, 2)
+)
 
 type mediaKind int
 
@@ -74,7 +78,12 @@ func handleDiaryImageUpload(w http.ResponseWriter, r *http.Request) {
 		writeDiaryMediaJSON(w, http.StatusInternalServerError, diaryMediaSaveFailedBody)
 		return
 	}
-	handleDiaryImageUploadAt(w, r, dir)
+	dirs, err := allMediaDirs()
+	if err != nil {
+		writeDiaryMediaJSON(w, http.StatusInternalServerError, diaryMediaSaveFailedBody)
+		return
+	}
+	handleMediaUploadIn(w, r, dir, dirs, store.UploadMaxTotalBytes(config.UploadMaxTotalBytes()), mediaDiary)
 }
 
 func handleDiaryImageDownload(w http.ResponseWriter, r *http.Request) {
@@ -100,7 +109,12 @@ func handleRoomImageUpload(w http.ResponseWriter, r *http.Request) {
 		writeDiaryMediaJSON(w, http.StatusInternalServerError, diaryMediaSaveFailedBody)
 		return
 	}
-	handleMediaUpload(w, r, dir, maxDiaryMediaStorage, mediaRoom)
+	dirs, err := allMediaDirs()
+	if err != nil {
+		writeDiaryMediaJSON(w, http.StatusInternalServerError, diaryMediaSaveFailedBody)
+		return
+	}
+	handleMediaUploadIn(w, r, dir, dirs, store.UploadMaxTotalBytes(config.UploadMaxTotalBytes()), mediaRoom)
 }
 
 func handleRoomImageDownload(w http.ResponseWriter, r *http.Request) {
@@ -125,7 +139,12 @@ func handleProfileImageUpload(w http.ResponseWriter, r *http.Request) {
 		writeDiaryMediaJSON(w, http.StatusInternalServerError, diaryMediaSaveFailedBody)
 		return
 	}
-	handleMediaUpload(w, r, dir, maxDiaryMediaStorage, mediaProfile)
+	dirs, err := allMediaDirs()
+	if err != nil {
+		writeDiaryMediaJSON(w, http.StatusInternalServerError, diaryMediaSaveFailedBody)
+		return
+	}
+	handleMediaUploadIn(w, r, dir, dirs, store.UploadMaxTotalBytes(config.UploadMaxTotalBytes()), mediaProfile)
 }
 
 // handleProfileImageDownload serves GET <obs>/lineplay/pr/<oid> and <obs-cdn>/r/lineplay/pr/<oid>
@@ -160,23 +179,43 @@ func defaultRoomMediaDir() (string, error) { return store.MediaDir(store.MediaRo
 
 func defaultDiaryMediaDir() (string, error) { return store.MediaDir(store.MediaDiary) }
 
+func allMediaDirs() ([]string, error) {
+	diary, err := defaultDiaryMediaDir()
+	if err != nil {
+		return nil, err
+	}
+	room, err := defaultRoomMediaDir()
+	if err != nil {
+		return nil, err
+	}
+	profile, err := defaultProfileMediaDir()
+	if err != nil {
+		return nil, err
+	}
+	return []string{diary, room, profile}, nil
+}
+
 // The At handlers take an explicit directory so tests can use disposable storage.
 func handleDiaryImageUploadAt(w http.ResponseWriter, r *http.Request, dir string) {
-	handleDiaryImageUploadAtWithLimit(w, r, dir, maxDiaryMediaStorage)
+	handleDiaryImageUploadAtWithLimit(w, r, dir, store.UploadMaxTotalBytes(config.UploadMaxTotalBytes()))
 }
 
 func handleDiaryImageUploadAtWithLimit(w http.ResponseWriter, r *http.Request, dir string, storageLimit int64) {
 	handleMediaUpload(w, r, dir, storageLimit, mediaDiary)
 }
 
-// handleMediaUpload serves the OBS upload for diary photos, My Room preset thumbnails (mediaRoom) and profile pictures
-// (mediaProfile, diary naming, re-uploadable). The owner is the account of the AV_AUTH credential (the AV_AUTH header or
+func handleMediaUpload(w http.ResponseWriter, r *http.Request, dir string, storageLimit int64, kind mediaKind) {
+	handleMediaUploadIn(w, r, dir, []string{dir}, storageLimit, kind)
+}
+
+// handleMediaUploadIn serves the OBS upload for diary photos, My Room preset thumbnails (mediaRoom) and profile pictures
+// (mediaProfile, diary naming, re-uploadable), checking storageLimit across storageDirs. The owner is the account of the AV_AUTH credential (the AV_AUTH header or
 // cookie), never the form's userid: an upload without one is refused in identity modes, and lab-guest keeps the form's
 // userid as the owner when no credential is sent. A signed diary or profile upload must name its own aid as userid
 // (anti-squatting of keys); the room client's userid is not checked (its form is unverified).
 // ponytail: the room client's oid format is unverified, so room mode accepts any printable oid equal to the form name
 // instead of requiring userid_ctime.
-func handleMediaUpload(w http.ResponseWriter, r *http.Request, dir string, storageLimit int64, kind mediaKind) {
+func handleMediaUploadIn(w http.ResponseWriter, r *http.Request, dir string, storageDirs []string, storageLimit int64, kind mediaKind) {
 	room := kind == mediaRoom
 	if r.Method != http.MethodPost {
 		writeDiaryMediaJSON(w, http.StatusNotFound, diaryMediaNotFoundBody)
@@ -190,7 +229,10 @@ func handleMediaUpload(w http.ResponseWriter, r *http.Request, dir string, stora
 		writeDiaryMediaJSON(w, http.StatusInternalServerError, diaryMediaSaveFailedBody)
 		return
 	}
-	if r.ContentLength > maxDiaryUploadSize {
+	maxFile := store.UploadMaxFileBytes(config.UploadMaxFileBytes())
+	maxReceive := max(maxDiaryImageSize, maxFile)
+	maxUpload := maxReceive + (1 << 20)
+	if r.ContentLength > maxUpload {
 		writeDiaryMediaJSON(w, http.StatusRequestEntityTooLarge, diaryMediaTooLargeBody)
 		return
 	}
@@ -206,7 +248,7 @@ func handleMediaUpload(w http.ResponseWriter, r *http.Request, dir string, stora
 			return
 		}
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxDiaryUploadSize)
+	r.Body = http.MaxBytesReader(w, r.Body, maxUpload)
 	defer func() {
 		if r.MultipartForm != nil {
 			_ = r.MultipartForm.RemoveAll()
@@ -253,7 +295,7 @@ func handleMediaUpload(w http.ResponseWriter, r *http.Request, dir string, stora
 		writeDiaryMediaJSON(w, http.StatusBadRequest, diaryMediaBadRequestBody)
 		return
 	}
-	if fileHeader.Size > maxDiaryImageSize {
+	if fileHeader.Size > maxReceive {
 		writeDiaryMediaJSON(w, http.StatusRequestEntityTooLarge, diaryMediaTooLargeBody)
 		return
 	}
@@ -272,11 +314,20 @@ func handleMediaUpload(w http.ResponseWriter, r *http.Request, dir string, stora
 		writeDiaryMediaJSON(w, http.StatusBadRequest, diaryMediaBadRequestBody)
 		return
 	}
-	if _, _, err := image.Decode(imageFile); err != nil {
+	img, format, err := image.Decode(imageFile)
+	if err != nil {
 		writeDiaryMediaJSON(w, http.StatusBadRequest, diaryMediaBadRequestBody)
 		return
 	}
-	if _, err := imageFile.Seek(0, io.SeekStart); err != nil {
+	var compressed []byte
+	if fileHeader.Size > maxFile {
+		var fit bool
+		compressed, fit = compressMediaImageGuarded(img, format, maxFile)
+		if !fit {
+			writeDiaryMediaJSON(w, http.StatusRequestEntityTooLarge, diaryMediaTooLargeBody)
+			return
+		}
+	} else if _, err := imageFile.Seek(0, io.SeekStart); err != nil {
 		writeDiaryMediaJSON(w, http.StatusBadRequest, diaryMediaBadRequestBody)
 		return
 	}
@@ -300,18 +351,27 @@ func handleMediaUpload(w http.ResponseWriter, r *http.Request, dir string, stora
 	defer os.Remove(tmpPath)
 	defer tmp.Close()
 	hash := sha256.New()
-	written, err := io.Copy(io.MultiWriter(tmp, hash), io.LimitReader(imageFile, maxDiaryImageSize+1))
-	if err != nil {
-		writeDiaryMediaJSON(w, http.StatusBadRequest, diaryMediaBadRequestBody)
-		return
-	}
-	if written > maxDiaryImageSize {
-		writeDiaryMediaJSON(w, http.StatusRequestEntityTooLarge, diaryMediaTooLargeBody)
-		return
-	}
-	if written != fileHeader.Size {
-		writeDiaryMediaJSON(w, http.StatusBadRequest, diaryMediaBadRequestBody)
-		return
+	var written int64
+	if compressed != nil {
+		written, err = io.Copy(io.MultiWriter(tmp, hash), bytes.NewReader(compressed))
+		if err != nil {
+			writeDiaryMediaJSON(w, http.StatusInternalServerError, diaryMediaSaveFailedBody)
+			return
+		}
+	} else {
+		written, err = io.Copy(io.MultiWriter(tmp, hash), io.LimitReader(imageFile, maxReceive+1))
+		if err != nil {
+			writeDiaryMediaJSON(w, http.StatusBadRequest, diaryMediaBadRequestBody)
+			return
+		}
+		if written > maxReceive || written > maxFile {
+			writeDiaryMediaJSON(w, http.StatusRequestEntityTooLarge, diaryMediaTooLargeBody)
+			return
+		}
+		if written != fileHeader.Size {
+			writeDiaryMediaJSON(w, http.StatusBadRequest, diaryMediaBadRequestBody)
+			return
+		}
 	}
 	if err := tmp.Sync(); err != nil {
 		writeDiaryMediaJSON(w, http.StatusInternalServerError, diaryMediaSaveFailedBody)
@@ -334,7 +394,7 @@ func handleMediaUpload(w http.ResponseWriter, r *http.Request, dir string, stora
 		}
 	}
 	row := store.MediaFile{Kind: kindName(kind), Owner: owner, File: file, Size: written}
-	if err := storeDiaryMedia(path, tmpPath, row, contentHash, storageLimit); err != nil {
+	if err := storeDiaryMedia(path, tmpPath, row, contentHash, storageDirs, storageLimit); err != nil {
 		var conflict diaryMediaConflictError
 		var quota diaryMediaQuotaError
 		switch {
@@ -465,7 +525,7 @@ func serveMediaFile(w http.ResponseWriter, r *http.Request, path string, keepFor
 		writeDiaryMediaJSON(w, http.StatusInternalServerError, diaryMediaSaveFailedBody)
 		return
 	}
-	if !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > maxDiaryImageSize {
+	if !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > store.UploadMaxFileBytesMax {
 		writeDiaryMediaJSON(w, http.StatusNotFound, diaryMediaNotFoundBody)
 		return
 	}
@@ -535,13 +595,13 @@ func diaryMediaTooLarge(err error) bool {
 	return errors.As(err, &maxErr) || errors.Is(err, multipart.ErrMessageTooLarge)
 }
 
-// diaryMediaDiskFull is the folder's disk cap (1 GiB per kind, all owners); an owner's quota is diaryMediaQuotaError.
+// diaryMediaDiskFull is the server's global photo storage cap across all kinds (or a single directory in tests); an owner's quota is diaryMediaQuotaError.
 var diaryMediaDiskFull = errors.New("media folder full")
 
 // storeDiaryMedia moves the uploaded file to path and records it under its owner. Writes are serialised. A same-content repeat
 // of a stored key is acknowledged (a file with no row is adopted by this owner); different content is a conflict, and so is a
-// key stored under another owner. A new file must fit the owner's quota (files and bytes of its kind) and the folder's cap.
-func storeDiaryMedia(path, tmpPath string, row store.MediaFile, contentHash [sha256.Size]byte, storageLimit int64) error {
+// key stored under another owner. A new file must fit the owner's quota (files and bytes of its kind) and the storage cap across storageDirs.
+func storeDiaryMedia(path, tmpPath string, row store.MediaFile, contentHash [sha256.Size]byte, storageDirs []string, storageLimit int64) error {
 	diaryMediaSaveMu.Lock()
 	defer diaryMediaSaveMu.Unlock()
 	info, err := os.Lstat(path)
@@ -578,7 +638,7 @@ func storeDiaryMedia(path, tmpPath string, row store.MediaFile, contentHash [sha
 	if files+1 > maxFiles || bytes+row.Size > maxBytes {
 		return diaryMediaQuotaError{}
 	}
-	tooLarge, err := diaryMediaStorageWouldExceed(filepath.Dir(path), row.Size, storageLimit)
+	tooLarge, err := diaryMediaStorageWouldExceed(storageDirs, row.Size, storageLimit)
 	if err != nil {
 		return err
 	}
@@ -607,14 +667,28 @@ type diaryMediaQuotaError struct{}
 func (diaryMediaQuotaError) Error() string { return "picture upload quota reached" }
 
 // ponytail: quota accounting scans O(file count); add indexed accounting if uploads make the scan slow.
-func diaryMediaStorageWouldExceed(dir string, incoming, limit int64) (bool, error) {
+func diaryMediaStorageWouldExceed(dirs []string, incoming, limit int64) (bool, error) {
 	if incoming < 0 || limit < 0 || incoming > limit {
 		return true, nil
 	}
 	remaining := limit - incoming
+	for _, dir := range dirs {
+		next, exceed, err := scanMediaDirRemaining(dir, remaining)
+		if err != nil || exceed {
+			return exceed, err
+		}
+		remaining = next
+	}
+	return false, nil
+}
+
+func scanMediaDirRemaining(dir string, remaining int64) (int64, bool, error) {
 	dirFile, err := os.Open(dir)
 	if err != nil {
-		return false, err
+		if errors.Is(err, os.ErrNotExist) {
+			return remaining, false, nil
+		}
+		return 0, false, err
 	}
 	defer dirFile.Close()
 	for {
@@ -625,21 +699,21 @@ func diaryMediaStorageWouldExceed(dir string, incoming, limit int64) (bool, erro
 			}
 			info, err := entry.Info()
 			if err != nil {
-				return false, err
+				return 0, false, err
 			}
 			if !info.Mode().IsRegular() {
 				continue
 			}
 			if info.Size() > remaining {
-				return true, nil
+				return 0, true, nil
 			}
 			remaining -= info.Size()
 		}
 		if errors.Is(readErr, io.EOF) {
-			return false, nil
+			return remaining, false, nil
 		}
 		if readErr != nil {
-			return false, readErr
+			return 0, false, readErr
 		}
 	}
 }
@@ -651,7 +725,7 @@ func diaryMediaFilesEqual(path string, size int64, want [sha256.Size]byte) (bool
 	}
 	defer file.Close()
 	hash := sha256.New()
-	written, err := io.Copy(hash, io.LimitReader(file, maxDiaryImageSize+1))
+	written, err := io.Copy(hash, io.LimitReader(file, size+1))
 	if err != nil {
 		return false, err
 	}
@@ -664,4 +738,193 @@ func writeDiaryMediaJSON(w http.ResponseWriter, status int, body string) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_, _ = io.WriteString(w, body)
+}
+
+func compressMediaImageGuarded(img image.Image, format string, maxBytes int64) ([]byte, bool) {
+	mediaCompressSem <- struct{}{}
+	defer func() { <-mediaCompressSem }()
+	return compressMediaImage(img, format, maxBytes)
+}
+
+// compressMediaImage re-encodes (and adaptively downscales if needed) img to fit within maxBytes.
+// Opaque images encode as JPEG; PNGs with any non-opaque alpha pixel preserve PNG transparency.
+func compressMediaImage(img image.Image, format string, maxBytes int64) ([]byte, bool) {
+	adaptiveDims := func(cur image.Image, lastLen int, safety float64) (int, int, bool) {
+		if lastLen <= 0 {
+			return 0, 0, false
+		}
+		scale := math.Sqrt(float64(maxBytes)/float64(lastLen)) * safety
+		if scale < 0.5 {
+			scale = 0.5
+		} else if scale > 0.85 {
+			scale = 0.85
+		}
+		b := cur.Bounds()
+		nw := int(math.Round(float64(b.Dx()) * scale))
+		nh := int(math.Round(float64(b.Dy()) * scale))
+		if nw < 64 || nh < 64 {
+			return 0, 0, false
+		}
+		return nw, nh, true
+	}
+
+	cur := img
+	if format == "png" && hasTransparency(img) {
+		enc := png.Encoder{CompressionLevel: png.BestCompression}
+		encodePNG := func(src image.Image) ([]byte, int, bool) {
+			var buf bytes.Buffer
+			if err := enc.Encode(&buf, src); err != nil {
+				return nil, 0, false
+			}
+			return buf.Bytes(), buf.Len(), int64(buf.Len()) <= maxBytes
+		}
+		out, lastLen, ok := encodePNG(cur)
+		if ok {
+			return out, true
+		}
+		for round := 0; round < 5; round++ {
+			nw, nh, canScale := adaptiveDims(cur, lastLen, 0.90)
+			if !canScale {
+				break
+			}
+			cur = downscaleBilinear(cur, nw, nh)
+			out, nextLen, ok := encodePNG(cur)
+			if ok {
+				return out, true
+			}
+			if nextLen == 0 {
+				break
+			}
+			lastLen = nextLen
+		}
+		return nil, false
+	}
+
+	encodeJPEG := func(src image.Image, q int) ([]byte, int, bool) {
+		var buf bytes.Buffer
+		if err := jpeg.Encode(&buf, src, &jpeg.Options{Quality: q}); err != nil {
+			return nil, 0, false
+		}
+		return buf.Bytes(), buf.Len(), int64(buf.Len()) <= maxBytes
+	}
+	tryJPEG := func(src image.Image, qualities ...int) ([]byte, int, bool) {
+		var lastLen int
+		for _, q := range qualities {
+			out, n, ok := encodeJPEG(src, q)
+			if ok {
+				return out, n, true
+			}
+			if n > 0 {
+				lastLen = n
+			}
+		}
+		return nil, lastLen, false
+	}
+
+	out, lastLen, ok := tryJPEG(cur, 85, 75)
+	if ok {
+		return out, true
+	}
+	for round := 0; round < 4; round++ {
+		nw, nh, canScale := adaptiveDims(cur, lastLen, 0.92)
+		if !canScale {
+			break
+		}
+		cur = downscaleBilinear(cur, nw, nh)
+		out, nextLen, ok := tryJPEG(cur, 82, 72)
+		if ok {
+			return out, true
+		}
+		if nextLen == 0 {
+			break
+		}
+		lastLen = nextLen
+	}
+	if out, _, ok := tryJPEG(cur, 60, 45); ok {
+		return out, true
+	}
+	b := cur.Bounds()
+	if nw, nh := (b.Dx()*3)/4, (b.Dy()*3)/4; nw >= 64 && nh >= 64 {
+		cur = downscaleBilinear(cur, nw, nh)
+		if out, _, ok := tryJPEG(cur, 45); ok {
+			return out, true
+		}
+	}
+	return nil, false
+}
+
+func hasTransparency(img image.Image) bool {
+	if op, ok := img.(interface{ Opaque() bool }); ok && op.Opaque() {
+		return false
+	}
+	b := img.Bounds()
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			_, _, _, a := img.At(x, y).RGBA()
+			if a != 0xffff {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func downscaleBilinear(src image.Image, dstW, dstH int) image.Image {
+	b := src.Bounds()
+	srcW, srcH := b.Dx(), b.Dy()
+	dst := image.NewNRGBA(image.Rect(0, 0, dstW, dstH))
+	for y := 0; y < dstH; y++ {
+		sy := (float64(y)+0.5)*float64(srcH)/float64(dstH) - 0.5
+		if sy < 0 {
+			sy = 0
+		} else if sy > float64(srcH-1) {
+			sy = float64(srcH - 1)
+		}
+		y0 := int(math.Floor(sy))
+		y1 := y0 + 1
+		if y1 >= srcH {
+			y1 = srcH - 1
+		}
+		fy := sy - float64(y0)
+		for x := 0; x < dstW; x++ {
+			sx := (float64(x)+0.5)*float64(srcW)/float64(dstW) - 0.5
+			if sx < 0 {
+				sx = 0
+			} else if sx > float64(srcW-1) {
+				sx = float64(srcW - 1)
+			}
+			x0 := int(math.Floor(sx))
+			x1 := x0 + 1
+			if x1 >= srcW {
+				x1 = srcW - 1
+			}
+			fx := sx - float64(x0)
+
+			r00, g00, b00, a00 := src.At(b.Min.X+x0, b.Min.Y+y0).RGBA()
+			r10, g10, b10, a10 := src.At(b.Min.X+x1, b.Min.Y+y0).RGBA()
+			r01, g01, b01, a01 := src.At(b.Min.X+x0, b.Min.Y+y1).RGBA()
+			r11, g11, b11, a11 := src.At(b.Min.X+x1, b.Min.Y+y1).RGBA()
+
+			w00 := (1 - fx) * (1 - fy)
+			w10 := fx * (1 - fy)
+			w01 := (1 - fx) * fy
+			w11 := fx * fy
+
+			rf := float64(r00)*w00 + float64(r10)*w10 + float64(r01)*w01 + float64(r11)*w11
+			gf := float64(g00)*w00 + float64(g10)*w10 + float64(g01)*w01 + float64(g11)*w11
+			bf := float64(b00)*w00 + float64(b10)*w10 + float64(b01)*w01 + float64(b11)*w11
+			af := float64(a00)*w00 + float64(a10)*w10 + float64(a01)*w01 + float64(a11)*w11
+
+			if af < 1 {
+				dst.SetNRGBA(x, y, color.NRGBA{})
+				continue
+			}
+			a8 := uint8(math.Min(255, math.Round(af*255/65535)))
+			r8 := uint8(math.Min(255, math.Round(rf*255/af)))
+			g8 := uint8(math.Min(255, math.Round(gf*255/af)))
+			b8 := uint8(math.Min(255, math.Round(bf*255/af)))
+			dst.SetNRGBA(x, y, color.NRGBA{R: r8, G: g8, B: b8, A: a8})
+		}
+	}
+	return dst
 }

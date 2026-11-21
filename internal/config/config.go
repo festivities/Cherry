@@ -55,6 +55,10 @@ type Config struct {
 	UploadsOff                                bool   // uploads.enabled = false; the zero value is on (tests, an unactivated config)
 	UploadQuotaBytes                          int64  // uploads.quota-bytes: per account and picture kind; 0 takes the default
 	UploadQuotaFiles                          int    // uploads.quota-files: per account and picture kind; 0 takes the default
+	UploadMaxTotalBytes                       int64  // uploads.max-total-bytes: total stored bytes across all photo kinds; 0 takes the default
+	UploadMaxFileBytes                        int64  // uploads.max-file-bytes: max bytes of one uploaded picture; 0 takes the default
+	MaxPlayers                                int    // limits.max-players: concurrent logged-in players; 0 takes the default unless MaxPlayersUnlimited
+	MaxPlayersUnlimited                       bool   // true when limits.max-players was explicitly set to 0 (unlimited)
 	File                                      string // the JSON file read, "" when none
 	// Limits (internal/httpx): connections per address and in all across the game listeners, and token buckets for game
 	// requests per address and per account (rate a second, burst). A rate of 0 is off. GuestPerMinute caps guest/generate.
@@ -104,6 +108,9 @@ var settings = []setting{
 	{"uploads.enabled", "true", "picture uploads (diary photos, My Room thumbnails, profile pictures); false refuses new uploads with 503, reads still serve"},
 	{"uploads.quota-bytes", "209715200", "bytes of pictures each account may hold per kind (default 200 MiB; 1 MiB to 1 GiB)"},
 	{"uploads.quota-files", "2000", "pictures each account may hold per kind (default 2000; 1 to 100000)"},
+	{"uploads.max-total-bytes", "104857600", "bytes of pictures the server keeps across diary, room and profile (default 100 MiB; 1 MiB to 100 GiB)"},
+	{"uploads.max-file-bytes", "1048576", "bytes of one picture upload (default 1 MiB; 100 KiB to 100 MiB)"},
+	{"limits.max-players", "200", "concurrent logged-in players (default 200; 0 to 10000; 0 = unlimited)"},
 	{"limits.conns-per-address", "1024", "open connections from one address across the game listeners (identity modes: 64)"},
 	{"limits.conns-total", "4096", "open connections in all across the game listeners (identity modes: 1024)"},
 	{"limits.api-rate", "0", "game requests a second an address earns, token bucket; static asset GETs are exempt (identity modes: 30; 0 = off)"},
@@ -207,8 +214,17 @@ func parse(args []string, lookup func(string) (string, bool)) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("config: uploads.quota-files: %q is not a whole number", values["uploads.quota-files"])
 	}
+	maxTotalBytes, err := strconv.ParseInt(values["uploads.max-total-bytes"], 10, 64)
+	if err != nil {
+		return Config{}, fmt.Errorf("config: uploads.max-total-bytes: %q is not a whole number", values["uploads.max-total-bytes"])
+	}
+	maxFileBytes, err := strconv.ParseInt(values["uploads.max-file-bytes"], 10, 64)
+	if err != nil {
+		return Config{}, fmt.Errorf("config: uploads.max-file-bytes: %q is not a whole number", values["uploads.max-file-bytes"])
+	}
 	c := Config{
 		UploadsOff: !uploadsOn, UploadQuotaBytes: quotaBytes, UploadQuotaFiles: quotaFiles,
+		UploadMaxTotalBytes: maxTotalBytes, UploadMaxFileBytes: maxFileBytes,
 		HTTPS: values["listen.https"], HTTP: values["listen.http"], Session: values["listen.session"],
 		Gateway: values["listen.gateway"], DNS: values["listen.dns"], Admin: values["listen.admin"],
 		AuthMode: values["auth.mode"], File: file,
@@ -252,6 +268,7 @@ func parse(args []string, lookup func(string) (string, bool)) (Config, error) {
 		{"limits.guest-per-minute", &c.GuestPerMinute},
 		{"limits.static-rate", &c.StaticRate}, {"limits.static-burst", &c.StaticBurst},
 		{"limits.frame-rate", &c.FrameRate}, {"limits.frame-burst", &c.FrameBurst},
+		{"limits.max-players", &c.MaxPlayers},
 		{"retention.deleted-days", &c.DeletedDays}, {"retention.idle-token-days", &c.IdleTokenDays},
 		{"retention.chat-days", &c.ChatDays},
 	} {
@@ -261,6 +278,7 @@ func parse(args []string, lookup func(string) (string, bool)) (Config, error) {
 		}
 		*n.dst = v
 	}
+	c.MaxPlayersUnlimited = c.MaxPlayers == 0
 	return c, nil
 }
 
@@ -341,6 +359,15 @@ func (c Config) check() error {
 	}
 	if c.UploadQuotaFiles < 1 || c.UploadQuotaFiles > 100000 {
 		return errors.New("config: uploads.quota-files must be 1 to 100000")
+	}
+	if c.UploadMaxTotalBytes < 1<<20 || c.UploadMaxTotalBytes > 100<<30 {
+		return errors.New("config: uploads.max-total-bytes must be 1 MiB to 100 GiB")
+	}
+	if c.UploadMaxFileBytes < 100<<10 || c.UploadMaxFileBytes > 100<<20 {
+		return errors.New("config: uploads.max-file-bytes must be 100 KiB to 100 MiB")
+	}
+	if c.MaxPlayers < 0 || c.MaxPlayers > 10000 {
+		return errors.New("config: limits.max-players must be 0 to 10000")
 	}
 	switch c.Signup {
 	case SignupOpen, SignupClosed:
@@ -619,10 +646,13 @@ func IsIdentity(mode string) bool { return mode == AuthDiscord || mode == AuthDe
 // IdentityMode is IsIdentity for the activated configuration; false before Activate (tests run lab-guest).
 func IdentityMode() bool { return IsIdentity(active.cfg.AuthMode) }
 
-// Default per-account picture quotas (uploads.quota-bytes, uploads.quota-files).
+// Default per-account picture quotas (uploads.quota-bytes, uploads.quota-files) and server-wide upload/player limits.
 const (
-	DefaultUploadQuotaBytes int64 = 200 << 20
-	DefaultUploadQuotaFiles       = 2000
+	DefaultUploadQuotaBytes    int64 = 200 << 20
+	DefaultUploadQuotaFiles          = 2000
+	DefaultUploadMaxTotalBytes int64 = 100 << 20
+	DefaultUploadMaxFileBytes  int64 = 1 << 20
+	DefaultMaxPlayers                = 200
 )
 
 // UploadsOn is the uploads.enabled switch: false refuses new picture uploads (reads still serve).
@@ -640,6 +670,42 @@ func UploadLimits() (int64, int) {
 	}
 	return bytes, files
 }
+
+// EffectiveUploadMaxTotalBytes returns c.UploadMaxTotalBytes, or DefaultUploadMaxTotalBytes when zero.
+func (c Config) EffectiveUploadMaxTotalBytes() int64 {
+	if c.UploadMaxTotalBytes == 0 {
+		return DefaultUploadMaxTotalBytes
+	}
+	return c.UploadMaxTotalBytes
+}
+
+// EffectiveUploadMaxFileBytes returns c.UploadMaxFileBytes, or DefaultUploadMaxFileBytes when zero.
+func (c Config) EffectiveUploadMaxFileBytes() int64 {
+	if c.UploadMaxFileBytes == 0 {
+		return DefaultUploadMaxFileBytes
+	}
+	return c.UploadMaxFileBytes
+}
+
+// EffectiveMaxPlayers returns c.MaxPlayers, 0 when c.MaxPlayersUnlimited is true, or DefaultMaxPlayers for a zero Config.
+func (c Config) EffectiveMaxPlayers() int {
+	if c.MaxPlayersUnlimited {
+		return 0
+	}
+	if c.MaxPlayers == 0 {
+		return DefaultMaxPlayers
+	}
+	return c.MaxPlayers
+}
+
+// UploadMaxTotalBytes is the global photo storage cap in bytes across all kinds (uploads.max-total-bytes, default 100 MiB).
+func UploadMaxTotalBytes() int64 { return active.cfg.EffectiveUploadMaxTotalBytes() }
+
+// UploadMaxFileBytes is the max filesize in bytes per individual upload (uploads.max-file-bytes, default 1 MiB).
+func UploadMaxFileBytes() int64 { return active.cfg.EffectiveUploadMaxFileBytes() }
+
+// MaxPlayers is the concurrent player cap (limits.max-players, default 200; 0 means unlimited).
+func MaxPlayers() int { return active.cfg.EffectiveMaxPlayers() }
 
 // DataDir is the state directory: stores, media, config, secrets and converted items. It must survive a cache wipe.
 func DataDir() (string, error) {

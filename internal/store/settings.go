@@ -18,9 +18,12 @@ import (
 // that does not parse, gives the configured answer (retention), no member (staff) or the default room size.
 
 const (
-	chatDaysKey      = "retention.chat-days"
-	staffMembersKey  = "staff.members"
-	squareRoomCapKey = "square.room-cap"
+	chatDaysKey            = "retention.chat-days"
+	staffMembersKey        = "staff.members"
+	squareRoomCapKey       = "square.room-cap"
+	uploadMaxTotalBytesKey = "uploads.max-total-bytes"
+	uploadMaxFileBytesKey  = "uploads.max-file-bytes"
+	maxPlayersKey          = "limits.max-players"
 	// ChatDaysMax is the longest retention the panel takes: ten years.
 	ChatDaysMax  = 3650
 	staffMax     = 50  // staff members the panel keeps
@@ -30,6 +33,15 @@ const (
 	SquareRoomCapDefault = 20
 	SquareRoomCapMin     = 2
 	SquareRoomCapMax     = 100
+
+	// UploadMaxTotalBytesMin and UploadMaxTotalBytesMax bound the global photo storage cap (1 MiB to 100 GiB).
+	UploadMaxTotalBytesMin int64 = 1 << 20
+	UploadMaxTotalBytesMax int64 = 100 << 30
+	// UploadMaxFileBytesMin and UploadMaxFileBytesMax bound the max filesize per upload (100 KiB to 100 MiB).
+	UploadMaxFileBytesMin int64 = 100 << 10
+	UploadMaxFileBytesMax int64 = 100 << 20
+	// MaxPlayersMax is the highest concurrent player cap (0 means unlimited).
+	MaxPlayersMax = 10000
 )
 
 // The identities a staff member may have: a Discord user id (17 to 20 digits), or in dev-fake mode a dev name (the sign-in
@@ -374,4 +386,161 @@ func RemoveStaffMember(identity, actor string) error {
 // validStaffIdentity: discord:<17 to 20 digits>, or with devNames dev-<1 to 24 letters, digits, dashes or underscores>.
 func validStaffIdentity(identity string, devNames bool) bool {
 	return staffDiscordRe.MatchString(identity) || devNames && staffDevRe.MatchString(identity)
+}
+
+func int64MetaOverride(q Querier, key string, min, max int64) (int64, bool, error) {
+	v, err := metaValue(q, key)
+	if err != nil || v == "" {
+		return 0, false, err
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || n < min || n > max {
+		return 0, false, nil
+	}
+	return n, true, nil
+}
+
+func int64MetaEffective(key string, min, max, fallback int64) int64 {
+	d := attachedDB()
+	if d == nil {
+		return fallback
+	}
+	var n int64
+	var set bool
+	if err := d.View(func(q Querier) error {
+		var err error
+		n, set, err = int64MetaOverride(q, key, min, max)
+		return err
+	}); err != nil || !set {
+		return fallback
+	}
+	return n
+}
+
+func int64MetaSetting(key string, min, max int64) (int64, bool, error) {
+	d, err := docDB()
+	if err != nil {
+		return 0, false, err
+	}
+	var n int64
+	var set bool
+	err = d.View(func(q Querier) error {
+		var err error
+		n, set, err = int64MetaOverride(q, key, min, max)
+		return err
+	})
+	return n, set, err
+}
+
+func metaBefore(tx *sql.Tx, key string) (string, error) {
+	v, err := metaValue(tx, key)
+	if err != nil {
+		return "", err
+	}
+	if v == "" {
+		return "default", nil
+	}
+	return v, nil
+}
+
+func setInt64Meta(key string, n, min, max int64, badMsg string, actor string) error {
+	if n < min || n > max {
+		return fmt.Errorf("%w: %s", ErrBadInput, badMsg)
+	}
+	d, err := docDB()
+	if err != nil {
+		return err
+	}
+	return d.Update(func(tx *sql.Tx) error {
+		old, err := metaBefore(tx, key)
+		if err != nil {
+			return err
+		}
+		val := strconv.FormatInt(n, 10)
+		if err := setMetaTx(tx, key, val); err != nil {
+			return err
+		}
+		return auditTx(tx, actor, "setting", key, map[string]any{"old": old, "new": val})
+	})
+}
+
+func clearMetaSetting(key, actor string) error {
+	d, err := docDB()
+	if err != nil {
+		return err
+	}
+	return d.Update(func(tx *sql.Tx) error {
+		old, err := metaBefore(tx, key)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM meta WHERE key = ?`, key); err != nil {
+			return err
+		}
+		return auditTx(tx, actor, "setting", key, map[string]any{"old": old, "new": "default"})
+	})
+}
+
+// UploadMaxTotalBytes returns the global photo storage cap across all kinds: the panel's value when stored, else fallback.
+func UploadMaxTotalBytes(fallback int64) int64 {
+	return int64MetaEffective(uploadMaxTotalBytesKey, UploadMaxTotalBytesMin, UploadMaxTotalBytesMax, fallback)
+}
+
+// UploadMaxTotalBytesSetting returns the panel's stored global photo storage cap and whether one is stored.
+func UploadMaxTotalBytesSetting() (int64, bool, error) {
+	return int64MetaSetting(uploadMaxTotalBytesKey, UploadMaxTotalBytesMin, UploadMaxTotalBytesMax)
+}
+
+// SetUploadMaxTotalBytes stores the global photo storage cap and writes an audit row in one transaction.
+func SetUploadMaxTotalBytes(n int64, actor string) error {
+	return setInt64Meta(uploadMaxTotalBytesKey, n, UploadMaxTotalBytesMin, UploadMaxTotalBytesMax,
+		"the total photo storage cap must be 1 MiB to 100 GiB", actor)
+}
+
+// ClearUploadMaxTotalBytes clears the panel override for the global photo storage cap and writes an audit row.
+func ClearUploadMaxTotalBytes(actor string) error {
+	return clearMetaSetting(uploadMaxTotalBytesKey, actor)
+}
+
+// UploadMaxFileBytes returns the max filesize per individual upload: the panel's value when stored, else fallback.
+func UploadMaxFileBytes(fallback int64) int64 {
+	return int64MetaEffective(uploadMaxFileBytesKey, UploadMaxFileBytesMin, UploadMaxFileBytesMax, fallback)
+}
+
+// UploadMaxFileBytesSetting returns the panel's stored max upload filesize and whether one is stored.
+func UploadMaxFileBytesSetting() (int64, bool, error) {
+	return int64MetaSetting(uploadMaxFileBytesKey, UploadMaxFileBytesMin, UploadMaxFileBytesMax)
+}
+
+// SetUploadMaxFileBytes stores the max upload filesize and writes an audit row in one transaction.
+func SetUploadMaxFileBytes(n int64, actor string) error {
+	return setInt64Meta(uploadMaxFileBytesKey, n, UploadMaxFileBytesMin, UploadMaxFileBytesMax,
+		"the max upload filesize must be 100 KiB to 100 MiB", actor)
+}
+
+// ClearUploadMaxFileBytes clears the panel override for the max upload filesize and writes an audit row.
+func ClearUploadMaxFileBytes(actor string) error {
+	return clearMetaSetting(uploadMaxFileBytesKey, actor)
+}
+
+// MaxPlayers returns the concurrent player cap: the panel's value when stored (0 means unlimited), else fallback.
+func MaxPlayers(fallback int) int {
+	return int(int64MetaEffective(maxPlayersKey, 0, MaxPlayersMax, int64(fallback)))
+}
+
+// MaxPlayersSetting returns the panel's stored concurrent player cap and whether one is stored.
+func MaxPlayersSetting() (int, bool, error) {
+	n, set, err := int64MetaSetting(maxPlayersKey, 0, MaxPlayersMax)
+	return int(n), set, err
+}
+
+// SetMaxPlayers stores the concurrent player cap (0 means unlimited) and writes an audit row in one transaction.
+func SetMaxPlayers(n int, actor string) error {
+	return setInt64Meta(maxPlayersKey, int64(n), 0, MaxPlayersMax,
+		fmt.Sprintf("the concurrent player cap must be 0 to %d", MaxPlayersMax), actor)
+}
+
+// ClearMaxPlayers clears the panel override for the concurrent player cap and writes an audit row.
+func ClearMaxPlayers(actor string) error {
+	return clearMetaSetting(maxPlayersKey, actor)
 }

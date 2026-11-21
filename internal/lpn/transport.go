@@ -182,7 +182,10 @@ func handleSessionFrame(conn *lockedConn, remote string, payload []byte, logger 
 			if bound, ok := sessionAidOf(conn); ok && bound != aid {
 				themeChatUnbound(unbindSession(conn), logger)
 			}
-			bindSession(aid, conn)
+			if !bindSession(aid, conn) {
+				logger.Printf("SESSION refused remote=%s aid=%d reason=max-players", remote, aid)
+				return false
+			}
 			logger.Printf("SESSION bind remote=%s aid=%d", remote, aid)
 		}
 		frame := buildLOFrame(loOpConfigure, 0, configurePayload)
@@ -220,10 +223,23 @@ func sessionAccount(body []byte) uint64 {
 }
 
 // bindSession makes c the live session of aid (a newer session of the same account replaces it).
-func bindSession(aid uint64, c *lockedConn) {
+// It refuses without binding when the concurrent player cap is reached and aid is not already online.
+func bindSession(aid uint64, c *lockedConn) bool {
 	sessionConnsMu.Lock()
 	defer sessionConnsMu.Unlock()
+	if cap := store.MaxPlayers(config.MaxPlayers()); cap > 0 && sessionConns[aid] == nil && len(sessionConns) >= cap {
+		return false
+	}
 	sessionConns[aid] = c
+	return true
+}
+
+// ServerFullFor reports whether the concurrent player cap is reached and aid is not already online.
+func ServerFullFor(aid uint64) bool {
+	sessionConnsMu.Lock()
+	defer sessionConnsMu.Unlock()
+	cap := store.MaxPlayers(config.MaxPlayers())
+	return cap > 0 && sessionConns[aid] == nil && len(sessionConns) >= cap
 }
 
 // SessionOnline reports whether aid has a live :10123 session (friends' online markers, web session/status).

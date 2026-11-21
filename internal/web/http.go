@@ -780,6 +780,13 @@ func handleCheckSession(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
 		return
 	}
+	if aid, err := strconv.ParseUint(acc.Aid, 10, 64); err == nil && aid != 0 && lpn.ServerFullFor(aid) {
+		aidStr := acc.Aid
+		store.AccountsMu.Unlock()
+		log.Printf("cherry: checkSession refused aid=%s: server full", aidStr)
+		httpx.WriteJSON(w, http.StatusServiceUnavailable, `{"errorCode":"503","errorMessage":"cherry: server full"}`)
+		return
+	}
 	token, err := store.MintAliasLocked(acc)
 	store.AccountsMu.Unlock()
 	if err != nil {

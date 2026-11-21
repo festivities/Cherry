@@ -34,9 +34,51 @@
 </form>{{end}}
 </section>
 
-<section class="card">
-<h2>Photos</h2>
+<section class="card stack">
+<h2>Photo upload limits</h2>
 <p>Photos have no expiry. The <a href="/photos">Photos page</a> shows the pictures players have now (diary, room and profile), not a copy, so each one stays until the player or staff removes it.</p>
+
+<p>{{if .Settings.UploadTotalCapFromPanel}}Set in this panel{{else}}From the server's configuration{{end}}: up to {{.Settings.UploadTotalCapMiB}} MiB stored in total across diary, room and profile photos.</p>
+<form method="post" action="/settings/upload-total-cap" data-confirm="Save this total photo storage cap? New uploads check it from now on; existing pictures are kept.">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<label><span class="label">Total photo storage cap (MiB)</span>
+<input type="text" name="mib" value="{{.Settings.UploadTotalCapMiB}}" inputmode="decimal" required>
+<small class="help">Decimal MiB from 1 to 102400 (100 GiB), e.g. 100. Shared across diary, room and profile photos.</small></label>
+<div class="actions"><button type="submit">Save storage cap</button></div>
+</form>
+{{if .Settings.UploadTotalCapFromPanel}}<form method="post" action="/settings/upload-total-cap/reset" data-confirm="Use the server's configured total photo storage cap again?">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<button type="submit" class="ghost">Use the server's configured value ({{.Settings.UploadTotalCapConfigMiB}} MiB)</button>
+</form>{{end}}
+
+<p>{{if .Settings.UploadFileCapFromPanel}}Set in this panel{{else}}From the server's configuration{{end}}: up to {{.Settings.UploadFileCapMiB}} MiB per uploaded photo.</p>
+<form method="post" action="/settings/upload-file-cap" data-confirm="Save this maximum upload filesize? New uploads check it from now on; existing pictures are kept.">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<label><span class="label">Max filesize per upload (MiB)</span>
+<input type="text" name="mib" value="{{.Settings.UploadFileCapMiB}}" inputmode="decimal" required>
+<small class="help">Decimal MiB from 0.098 (100 KiB) to 100, e.g. 1 or 0.5. Larger images (up to 20 MiB, or this cap if higher) are automatically compressed to fit.</small></label>
+<div class="actions"><button type="submit">Save filesize cap</button></div>
+</form>
+{{if .Settings.UploadFileCapFromPanel}}<form method="post" action="/settings/upload-file-cap/reset" data-confirm="Use the server's configured maximum upload filesize again?">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<button type="submit" class="ghost">Use the server's configured value ({{.Settings.UploadFileCapConfigMiB}} MiB)</button>
+</form>{{end}}
+</section>
+
+<section class="card stack">
+<h2>Concurrent player cap</h2>
+<p>{{if .Settings.MaxPlayersFromPanel}}Set in this panel{{else}}From the server's configuration{{end}}: {{if .Settings.MaxPlayers}}at most {{.Settings.MaxPlayers}} concurrent players may be logged in.{{else}}concurrent players are unlimited.{{end}}</p>
+<form method="post" action="/settings/max-players" data-confirm="Save this concurrent player cap? New logins check it from now on; anyone already online stays connected.">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<label><span class="label">Maximum concurrent players</span>
+<input type="number" name="players" value="{{.Settings.MaxPlayers}}" min="0" max="10000" step="1" required>
+<small class="help">0 means unlimited. At most 10000. Lowering the cap never disconnects players who are already online.</small></label>
+<div class="actions"><button type="submit">Save player cap</button></div>
+</form>
+{{if .Settings.MaxPlayersFromPanel}}<form method="post" action="/settings/max-players/reset" data-confirm="Use the server's configured concurrent player cap again?">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<button type="submit" class="ghost">Use the server's configured value ({{if .Settings.MaxPlayersConfig}}{{.Settings.MaxPlayersConfig}} players{{else}}unlimited{{end}})</button>
+</form>{{end}}
 </section>
 
 <h2>Staff members</h2>

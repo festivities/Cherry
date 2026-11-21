@@ -1,9 +1,13 @@
 package web
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -226,5 +230,198 @@ func TestDiaryEraseRemovesItsPictureFile(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, file)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("the erased photo's file remains: %v", err)
+	}
+}
+
+func noisyPNG(t *testing.T, w, h int, transparent bool) []byte {
+	t.Helper()
+	img := image.NewNRGBA(image.Rect(0, 0, w, h))
+	state := uint32(0x12345678)
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			state = state*1664525 + 1013904223
+			a := uint8(255)
+			if transparent && (x+y)%3 == 0 {
+				a = uint8(100 + (state>>24)%100)
+			}
+			img.SetNRGBA(x, y, color.NRGBA{
+				R: uint8(state >> 24),
+				G: uint8(state >> 16),
+				B: uint8(state >> 8),
+				A: a,
+			})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+func TestUploadMaxFileBytesConfigurable(t *testing.T) {
+	twoAccounts(t)
+	uploadConfig(t, config.Config{AuthMode: config.AuthDevFake, UploadMaxFileBytes: 100 << 10})
+	dir := filepath.Join(t.TempDir(), "diary-media")
+
+	// 1. Opaque image larger than maxFile (100 KiB) is compressed to fit and saved as <= maxFile.
+	opaque := noisyPNG(t, 260, 260, false)
+	if int64(len(opaque)) <= 100<<10 {
+		t.Fatalf("test setup: opaque PNG len = %d, want > 100 KiB", len(opaque))
+	}
+	if rec := uploadAs(t, dir, "tok1", "1001", "1760000700", opaque); rec.Code != http.StatusOK {
+		t.Fatalf("opaque upload > maxFile = %d %s, want 200", rec.Code, rec.Body.String())
+	}
+	savedOpaque := filepath.Join(dir, store.MediaFileName("1001", "1760000700", "1001_1760000700"))
+	info, err := os.Stat(savedOpaque)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() > 100<<10 {
+		t.Fatalf("compressed opaque size = %d, want <= %d", info.Size(), 100<<10)
+	}
+	f, err := os.Open(savedOpaque)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, format, err := image.Decode(f)
+	_ = f.Close()
+	if err != nil || format != "jpeg" {
+		t.Fatalf("saved opaque decode = (%q, %v), want jpeg", format, err)
+	}
+
+	// 2. Transparent PNG larger than maxFile is compressed while preserving PNG format and alpha.
+	trans := noisyPNG(t, 240, 240, true)
+	if int64(len(trans)) <= 100<<10 {
+		t.Fatalf("test setup: transparent PNG len = %d, want > 100 KiB", len(trans))
+	}
+	if rec := uploadAs(t, dir, "tok1", "1001", "1760000701", trans); rec.Code != http.StatusOK {
+		t.Fatalf("transparent PNG > maxFile = %d %s, want 200", rec.Code, rec.Body.String())
+	}
+	savedTrans := filepath.Join(dir, store.MediaFileName("1001", "1760000701", "1001_1760000701"))
+	info, err = os.Stat(savedTrans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() > 100<<10 {
+		t.Fatalf("compressed transparent PNG size = %d, want <= %d", info.Size(), 100<<10)
+	}
+	f, err = os.Open(savedTrans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, format, err := image.Decode(f)
+	_ = f.Close()
+	if err != nil || format != "png" {
+		t.Fatalf("saved transparent decode = (%q, %v), want png", format, err)
+	}
+	if !hasTransparency(decoded) {
+		t.Fatal("compressed transparent PNG lost alpha transparency")
+	}
+
+	// 3. Upload larger than hard receive ceiling (> 20 MiB) still returns 413.
+	overReceive := bytes.Repeat([]byte{'x'}, int(maxDiaryImageSize+1))
+	req := diaryUploadRequest(t, diaryParamsJSON(t, "1001", "1760000702", "1001_1760000702"), overReceive, "image/png")
+	req.Header.Set("Cookie", `AV_AUTH="tok1"`)
+	req.ContentLength = -1
+	rec := httptest.NewRecorder()
+	handleDiaryImageUploadAt(rec, req, dir)
+	if rec.Code != http.StatusRequestEntityTooLarge || rec.Body.String() != diaryMediaTooLargeBody {
+		t.Fatalf("over hard ceiling = %d %s, want 413", rec.Code, rec.Body.String())
+	}
+}
+
+func TestUploadMaxTotalBytesConfigurable(t *testing.T) {
+	twoAccounts(t)
+	dataDir := t.TempDir()
+	uploadConfig(t, config.Config{
+		AuthMode:            config.AuthDevFake,
+		DataDir:             dataDir,
+		CacheDir:            dataDir,
+		UploadMaxTotalBytes: 1 << 20,
+	})
+	small := diaryTestImage(t, "png", 3, 2, 17)
+
+	// Missing directories don't block an upload under the shared cap.
+	diaryReq := diaryUploadRequest(t, diaryParamsJSON(t, "1001", "1760000800", "1001_1760000800"), small, "image/png")
+	diaryReq.Header.Set("AV_AUTH", "tok1")
+	diaryRec := httptest.NewRecorder()
+	handleDiaryImageUpload(diaryRec, diaryReq)
+	if diaryRec.Code != http.StatusOK {
+		t.Fatalf("initial diary upload = %d %s, want 200", diaryRec.Code, diaryRec.Body.String())
+	}
+
+	// Pre-fill diary (600 KiB) + room (424 KiB) so combined usage across dirs reaches the 1 MiB global cap.
+	diaryDir, err := store.MediaDir(store.MediaDiary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roomDir, err := store.MediaDir(store.MediaRoom)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(roomDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(diaryDir, "seed_diary.img"), bytes.Repeat([]byte{0}, 600<<10), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(roomDir, "seed_room.img"), bytes.Repeat([]byte{0}, 424<<10), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// All three endpoints (diary, room, profile) share the same global cap and return 507.
+	for _, tc := range []struct {
+		name  string
+		kind  string
+		serve func(*httptest.ResponseRecorder, *http.Request)
+		oid   string
+	}{
+		{
+			name:  "diary",
+			kind:  store.MediaDiary,
+			serve: func(rec *httptest.ResponseRecorder, req *http.Request) { handleDiaryImageUpload(rec, req) },
+			oid:   "1001_1760000801",
+		},
+		{
+			name:  "room",
+			kind:  store.MediaRoom,
+			serve: func(rec *httptest.ResponseRecorder, req *http.Request) { handleRoomImageUpload(rec, req) },
+			oid:   "room_thumb_1",
+		},
+		{
+			name:  "profile",
+			kind:  store.MediaProfile,
+			serve: func(rec *httptest.ResponseRecorder, req *http.Request) { handleProfileImageUpload(rec, req) },
+			oid:   "1001_1760000801",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var params []byte
+			if tc.kind == store.MediaRoom {
+				params, _ = json.Marshal(diaryImageUploadParams{Version: "1.0", Type: "image", Name: tc.oid, UserID: "1001", OID: tc.oid, CTime: "1760000801"})
+			} else {
+				params = diaryParamsJSON(t, "1001", "1760000801", tc.oid)
+			}
+			req := diaryUploadRequest(t, params, small, "image/png")
+			req.Header.Set("AV_AUTH", "tok1")
+			rec := httptest.NewRecorder()
+			tc.serve(rec, req)
+			if rec.Code != http.StatusInsufficientStorage || rec.Body.String() != diaryMediaFullBody {
+				t.Fatalf("%s upload over 1 MiB shared cap = %d %s, want 507", tc.name, rec.Code, rec.Body.String())
+			}
+		})
+	}
+
+	// Raising the global cap live in the database unblocks uploads across kinds without restart.
+	if err := store.SetUploadMaxTotalBytes(2<<20, "dev-owner"); err != nil {
+		t.Fatal(err)
+	}
+	profReq := diaryUploadRequest(t, diaryParamsJSON(t, "1001", "1760000802", "1001_1760000802"), small, "image/png")
+	profReq.Header.Set("AV_AUTH", "tok1")
+	profRec := httptest.NewRecorder()
+	handleProfileImageUpload(profRec, profReq)
+	if profRec.Code != http.StatusOK {
+		t.Fatalf("profile upload after raising global cap = %d %s, want 200", profRec.Code, profRec.Body.String())
 	}
 }
