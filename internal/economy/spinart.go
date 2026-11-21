@@ -16,8 +16,12 @@ import (
 	"strconv"
 	"strings"
 
+	"cherry/internal/assets"
 	"cherry/internal/thumbs"
 )
+
+// spinCacheFS holds the original Lucky/Jackpot Spin UI art (device cache/luckyspin/, R2 static/cache/luckyspin/).
+var spinCacheFS fs.FS = assets.DeviceFiles("cache/luckyspin")
 
 // Cherry's Lucky and Jackpot Spin pictures (spin-spec 6.1 and 12.4). The wheel faces are drawn from each tier's prizes,
 // the panels are plain gradients, and the Gem icon is the client's own UI art, read from the store
@@ -286,12 +290,27 @@ func spinPicture(name string) ([]byte, bool) {
 	return nil, false
 }
 
-// HandleSpinImage serves GET /cherry/spin/<name>: the spin pictures (spinPicture) and item/<code>.png, the thumbnail of a
-// catalog item (thumbs.ServeDpPNG, the picture the closet shows).
+// HandleSpinImage serves GET /cherry/spin/<name>: original spin art under orig/<rel> (allowlisted by ActiveSpin),
+// the spin pictures (spinPicture) and item/<code>.png, the thumbnail of a catalog item (thumbs.ServeDpPNG, the picture the
+// closet shows).
 func HandleSpinImage(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, "/cherry/spin/")
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)
+		return
+	}
+	if rel, ok := strings.CutPrefix(name, "orig/"); ok {
+		if !spinHasOrigArt(ActiveSpin(), rel) {
+			http.NotFound(w, r)
+			return
+		}
+		b, err := fs.ReadFile(spinCacheFS, rel)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(b)
 		return
 	}
 	if code, ok := strings.CutPrefix(name, "item/"); ok {

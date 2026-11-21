@@ -171,7 +171,7 @@ func TestSpinCheckRefusesBadData(t *testing.T) {
 		mutate func(*Spin)
 		want   string
 	}{
-		{"origin not cherry", func(s *Spin) { s.Origin = "mixed" }, "origin"},
+		{"origin not mixed", func(s *Spin) { s.Origin = "cherry" }, "origin"},
 		{"lucky id outside the block", func(s *Spin) { s.Lucky.ID = 1920001000 }, "outside the Cherry block"},
 		{"same id twice", func(s *Spin) { s.Jackpot.ID = s.Lucky.ID }, "different ids"},
 		{"free jackpot", func(s *Spin) { s.Jackpot.FreeDaily = true }, "no free Jackpot play"},
@@ -510,14 +510,14 @@ func TestSpinPicturesAreServed(t *testing.T) {
 			t.Fatalf("%s: %dx%d, want %dx%d", name, b.Dx(), b.Dy(), size[0], size[1])
 		}
 	}
-	for _, name := range []string{"gem.png", "cash.png"} {
+	for _, name := range []string{"gem.png", "cash.png", "orig/luckyspin_0/resource_1761_BG_IMG_en.png", "orig/luckyspin/jackpotspin_gem_1_normal.png"} {
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/cherry/spin/"+name, nil))
 		if rec.Code != http.StatusOK {
 			t.Fatalf("%s: status %d", name, rec.Code)
 		}
 	}
-	for _, name := range []string{"unknown.png", "item/CUTO00ZZZ.png", "item/CUTO0007B.txt"} {
+	for _, name := range []string{"unknown.png", "item/CUTO00ZZZ.png", "item/CUTO0007B.txt", "orig/luckyspin_0/resource_1189_BG_IMG_en.png"} {
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/cherry/spin/"+name, nil))
 		if rec.Code != http.StatusNotFound {

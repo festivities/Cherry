@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"math/rand/v2"
 	"net/http"
 	"slices"
@@ -31,7 +32,7 @@ const (
 
 // Spin is data/spin.json: the two spins. Strict JSON: unknown keys are an error.
 //
-//	origin, note  Cherry-made (every value in the file)
+//	origin, note  mixed (original spin UI art and item codes; Cherry-made ids, rules, odds, Gem amounts and drawn wheels)
 //	lucky         the Lucky Spin (one tier, GEM); free_daily gives one free play a game day (06:00 JST, AttendDayKey)
 //	jackpot       the Jackpot Spin: tiers[0] is tier 1 (GEM), tiers[1] tier 2 (CASH, the client's "High" tier); no free play
 type Spin struct {
@@ -40,13 +41,35 @@ type Spin struct {
 	Jackpot SpinGame `json:"jackpot"`
 }
 
-// SpinGame is one spin: its id (the spinSeq the client sends back), title, free play rule, tiers and locale texts.
+// SpinGame is one spin: its id (the spinSeq the client sends back), title, free play rule, optional original UI art,
+// tiers and locale texts.
 type SpinGame struct {
 	ID        int64        `json:"id"`
 	Title     string       `json:"title"`
 	FreeDaily bool         `json:"free_daily"`
+	Art       SpinArt      `json:"art,omitempty"`
 	Tiers     []SpinTier   `json:"tiers"`
 	Locales   []SpinLocale `json:"locales"`
+}
+
+// SpinArt holds optional original UI picture paths (relative to cache/luckyspin/) for one spin game. Empty fields fall
+// back to Cherry's drawn panels.
+type SpinArt struct {
+	BG       string `json:"bg,omitempty"`
+	Deco     string `json:"deco,omitempty"`
+	ListBG   string `json:"list_bg,omitempty"`
+	DetailBG string `json:"detail_bg,omitempty"`
+	TitleBG  string `json:"title_bg,omitempty"`
+}
+
+func (a SpinArt) fields() []struct{ name, path string } {
+	return []struct{ name, path string }{
+		{"bg", a.BG},
+		{"deco", a.Deco},
+		{"list_bg", a.ListBG},
+		{"detail_bg", a.DetailBG},
+		{"title_bg", a.TitleBG},
+	}
 }
 
 // SpinTier is one price: its currency ("GEM" or "CASH"), its price per play and the eight wheel slots in order.
@@ -56,11 +79,12 @@ type SpinTier struct {
 	Slots    []SpinSlot `json:"slots"`
 }
 
-// SpinSlot is one wheel slot: a Gem prize (gems above 0) or an item (item code), drawn with weight. Slot n is
-// showPriority n.
+// SpinSlot is one wheel slot: a Gem prize (gems above 0, optional original icon under cache/luckyspin/) or an item
+// (item code), drawn with weight. Slot n is showPriority n.
 type SpinSlot struct {
 	Gems   int64  `json:"gems,omitempty"`
 	Item   string `json:"item,omitempty"`
+	Icon   string `json:"icon,omitempty"`
 	Weight int64  `json:"weight"`
 }
 
@@ -82,8 +106,46 @@ var spinNow = time.Now
 // spinRoll returns a uniform value in [0, n). Tests replace it with a scripted source.
 var spinRoll = func(n int64) int64 { return rand.Int64N(n) }
 
+var spinArtDirs = []string{"luckyspin/", "luckyspin_0/"}
+
+// spinArtPathOK reports whether p is a .png file directly under luckyspin/ or luckyspin_0/ (no extra subdirectory, no
+// backslash, no "..").
+func spinArtPathOK(p string) bool {
+	if strings.Contains(p, "..") || strings.ContainsRune(p, '\\') || !fs.ValidPath(p) {
+		return false
+	}
+	for _, dir := range spinArtDirs {
+		if file, ok := strings.CutPrefix(p, dir); ok {
+			return !strings.ContainsRune(file, '/') && strings.HasSuffix(file, ".png") && len(file) > len(".png")
+		}
+	}
+	return false
+}
+
+// spinHasOrigArt reports whether rel is configured in sp (either in Lucky.Art, Jackpot.Art, or a slot's Icon).
+func spinHasOrigArt(sp *Spin, rel string) bool {
+	if rel == "" {
+		return false
+	}
+	for _, g := range []*SpinGame{&sp.Lucky, &sp.Jackpot} {
+		for _, f := range g.Art.fields() {
+			if f.path == rel {
+				return true
+			}
+		}
+		for _, t := range g.Tiers {
+			for _, s := range t.Slots {
+				if s.Icon == rel {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 func checkSpin(s *Spin) error {
-	if err := s.CheckOrigin("cherry"); err != nil {
+	if err := s.CheckOrigin(opdata.OriginMixed); err != nil {
 		return err
 	}
 	if err := checkSpinGame("lucky", &s.Lucky, 1); err != nil {
@@ -112,6 +174,11 @@ func checkSpinGame(name string, g *SpinGame, tiers int) error {
 	case !slices.ContainsFunc(g.Locales, func(l SpinLocale) bool { return l.Language == "en" }):
 		return fmt.Errorf("%s: locales must include en", name)
 	}
+	for _, f := range g.Art.fields() {
+		if f.path != "" && !spinArtPathOK(f.path) {
+			return fmt.Errorf("%s art.%s: %q must be a .png file directly under luckyspin/ or luckyspin_0/", name, f.name, f.path)
+		}
+	}
 	for _, l := range g.Locales {
 		if strings.TrimSpace(l.Title) == "" {
 			return fmt.Errorf("%s: the %s title must not be empty", name, l.Language)
@@ -139,6 +206,10 @@ func checkSpinGame(name string, g *SpinGame, tiers int) error {
 				return fmt.Errorf("%s tier %d slot %d: gems must be at most %d", name, i+1, j+1, store.MaxBalance)
 			case s.Weight < 1:
 				return fmt.Errorf("%s tier %d slot %d: weight must be at least 1", name, i+1, j+1)
+			case s.Item != "" && s.Icon != "":
+				return fmt.Errorf("%s tier %d slot %d: icon must be empty on an item slot", name, i+1, j+1)
+			case s.Icon != "" && !spinArtPathOK(s.Icon):
+				return fmt.Errorf("%s tier %d slot %d: icon %q must be a .png file directly under luckyspin/ or luckyspin_0/", name, i+1, j+1, s.Icon)
 			}
 			if s.Item != "" {
 				if _, kind := classify(s.Item); kind != kindFashion && kind != kindInterior {
@@ -154,17 +225,36 @@ func checkSpinGame(name string, g *SpinGame, tiers int) error {
 	return nil
 }
 
-// verifySpin runs at load (not for the embedded default alone). Every item must be sellable with art in the archive, and
-// the expected Gem payout of each Gem-priced tier must stay below its price (spinPayout, sell-backs included).
+// verifySpin runs at load (not for the embedded default alone). Every configured original picture and prize item must be
+// in the archive when an archive is attached, and the expected Gem payout of each Gem-priced tier must stay below its
+// price (spinPayout, sell-backs included).
 func verifySpin(s *Spin) error {
+	verifiable := artVerifiable()
 	for _, g := range []struct {
 		name string
 		game *SpinGame
 	}{{"lucky", &s.Lucky}, {"jackpot", &s.Jackpot}} {
+		if verifiable {
+			for _, f := range g.game.Art.fields() {
+				if f.path == "" {
+					continue
+				}
+				if _, err := fs.Stat(spinCacheFS, f.path); err != nil {
+					return fmt.Errorf("%s art.%s: %s is not in the archive", g.name, f.name, f.path)
+				}
+			}
+		}
 		for i, t := range g.game.Tiers {
-			for j, slot := range t.Slots {
-				if artVerifiable() && slot.Item != "" && !itemAvailable(slot.Item) {
-					return fmt.Errorf("%s tier %d slot %d: item %s has no art or price in the archive", g.name, i+1, j+1, slot.Item)
+			if verifiable {
+				for j, slot := range t.Slots {
+					if slot.Icon != "" {
+						if _, err := fs.Stat(spinCacheFS, slot.Icon); err != nil {
+							return fmt.Errorf("%s tier %d slot %d: icon %s is not in the archive", g.name, i+1, j+1, slot.Icon)
+						}
+					}
+					if slot.Item != "" && !itemAvailable(slot.Item) {
+						return fmt.Errorf("%s tier %d slot %d: item %s has no art or price in the archive", g.name, i+1, j+1, slot.Item)
+					}
 				}
 			}
 			if t.Currency != "GEM" {
@@ -239,15 +329,35 @@ func spinRewardNo(key int64, slot int) int64 { return CherrySpinFirst + 100*key 
 // spinPicPrefix is where the client's relative picture paths point (served by HandleSpinImage).
 const spinPicPrefix = "cherry/spin/"
 
+func spinPanelName(rel, fallback string) string {
+	if rel != "" {
+		return "orig/" + rel
+	}
+	return fallback
+}
+
 // spinResources are the resourceList pictures in the client's slots (spin-spec 12.4): six for Lucky; seven for the Jackpot.
 // For the Jackpot the wheel index follows the tier's switch mode (spin-spec 11.1: mode 0 loads [0], mode 1 loads [6]), so
-// [0] is the GEM wheel (tier 1) and [6] the CASH wheel (tier 2). [I] 12.4 labels them the other way round; check on device.
+// [0] is the GEM wheel (tier 1) and [6] the CASH wheel (tier 2). Slots 1..5 use orig/<rel> when SpinArt configures them,
+// falling back to Cherry's drawn panels when empty.
 func spinResources(jackpot bool) []spinRes {
 	sp := ActiveSpin()
-	names := []string{spinWheelName("lucky_wheel", sp.Lucky.Tiers[0]), "board.png", "deco.png", "list_bg.png", "detail_cover.png", "title_clear.png"}
+	art := sp.Lucky.Art
+	wheel := spinWheelName("lucky_wheel", sp.Lucky.Tiers[0])
 	if jackpot {
-		names = []string{spinWheelName("jackpot_gem_wheel", sp.Jackpot.Tiers[0]), "board.png", "deco.png", "list_bg.png", "detail_cover.png", "title_clear.png",
-			spinWheelName("jackpot_cash_wheel", sp.Jackpot.Tiers[1])}
+		art = sp.Jackpot.Art
+		wheel = spinWheelName("jackpot_gem_wheel", sp.Jackpot.Tiers[0])
+	}
+	names := []string{
+		wheel,
+		spinPanelName(art.BG, "board.png"),
+		spinPanelName(art.Deco, "deco.png"),
+		spinPanelName(art.ListBG, "list_bg.png"),
+		spinPanelName(art.DetailBG, "detail_cover.png"),
+		spinPanelName(art.TitleBG, "title_clear.png"),
+	}
+	if jackpot {
+		names = append(names, spinWheelName("jackpot_cash_wheel", sp.Jackpot.Tiers[1]))
 	}
 	out := make([]spinRes, len(names))
 	for i, n := range names {
@@ -269,7 +379,11 @@ func spinPrizeOf(s SpinSlot) spinPrize {
 	if s.Item != "" {
 		return spinPrize{rewardType: 1, grade: "R", picture: spinPicPrefix + "item/" + s.Item + ".png", value: 1, item: s.Item, name: ItemName(s.Item)}
 	}
-	return spinPrize{rewardType: 3, grade: "N3", picture: spinPicPrefix + "gem.png", value: s.Gems}
+	pic := spinPicPrefix + "gem.png"
+	if s.Icon != "" {
+		pic = spinPicPrefix + "orig/" + s.Icon
+	}
+	return spinPrize{rewardType: 3, grade: "N3", picture: pic, value: s.Gems}
 }
 
 // spinGroups is a tier's rewardList: one group per reward type (Gems, items), each slot a child whose showPriority is its

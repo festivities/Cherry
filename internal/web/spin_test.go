@@ -78,13 +78,15 @@ func spinStr(t *testing.T, row map[string]any, key string) string {
 	return s
 }
 
-// spinCheckResources checks a resourceList: n entries in slot order, each a served relative picture.
+// spinCheckResources checks a resourceList: n entries in slot order, each a served relative picture (slots 1..5 use
+// cherry/spin/orig/, wheels stay drawn).
 func spinCheckResources(t *testing.T, row map[string]any, n int) {
 	t.Helper()
 	res := spinArray(t, row, "resourceList")
 	if len(res) != n {
 		t.Fatalf("resourceList has %d entries, want %d", len(res), n)
 	}
+	var origPaths []string
 	for i, e := range res {
 		r := e.(map[string]any)
 		if int(spinInt(t, r, "resourceType")) != i || spinStr(t, r, "language") != "common" {
@@ -94,20 +96,41 @@ func spinCheckResources(t *testing.T, row map[string]any, n int) {
 		if p == "" || strings.HasPrefix(p, "/") || !strings.HasPrefix(p, "cherry/spin/") {
 			t.Fatalf("resourceList[%d] path %q must be a relative cherry/spin/ path", i, p)
 		}
+		if i >= 1 && i <= 5 {
+			if !strings.HasPrefix(p, "cherry/spin/orig/") {
+				t.Fatalf("resourceList[%d] path %q must use cherry/spin/orig/", i, p)
+			}
+			origPaths = append(origPaths, p)
+			continue
+		}
+		if strings.HasPrefix(p, "cherry/spin/orig/") {
+			t.Fatalf("resourceList[%d] wheel path %q must stay a drawn wheel", i, p)
+		}
 		rec := serve(t, http.MethodGet, "/"+p)
 		if _, err := png.Decode(bytes.NewReader(rec.Body.Bytes())); rec.Code != http.StatusOK || err != nil {
 			t.Fatalf("GET /%s: status %d, not a PNG (%v)", p, rec.Code, err)
 		}
 	}
+	t.Run("orig resources", func(t *testing.T) {
+		testutil.RequireArchive(t)
+		for _, p := range origPaths {
+			rec := serve(t, http.MethodGet, "/"+p)
+			if _, err := png.Decode(bytes.NewReader(rec.Body.Bytes())); rec.Code != http.StatusOK || err != nil {
+				t.Fatalf("GET /%s: status %d, not a PNG (%v)", p, rec.Code, err)
+			}
+		}
+	})
 }
 
 // spinCheckGroups checks a rewardList: groups keyed by reward type 3 (Gems) or 1 (items), and the children's slots 1 to 8.
 func spinCheckGroups(t *testing.T, row map[string]any, key string) {
 	t.Helper()
 	var slots []int
+	var gemPics []string
 	for _, g := range spinArray(t, row, key) {
 		grp := g.(map[string]any)
-		if rt := spinInt(t, grp, "rewardType"); rt != 1 && rt != 3 {
+		rt := spinInt(t, grp, "rewardType")
+		if rt != 1 && rt != 3 {
 			t.Fatalf("%s group type %v, want 1 or 3", key, rt)
 		}
 		spinStr(t, grp, "rewardGradeType")
@@ -119,8 +142,15 @@ func spinCheckGroups(t *testing.T, row map[string]any, key string) {
 			spinInt(t, child, "probability")
 			spinStr(t, child, "itemCd")
 			spinStr(t, child, "specialEffects")
-			if p := spinStr(t, child, "getImagePath"); !strings.HasPrefix(p, "cherry/spin/") {
+			p := spinStr(t, child, "getImagePath")
+			if !strings.HasPrefix(p, "cherry/spin/") {
 				t.Fatalf("getImagePath %q must be a relative cherry/spin/ path", p)
+			}
+			if rt == 3 {
+				if !strings.HasPrefix(p, "cherry/spin/orig/luckyspin/") {
+					t.Fatalf("gem getImagePath %q must use cherry/spin/orig/luckyspin/", p)
+				}
+				gemPics = append(gemPics, p)
 			}
 		}
 	}
@@ -133,6 +163,15 @@ func spinCheckGroups(t *testing.T, row map[string]any, key string) {
 			t.Fatalf("%s slots %v, want 1 to 8", key, slots)
 		}
 	}
+	t.Run(key+" orig gem icons", func(t *testing.T) {
+		testutil.RequireArchive(t)
+		for _, p := range gemPics {
+			rec := serve(t, http.MethodGet, "/"+p)
+			if _, err := png.Decode(bytes.NewReader(rec.Body.Bytes())); rec.Code != http.StatusOK || err != nil {
+				t.Fatalf("GET /%s: status %d, not a PNG (%v)", p, rec.Code, err)
+			}
+		}
+	})
 }
 
 func TestSpinLuckyListShape(t *testing.T) {
