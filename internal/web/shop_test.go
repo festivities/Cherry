@@ -15,7 +15,7 @@ import (
 
 // shopSetup installs a non-lab account and a small fake item root:
 // CUTO00001 top, CUON004TV animated one-piece, CUHA00001 hair, RUWA000HR wall, RUCH00001 chair,
-// RUGO00002 animated furniture, pets PUPE0000G dog, PUPE0000H cat, PUPE0000I toy, PUPE0006E animated (ride).
+// RUGO00002 animated furniture, pets PUPE0000G dog, PUPE0000H cat, PUPE0000I toy, PUPE0006E gem ride, PUPE0006H cash ride.
 func shopSetup(t *testing.T, gems, cash int64) *store.Account {
 	t.Helper()
 	root, _ := thumbFixture(t)
@@ -23,6 +23,7 @@ func shopSetup(t *testing.T, gems, cash int64) *store.Account {
 		{"dress", "225000001", "a.png"}, {"dress", "225106259", "a.aniproj"}, {"custom", "224400001", "a.png"},
 		{"interior", "121400639", "a.png"}, {"interior", "120400001", "a.png"}, {"interior", "122000002", "a.aniproj"},
 		{"pet", "326400016", "skeleton.xml"}, {"pet", "326400230", "skeleton.xml"}, {"pet", "326400230", "r.aniproj"},
+		{"pet", "326400233", "skeleton.xml"}, {"pet", "326400233", "r.aniproj"},
 		{"pet", "326400017", "skeleton.xml"}, {"pet", "326400018", "skeleton.xml"},
 	} {
 		writeThumbItem(t, root, f[0], f[1], f[2], []byte("x"))
@@ -113,13 +114,22 @@ func TestShopCatalogShapes(t *testing.T) {
 			t.Errorf("catgCd[%d] = %v, want %s", i, got, want)
 		}
 	}
-	if got := codesOf(shopItems(t, "/v4/shop/interior/petitemlist/UPETINT")); len(got) != 4 {
-		t.Errorf("UPETINT = %v, want all four pets", got)
+	if got := codesOf(shopItems(t, "/v4/shop/interior/petitemlist/UPETINT")); len(got) != 5 {
+		t.Errorf("UPETINT = %v, want all five pets", got)
 	}
 	ride := shopItems(t, "/v4/shop/interior/petitemlist/URIDEINT")
+	if len(ride) != 2 {
+		t.Fatalf("URIDEINT = %v, want 2 ride pets", ride)
+	}
 	prow := ride[0].(map[string]any)
-	if len(ride) != 1 || prow["itemCode"] != "PUPE0006E" || prow["paymentType"] != "CASH" || prow["price"] != 25.0 || prow["purchasedYn"] != false {
-		t.Errorf("ride row = %v", prow)
+	if prow["itemCode"] != "PUPE0006E" || prow["name"] != "Carrie" || prow["paymentType"] != "GEM" || prow["price"] != 2000.0 ||
+		prow["purchasedYn"] != false || prow["power"] != 100.0 || prow["speed"] != 110.0 || prow["stamina"] != 105.0 || prow["itemSlot"] != 1.0 {
+		t.Errorf("ride row 0 = %v", prow)
+	}
+	prow1 := ride[1].(map[string]any)
+	if prow1["itemCode"] != "PUPE0006H" || prow1["name"] != "Bruno" || prow1["paymentType"] != "CASH" || prow1["price"] != 20.0 ||
+		prow1["purchasedYn"] != false || prow1["power"] != 95.0 || prow1["speed"] != 111.0 || prow1["stamina"] != 90.0 || prow1["itemSlot"] != 1.0 {
+		t.Errorf("ride row 1 = %v", prow1)
 	}
 	cats := shopItems(t, "/v4/shop/interior/petitemlist/UCATINT")
 	if len(cats) != 1 || cats[0].(map[string]any)["itemCode"] != "PUPE0000H" || cats[0].(map[string]any)["catgCd"] != "UCAT" {
@@ -239,22 +249,25 @@ func TestInteriorAndPetBuy(t *testing.T) {
 	code, out = shopCall(t, http.MethodPost, "/v4/purchase/interior/buy", `{"items":[{"itemCode":"RUGO00002","price":263},{"itemCode":"RUGO00002","price":263},{"itemCode":"RUGO00002","price":263}]}`)
 	wantErr(t, code, out, 400, "60001")
 
-	// Animated pet: 25 Cash, balance is the Cash balance.
-	code, out = shopCall(t, http.MethodPost, "/v4/purchase/pet/buy", `{"items":[{"itemCode":"PUPE0006E","price":25}],"giveNo":"5"}`)
+	// Cash ride pet: 20 Cash, balance is the Cash balance.
+	code, out = shopCall(t, http.MethodPost, "/v4/purchase/pet/buy", `{"items":[{"itemCode":"PUPE0006H","price":20}],"giveNo":"5"}`)
 	wantErr(t, code, out, 400, "61001")
-	code, out = shopCall(t, http.MethodPost, "/v4/purchase/interior/buy", `{"items":[{"itemCode":"PUPE0006E","price":25}],"giveNo":""}`)
+	code, out = shopCall(t, http.MethodPost, "/v4/purchase/interior/buy", `{"items":[{"itemCode":"PUPE0006H","price":20}],"giveNo":""}`)
 	res, _ = out["result"].(map[string]any)
-	if code != 200 || res["balance"] != 5.0 || res["resultCode"] != 0.0 || acc.Cash != 5 || acc.Gems != 527 || len(acc.Pets) != 1 || acc.Pets[0].Cd != "PUPE0006E" || acc.Pets[0].ID != 950101 {
+	if code != 200 || res["balance"] != 10.0 || res["resultCode"] != 0.0 || acc.Cash != 10 || acc.Gems != 527 ||
+		len(acc.Pets) != 1 || acc.Pets[0].Cd != "PUPE0006H" || acc.Pets[0].Name != "Bruno" || acc.Pets[0].ID != 950101 {
 		t.Fatalf("pet buy = %d %v cash %d gems %d pets %v", code, out, acc.Cash, acc.Gems, acc.Pets)
 	}
-	code, out = shopCall(t, http.MethodPost, "/v4/purchase/pet/buy", `{"items":[{"itemCode":"PUPE0006E","price":25}]}`)
+	code, out = shopCall(t, http.MethodPost, "/v4/purchase/pet/buy", `{"items":[{"itemCode":"PUPE0006H","price":20}]}`)
 	wantErr(t, code, out, 400, "61009")
-	// Plain pet: 1,200 Gems, not enough.
-	code, out = shopCall(t, http.MethodPost, "/v4/purchase/pet/buy", `{"items":[{"itemCode":"PUPE0000G","price":1200}]}`)
+	// Gem pets: 800 Gems (PUPE0000G) and 2,000 Gems (PUPE0006E), not enough.
+	code, out = shopCall(t, http.MethodPost, "/v4/purchase/pet/buy", `{"items":[{"itemCode":"PUPE0000G","price":800}]}`)
+	wantErr(t, code, out, 400, "60001")
+	code, out = shopCall(t, http.MethodPost, "/v4/purchase/pet/buy", `{"items":[{"itemCode":"PUPE0006E","price":2000}]}`)
 	wantErr(t, code, out, 400, "60001")
 	if got := shopItems(t, "/v4/shop/interior/petitemlist/UPETINT"); !slices.ContainsFunc(got, func(v any) bool {
 		r := v.(map[string]any)
-		return r["itemCode"] == "PUPE0006E" && r["purchasedYn"] == true
+		return r["itemCode"] == "PUPE0006H" && r["purchasedYn"] == true
 	}) {
 		t.Errorf("owned pet not flagged: %v", got)
 	}

@@ -18,7 +18,7 @@ import (
 )
 
 // Phase E fixtures. Codes follow itemCodeFromID: dress/225514607 = CUAE00B9R (accessory, animated:
-// 250 Gems, grade R); interior/121400639 = RUWA000HR (wall, 100); pet/326400016 = PUPE0000G (1,200).
+// 250 Gems, grade R); interior/121400639 = RUWA000HR (wall, 100); pet/326400016 = PUPE0000G (800).
 const (
 	phaseEClothing = "CUAE00B9R"
 	phaseEWall     = "RUWA000HR"

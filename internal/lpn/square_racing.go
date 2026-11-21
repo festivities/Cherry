@@ -142,9 +142,9 @@ func racingChoose(pets []store.PetItem, code string) (store.PetItem, bool) {
 	return pets[0], true
 }
 
-// racingPetStat is PetStat (power, speed, stamina, item slot), from the operator data.
-func racingPetStat() []byte {
-	s := economy.ActiveRacing().PetStat
+// racingPetStat is PetStat (power, speed, stamina, item slot), from the pet's catalog entry or racing.json.
+func racingPetStat(code string) []byte {
+	s := economy.PetRaceStat(code)
 	b := pbVar(nil, 1, uint64(s.Power))
 	b = pbVar(b, 2, uint64(s.Speed))
 	b = pbVar(b, 3, uint64(s.Stamina))
@@ -156,7 +156,7 @@ func racingPetAppearance(p store.PetItem) []byte {
 	b := pbVar(nil, 1, racingPetID(p))
 	b = pbLen(b, 2, []byte(p.Cd))
 	b = pbLen(b, 3, []byte(p.Name))
-	return pbLen(b, 4, racingPetStat())
+	return pbLen(b, 4, racingPetStat(p.Cd))
 }
 
 // racingPetInfo is MiniGamePetInfo, one row of the Riding Pet picker (rc82 PetInfo3).
@@ -165,7 +165,7 @@ func racingPetInfo(p store.PetItem) []byte {
 	b = pbVar(b, 2, uint64(p.ID))
 	b = pbLen(b, 3, []byte(p.Cd))
 	b = pbLen(b, 4, []byte(p.Name))
-	return pbLen(b, 7, racingPetStat())
+	return pbLen(b, 7, racingPetStat(p.Cd))
 }
 
 // racingTicket is MiniGamePlayTicketInfo: the tickets left, the day's allowance and, while a ticket is
@@ -257,7 +257,7 @@ func (r *squareRace) racingRoster(reqType uint64, now time.Time) []byte {
 func (r *squareRace) racingLoading() []byte {
 	racing := economy.ActiveRacing()
 	pet := pbVar(nil, 1, racingPetID(r.pet))
-	pet = pbLen(pet, 2, racingPetStat())
+	pet = pbLen(pet, 2, racingPetStat(r.pet.Cd))
 	pet = pbLen(pet, 3, []byte(r.pet.Cd))
 	player := pbVar(nil, 1, 1) // IsRoomMaster
 	player = pbVar(player, 2, r.aid)

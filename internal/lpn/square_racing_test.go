@@ -431,3 +431,82 @@ func TestRacingRosterResentAfterRelayStart(t *testing.T) {
 	racingCheckRoster(t, roster, 1, false, 9909)
 	c.none()
 }
+
+// TestRacingPetStatsPerPet: cr63, rc110 and rc91 send per-pet stats from pets.json when present (PUPE0006E)
+// and fall back to racing.json when absent (PUPE00077).
+func TestRacingPetStatsPerPet(t *testing.T) {
+	cfg := racingConfig(t)
+	cfg.RosterDelayMs, cfg.CountdownSec = 300, 1
+	root := t.TempDir()
+	oldCache := thumbs.DpCacheDir
+	thumbs.DpCacheDir = t.TempDir()
+	t.Cleanup(func() { thumbs.DpCacheDir = oldCache })
+	for _, id := range []string{"326400230", "326400259"} {
+		d := filepath.Join(root, "pet", id)
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for _, n := range []string{"skeleton.xml", "r.aniproj", "dp.png"} {
+			if err := os.WriteFile(filepath.Join(d, n), []byte("x"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	testutil.SetArchive(t, testutil.ArchiveMounts(root))
+	carrie := store.PetItem{ID: 3, Cd: "PUPE0006E", Name: "Carrie"} // 326400230: stats 100/110/105/1
+	testutil.InstallAccounts(t, map[string]*store.Account{"race-9910": {
+		AccessToken: "race-9910", SessionKey: "sk", Aid: "9910", Name: "Racer",
+		Pets: []store.PetItem{carrie, racingRidePet},
+	}})
+	testutil.UseDatabase(t)
+	c := newSqClient(t, &squareRoom{}, 1)
+	c.joinTheme(9910, squareCityThemeID)
+	t.Cleanup(c.sess.stopRacing)
+
+	wantStat := func(stat []byte, want economy.RacingPetStat, label string) {
+		t.Helper()
+		if got := (economy.RacingPetStat{
+			Power:    int64(squareUint(t, stat, 1)),
+			Speed:    int64(squareUint(t, stat, 2)),
+			Stamina:  int64(squareUint(t, stat, 3)),
+			ItemSlot: int64(squareUint(t, stat, 4)),
+		}); got != want {
+			t.Fatalf("%s stat = %+v, want %+v", label, got, want)
+		}
+	}
+
+	c.send(63, pbVar(nil, 1, 0))
+	id, info := c.read()
+	if id != 82 {
+		t.Fatalf("entry = %d, want rc82", id)
+	}
+	rows := pbAll(t, info, 3)
+	if len(rows) != 2 {
+		t.Fatalf("picker rows = %d, want 2", len(rows))
+	}
+	wantStat(squareNested(t, rows[0], 7), economy.RacingPetStat{Power: 100, Speed: 110, Stamina: 105, ItemSlot: 1}, "picker PUPE0006E")
+	wantStat(squareNested(t, rows[1], 7), cfg.PetStat, "picker PUPE00077")
+
+	// Enter race with PUPE0006E (selected by default as first owned ride pet) and check rc110 + rc91 stats.
+	racingSendCreate(t, c)
+	c.send(94, racingMoveReq())
+	if id, _ := c.read(); id != 6 {
+		t.Fatalf("move = %d, want rc6", id)
+	}
+	id, roster := c.read()
+	if id != 110 {
+		t.Fatalf("roster = %d, want rc110", id)
+	}
+	wantStat(squareNested(t, roster, 6, 4), economy.RacingPetStat{Power: 100, Speed: 110, Stamina: 105, ItemSlot: 1}, "roster PUPE0006E")
+
+	c.send(86, pbVar(pbVar(nil, 1, squareRacingGame), 2, squareRacingReady))
+	if id, _ := c.read(); id != 110 {
+		t.Fatalf("ready = %d, want rc110", id)
+	}
+	c.send(71, nil)
+	id, loading := c.read()
+	if id != 91 {
+		t.Fatalf("start = %d, want rc91", id)
+	}
+	wantStat(squareNested(t, loading, 2, 5, 2), economy.RacingPetStat{Power: 100, Speed: 110, Stamina: 105, ItemSlot: 1}, "loading PUPE0006E")
+}

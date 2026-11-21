@@ -247,11 +247,12 @@ func petBaseID(aid string) int64 {
 }
 
 // PetSpecies is one sellable Minipet of the Minipet Shop catalog as the Pet Book lists it: the item code,
-// the numeric item id and the client's race category (UDOG, UCAT, UTOY or URIDE). economy.PetSpecies supplies it.
+// the numeric item id, the client's race category (UDOG, UCAT, UTOY or URIDE) and display name. economy.PetSpecies supplies it.
 type PetSpecies struct {
 	Code string
 	ID   int64
 	Catg string
+	Name string
 }
 
 // petBookRow is one ResPetBookList element (sDataPetInfo). Key types are IDA-checked (0x1c34340, rows-d 4.2):
@@ -302,9 +303,12 @@ type petBookRow struct {
 
 // petBookOwned is an account's own pet (the MYPET tab): the same level and experience Cherry already serves
 // on the represent and arrange lists.
-func petBookOwned(aid string, p store.PetItem, catg string) petBookRow {
+func petBookOwned(aid string, p store.PetItem, catg, raceNm string) petBookRow {
+	if raceNm == "" {
+		raceNm = "Minipet"
+	}
 	return petBookRow{
-		RaceID: PetSkinID(p.Cd), CatgCd: catg, ItemCode: p.Cd, LocaleCd: "en",
+		RaceID: PetSkinID(p.Cd), CatgCd: catg, ItemCode: p.Cd, LocaleCd: "en", RaceNm: raceNm,
 		PetID: strconv.FormatInt(p.ID, 10), AvatarID: aid, PetName: p.Name,
 		ExposureYn: true, ArrangedYn: p.Room != "", RepresentYn: p.Rep, DefaultCallRemainTimestamp: "0",
 		Exp: 0, MaxExp: 100, Level: 1, SkinSerial: strconv.FormatInt(p.ID, 10),
@@ -316,7 +320,7 @@ func petBookOwned(aid string, p store.PetItem, catg string) petBookRow {
 // name; level and experience stay 0 and the max experience 100 (neutral placeholders, no Cherry source).
 func petBookSpecies(sp PetSpecies) petBookRow {
 	return petBookRow{
-		RaceID: int(sp.ID), CatgCd: sp.Catg, ItemCode: sp.Code, LocaleCd: "en",
+		RaceID: int(sp.ID), CatgCd: sp.Catg, ItemCode: sp.Code, LocaleCd: "en", RaceNm: sp.Name,
 		ExposureYn: true, MaxExp: 100, SkinID: int(sp.ID), SkinCode: sp.Code, LinkScale: 100,
 	}
 }
@@ -341,11 +345,13 @@ func HandlePetBook(species func() []PetSpecies) http.HandlerFunc {
 				return
 			}
 			catg := map[string]string{}
+			raceNm := map[string]string{}
 			for _, sp := range all {
 				catg[sp.Code] = sp.Catg
+				raceNm[sp.Code] = sp.Name
 			}
 			for _, p := range acc.Pets {
-				list = append(list, petBookOwned(acc.Aid, p, catg[p.Cd]))
+				list = append(list, petBookOwned(acc.Aid, p, catg[p.Cd], raceNm[p.Cd]))
 			}
 			store.AccountsMu.Unlock()
 		} else {

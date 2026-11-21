@@ -1,0 +1,1080 @@
+{
+  "origin": "mixed",
+  "note": "Mixed. ORIGINAL: the pet item codes (PUPE0000G..), the LINE PLAY pet names, cuddles requirements (100/200), currency kinds (GEM/CASH) and Riding Pet stats (power, speed, stamina, item_slot) of the 26 original Shop pets, and the wiki pet name pools. CHERRY-MADE: the scaled affordable Shop prices (no real money; Cash is earned-only), and the category-matched assignment of remaining wiki pet names to non-shop archive pets.",
+  "pets": {
+    "PUPE0000G": {
+      "name": "Mixed Breed",
+      "price": 800,
+      "currency": "GEM",
+      "cuddles": 100
+    },
+    "PUPE0000H": {
+      "name": "Shih Tzu",
+      "price": 1800,
+      "currency": "GEM",
+      "cuddles": 200
+    },
+    "PUPE0000I": {
+      "name": "Mame Shiba",
+      "price": 1200,
+      "currency": "GEM",
+      "cuddles": 100
+    },
+    "PUPE0000J": {
+      "name": "Dachshund",
+      "price": 12,
+      "currency": "CASH",
+      "cuddles": 100
+    },
+    "PUPE0000K": {
+      "name": "Chihuahua",
+      "price": 20,
+      "currency": "CASH",
+      "cuddles": 200
+    },
+    "PUPE0000L": {
+      "name": "Calico Cat",
+      "price": 800,
+      "currency": "GEM",
+      "cuddles": 100
+    },
+    "PUPE0000M": {
+      "name": "Black Cat",
+      "price": 22,
+      "currency": "CASH",
+      "cuddles": 200
+    },
+    "PUPE0000N": {
+      "name": "Siamese",
+      "price": 1400,
+      "currency": "GEM",
+      "cuddles": 100
+    },
+    "PUPE0000O": {
+      "name": "American Shorthair",
+      "price": 1800,
+      "currency": "GEM",
+      "cuddles": 200
+    },
+    "PUPE0000P": {
+      "name": "Turkish Angora",
+      "price": 14,
+      "currency": "CASH",
+      "cuddles": 100
+    },
+    "PUPE0000R": {
+      "name": "Toy Poodle",
+      "price": 16,
+      "currency": "CASH",
+      "cuddles": 100
+    },
+    "PUPE0000S": {
+      "name": "Russian Blue",
+      "price": 1400,
+      "currency": "GEM",
+      "cuddles": 100
+    },
+    "PUPE0000T": {
+      "name": "Bichon",
+      "cuddles": 100
+    },
+    "PUPE0000U": {
+      "name": "Mustache",
+      "price": 10,
+      "currency": "CASH",
+      "cuddles": 100
+    },
+    "PUPE0000V": {
+      "name": "Munchkin Cat",
+      "cuddles": 100
+    },
+    "PUPE0000W": {
+      "name": "Artemis"
+    },
+    "PUPE0000X": {
+      "name": "Cane Corso",
+      "cuddles": 100
+    },
+    "PUPE0000Y": {
+      "name": "Nasa"
+    },
+    "PUPE00017": {
+      "name": "Yuri"
+    },
+    "PUPE00018": {
+      "name": "Chilinmaro"
+    },
+    "PUPE00019": {
+      "name": "Prin-chan"
+    },
+    "PUPE0001C": {
+      "name": "Meo"
+    },
+    "PUPE0001D": {
+      "name": "Milk",
+      "cuddles": 100
+    },
+    "PUPE0001E": {
+      "name": "Matey"
+    },
+    "PUPE0001F": {
+      "name": "Persha",
+      "price": 16,
+      "currency": "CASH",
+      "cuddles": 100
+    },
+    "PUPE0001H": {
+      "name": "Apollo"
+    },
+    "PUPE0001K": {
+      "name": "British Shorthair",
+      "price": 16,
+      "currency": "CASH",
+      "cuddles": 200
+    },
+    "PUPE0001L": {
+      "name": "Aifii",
+      "price": 15,
+      "currency": "CASH",
+      "cuddles": 100
+    },
+    "PUPE0001M": {
+      "name": "Subaggy"
+    },
+    "PUPE0001O": {
+      "name": "Chic"
+    },
+    "PUPE0001P": {
+      "name": "Tanpopo"
+    },
+    "PUPE0001Q": {
+      "name": "Honey"
+    },
+    "PUPE0001U": {
+      "name": "Narry"
+    },
+    "PUPE0001W": {
+      "name": "Sonno"
+    },
+    "PUPE0001X": {
+      "name": "Toy R2-D2"
+    },
+    "PUPE0001Y": {
+      "name": "Chris",
+      "cuddles": 100
+    },
+    "PUPE0001Z": {
+      "name": "Kokoro"
+    },
+    "PUPE00020": {
+      "name": "Minky"
+    },
+    "PUPE00021": {
+      "name": "Neo"
+    },
+    "PUPE00022": {
+      "name": "Cleo"
+    },
+    "PUPE00023": {
+      "name": "Trip"
+    },
+    "PUPE00024": {
+      "name": "Leomaro"
+    },
+    "PUPE00025": {
+      "name": "Macaroon"
+    },
+    "PUPE00026": {
+      "name": "Moko"
+    },
+    "PUPE00027": {
+      "name": "Ciel"
+    },
+    "PUPE00028": {
+      "name": "New Moon"
+    },
+    "PUPE0002A": {
+      "name": "(JP) Gib"
+    },
+    "PUPE0002C": {
+      "name": "Lee"
+    },
+    "PUPE0002D": {
+      "name": "Angelo"
+    },
+    "PUPE0002E": {
+      "name": "Lux"
+    },
+    "PUPE0002F": {
+      "name": "Chizuru"
+    },
+    "PUPE0002G": {
+      "name": "Toy C-3PO"
+    },
+    "PUPE0002H": {
+      "name": "(JP) Tib"
+    },
+    "PUPE0002I": {
+      "name": "Pigna"
+    },
+    "PUPE0002K": {
+      "name": "Aile"
+    },
+    "PUPE0002L": {
+      "name": "Cocoa"
+    },
+    "PUPE0002M": {
+      "name": "Gwen"
+    },
+    "PUPE0002O": {
+      "name": "Nyacaroon"
+    },
+    "PUPE0002Q": {
+      "name": "Victorious Pepper"
+    },
+    "PUPE0002R": {
+      "name": "Nero"
+    },
+    "PUPE0002S": {
+      "name": "Simba"
+    },
+    "PUPE0002T": {
+      "name": "Meow"
+    },
+    "PUPE0002V": {
+      "name": "Candy"
+    },
+    "PUPE0002W": {
+      "name": "Roddy"
+    },
+    "PUPE0002X": {
+      "name": "Nabi"
+    },
+    "PUPE0002Y": {
+      "name": "Connie"
+    },
+    "PUPE00030": {
+      "name": "Eternal"
+    },
+    "PUPE00032": {
+      "name": "Bella"
+    },
+    "PUPE00033": {
+      "name": "Cam"
+    },
+    "PUPE00034": {
+      "name": "Stella"
+    },
+    "PUPE00035": {
+      "name": "Gloom"
+    },
+    "PUPE00036": {
+      "name": "Downy"
+    },
+    "PUPE00037": {
+      "name": "Luminar"
+    },
+    "PUPE00038": {
+      "name": "Jewel"
+    },
+    "PUPE0003A": {
+      "name": "Lapin"
+    },
+    "PUPE0003B": {
+      "name": "Toy BB-8"
+    },
+    "PUPE0003C": {
+      "name": "Lumen"
+    },
+    "PUPE0003D": {
+      "name": "Cream"
+    },
+    "PUPE0003E": {
+      "name": "Seven"
+    },
+    "PUPE0003F": {
+      "name": "Lia"
+    },
+    "PUPE0003G": {
+      "name": "Reve"
+    },
+    "PUPE0003I": {
+      "name": "Lina"
+    },
+    "PUPE0003J": {
+      "name": "Hobaggy"
+    },
+    "PUPE0003N": {
+      "name": "Strawberry"
+    },
+    "PUPE0003O": {
+      "name": "Lang Lang"
+    },
+    "PUPE0003P": {
+      "name": "Fondue"
+    },
+    "PUPE0003Q": {
+      "name": "Noir"
+    },
+    "PUPE0003S": {
+      "name": "Leona"
+    },
+    "PUPE0003U": {
+      "name": "Qiao Qiao"
+    },
+    "PUPE0003V": {
+      "name": "Earl"
+    },
+    "PUPE0003X": {
+      "name": "Fuwa"
+    },
+    "PUPE0003Y": {
+      "name": "Beast"
+    },
+    "PUPE0003Z": {
+      "name": "Shine"
+    },
+    "PUPE00040": {
+      "name": "Noel"
+    },
+    "PUPE00042": {
+      "name": "Charlotte"
+    },
+    "PUPE00043": {
+      "name": "Lily"
+    },
+    "PUPE00044": {
+      "name": "Frise"
+    },
+    "PUPE00045": {
+      "name": "Bear Q02"
+    },
+    "PUPE00047": {
+      "name": "Winter"
+    },
+    "PUPE00048": {
+      "name": "Beauty"
+    },
+    "PUPE00049": {
+      "name": "Annie"
+    },
+    "PUPE0004C": {
+      "name": "Patra"
+    },
+    "PUPE0004D": {
+      "name": "Hoho"
+    },
+    "PUPE0004E": {
+      "name": "Kitora"
+    },
+    "PUPE0004F": {
+      "name": "Miho"
+    },
+    "PUPE0004G": {
+      "name": "Kanon"
+    },
+    "PUPE0004H": {
+      "name": "Nia"
+    },
+    "PUPE0004J": {
+      "name": "Weiss"
+    },
+    "PUPE0004K": {
+      "name": "Black"
+    },
+    "PUPE0004L": {
+      "name": "Frederick"
+    },
+    "PUPE0004M": {
+      "name": "Devirabi"
+    },
+    "PUPE0004O": {
+      "name": "Lyra"
+    },
+    "PUPE0004P": {
+      "name": "Procyon"
+    },
+    "PUPE0004Q": {
+      "name": "Ellie"
+    },
+    "PUPE0004R": {
+      "name": "Gray"
+    },
+    "PUPE0004S": {
+      "name": "Kuroko"
+    },
+    "PUPE0004T": {
+      "name": "Lil"
+    },
+    "PUPE0004U": {
+      "name": "Rosalie"
+    },
+    "PUPE0004V": {
+      "name": "Berry"
+    },
+    "PUPE0004W": {
+      "name": "Dolce"
+    },
+    "PUPE0004X": {
+      "name": "Juju"
+    },
+    "PUPE0004Y": {
+      "name": "Holy"
+    },
+    "PUPE0004Z": {
+      "name": "Sirius"
+    },
+    "PUPE00050": {
+      "name": "mignon"
+    },
+    "PUPE00058": {
+      "name": "White"
+    },
+    "PUPE00059": {
+      "name": "Memoir"
+    },
+    "PUPE0005A": {
+      "name": "Pigner"
+    },
+    "PUPE0005B": {
+      "name": "Eve"
+    },
+    "PUPE0005C": {
+      "name": "Torte"
+    },
+    "PUPE0005D": {
+      "name": "Mr.Clock"
+    },
+    "PUPE0005F": {
+      "name": "Misty"
+    },
+    "PUPE0005G": {
+      "name": "Beat"
+    },
+    "PUPE0005I": {
+      "name": "Exotic Shorthair"
+    },
+    "PUPE0005J": {
+      "name": "Shiroko"
+    },
+    "PUPE0005K": {
+      "name": "Bubbly Cam"
+    },
+    "PUPE0005L": {
+      "name": "Joy"
+    },
+    "PUPE0005N": {
+      "name": "Pepe"
+    },
+    "PUPE0005O": {
+      "name": "Heartie"
+    },
+    "PUPE0005Q": {
+      "name": "Fil"
+    },
+    "PUPE0005R": {
+      "name": "Fabien"
+    },
+    "PUPE0005S": {
+      "name": "Eclipse"
+    },
+    "PUPE0005T": {
+      "name": "Ageha"
+    },
+    "PUPE0005U": {
+      "name": "Marine"
+    },
+    "PUPE0005V": {
+      "name": "Heaven"
+    },
+    "PUPE0005W": {
+      "name": "Mr. Watch"
+    },
+    "PUPE0005X": {
+      "name": "Flower"
+    },
+    "PUPE0005Y": {
+      "name": "Lon"
+    },
+    "PUPE00060": {
+      "name": "Dancing Pepper"
+    },
+    "PUPE00061": {
+      "name": "Kero-chan"
+    },
+    "PUPE00062": {
+      "name": "Leo"
+    },
+    "PUPE00063": {
+      "name": "Rora"
+    },
+    "PUPE00068": {
+      "name": "Hunter"
+    },
+    "PUPE00069": {
+      "name": "Bellborne"
+    },
+    "PUPE0006A": {
+      "name": "Ochiyo"
+    },
+    "PUPE0006B": {
+      "name": "Penta"
+    },
+    "PUPE0006E": {
+      "name": "Carrie",
+      "price": 2000,
+      "currency": "GEM",
+      "cuddles": 100,
+      "stats": {
+        "power": 100,
+        "speed": 110,
+        "stamina": 105,
+        "item_slot": 1
+      }
+    },
+    "PUPE0006F": {
+      "name": "Muffin",
+      "cuddles": 200
+    },
+    "PUPE0006H": {
+      "name": "Bruno",
+      "price": 20,
+      "currency": "CASH",
+      "cuddles": 100,
+      "stats": {
+        "power": 95,
+        "speed": 111,
+        "stamina": 90,
+        "item_slot": 1
+      }
+    },
+    "PUPE0006I": {
+      "name": "Debbie",
+      "price": 25,
+      "currency": "CASH",
+      "cuddles": 100,
+      "stats": {
+        "power": 93,
+        "speed": 112,
+        "stamina": 85,
+        "item_slot": 1
+      }
+    },
+    "PUPE0006J": {
+      "name": "Rory",
+      "price": 25,
+      "currency": "CASH",
+      "cuddles": 100,
+      "stats": {
+        "power": 95,
+        "speed": 113,
+        "stamina": 115,
+        "item_slot": 1
+      }
+    },
+    "PUPE0006K": {
+      "name": "Aqua"
+    },
+    "PUPE0006M": {
+      "name": "Bouquet"
+    },
+    "PUPE0006N": {
+      "name": "Trudo",
+      "price": 30,
+      "currency": "CASH",
+      "cuddles": 100,
+      "stats": {
+        "power": 130,
+        "speed": 110,
+        "stamina": 160,
+        "item_slot": 1
+      }
+    },
+    "PUPE0006Q": {
+      "name": "Dreamy Cotton"
+    },
+    "PUPE0006R": {
+      "name": "Lampi"
+    },
+    "PUPE0006S": {
+      "name": "Greenie"
+    },
+    "PUPE0006T": {
+      "name": "Coconut",
+      "price": 25,
+      "currency": "CASH",
+      "cuddles": 100,
+      "stats": {
+        "power": 92,
+        "speed": 112,
+        "stamina": 85,
+        "item_slot": 1
+      }
+    },
+    "PUPE0006U": {
+      "name": "Obisidian"
+    },
+    "PUPE0006V": {
+      "name": "Tommi"
+    },
+    "PUPE0006W": {
+      "name": "Shirotora"
+    },
+    "PUPE0006X": {
+      "name": "Lemon Honey"
+    },
+    "PUPE0006Y": {
+      "name": "Pinky",
+      "price": 30,
+      "currency": "CASH",
+      "cuddles": 100,
+      "stats": {
+        "power": 111,
+        "speed": 111,
+        "stamina": 128,
+        "item_slot": 1
+      }
+    },
+    "PUPE00070": {
+      "name": "Ocre"
+    },
+    "PUPE00071": {
+      "name": "Helen"
+    },
+    "PUPE00072": {
+      "name": "Maru",
+      "price": 25,
+      "currency": "CASH",
+      "cuddles": 100,
+      "stats": {
+        "power": 125,
+        "speed": 115,
+        "stamina": 98,
+        "item_slot": 1
+      }
+    },
+    "PUPE00073": {
+      "name": "Tofu",
+      "price": 30,
+      "currency": "CASH",
+      "cuddles": 100,
+      "stats": {
+        "power": 105,
+        "speed": 110,
+        "stamina": 110,
+        "item_slot": 1
+      }
+    },
+    "PUPE00074": {
+      "name": "Beam",
+      "price": 35,
+      "currency": "CASH",
+      "cuddles": 100,
+      "stats": {
+        "power": 98,
+        "speed": 130,
+        "stamina": 101,
+        "item_slot": 1
+      }
+    },
+    "PUPE00075": {
+      "name": "Troy"
+    },
+    "PUPE00076": {
+      "name": "Bram"
+    },
+    "PUPE00077": {
+      "name": "Pio"
+    },
+    "PUPE00078": {
+      "name": "Indigo"
+    },
+    "PUPE00079": {
+      "name": "Luna"
+    },
+    "PUPE0007B": {
+      "name": "Candela"
+    },
+    "PUPE0007C": {
+      "name": "Rose"
+    },
+    "PUPE0007D": {
+      "name": "Silver Landau"
+    },
+    "PUPE0007E": {
+      "name": "Ericka"
+    },
+    "PUPE0007F": {
+      "name": "Leafy"
+    },
+    "PUPE0007H": {
+      "name": "Rufus"
+    },
+    "PUPE0007J": {
+      "name": "Galadriel"
+    },
+    "PUPE0007K": {
+      "name": "Rene"
+    },
+    "PUPE0007L": {
+      "name": "Ponta"
+    },
+    "PUPE0007N": {
+      "name": "Springer"
+    },
+    "PUPE0007O": {
+      "name": "Dire Wolf"
+    },
+    "PUPE0007P": {
+      "name": "Floriane"
+    },
+    "PUPE0007Q": {
+      "name": "Momoka"
+    },
+    "PUPE0007R": {
+      "name": "MAHINA"
+    },
+    "PUPE0007S": {
+      "name": "Bunny"
+    },
+    "PUPE0007T": {
+      "name": "Mira"
+    },
+    "PUPE0007U": {
+      "name": "Grace"
+    },
+    "PUPE0007V": {
+      "name": "Odile"
+    },
+    "PUPE0007W": {
+      "name": "Cornet"
+    },
+    "PUPE0007X": {
+      "name": "Koku"
+    },
+    "PUPE0007Y": {
+      "name": "Cara"
+    },
+    "PUPE0007Z": {
+      "name": "Blanc"
+    },
+    "PUPE00080": {
+      "name": "Oceanus"
+    },
+    "PUPE00081": {
+      "name": "Pinkberry"
+    },
+    "PUPE00082": {
+      "name": "Kudan"
+    },
+    "PUPE00083": {
+      "name": "Blake"
+    },
+    "PUPE00084": {
+      "name": "101 Dalmatians & Classic Chair"
+    },
+    "PUPE00085": {
+      "name": "Néve"
+    },
+    "PUPE00086": {
+      "name": "Leone"
+    },
+    "PUPE00087": {
+      "name": "Redberry"
+    },
+    "PUPE0008E": {
+      "name": "Laranja"
+    },
+    "PUPE0008F": {
+      "name": "Rosa"
+    },
+    "PUPE0008G": {
+      "name": "Carousel"
+    },
+    "PUPE0008H": {
+      "name": "Memory"
+    },
+    "PUPE0008J": {
+      "name": "Hikar"
+    },
+    "PUPE0008K": {
+      "name": "Cielo"
+    },
+    "PUPE0008L": {
+      "name": "Yumere"
+    },
+    "PUPE0008M": {
+      "name": "Skeleton Wolf"
+    },
+    "PUPE0008N": {
+      "name": "Toby"
+    },
+    "PUPE0008O": {
+      "name": "Sher"
+    },
+    "PUPE0008P": {
+      "name": "Gold Landau"
+    },
+    "PUPE0008R": {
+      "name": "Creamberry"
+    },
+    "PUPE0008S": {
+      "name": "Merlin"
+    },
+    "PUPE0008T": {
+      "name": "Sofia"
+    },
+    "PUPE0008U": {
+      "name": "Farewell"
+    },
+    "PUPE0008V": {
+      "name": "Mokona"
+    },
+    "PUPE0008W": {
+      "name": "Didi"
+    },
+    "PUPE0008X": {
+      "name": "Rose"
+    },
+    "PUPE0008Y": {
+      "name": "Albeata"
+    },
+    "PUPE0008Z": {
+      "name": "Novalis"
+    },
+    "PUPE00090": {
+      "name": "Varuna"
+    },
+    "PUPE00091": {
+      "name": "Limoen"
+    },
+    "PUPE00092": {
+      "name": "Glor"
+    },
+    "PUPE00093": {
+      "name": "Saku"
+    },
+    "PUPE00095": {
+      "name": "Agnes"
+    },
+    "PUPE00096": {
+      "name": "Modoki"
+    },
+    "PUPE00097": {
+      "name": "Lumi"
+    },
+    "PUPE00098": {
+      "name": "Rufina"
+    },
+    "PUPE00099": {
+      "name": "Fudge Bear"
+    },
+    "PUPE0009A": {
+      "name": "Sora"
+    },
+    "PUPE0009D": {
+      "name": "Leher"
+    },
+    "PUPE0009E": {
+      "name": "Kamal"
+    },
+    "PUPE0009F": {
+      "name": "KUROMI Rocket"
+    },
+    "PUPE0009G": {
+      "name": "Flora"
+    },
+    "PUPE0009H": {
+      "name": "Mignon"
+    },
+    "PUPE0009I": {
+      "name": "Dovey"
+    },
+    "PUPE0009J": {
+      "name": "Diamond"
+    },
+    "PUPE0009K": {
+      "name": "Haku"
+    },
+    "PUPE0009L": {
+      "name": "Rebecca"
+    },
+    "PUPE0009M": {
+      "name": "Cleone"
+    },
+    "PUPE0009N": {
+      "name": "Lyell"
+    },
+    "PUPE0009P": {
+      "name": "Lolo"
+    },
+    "PUPE0009Q": {
+      "name": "Dolph"
+    },
+    "PUPE0009R": {
+      "name": "Latte"
+    },
+    "PUPE0009S": {
+      "name": "USATA"
+    },
+    "PUPE0009T": {
+      "name": "Hortensia"
+    },
+    "PUPE0009V": {
+      "name": "Enko"
+    },
+    "PUPE0009X": {
+      "name": "Anjelica"
+    },
+    "PUPE0009Y": {
+      "name": "Louis"
+    },
+    "PUPE0009Z": {
+      "name": "Freesia"
+    },
+    "PUPE000A0": {
+      "name": "Tatsu"
+    },
+    "PUPE000A1": {
+      "name": "Rex"
+    },
+    "PUPE000A2": {
+      "name": "Violett"
+    },
+    "PUPE000A3": {
+      "name": "Imp"
+    },
+    "PUPE000A4": {
+      "name": "Adolph"
+    },
+    "PUPE000A5": {
+      "name": "Citroen"
+    },
+    "PUPE000A6": {
+      "name": "Singh"
+    },
+    "PUPE000A7": {
+      "name": "Rendy"
+    },
+    "PUPE000A8": {
+      "name": "Sunset"
+    },
+    "PUPE000A9": {
+      "name": "Rondine"
+    },
+    "PUPE000AA": {
+      "name": "Spirit"
+    },
+    "PUPE000AB": {
+      "name": "Lovey"
+    },
+    "PUPE000AC": {
+      "name": "Corazon"
+    },
+    "PUPE000AD": {
+      "name": "Spooky"
+    },
+    "PUPE000AE": {
+      "name": "Lewina"
+    },
+    "PUPE000AF": {
+      "name": "Lewin"
+    },
+    "PUPE000AG": {
+      "name": "Rufino"
+    },
+    "PUPE000AH": {
+      "name": "Mew"
+    },
+    "PUPE000AJ": {
+      "name": "Jessica"
+    },
+    "PUPE000AK": {
+      "name": "Lumiere"
+    },
+    "PUPE000AL": {
+      "name": "Dreamy"
+    },
+    "PUPE000AM": {
+      "name": "Sue"
+    },
+    "PUPE000AN": {
+      "name": "Rick"
+    },
+    "PUPE000AO": {
+      "name": "Yukiha"
+    },
+    "PUPE000AP": {
+      "name": "Brina"
+    },
+    "PUPE000AQ": {
+      "name": "Hestia"
+    },
+    "PUPE000AR": {
+      "name": "King"
+    },
+    "PUPE000AS": {
+      "name": "Harvey"
+    },
+    "PUPE000AT": {
+      "name": "Coppelia"
+    },
+    "PUPE000AV": {
+      "name": "Odette"
+    },
+    "PUPE000AW": {
+      "name": "Dolly"
+    },
+    "PUPE000AZ": {
+      "name": "Totti"
+    },
+    "PUPE000B0": {
+      "name": "Tama"
+    },
+    "PUPE000B3": {
+      "name": "Lucia"
+    },
+    "PUPE000B5": {
+      "name": "Etoile"
+    },
+    "PUPE000B7": {
+      "name": "SHOOKY"
+    },
+    "PUPE000B8": {
+      "name": "Samudra"
+    },
+    "PUPE000B9": {
+      "name": "Joli"
+    },
+    "PUPE000BC": {
+      "name": "Divena"
+    },
+    "PUPE000BD": {
+      "name": "Vio"
+    },
+    "PUPE000BF": {
+      "name": "Rion"
+    },
+    "PUPE000BG": {
+      "name": "Blanco"
+    },
+    "PUPE000BK": {
+      "name": "Azul"
+    },
+    "PUPE000BL": {
+      "name": "Titi"
+    },
+    "PUPE000BN": {
+      "name": "Nuit"
+    },
+    "PUPE000BP": {
+      "name": "Rico"
+    },
+    "PUPE000BR": {
+      "name": "Heart"
+    },
+    "PUPE000BS": {
+      "name": "Astra"
+    }
+  }
+}

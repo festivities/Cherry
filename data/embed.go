@@ -170,3 +170,9 @@ var CircleJSON []byte
 //
 //go:embed treasure.json
 var TreasureJSON []byte
+
+// PetsJSON is the Minipet catalog: display names, shop prices and currencies, cuddles requirements and Riding Pet
+// racing stats (economy/pets.go).
+//
+//go:embed pets.json
+var PetsJSON []byte

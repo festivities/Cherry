@@ -91,8 +91,8 @@ func TestItemPriceTable(t *testing.T) {
 		{"RUTI0002T", 100, false, "N", true},
 		{"RUTD00005", 150, false, "N", true},
 		{"RUGO00002", 375, false, "R", true},
-		{"PUPE0000G", 1200, false, "N", true},
-		{"PUPE0006E", 25, true, "R", true}, // ride pet (230 = 6E in base36)
+		{"PUPE0000G", 800, false, "N", true},
+		{"PUPE0006E", 2000, false, "R", true}, // ride pet (230 = 6E in base36)
 		{"BOGUS", 0, false, "N", false},
 	}
 	for _, c := range cases {

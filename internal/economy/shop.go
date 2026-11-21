@@ -197,10 +197,21 @@ func ItemPrice(code string) (price int64, cash bool, grade string, ok bool) {
 	if kind == kindGarden {
 		return base, true, "N", true
 	}
-	if loadCatalog().animated[code] {
-		if kind == kindPet {
+	animated := loadCatalog().animated[code]
+	if kind == kindPet {
+		grade = "N"
+		if animated {
+			grade = "R"
+		}
+		if spec, ok := PetSpecOf(code); ok && spec.Price > 0 {
+			return spec.Price, spec.Currency == "CASH", grade, true
+		}
+		if animated {
 			return ActivePrices().AnimatedPetCash, true, "R", true
 		}
+		return base, false, "N", true
+	}
+	if animated {
 		return (base*ActivePrices().AnimatedPercent + 50) / 100, false, "R", true
 	}
 	return base, false, "N", true
@@ -265,7 +276,7 @@ func PetSpecies() []room.PetSpecies {
 	c := loadCatalog()
 	out := make([]room.PetSpecies, 0, len(c.pet))
 	for _, it := range c.pet {
-		out = append(out, room.PetSpecies{Code: it.Code, ID: it.ID, Catg: it.Catg})
+		out = append(out, room.PetSpecies{Code: it.Code, ID: it.ID, Catg: it.Catg, Name: PetDisplayName(it.Code)})
 	}
 	return out
 }
@@ -506,8 +517,16 @@ func handleShopList(kind byte) http.HandlerFunc {
 					cat == "UCATINT" && it.Catg == "UCAT" || cat == "URIDEINT" && it.Catg == "URIDE" {
 					row := interiorRow(it, owned[it.Code], deals, now)
 					row["purchasedYn"] = owned[it.Code]
+					if name := PetDisplayName(it.Code); name != "" {
+						row["name"] = name
+					}
+					var speed, power, stamina, itemSlot int64
+					if it.Catg == "URIDE" {
+						st := PetRaceStat(it.Code)
+						speed, power, stamina, itemSlot = st.Speed, st.Power, st.Stamina, st.ItemSlot
+					}
 					for k, v := range map[string]any{"raceId": 1, "catgCd": it.Catg, "petSkinId": room.PetSkinID(it.Code), "petSkinCode": it.Code,
-						"linkPosX": 0, "linkPosY": 0, "linkScale": 100, "linkPosScale": 100, "speed": 0, "power": 0, "stamina": 0, "itemSlot": 0} {
+						"linkPosX": 0, "linkPosY": 0, "linkScale": 100, "linkPosScale": 100, "speed": speed, "power": power, "stamina": stamina, "itemSlot": itemSlot} {
 						row[k] = v
 					}
 					rows = append(rows, row)
@@ -725,7 +744,11 @@ func handleShopBuy(kind byte) http.HandlerFunc {
 			acc.Landscapes = append(slices.Clone(acc.Landscapes), codes...)
 		case kindPet:
 			for _, code := range codes {
-				acc.Pets = append(slices.Clone(acc.Pets), room.NewPetLocked(acc, code))
+				p := room.NewPetLocked(acc, code)
+				if name := PetDisplayName(code); name != "" {
+					p.Name = name
+				}
+				acc.Pets = append(slices.Clone(acc.Pets), p)
 			}
 		}
 		if err := store.SaveLocked(lines, acc); err != nil {
@@ -950,6 +973,9 @@ func ItemName(code string) string {
 			label = n
 		}
 	case "PU":
+		if name := PetDisplayName(code); name != "" {
+			return name
+		}
 		label = "Pet"
 	}
 	return label + " " + code[4:]

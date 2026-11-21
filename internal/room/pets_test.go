@@ -73,7 +73,10 @@ func TestPetBookRowTypes(t *testing.T) {
 		{ID: 100102, Cd: PetItemCode(17), Name: "Minipet 2", Room: "LEVEL_1"},
 	}}})
 	species := func() []PetSpecies {
-		return []PetSpecies{{Code: PetItemCode(18), ID: int64(PetSkinID(PetItemCode(18))), Catg: "UDOG"}}
+		return []PetSpecies{
+			{Code: PetItemCode(16), ID: int64(PetSkinID(PetItemCode(16))), Catg: "UDOG", Name: "Mixed Breed"},
+			{Code: PetItemCode(18), ID: int64(PetSkinID(PetItemCode(18))), Catg: "UDOG", Name: "Mame Shiba"},
+		}
 	}
 	get := func(category string, withSession bool) *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
@@ -92,20 +95,20 @@ func TestPetBookRowTypes(t *testing.T) {
 	for _, row := range mine {
 		checkPetBookRow(t, row)
 	}
-	if mine[0]["petId"] != "100101" || mine[0]["petName"] != "Minipet 1" || mine[0]["representYn"] != true {
+	if mine[0]["petId"] != "100101" || mine[0]["petName"] != "Minipet 1" || mine[0]["representYn"] != true || mine[0]["raceNm"] != "Mixed Breed" {
 		t.Fatalf("owned row 0 = %v", mine[0])
 	}
-	if mine[1]["arrangedYn"] != true || mine[1]["catgCd"] != "" {
-		t.Fatalf("owned row 1 = %v (arranged; no catalog category for code 17)", mine[1])
+	if mine[1]["arrangedYn"] != true || mine[1]["catgCd"] != "" || mine[1]["raceNm"] != "Minipet" {
+		t.Fatalf("owned row 1 = %v (arranged; no catalog entry for code 17)", mine[1])
 	}
 
 	_, udog := petBookReply(t, get("UDOG", false))
-	if len(udog) != 1 {
-		t.Fatalf("UDOG rows = %d, want 1 (the catalog Dog)", len(udog))
+	if len(udog) != 2 {
+		t.Fatalf("UDOG rows = %d, want 2 (the catalog Dogs)", len(udog))
 	}
-	checkPetBookRow(t, udog[0])
-	if udog[0]["petId"] != "" || udog[0]["catgCd"] != "UDOG" || udog[0]["itemCode"] != PetItemCode(18) {
-		t.Fatalf("catalog row = %v", udog[0])
+	checkPetBookRow(t, udog[1])
+	if udog[1]["petId"] != "" || udog[1]["catgCd"] != "UDOG" || udog[1]["itemCode"] != PetItemCode(18) || udog[1]["raceNm"] != "Mame Shiba" {
+		t.Fatalf("catalog row = %v", udog[1])
 	}
 
 	raw, none := petBookReply(t, get("UTOY", false))
