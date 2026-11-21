@@ -4,6 +4,9 @@ package store
 // whether each one is secret from other visitors. Replaced, never edited in place. StatusMessage is
 // the profile Status Message (saved by POST /v4/avatar/<aid>/profile as "intro"); it is public.
 type DiaryProfile struct {
+	DiaryName       string `json:"diaryName,omitempty"`
+	Introduce       string `json:"introduce,omitempty"`
+	SkinID          string `json:"skinId,omitempty"`
 	StatusMessage   string `json:"statusMessage,omitempty"`
 	Location        string `json:"location,omitempty"`
 	LocationSecret  bool   `json:"locationSecret,omitempty"`

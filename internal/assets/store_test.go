@@ -169,6 +169,9 @@ func TestRouteParsing(t *testing.T) {
 		"/arts_chatting_00005/action_hd/chatting_deco_action_hello.png":   "static/chatting/action_hd/chatting_deco_action_hello.png",
 		"/arts_diaryskin_en_00007/common/UIImage_hd/avatar_photo_bg.png":  "static/DiarySkin/common/UIImage_hd/avatar_photo_bg.png",
 		"/arts_diaryskin_jp_00007/00001/UIImage_hd/skin_info.json":        "static/DiarySkin/00001/UIImage_hd/skin_info.json",
+		"/arts_diaryskin_tw_00007/common/UIImage_hd/avatar_photo_bg.png":  "static/DiarySkin/common/UIImage_hd/avatar_photo_bg.png",
+		"/arts_diaryskin_th_00007/00005/UIImage_hd/skin_info.json":        "static/DiarySkin/00005/UIImage_hd/skin_info.json",
+		"/arts_diaryskin_ko_00007/00016/UIImage_hd/skin_info.json":        "static/DiarySkin/00016/UIImage_hd/skin_info.json",
 	}
 	for p, key := range files {
 		if got, ok := fileKey(p); !ok || got != key {
@@ -192,9 +195,12 @@ func TestRouteParsing(t *testing.T) {
 		"/arts_chatting_abc/action_hd/chatting_deco_action_hello.png",       // version not digits
 		"/arts_chatting_00005/chatting_deco_action_hello.png",               // no action_hd folder
 		"/arts_diaryskin_en_00007/00001/UIImage_hd/avatar_photo_bg.png",     // the common file is not under 00001
-		"/arts_diaryskin_en_00007/common/UIImage_hd/skin_info.json",         // skin_info.json is under 00001 only
+		"/arts_diaryskin_en_00007/common/UIImage_hd/skin_info.json",         // skin_info.json is under numeric skins only
 		"/arts_diaryskin_en_00006/common/UIImage_hd/avatar_photo_bg.png",    // other version
-		"/arts_diaryskin_tw_00007/common/UIImage_hd/avatar_photo_bg.png",    // other language
+		"/arts_diaryskin_eng_00007/common/UIImage_hd/avatar_photo_bg.png",   // 3-letter language
+		"/arts_diaryskin_12_00007/common/UIImage_hd/avatar_photo_bg.png",    // numeric language
+		"/arts_diaryskin_EN_00007/common/UIImage_hd/avatar_photo_bg.png",    // uppercase language
+		"/arts_diaryskin_en_00007/00004/UIImage_hd/skin_info.json",          // unserved skin
 		"/arts_diaryskin_en_00007/common/UIImage_hd/skin_file.ini",          // a list is not an original
 		"/arts_diaryskin_en_00007/common/UIImage_hd/../avatar_photo_bg.png", // traversal
 	} {
@@ -443,5 +449,80 @@ func TestReadFileCacheHitMissAndNotFound(t *testing.T) {
 func TestFlagDefaultIsOff(t *testing.T) {
 	if flagFile.Get().Enabled {
 		t.Fatal("embedded streaming.json must default to off")
+	}
+}
+
+func TestDiarySkinKey(t *testing.T) {
+	skins := []string{"00001", "00002", "00003", "00005", "00009", "00015", "00016"}
+	for _, lang := range []string{"en", "jp", "tw", "th", "ko"} {
+		p := "/arts_diaryskin_" + lang + "_00007/common/UIImage_hd/avatar_photo_bg.png"
+		if got, ok := diarySkinKey(p); !ok || got != "static/DiarySkin/common/UIImage_hd/avatar_photo_bg.png" {
+			t.Errorf("diarySkinKey(%s) = %q, %v", p, got, ok)
+		}
+		for _, id := range skins {
+			p := "/arts_diaryskin_" + lang + "_00007/" + id + "/UIImage_hd/skin_info.json"
+			want := "static/DiarySkin/" + id + "/UIImage_hd/skin_info.json"
+			if got, ok := diarySkinKey(p); !ok || got != want {
+				t.Errorf("diarySkinKey(%s) = %q, %v; want %q", p, got, ok, want)
+			}
+		}
+	}
+	for _, bad := range []string{
+		"/arts_diaryskin_eng_00007/common/UIImage_hd/avatar_photo_bg.png",
+		"/arts_diaryskin_12_00007/common/UIImage_hd/avatar_photo_bg.png",
+		"/arts_diaryskin_e_00007/common/UIImage_hd/avatar_photo_bg.png",
+		"/arts_diaryskin_EN_00007/common/UIImage_hd/avatar_photo_bg.png",
+		"/arts_diaryskin_en_00006/00001/UIImage_hd/skin_info.json",
+		"/arts_diaryskin_en_00007/00004/UIImage_hd/skin_info.json",
+		"/arts_diaryskin_en_00007/00099/UIImage_hd/skin_info.json",
+		"/arts_diaryskin_en_00007/common/UIImage_hd/skin_file.ini",
+	} {
+		if got, ok := diarySkinKey(bad); ok {
+			t.Errorf("diarySkinKey(%s) accepted as %q", bad, got)
+		}
+	}
+}
+
+func TestServeDiarySkin(t *testing.T) {
+	dir := t.TempDir()
+	files := map[string]string{
+		"common/UIImage_hd/avatar_photo_bg.png": "bg-png",
+		"00001/UIImage_hd/skin_info.json":       `{"id":1}`,
+		"00002/UIImage_hd/skin_info.json":       `{"id":2}`,
+		"00003/UIImage_hd/skin_info.json":       `{"id":3}`,
+		"00005/UIImage_hd/skin_info.json":       `{"id":5}`,
+		"00009/UIImage_hd/skin_info.json":       `{"id":9}`,
+		"00015/UIImage_hd/skin_info.json":       `{"id":15}`,
+		"00016/UIImage_hd/skin_info.json":       `{"id":16}`,
+	}
+	for rel, body := range files {
+		p := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := NewLocal(map[string][]string{"static/DiarySkin/": {dir}})
+	for _, lang := range []string{"en", "tw", "th"} {
+		for rel, want := range files {
+			req := httptest.NewRequest(http.MethodGet, "/arts_diaryskin_"+lang+"_00007/"+rel, nil)
+			rec := httptest.NewRecorder()
+			if !s.ServeDiarySkin(rec, req) || rec.Code != http.StatusOK || rec.Body.String() != want {
+				t.Fatalf("ServeDiarySkin(%s, %s) = code %d body %q, want 200 %q", lang, rel, rec.Code, rec.Body.String(), want)
+			}
+		}
+	}
+	for _, bad := range []string{
+		"/arts_diaryskin_eng_00007/00001/UIImage_hd/skin_info.json",
+		"/arts_diaryskin_12_00007/00001/UIImage_hd/skin_info.json",
+		"/arts_diaryskin_th_00007/00004/UIImage_hd/skin_info.json",
+	} {
+		req := httptest.NewRequest(http.MethodGet, bad, nil)
+		rec := httptest.NewRecorder()
+		if s.ServeDiarySkin(rec, req) {
+			t.Fatalf("ServeDiarySkin(%s) unexpectedly handled", bad)
+		}
 	}
 }

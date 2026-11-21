@@ -51,13 +51,30 @@ const tx543UpdateIniBody = `[start=1,end=1,size=454656,/arts_strings.ast:version
 
 const skinFileIniBody = `[empty]`
 
-// diarySkinLists are the skin_file.ini bodies that list the default skin's originals (spec B2, B5): the common list
-// names avatar_photo_bg.png and skin 00001's list names skin_info.json. Every other diary skin list stays skinFileIniBody.
-var diarySkinLists = map[string]string{
-	"/arts_diaryskin_en_00007/common/UIImage_hd/skin_file.ini": "[avatar_photo_bg.png]",
-	"/arts_diaryskin_jp_00007/common/UIImage_hd/skin_file.ini": "[avatar_photo_bg.png]",
-	"/arts_diaryskin_en_00007/00001/UIImage_hd/skin_file.ini":  "[skin_info.json]",
-	"/arts_diaryskin_jp_00007/00001/UIImage_hd/skin_file.ini":  "[skin_info.json]",
+// diarySkinListBody returns the skin_file.ini body for a known diary skin directory under any 2-letter
+// lowercase ASCII language at version 00007: common lists avatar_photo_bg.png and the seven original
+// skins list skin_info.json. Every other diary skin list falls back to skinFileIniBody.
+func diarySkinListBody(path string) (string, bool) {
+	rest, ok := strings.CutPrefix(path, "/arts_diaryskin_")
+	if !ok {
+		return "", false
+	}
+	lang, tail, ok := strings.Cut(rest, "_00007/")
+	if !ok || len(lang) != 2 || lang[0] < 'a' || lang[0] > 'z' || lang[1] < 'a' || lang[1] > 'z' {
+		return "", false
+	}
+	dir, file, ok := strings.Cut(tail, "/")
+	if !ok || file != "UIImage_hd/skin_file.ini" {
+		return "", false
+	}
+	switch dir {
+	case "common":
+		return "[avatar_photo_bg.png]", true
+	case "00001", "00002", "00003", "00005", "00009", "00015", "00016":
+		return "[skin_info.json]", true
+	default:
+		return "", false
+	}
 }
 
 const eventFlagListBody = `{"result":[]}`
@@ -391,14 +408,19 @@ func newMux(svc *auth.Service) http.Handler {
 	mux.HandleFunc("/v4/friend/bookmark/", handleFriendBookmark)
 	mux.HandleFunc("/v4/r/friend/remove/", handleFriendRemove)
 	mux.HandleFunc("/v4/friend/status/", handleFriendStatus)
+	mux.HandleFunc("/v4/friend/relationship/", handleFriendRelationship)
 	mux.HandleFunc("/v4/friend/apply/", handleFriendApply)
 	mux.HandleFunc("/v4/friend/accept/", handleFriendAccept)
 	mux.HandleFunc("/v4/pin/list", handlePinList)
 	mux.HandleFunc("/v4/pin/add/", handlePinAdd)
 	mux.HandleFunc("/v4/pin/delete", handlePinDelete)
 	mux.HandleFunc("/v4/diary2/ext/checkExist/", handleDiaryCheckExist)
+	mux.HandleFunc("/v4/diary2/intro", handleDiaryIntroSave)
 	mux.HandleFunc("/v4/diary2/intro/", handleDiaryIntro)
+	mux.HandleFunc("/v4/diary2/skinListWithVersionOS/", handleDiarySkinList)
+	mux.HandleFunc("/v4/diary2/skinInfo/", handleDiarySkinInfo)
 	mux.HandleFunc("/v4/diary2/ext/write", handleDiaryWrite)
+	mux.HandleFunc("/v4/diary2/ext/modify", handleDiaryModify)
 	mux.HandleFunc("/v4/achieve/write", handleAchieveWrite)
 	mux.HandleFunc("/v4/diary2/ext/unfold/photo/", handleDiaryPhotoAlbum)
 	mux.HandleFunc("/v4/diary2/ext/unfold/", handleDiaryUnfold)
@@ -1177,7 +1199,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 	if assets.Archive.ServeRoute(w, r) {
 		return
 	}
-	// The default diary skin's two originals (the skin_file.ini lists above name them), with or without streaming.
+	// The diary skin originals (the skin_file.ini lists above name them), with or without streaming.
 	if assets.Archive.ServeDiarySkin(w, r) {
 		return
 	}
@@ -1214,7 +1236,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodGet && isSkinFileIniPath(r.URL.Path) {
-		body, ok := diarySkinLists[r.URL.Path]
+		body, ok := diarySkinListBody(r.URL.Path)
 		if !ok {
 			body = skinFileIniBody
 		}

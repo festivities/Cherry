@@ -400,7 +400,7 @@ func (s *Store) ServeKey(w http.ResponseWriter, r *http.Request, key string) boo
 	return s != nil && s.serve(w, r, key)
 }
 
-// ServeDiarySkin answers the two diary skin originals (diarySkinKey) with or without streaming: the client downloads
+// ServeDiarySkin answers the diary skin originals (diarySkinKey) with or without streaming: the client downloads
 // what its skin_file.ini lists, and that list is served either way. ServeRoute answers them too when streaming is on.
 // A miss returns false.
 func (s *Store) ServeDiarySkin(w http.ResponseWriter, r *http.Request) bool {
@@ -408,21 +408,32 @@ func (s *Store) ServeDiarySkin(w http.ResponseWriter, r *http.Request) bool {
 	return ok && r.Method == http.MethodGet && s.ServeKey(w, r, key)
 }
 
-// diarySkinFiles are the two diary skin originals the default skin's skin_file.ini lists (web: diarySkinLists), keyed by
-// the path under /arts_diaryskin_<lang>_00007/. The rest of the diary skin is not in R2 and has no key.
+// diarySkinFiles are the diary skin originals that skin_file.ini lists (web: diarySkinListBody), keyed by
+// the path under /arts_diaryskin_<lang>_00007/. Any other diary skin file is not in R2 and has no key.
 var diarySkinFiles = map[string]string{
 	"common/UIImage_hd/avatar_photo_bg.png": "static/DiarySkin/common/UIImage_hd/avatar_photo_bg.png",
 	"00001/UIImage_hd/skin_info.json":       "static/DiarySkin/00001/UIImage_hd/skin_info.json",
+	"00002/UIImage_hd/skin_info.json":       "static/DiarySkin/00002/UIImage_hd/skin_info.json",
+	"00003/UIImage_hd/skin_info.json":       "static/DiarySkin/00003/UIImage_hd/skin_info.json",
+	"00005/UIImage_hd/skin_info.json":       "static/DiarySkin/00005/UIImage_hd/skin_info.json",
+	"00009/UIImage_hd/skin_info.json":       "static/DiarySkin/00009/UIImage_hd/skin_info.json",
+	"00015/UIImage_hd/skin_info.json":       "static/DiarySkin/00015/UIImage_hd/skin_info.json",
+	"00016/UIImage_hd/skin_info.json":       "static/DiarySkin/00016/UIImage_hd/skin_info.json",
 }
 
-// diarySkinKey maps /arts_diaryskin_{en,jp}_00007/<file> to its R2 key for the two files in diarySkinFiles.
+func isTwoLowerASCII(s string) bool {
+	return len(s) == 2 && s[0] >= 'a' && s[0] <= 'z' && s[1] >= 'a' && s[1] <= 'z'
+}
+
+// diarySkinKey maps /arts_diaryskin_<lang>_00007/<file> (for any 2-letter lowercase ASCII language code)
+// to its R2 key for the files in diarySkinFiles.
 func diarySkinKey(p string) (string, bool) {
 	rest, ok := strings.CutPrefix(p, "/arts_diaryskin_")
 	if !ok {
 		return "", false
 	}
 	lang, tail, ok := strings.Cut(rest, "_00007/")
-	if !ok || (lang != "en" && lang != "jp") {
+	if !ok || !isTwoLowerASCII(lang) {
 		return "", false
 	}
 	key, ok := diarySkinFiles[tail]
@@ -656,7 +667,7 @@ func ChatActionFile(name string) bool {
 // /arts_item_<kind>_<id>/<file> is static/item/<kind>/<id>/<file>; /arts_chatting_<ch>/action_hd/<file> is
 // static/chatting/action_hd/<file> whatever the ch digits (the client reads the icon version raw, and the
 // uploader stores them without it); the item loader also asks for every item file under /img/read/
-// (device 2026-10-26: /img/read/arts_item_custom_<id>/1409_iteminfo.artsitem). The two default diary skin files
+// (device 2026-10-26: /img/read/arts_item_custom_<id>/1409_iteminfo.artsitem). The diary skin originals
 // (/arts_diaryskin_<lang>_00007/…) are static/DiarySkin/… (diarySkinKey); they are not a category.
 func fileKey(p string) (string, bool) {
 	if rest, ok := strings.CutPrefix(p, "/img/read"); ok {

@@ -627,3 +627,423 @@ func TestInviteScreenRoutes(t *testing.T) {
 		t.Fatalf("recommend/code: status = %d, body = %q", rec.Code, rec.Body.String())
 	}
 }
+
+func TestProfileFriendApplyAndRelationship(t *testing.T) {
+	installSocialTestAccounts(t, map[string]*store.Account{
+		"t1": {AccessToken: "t1", Aid: "1", Name: "One"},
+		"t2": {AccessToken: "t2", Aid: "2", Name: "Two"},
+	})
+	store.ResetSocial()
+	t.Cleanup(store.ResetSocial)
+
+	for _, aid := range []string{"2", store.FriendAID} {
+		rec := socialTestRequestAs(t, "t1", http.MethodGet, "/v4/profile/"+aid, "")
+		var out struct {
+			Result map[string]any `json:"result"`
+		}
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &out) != nil {
+			t.Fatalf("GET /v4/profile/%s = %d %s", aid, rec.Code, rec.Body.String())
+		}
+		if out.Result["friendApplyYn"] != true {
+			t.Errorf("GET /v4/profile/%s friendApplyYn = %v, want true", aid, out.Result["friendApplyYn"])
+		}
+	}
+
+	for _, aid := range []string{"2", store.FriendAID} {
+		rec := socialTestRequestAs(t, "t1", http.MethodGet, "/v4/friend/relationship/"+aid, "")
+		if rec.Code != http.StatusOK || rec.Body.String() != `{"result":{}}` {
+			t.Errorf("GET /v4/friend/relationship/%s = %d %s, want 200 {\"result\":{}}", aid, rec.Code, rec.Body.String())
+		}
+	}
+	if rec := serve(t, http.MethodGet, "/v4/friend/relationship/999"); rec.Code != http.StatusNotFound {
+		t.Errorf("GET /v4/friend/relationship/999 = %d, want 404", rec.Code)
+	}
+	if rec := serve(t, http.MethodPost, "/v4/friend/relationship/2"); rec.Code != http.StatusNotFound {
+		t.Errorf("POST /v4/friend/relationship/2 = %d, want 404", rec.Code)
+	}
+}
+
+func TestDiaryCheckExistEntry(t *testing.T) {
+	testutil.UseDatabase(t)
+	installSocialTestAccounts(t, map[string]*store.Account{
+		"owner":    {AccessToken: "owner", Aid: "1", Name: "Owner"},
+		"stranger": {AccessToken: "stranger", Aid: "2", Name: "Stranger"},
+		"friend":   {AccessToken: "friend", Aid: "3", Name: "Friend"},
+	})
+	store.ResetSocial()
+	t.Cleanup(store.ResetSocial)
+
+	pubNo := diaryPost(t, "owner", "1", "public")
+	privNo := diaryPost(t, "owner", "1", "private")
+
+	// Make aid 3 an accepted friend of aid 1.
+	store.SocialMu.Lock()
+	store.Friendships = append(store.Friendships, store.Friendship{A: "1", B: "3", State: "accepted"})
+	if err := store.SaveSocialLocked(store.SocialChange{Friends: [][2]string{{"1", "3"}}}); err != nil {
+		store.SocialMu.Unlock()
+		t.Fatal(err)
+	}
+	store.SocialMu.Unlock()
+
+	check := func(token, path string) (int, bool) {
+		t.Helper()
+		rec := diaryCall(t, token, http.MethodGet, path, "")
+		if rec.Code != http.StatusOK {
+			return rec.Code, false
+		}
+		var out struct {
+			Result struct {
+				FrndApplyYn bool `json:"frndApplyYn"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatalf("unmarshal %s: %v (%s)", path, err, rec.Body.String())
+		}
+		return rec.Code, out.Result.FrndApplyYn
+	}
+
+	for _, suffix := range []string{"", "/"} {
+		path := "/v4/diary2/ext/checkExist/entry/1/" + pubNo + suffix
+		if code, yn := check("stranger", path); code != http.StatusOK || !yn {
+			t.Errorf("stranger %s = (%d, %v), want (200, true)", path, code, yn)
+		}
+		if code, yn := check("owner", path); code != http.StatusOK || yn {
+			t.Errorf("owner %s = (%d, %v), want (200, false)", path, code, yn)
+		}
+		if code, yn := check("friend", path); code != http.StatusOK || yn {
+			t.Errorf("friend %s = (%d, %v), want (200, false)", path, code, yn)
+		}
+		if code, yn := check("", path); code != http.StatusOK || yn {
+			t.Errorf("anonymous %s = (%d, %v), want (200, false)", path, code, yn)
+		}
+	}
+
+	privPath := "/v4/diary2/ext/checkExist/entry/1/" + privNo
+	if code, _ := check("owner", privPath); code != http.StatusOK {
+		t.Errorf("owner private %s = %d, want 200", privPath, code)
+	}
+	if code, _ := check("stranger", privPath); code != http.StatusNotFound {
+		t.Errorf("stranger private %s = %d, want 404", privPath, code)
+	}
+	if code, _ := check("stranger", "/v4/diary2/ext/checkExist/entry/1/99999"); code != http.StatusNotFound {
+		t.Errorf("missing post = %d, want 404", code)
+	}
+	for _, bad := range []string{
+		"/v4/diary2/ext/checkExist/entry/bad/1",
+		"/v4/diary2/ext/checkExist/entry/1/abc",
+		"/v4/diary2/ext/checkExist/entry/1/1/extra",
+	} {
+		if rec := serve(t, http.MethodGet, bad); rec.Code != http.StatusNotFound {
+			t.Errorf("GET %s = %d, want 404", bad, rec.Code)
+		}
+	}
+}
+
+func TestDiaryModify(t *testing.T) {
+	testutil.UseDatabase(t)
+	recordPicture(t, store.MediaDiary, "1", "1", "1710000000", "1_1710000000")
+	recordPicture(t, store.MediaDiary, "2", "2", "1710000001", "2_1710000001")
+	installSocialTestAccounts(t, map[string]*store.Account{
+		"owner": {AccessToken: "owner", Aid: "1", Name: "Owner"},
+		"other": {AccessToken: "other", Aid: "2", Name: "Other"},
+	})
+	store.ResetSocial()
+	t.Cleanup(store.ResetSocial)
+
+	no := diaryPost(t, "owner", "1", "public")
+	// Add a comment so we verify the modify response includes comments/likes counts and pages.
+	cmt := socialTestRequestAs(t, "other", http.MethodPost, "/v4/diary2/comment/write/1",
+		`{"commentAvatarId":"1","diaryNo":`+no+`,"avatarID":"2","content":"nice"}`)
+	if cmt.Code != http.StatusOK {
+		t.Fatalf("comment write = %d %s", cmt.Code, cmt.Body.String())
+	}
+
+	ownImage := "/lineplay/d/download.nhn?oid=1_1710000000&ctime=1710000000&userid=1"
+	foreignImage := "/lineplay/d/download.nhn?oid=2_1710000001&ctime=1710000001&userid=2"
+
+	// Reject non-owner, foreign image, invalid body, unknown post, and unauthenticated.
+	if rec := serve(t, http.MethodPost, "/v4/diary2/ext/modify"); rec.Code != http.StatusNotFound {
+		t.Errorf("anonymous modify = %d, want 404", rec.Code)
+	}
+	if rec := socialTestRequestAs(t, "owner", http.MethodGet, "/v4/diary2/ext/modify", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("GET modify = %d, want 404", rec.Code)
+	}
+	if rec := socialTestRequestAs(t, "other", http.MethodPost, "/v4/diary2/ext/modify",
+		`{"diaryNo":"`+no+`","avatarId":"1","title":"x","content":"y"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("mismatched avatarId = %d, want 400", rec.Code)
+	}
+	if rec := socialTestRequestAs(t, "other", http.MethodPost, "/v4/diary2/ext/modify",
+		`{"diaryNo":"`+no+`","avatarId":"2","title":"x","content":"y"}`); rec.Code != http.StatusNotFound {
+		t.Errorf("non-owner modify = %d, want 404", rec.Code)
+	}
+	if rec := socialTestRequestAs(t, "owner", http.MethodPost, "/v4/diary2/ext/modify",
+		`{"diaryNo":"`+no+`","avatarId":"1","title":"x","content":"y","images":[{"imageUrl":"`+foreignImage+`"}]}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("foreign image modify = %d, want 400", rec.Code)
+	}
+	if rec := socialTestRequestAs(t, "owner", http.MethodPost, "/v4/diary2/ext/modify",
+		`{"diaryNo":"abc","avatarId":"1","title":"x","content":"y"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("non-digit diaryNo = %d, want 400", rec.Code)
+	}
+
+	// Valid modify updating title, content, openState, feelingState, imageTypeKind, and images.
+	modBody, _ := json.Marshal(map[string]any{
+		"diaryNo":       no,
+		"avatarId":      "1",
+		"title":         "Updated Title",
+		"content":       "Updated Body",
+		"openState":     "private",
+		"feelingState":  3,
+		"imageTypeKind": "photo",
+		"images":        []store.DiaryImage{{ImageURL: ownImage}, {ImageURL: ""}},
+	})
+	mod := socialTestRequestAs(t, "owner", http.MethodPost, "/v4/diary2/ext/modify", string(modBody))
+	if mod.Code != http.StatusOK {
+		t.Fatalf("modify = %d %s", mod.Code, mod.Body.String())
+	}
+	var detail struct {
+		Result struct {
+			DiaryNo           string             `json:"diaryNo"`
+			Title             string             `json:"title"`
+			Content           string             `json:"content"`
+			OpenState         string             `json:"openState"`
+			FeelingState      int                `json:"feelingState"`
+			ImageTypeKind     string             `json:"imageTypeKind"`
+			ImageLocationType string             `json:"imageLocationType"`
+			CommentCount      int                `json:"commentCount"`
+			Images            []store.DiaryImage `json:"images"`
+			Comments          struct {
+				Items []testComment `json:"items"`
+			} `json:"comments"`
+			Likes struct {
+				Items []any `json:"items"`
+			} `json:"likes"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(mod.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("unmarshal modify: %v (%s)", err, mod.Body.String())
+	}
+	r := detail.Result
+	if r.DiaryNo != no || r.Title != "Updated Title" || r.Content != "Updated Body" || r.OpenState != "private" ||
+		r.FeelingState != 3 || r.ImageTypeKind != "photo" || r.ImageLocationType != "obs" ||
+		len(r.Images) != 1 || r.Images[0].ImageURL != ownImage || r.CommentCount != 1 || len(r.Comments.Items) != 1 || r.Likes.Items == nil {
+		t.Fatalf("unexpected modify result: %+v", r)
+	}
+
+	// Persists across reload and shows up in handleDiaryLook.
+	if err := store.ReloadSocial(); err != nil {
+		t.Fatal(err)
+	}
+	look := socialTestRequestAs(t, "owner", http.MethodGet, "/v4/diary2/ext/look/1/"+no, "")
+	if look.Code != http.StatusOK || !strings.Contains(look.Body.String(), `"title":"Updated Title"`) || !strings.Contains(look.Body.String(), `"openState":"private"`) {
+		t.Fatalf("look after reload = %d %s", look.Code, look.Body.String())
+	}
+	// Now private, so stranger cannot view it.
+	if lookOther := socialTestRequestAs(t, "other", http.MethodGet, "/v4/diary2/ext/look/1/"+no, ""); lookOther.Code != http.StatusNotFound {
+		t.Errorf("stranger look on modified private post = %d, want 404", lookOther.Code)
+	}
+}
+
+func TestDiaryIntroSaveAndGet(t *testing.T) {
+	testutil.UseDatabase(t)
+	installSocialTestAccounts(t, map[string]*store.Account{
+		"owner": {
+			AccessToken:  "owner",
+			Aid:          "1",
+			Name:         "Cherry",
+			ProfileImage: store.ProfileImage{Image: "/lineplay/pr/1_1"},
+			DiaryProfile: &store.DiaryProfile{
+				StatusMessage: "keep status",
+				Location:      "Tokyo",
+				Photos:        []store.ProfilePhoto{{ImageID: "p1", ImageURL: "/lineplay/pr/p1", Main: true}},
+			},
+		},
+		"visitor": {AccessToken: "visitor", Aid: "2", Name: "Visitor"},
+	})
+	store.ResetSocial()
+	t.Cleanup(store.ResetSocial)
+
+	// Invalid requests.
+	if rec := socialTestRequestAs(t, "owner", http.MethodGet, "/v4/diary2/intro", ""); rec.Code != http.StatusNotFound {
+		t.Errorf("GET /v4/diary2/intro = %d, want 404 (not 307)", rec.Code)
+	}
+	if rec := socialTestRequestAs(t, "", http.MethodPost, "/v4/diary2/intro", `{}`); rec.Code != http.StatusNotFound {
+		t.Errorf("anonymous POST /v4/diary2/intro = %d, want 404", rec.Code)
+	}
+	if rec := socialTestRequestAs(t, "owner", http.MethodPost, "/v4/diary2/intro",
+		`{"avatarId":"2","diaryName":"x"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("mismatched avatarId = %d, want 400", rec.Code)
+	}
+	if rec := socialTestRequestAs(t, "owner", http.MethodPost, "/v4/diary2/intro",
+		`{"avatarId":"1","introduce":"bad\u0007ctrl"}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("control char introduce = %d, want 400", rec.Code)
+	}
+
+	saveBody := `{"avatarId":"1","diaryName":"My Diary","introduce":"Line 1\nLine 2","skinId":"00002","birthDay":"1999-05-01","birthDaySecret":true,"bloodType":"255T_2","bloodTypeSecret":false,"job":"256C_1","jobSecret":true,"sex":"255S_2","sexSecret":false}`
+	saved := socialTestRequestAs(t, "owner", http.MethodPost, "/v4/diary2/intro", saveBody)
+	if saved.Code != http.StatusOK {
+		t.Fatalf("POST /v4/diary2/intro = %d %s", saved.Code, saved.Body.String())
+	}
+
+	checkIntro := func(rec *httptest.ResponseRecorder, wantSecret bool) {
+		t.Helper()
+		var out struct {
+			Result map[string]any `json:"result"`
+		}
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &out) != nil {
+			t.Fatalf("intro = %d %s", rec.Code, rec.Body.String())
+		}
+		r := out.Result
+		wantBirthDay := ""
+		wantJob := ""
+		if wantSecret {
+			wantBirthDay = "1999-05-01"
+			wantJob = "256C_1"
+		}
+		checks := map[string]any{
+			"avatarId":                 "1",
+			"nickname":                 "Cherry",
+			"diaryName":                "My Diary",
+			"introduce":                "Line 1\nLine 2",
+			"skinId":                   "00002",
+			"birthDay":                 wantBirthDay,
+			"birthDaySecret":           true,
+			"bloodType":                "255T_2",
+			"bloodTypeSecret":          false,
+			"job":                      wantJob,
+			"jobSecret":                true,
+			"sex":                      "255S_2",
+			"sexSecret":                false,
+			"created":                  true,
+			"obsProfileImagePath":      "/lineplay/pr/1_1",
+			"showGuestBook":            true,
+			"showCmt":                  true,
+			"useCmtTagBrandAvatarOnly": false,
+			"showProfile":              true,
+		}
+		for k, want := range checks {
+			if r[k] != want {
+				t.Errorf("%s = %#v, want %#v", k, r[k], want)
+			}
+		}
+		if r["todayVisitor"] != float64(0) || r["totalVisitor"] != float64(0) {
+			t.Errorf("visitors = (%v, %v), want (0, 0)", r["todayVisitor"], r["totalVisitor"])
+		}
+	}
+
+	checkIntro(saved, true)
+
+	// Reload from DB and confirm persistence + StatusMessage/Location/Photos preserved.
+	if err := store.ReloadAccounts(); err != nil {
+		t.Fatal(err)
+	}
+	acc, ok := store.AccountByAvatarID("1")
+	if !ok || acc.DiaryProfile == nil || acc.DiaryProfile.StatusMessage != "keep status" ||
+		acc.DiaryProfile.Location != "Tokyo" || len(acc.DiaryProfile.Photos) != 1 {
+		t.Fatalf("preserved profile fields lost: %+v", acc.DiaryProfile)
+	}
+
+	checkIntro(socialTestRequestAs(t, "owner", http.MethodGet, "/v4/diary2/intro/1", ""), true)
+	checkIntro(socialTestRequestAs(t, "visitor", http.MethodGet, "/v4/diary2/intro/1", ""), false)
+}
+
+func TestDiarySkinList(t *testing.T) {
+	for _, path := range []string{
+		"/v4/diary2/skinListWithVersionOS/Android/0?osVersion=10.1.0.0&isBase=false",
+		"/v4/diary2/skinListWithVersionOS/iPhone/0?osVersion=10.1.0&isBase=false",
+		"/v4/diary2/skinListWithVersionOS/Android/ALL",
+	} {
+		rec := serve(t, http.MethodGet, path)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET %s = %d %s, want 200", path, rec.Code, rec.Body.String())
+		}
+		var out struct {
+			Result []json.RawMessage `json:"result"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatalf("GET %s invalid JSON: %v", path, err)
+		}
+		if len(out.Result) != 2 {
+			t.Fatalf("GET %s result len = %d, want 2", path, len(out.Result))
+		}
+		var entries []diarySkinEntry
+		if err := json.Unmarshal(out.Result[0], &entries); err != nil {
+			t.Fatalf("GET %s result[0]: %v", path, err)
+		}
+		if len(entries) != 7 {
+			t.Fatalf("GET %s entries = %d, want 7", path, len(entries))
+		}
+		wantResources := []int{1, 2, 3, 5, 9, 15, 16}
+		wantIDs := []string{"default", "00002", "00003", "00005", "00009", "00015", "00016"}
+		for i, e := range entries {
+			if e.SkinSn != i+1 || e.SkinID != wantIDs[i] || e.SkinCategoryID != "default" ||
+				e.ResourceNumber != wantResources[i] || e.Flag != 0 || e.Sort != i+1 ||
+				!e.HasSkin || e.SkinNm != wantIDs[i] || e.Version != 7 {
+				t.Errorf("entry[%d] = %+v", i, e)
+			}
+		}
+		var common struct {
+			CommonVersion int `json:"commonVersion"`
+		}
+		if err := json.Unmarshal(out.Result[1], &common); err != nil || common.CommonVersion != 7 {
+			t.Fatalf("GET %s result[1] = %s (%v), want commonVersion=7", path, out.Result[1], err)
+		}
+	}
+
+	for _, bad := range []string{
+		"/v4/diary2/skinListWithVersionOS/Windows/0",
+		"/v4/diary2/skinListWithVersionOS/Android/",
+		"/v4/diary2/skinListWithVersionOS/Android/0/",
+		"/v4/diary2/skinListWithVersionOS/Android",
+	} {
+		if rec := serve(t, http.MethodGet, bad); rec.Code != http.StatusNotFound {
+			t.Errorf("GET %s = %d, want 404", bad, rec.Code)
+		}
+	}
+	if rec := serve(t, http.MethodPost, "/v4/diary2/skinListWithVersionOS/Android/0"); rec.Code != http.StatusNotFound {
+		t.Errorf("POST skinListWithVersionOS = %d, want 404", rec.Code)
+	}
+}
+
+func TestDiarySkinInfo(t *testing.T) {
+	cases := []struct {
+		path    string
+		wantID  string
+		wantRes int
+	}{
+		{"/v4/diary2/skinInfo/Android?diary_skin_id=default&osVersion=10.1.0.0", "default", 1},
+		{"/v4/diary2/skinInfo/Android?osVersion=10.1.0.0", "default", 1},
+		{"/v4/diary2/skinInfo/Android?diary_skin_id=", "default", 1},
+		{"/v4/diary2/skinInfo/Android/?diary_skin_id=00005", "00005", 5},
+		{"/v4/diary2/skinInfo/iPhone?diary_skin_id=00016&osVersion=10.1.0", "00016", 16},
+	}
+	for _, tc := range cases {
+		rec := serve(t, http.MethodGet, tc.path)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET %s = %d %s, want 200", tc.path, rec.Code, rec.Body.String())
+		}
+		var out struct {
+			Result diarySkinEntry `json:"result"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatalf("GET %s invalid JSON: %v", tc.path, err)
+		}
+		if out.Result.SkinID != tc.wantID || out.Result.ResourceNumber != tc.wantRes || out.Result.Version != 7 || !out.Result.HasSkin {
+			t.Errorf("GET %s result = %+v, want id=%q resourceNumber=%d", tc.path, out.Result, tc.wantID, tc.wantRes)
+		}
+	}
+
+	for _, bad := range []string{
+		"/v4/diary2/skinInfo/Android?diary_skin_id=99999",
+		"/v4/diary2/skinInfo/Android?diary_skin_id=00004",
+		"/v4/diary2/skinInfo/Windows?diary_skin_id=default",
+		"/v4/diary2/skinInfo/",
+		"/v4/diary2/skinInfo/Android/extra",
+	} {
+		if rec := serve(t, http.MethodGet, bad); rec.Code != http.StatusNotFound {
+			t.Errorf("GET %s = %d, want 404", bad, rec.Code)
+		}
+	}
+	if rec := serve(t, http.MethodPost, "/v4/diary2/skinInfo/Android?diary_skin_id=default"); rec.Code != http.StatusNotFound {
+		t.Errorf("POST skinInfo = %d, want 404", rec.Code)
+	}
+}

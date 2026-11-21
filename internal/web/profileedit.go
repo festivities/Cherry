@@ -317,8 +317,9 @@ func handleProfileIntroSave(w http.ResponseWriter, r *http.Request) {
 		Job: req.Job, JobSecret: req.JobSecret,
 	}
 	if previous != nil {
-		// The Status Message and the photos have their own routes; keep them.
+		// The Status Message, diary intro fields, and photos have their own routes; keep them.
 		next.StatusMessage, next.Photos = previous.StatusMessage, previous.Photos
+		next.DiaryName, next.Introduce, next.SkinID = previous.DiaryName, previous.Introduce, previous.SkinID
 	}
 	acc.DiaryProfile = next
 	if err := store.SaveLocked(nil, acc); err != nil {

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"cherry/internal/economy"
@@ -201,7 +202,7 @@ func profileBodyFor(aid, name string, hasGarden bool, viewer store.AccountSnapsh
 	store.SocialMu.Unlock()
 	body := map[string]any{
 		"avatarId": aid, "name": name, "nickname": name, "diaryName": name,
-		"newbie": false, "friendStatus": friendStatus, "hasGarden": hasGarden,
+		"newbie": false, "friendStatus": friendStatus, "friendApplyYn": true, "hasGarden": hasGarden,
 		"showGuestBook": true, "showCmt": true, "showProfile": true,
 		"diaryCount": diaryCount, "guestBookCount": guestbookCount,
 	}
@@ -354,12 +355,81 @@ func handleDiaryCheckExist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rest := strings.TrimPrefix(r.URL.Path, "/v4/diary2/ext/checkExist/")
+	if entryRest, ok := strings.CutPrefix(rest, "entry/"); ok {
+		entryRest = strings.TrimSuffix(entryRest, "/")
+		parts := strings.Split(entryRest, "/")
+		if len(parts) != 2 || !store.ValidAvatarID(parts[0]) || parts[1] == "" || !httpx.IsAllDigits(parts[1]) {
+			httpx.ServeNotFound(w)
+			return
+		}
+		owner, diaryNo := parts[0], parts[1]
+		viewer, viewerOK := store.AccountForRequest(r)
+		store.SocialMu.Lock()
+		post, found := findPostLocked(owner, diaryNo)
+		visible := found && canViewDiaryPost(post, viewer, viewerOK)
+		frndApplyYn := viewerOK && viewer.Aid != owner && friendRelation(viewer.Aid, true, owner) == relNone
+		store.SocialMu.Unlock()
+		if !visible {
+			httpx.ServeNotFound(w)
+			return
+		}
+		httpx.WriteObj(w, map[string]any{"result": map[string]any{"frndApplyYn": frndApplyYn}})
+		return
+	}
 	parts := strings.Split(rest, "/")
 	if len(parts) != 3 || parts[2] != "" || !store.ValidAvatarID(parts[0]) || parts[1] != "0" || !store.KnownSocialAvatar(parts[0]) {
 		httpx.ServeNotFound(w)
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, `{"result":true}`)
+}
+
+// diaryIntroTextOK accepts valid UTF-8 of at most 200 characters, allowing newlines (\n, \r)
+// while rejecting other control characters.
+func diaryIntroTextOK(s string) bool {
+	if !utf8.ValidString(s) || utf8.RuneCountInString(s) > 200 {
+		return false
+	}
+	for _, c := range s {
+		if c != '\n' && c != '\r' && unicode.IsControl(c) {
+			return false
+		}
+	}
+	return true
+}
+
+// diaryIntroResult builds the SetDiaryIntroduceData result map for aid. Acquires and releases store.SocialMu.
+func diaryIntroResult(aid, nickname, obsProfileImagePath string, dp store.DiaryProfile, viewer store.AccountSnapshot, viewerOK bool) map[string]any {
+	store.SocialMu.Lock()
+	count := 0
+	for _, post := range store.DiaryPosts {
+		if post.AvatarID == aid && canViewDiaryPost(post, viewer, viewerOK) {
+			count++
+		}
+	}
+	store.SocialMu.Unlock()
+	own := viewerOK && viewer.Aid == aid
+	shown := func(value string, secret bool) string {
+		if secret && !own {
+			return ""
+		}
+		return value
+	}
+	diaryName := dp.DiaryName
+	if diaryName == "" {
+		diaryName = nickname
+	}
+	return map[string]any{
+		"avatarId": aid, "nickname": nickname, "diaryName": diaryName,
+		"introduce": dp.Introduce, "skinId": dp.SkinID,
+		"birthDay": shown(dp.BirthDay, dp.BirthDaySecret), "birthDaySecret": dp.BirthDaySecret,
+		"sex": shown(dp.Sex, dp.SexSecret), "sexSecret": dp.SexSecret,
+		"bloodType": shown(dp.BloodType, dp.BloodTypeSecret), "bloodTypeSecret": dp.BloodTypeSecret,
+		"job": shown(dp.Job, dp.JobSecret), "jobSecret": dp.JobSecret,
+		"created": true, "diaryCount": count, "todayVisitor": 0, "totalVisitor": 0,
+		"obsProfileImagePath": obsProfileImagePath,
+		"showGuestBook":       true, "showCmt": true, "useCmtTagBrandAvatarOnly": false, "showProfile": true,
+	}
 }
 
 func handleDiaryIntro(w http.ResponseWriter, r *http.Request) {
@@ -374,23 +444,102 @@ func handleDiaryIntro(w http.ResponseWriter, r *http.Request) {
 		aid = "1"
 	}
 	nickname := "guest"
+	obsProfileImagePath := ""
+	var dp store.DiaryProfile
 	if aid == store.FriendAID {
 		nickname = store.FriendName()
-	} else if acc, ok := store.AccountByAvatarID(aid); ok && acc.Name != "" {
-		nickname = acc.Name
-	}
-	store.SocialMu.Lock()
-	count := 0
-	for _, post := range store.DiaryPosts {
-		if post.AvatarID == aid && canViewDiaryPost(post, viewer, viewerOK) {
-			count++
+	} else if acc, ok := store.AccountByAvatarID(aid); ok {
+		if acc.Name != "" {
+			nickname = acc.Name
+		}
+		obsProfileImagePath = acc.ProfileImage.Image
+		if acc.DiaryProfile != nil {
+			dp = *acc.DiaryProfile
 		}
 	}
-	store.SocialMu.Unlock()
-	body, err := json.Marshal(map[string]any{"result": map[string]any{
-		"avatarId": aid, "nickname": nickname, "diaryName": nickname, "diaryCount": count,
-		"showGuestBook": true, "showCmt": true, "showProfile": true,
-	}})
+	body, err := json.Marshal(map[string]any{"result": diaryIntroResult(aid, nickname, obsProfileImagePath, dp, viewer, viewerOK)})
+	if err != nil {
+		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, string(body))
+}
+
+func handleDiaryIntroSave(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		httpx.ServeNotFound(w)
+		return
+	}
+	raw, err := httpx.ReadNativeBody(r)
+	var req struct {
+		AvatarID        string `json:"avatarId"`
+		DiaryName       string `json:"diaryName"`
+		Introduce       string `json:"introduce"`
+		SkinID          string `json:"skinId"`
+		BirthDay        string `json:"birthDay"`
+		BirthDaySecret  bool   `json:"birthDaySecret"`
+		BloodType       string `json:"bloodType"`
+		BloodTypeSecret bool   `json:"bloodTypeSecret"`
+		Job             string `json:"job"`
+		JobSecret       bool   `json:"jobSecret"`
+		Sex             string `json:"sex"`
+		SexSecret       bool   `json:"sexSecret"`
+	}
+	if err == nil {
+		_, err = httpx.UnmarshalNativeJSON(raw, &req)
+	}
+	if err != nil || !profileTextOK(req.DiaryName, 64) || !diaryIntroTextOK(req.Introduce) ||
+		!diaryProfileText(req.SkinID) || !diaryProfileText(req.BirthDay) ||
+		!diaryProfileText(req.BloodType) || !diaryProfileText(req.Job) || !diaryProfileText(req.Sex) {
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
+	store.AccountsMu.Lock()
+	acc := store.SessionAccountLocked(r)
+	if acc == nil {
+		store.AccountsMu.Unlock()
+		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
+		return
+	}
+	if req.AvatarID != "" && req.AvatarID != acc.Aid {
+		store.AccountsMu.Unlock()
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
+	previous := acc.DiaryProfile
+	next := store.DiaryProfile{}
+	if previous != nil {
+		next = *previous
+	}
+	next.DiaryName = req.DiaryName
+	next.Introduce = req.Introduce
+	next.SkinID = req.SkinID
+	next.BirthDay = req.BirthDay
+	next.BirthDaySecret = req.BirthDaySecret
+	next.BloodType = req.BloodType
+	next.BloodTypeSecret = req.BloodTypeSecret
+	next.Job = req.Job
+	next.JobSecret = req.JobSecret
+	next.Sex = req.Sex
+	next.SexSecret = req.SexSecret
+	acc.DiaryProfile = &next
+	if err := store.SaveLocked(nil, acc); err != nil {
+		acc.DiaryProfile = previous
+		store.AccountsMu.Unlock()
+		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
+		return
+	}
+	aid := acc.Aid
+	nickname := acc.Name
+	if nickname == "" {
+		nickname = "guest"
+	}
+	obsProfileImagePath := acc.ProfileImage.Image
+	dp := next
+	store.AccountsMu.Unlock()
+
+	result := diaryIntroResult(aid, nickname, obsProfileImagePath, dp, store.AccountSnapshot{Aid: aid}, true)
+	body, err := json.Marshal(map[string]any{"result": result})
 	if err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
@@ -508,6 +657,53 @@ func cursorPage(r *http.Request) (lastSeq int64, size int, ok bool) {
 	return lastSeq, size, true
 }
 
+// diaryPostDetail holds the snapshot gathered under SocialMu for diaryPostDetailMap.
+type diaryPostDetail struct {
+	post         store.DiaryPost
+	comments     []store.DiaryComment
+	commentsLast bool
+	likes        []store.DiaryLike
+	likesLast    bool
+}
+
+// diaryPostDetailLocked snapshots post, counts, and the first page of comments/likes.
+// Caller holds store.SocialMu; build the JSON map with diaryPostDetailMap after unlocking
+// because commentRows/likeRows acquire AccountsMu.
+func diaryPostDetailLocked(post store.DiaryPost, viewerAid string) diaryPostDetail {
+	store.NormalizeDiaryPost(&post)
+	if post.Images == nil {
+		post.Images = []store.DiaryImage{}
+	}
+	post.CommentCount, post.LikeCount, post.MyLikeType = diaryCountsLocked(post.AvatarID, post.DiaryNo, viewerAid)
+	comments, commentsLast := commentPageLocked(post.AvatarID, post.DiaryNo, -1, diaryPageSize)
+	likes, _, likesLast := likePageLocked(post.AvatarID, post.DiaryNo, -1, diaryPageSize)
+	return diaryPostDetail{
+		post: post, comments: comments, commentsLast: commentsLast,
+		likes: likes, likesLast: likesLast,
+	}
+}
+
+// diaryPostDetailMap builds the SetDiaryPostDetail result map. Never call under SocialMu.
+func diaryPostDetailMap(d diaryPostDetail) map[string]any {
+	post := d.post
+	result := map[string]any{
+		"diaryNo": post.DiaryNo, "avatarId": post.AvatarID, "nickname": post.Nickname,
+		"regDate": post.RegDate, "title": post.Title, "openState": post.OpenState,
+		"content": post.Content, "imageTypeKind": post.ImageTypeKind,
+		"imageLocationType": post.ImageLocationType, "feelingState": post.FeelingState,
+		"commentCount": post.CommentCount, "likeCount": post.LikeCount, "myLikeType": post.MyLikeType,
+		"blind": post.Blind, "images": post.Images,
+		"comments": map[string]any{"items": commentRows(d.comments), "lastData": d.commentsLast},
+		"likes":    map[string]any{"items": likeRows(d.likes), "lastData": d.likesLast},
+	}
+	if post.AchieveType != "" {
+		result["achieveType"], result["achieveTypeLevel"] = post.AchieveType, post.AchieveTypeLevel
+		result["achieveDataType"], result["achieveData"] = post.AchieveDataType, post.AchieveData
+		result["achieveLinkValue"], result["achieveDataDetail"] = post.AchieveLinkValue, post.AchieveDataDetail
+	}
+	return result
+}
+
 func handleDiaryLook(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		httpx.ServeNotFound(w)
@@ -521,47 +717,110 @@ func handleDiaryLook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	store.SocialMu.Lock()
-	var found *store.DiaryPost
-	for i := range store.DiaryPosts {
-		if store.DiaryPosts[i].AvatarID == parts[0] && store.DiaryPosts[i].DiaryNo == parts[1] && canViewDiaryPost(store.DiaryPosts[i], viewer, viewerOK) {
-			post := store.DiaryPosts[i]
-			store.NormalizeDiaryPost(&post)
-			if post.Images == nil {
-				post.Images = []store.DiaryImage{}
-			}
-			found = &post
-			break
-		}
-	}
-	var comments []store.DiaryComment
-	var likes []store.DiaryLike
-	commentsLast, likesLast := true, true
-	if found != nil {
-		found.CommentCount, found.LikeCount, found.MyLikeType = diaryCountsLocked(found.AvatarID, found.DiaryNo, viewer.Aid)
-		comments, commentsLast = commentPageLocked(found.AvatarID, found.DiaryNo, -1, diaryPageSize)
-		likes, _, likesLast = likePageLocked(found.AvatarID, found.DiaryNo, -1, diaryPageSize)
+	post, found := findPostLocked(parts[0], parts[1])
+	var detail diaryPostDetail
+	visible := found && canViewDiaryPost(post, viewer, viewerOK)
+	if visible {
+		detail = diaryPostDetailLocked(post, viewer.Aid)
 	}
 	store.SocialMu.Unlock()
-	if found == nil {
+	if !visible {
 		httpx.ServeNotFound(w)
 		return
 	}
-	result := map[string]any{
-		"diaryNo": found.DiaryNo, "avatarId": found.AvatarID, "nickname": found.Nickname,
-		"regDate": found.RegDate, "title": found.Title, "openState": found.OpenState,
-		"content": found.Content, "imageTypeKind": found.ImageTypeKind,
-		"imageLocationType": found.ImageLocationType, "feelingState": found.FeelingState,
-		"commentCount": found.CommentCount, "likeCount": found.LikeCount, "myLikeType": found.MyLikeType,
-		"blind": found.Blind, "images": found.Images,
-		"comments": map[string]any{"items": commentRows(comments), "lastData": commentsLast},
-		"likes":    map[string]any{"items": likeRows(likes), "lastData": likesLast},
+	data, err := json.Marshal(map[string]any{"result": diaryPostDetailMap(detail)})
+	if err != nil {
+		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
+		return
 	}
-	if found.AchieveType != "" {
-		result["achieveType"], result["achieveTypeLevel"] = found.AchieveType, found.AchieveTypeLevel
-		result["achieveDataType"], result["achieveData"] = found.AchieveDataType, found.AchieveData
-		result["achieveLinkValue"], result["achieveDataDetail"] = found.AchieveLinkValue, found.AchieveDataDetail
+	httpx.WriteJSON(w, http.StatusOK, string(data))
+}
+
+func handleDiaryModify(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		httpx.ServeNotFound(w)
+		return
 	}
-	data, err := json.Marshal(map[string]any{"result": result})
+	actor, ok := store.AccountForRequest(r)
+	if !ok {
+		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
+		return
+	}
+	raw, err := httpx.ReadNativeBody(r)
+	if err != nil {
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
+	var req struct {
+		DiaryNo       string             `json:"diaryNo"`
+		AvatarID      string             `json:"avatarId"`
+		Title         string             `json:"title"`
+		Content       string             `json:"content"`
+		ImageTypeKind string             `json:"imageTypeKind"`
+		FeelingState  *int               `json:"feelingState"`
+		OpenState     string             `json:"openState"`
+		Images        []store.DiaryImage `json:"images"`
+	}
+	if _, err = httpx.UnmarshalNativeJSON(raw, &req); err != nil {
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
+	if req.DiaryNo == "" || !httpx.IsAllDigits(req.DiaryNo) || req.AvatarID != actor.Aid ||
+		len(req.Title) > 200 || len(req.Content) > 16000 || len(req.ImageTypeKind) > 64 || len(req.OpenState) > 32 || len(req.Images) > 20 ||
+		!utf8.ValidString(req.Title) || !utf8.ValidString(req.Content) || !utf8.ValidString(req.ImageTypeKind) || !utf8.ValidString(req.OpenState) {
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
+	req.Images = slices.DeleteFunc(req.Images, func(image store.DiaryImage) bool { return image.ImageURL == "" })
+	for _, image := range req.Images {
+		if !store.ValidDiaryImage(image) || !store.MediaOwnedBy(image.ImageURL, actor.Aid) {
+			httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+			return
+		}
+	}
+	openState := req.OpenState
+	if openState == "" {
+		openState = "public"
+	}
+	images := req.Images
+	if images == nil {
+		images = []store.DiaryImage{}
+	}
+	store.SocialMu.Lock()
+	idx := -1
+	for i := range store.DiaryPosts {
+		if store.DiaryPosts[i].AvatarID == actor.Aid && store.DiaryPosts[i].DiaryNo == req.DiaryNo {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		store.SocialMu.Unlock()
+		httpx.ServeNotFound(w)
+		return
+	}
+	old := store.DiaryPosts[idx]
+	post := &store.DiaryPosts[idx]
+	post.Title = req.Title
+	post.Content = req.Content
+	post.OpenState = openState
+	post.Images = images
+	post.ImageLocationType = store.DiaryImageLocationType(images)
+	if req.FeelingState != nil {
+		post.FeelingState = *req.FeelingState
+	}
+	if req.ImageTypeKind != "" {
+		post.ImageTypeKind = req.ImageTypeKind
+	}
+	if err := store.SaveSocialLocked(store.SocialChange{Posts: []string{post.DiaryNo}}); err != nil {
+		store.DiaryPosts[idx] = old
+		store.SocialMu.Unlock()
+		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
+		return
+	}
+	detail := diaryPostDetailLocked(*post, actor.Aid)
+	store.SocialMu.Unlock()
+	data, err := json.Marshal(map[string]any{"result": diaryPostDetailMap(detail)})
 	if err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
@@ -956,6 +1215,19 @@ func handleFriendStatus(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, string(body))
 }
 
+func handleFriendRelationship(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		httpx.ServeNotFound(w)
+		return
+	}
+	aid := strings.Trim(strings.TrimPrefix(r.URL.Path, "/v4/friend/relationship/"), "/")
+	if !store.KnownSocialAvatar(aid) {
+		httpx.ServeNotFound(w)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, `{"result":{}}`)
+}
+
 func handleFriendApply(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		httpx.ServeNotFound(w)
@@ -1093,4 +1365,68 @@ func markDiaryQuest(aid string) {
 	if n, err := strconv.ParseUint(aid, 10, 64); err == nil {
 		lpn.MarkQuest(n, "diary")
 	}
+}
+
+type diarySkinEntry struct {
+	SkinSn         int    `json:"skinSn"`
+	SkinID         string `json:"skinId"`
+	SkinCategoryID string `json:"skinCategoryId"`
+	ResourceNumber int    `json:"resourceNumber"`
+	Flag           int    `json:"flag"`
+	Sort           int    `json:"sort"`
+	HasSkin        bool   `json:"hasSkin"`
+	SkinNm         string `json:"skin_nm"`
+	Version        int    `json:"version"`
+}
+
+var diarySkins = []diarySkinEntry{
+	{SkinSn: 1, SkinID: "default", SkinCategoryID: "default", ResourceNumber: 1, Flag: 0, Sort: 1, HasSkin: true, SkinNm: "default", Version: 7},
+	{SkinSn: 2, SkinID: "00002", SkinCategoryID: "default", ResourceNumber: 2, Flag: 0, Sort: 2, HasSkin: true, SkinNm: "00002", Version: 7},
+	{SkinSn: 3, SkinID: "00003", SkinCategoryID: "default", ResourceNumber: 3, Flag: 0, Sort: 3, HasSkin: true, SkinNm: "00003", Version: 7},
+	{SkinSn: 4, SkinID: "00005", SkinCategoryID: "default", ResourceNumber: 5, Flag: 0, Sort: 4, HasSkin: true, SkinNm: "00005", Version: 7},
+	{SkinSn: 5, SkinID: "00009", SkinCategoryID: "default", ResourceNumber: 9, Flag: 0, Sort: 5, HasSkin: true, SkinNm: "00009", Version: 7},
+	{SkinSn: 6, SkinID: "00015", SkinCategoryID: "default", ResourceNumber: 15, Flag: 0, Sort: 6, HasSkin: true, SkinNm: "00015", Version: 7},
+	{SkinSn: 7, SkinID: "00016", SkinCategoryID: "default", ResourceNumber: 16, Flag: 0, Sort: 7, HasSkin: true, SkinNm: "00016", Version: 7},
+}
+
+func handleDiarySkinList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		httpx.ServeNotFound(w)
+		return
+	}
+	rest := strings.TrimPrefix(r.URL.Path, "/v4/diary2/skinListWithVersionOS/")
+	platform, ver, ok := strings.Cut(rest, "/")
+	if !ok || (platform != "Android" && platform != "iPhone") || ver == "" || strings.Contains(ver, "/") {
+		httpx.ServeNotFound(w)
+		return
+	}
+	httpx.WriteObj(w, map[string]any{
+		"result": []any{
+			diarySkins,
+			map[string]int{"commonVersion": 7},
+		},
+	})
+}
+
+func handleDiarySkinInfo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		httpx.ServeNotFound(w)
+		return
+	}
+	platform := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/v4/diary2/skinInfo/"), "/")
+	if platform != "Android" && platform != "iPhone" {
+		httpx.ServeNotFound(w)
+		return
+	}
+	id := r.URL.Query().Get("diary_skin_id")
+	if id == "" {
+		id = "default"
+	}
+	for _, entry := range diarySkins {
+		if entry.SkinID == id {
+			httpx.WriteObj(w, map[string]any{"result": entry})
+			return
+		}
+	}
+	httpx.ServeNotFound(w)
 }

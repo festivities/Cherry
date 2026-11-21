@@ -371,15 +371,27 @@ func TestTx543UpdateIni(t *testing.T) {
 }
 
 func TestSkinFileIni(t *testing.T) {
-	// The default skin's two lists name their originals; every other diary skin list is [empty].
+	// Common and the seven original skins list their files for any 2-letter lowercase language;
+	// every other diary skin list is [empty].
 	bodies := map[string]string{
 		"/arts_diaryskin_en_00007/common/UIImage_hd/skin_file.ini": "[avatar_photo_bg.png]",
 		"/arts_diaryskin_jp_00007/common/UIImage_hd/skin_file.ini": "[avatar_photo_bg.png]",
+		"/arts_diaryskin_th_00007/common/UIImage_hd/skin_file.ini": "[avatar_photo_bg.png]",
+		"/arts_diaryskin_ko_00007/common/UIImage_hd/skin_file.ini": "[avatar_photo_bg.png]",
 		"/arts_diaryskin_en_00007/00001/UIImage_hd/skin_file.ini":  "[skin_info.json]",
 		"/arts_diaryskin_jp_00007/00001/UIImage_hd/skin_file.ini":  "[skin_info.json]",
+		"/arts_diaryskin_en_00007/00002/UIImage_hd/skin_file.ini":  "[skin_info.json]",
+		"/arts_diaryskin_th_00007/00003/UIImage_hd/skin_file.ini":  "[skin_info.json]",
+		"/arts_diaryskin_ko_00007/00005/UIImage_hd/skin_file.ini":  "[skin_info.json]",
+		"/arts_diaryskin_tw_00007/00009/UIImage_hd/skin_file.ini":  "[skin_info.json]",
+		"/arts_diaryskin_en_00007/00015/UIImage_hd/skin_file.ini":  "[skin_info.json]",
+		"/arts_diaryskin_jp_00007/00016/UIImage_hd/skin_file.ini":  "[skin_info.json]",
 		"/arts_diaryskin_jp/common/UIImage_hd/skin_file.ini":       skinFileIniBody,
-		"/arts_diaryskin_jp_00007/00002/UIImage_hd/skin_file.ini":  skinFileIniBody,
+		"/arts_diaryskin_jp_00007/00004/UIImage_hd/skin_file.ini":  skinFileIniBody,
+		"/arts_diaryskin_en_00007/00099/UIImage_hd/skin_file.ini":  skinFileIniBody,
 		"/arts_diaryskin_jp_00006/common/UIImage_hd/skin_file.ini": skinFileIniBody,
+		"/arts_diaryskin_eng_00007/00001/UIImage_hd/skin_file.ini": skinFileIniBody,
+		"/arts_diaryskin_12_00007/00001/UIImage_hd/skin_file.ini":  skinFileIniBody,
 	}
 	for path, want := range bodies {
 		rec := serve(t, http.MethodGet, path)
@@ -409,13 +421,19 @@ func TestSkinFileIni(t *testing.T) {
 	}
 }
 
-// The default diary skin's two originals are answered from the store with streaming off (no streamed routes), at both
-// languages' paths; any other diary skin file has no key and answers 404.
+// All seven diary skin originals and common/avatar_photo_bg.png are answered from the store with streaming off,
+// across any 2-letter lowercase language path; any other diary skin file has no key and answers 404.
 func TestDiarySkinFilesServedFromStore(t *testing.T) {
 	dir := t.TempDir()
 	files := map[string]string{
 		"common/UIImage_hd/avatar_photo_bg.png": "png-bytes",
 		"00001/UIImage_hd/skin_info.json":       `{"color":"#00d095"}`,
+		"00002/UIImage_hd/skin_info.json":       `{"color":"#ff0000"}`,
+		"00003/UIImage_hd/skin_info.json":       `{"color":"#00ff00"}`,
+		"00005/UIImage_hd/skin_info.json":       `{"color":"#ffffff"}`,
+		"00009/UIImage_hd/skin_info.json":       `{"color":"#112233"}`,
+		"00015/UIImage_hd/skin_info.json":       `{"color":"#445566"}`,
+		"00016/UIImage_hd/skin_info.json":       `{"color":"#778899"}`,
 	}
 	for rel, body := range files {
 		p := filepath.Join(dir, filepath.FromSlash(rel))
@@ -427,7 +445,7 @@ func TestDiarySkinFilesServedFromStore(t *testing.T) {
 		}
 	}
 	testutil.SetArchive(t, map[string][]string{"static/DiarySkin/": {dir}})
-	for _, lang := range []string{"en", "jp"} {
+	for _, lang := range []string{"en", "jp", "th", "tw"} {
 		for rel, body := range files {
 			rec := serve(t, http.MethodGet, "/arts_diaryskin_"+lang+"_00007/"+rel)
 			if rec.Code != http.StatusOK || rec.Body.String() != body {
@@ -435,7 +453,12 @@ func TestDiarySkinFilesServedFromStore(t *testing.T) {
 			}
 		}
 	}
-	for _, path := range []string{"/arts_diaryskin_en_00007/00002/UIImage_hd/skin_info.json", "/arts_diaryskin_en_00007/common/UIImage_hd/other.png"} {
+	for _, path := range []string{
+		"/arts_diaryskin_en_00007/00004/UIImage_hd/skin_info.json",
+		"/arts_diaryskin_en_00007/00099/UIImage_hd/skin_info.json",
+		"/arts_diaryskin_en_00007/common/UIImage_hd/other.png",
+		"/arts_diaryskin_eng_00007/00001/UIImage_hd/skin_info.json",
+	} {
 		if rec := serve(t, http.MethodGet, path); rec.Code != http.StatusNotFound {
 			t.Fatalf("%s = %d, want 404", path, rec.Code)
 		}
