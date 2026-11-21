@@ -7,8 +7,6 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -591,12 +589,7 @@ func TestDeleteAccountDropsCommentsLikesAndReplies(t *testing.T) {
 		t.Fatalf("social rows left: comments %v likes %v replies %v", commentNos, likeNos, replyNos)
 	}
 
-	raw, err := os.ReadFile(filepath.Join(f.dir, "deleted-accounts.jsonl"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var b deletedBackup
-	if err := json.Unmarshal(raw, &b); err != nil || len(b.Comments) != 2 || len(b.Likes) != 1 || len(b.Replies) != 1 {
-		t.Fatalf("backup = %s (%v)", raw, err)
+	if b := newestDeleted(t).Record; len(b.Comments) != 2 || len(b.Likes) != 1 || len(b.Replies) != 1 {
+		t.Fatalf("record comments %d likes %d replies %d, want 2 1 1", len(b.Comments), len(b.Likes), len(b.Replies))
 	}
 }

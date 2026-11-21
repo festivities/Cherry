@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -62,5 +64,25 @@ func TestAdminRefusalNamesSetting(t *testing.T) {
 	_, err := Load([]string{"-listen-admin", ":8099"}, none)
 	if err == nil || !strings.Contains(err.Error(), "listen.admin") {
 		t.Fatalf("error = %v, want one that names listen.admin", err)
+	}
+}
+
+// TestRetentionDeletedDaysStaysAccepted: retention.deleted-days is unused since 2026-11-21 (deleted avatars are kept), but a
+// cherry.json that still sets it loads; a value that is not a number is still refused.
+func TestRetentionDeletedDaysStaysAccepted(t *testing.T) {
+	dir := t.TempDir()
+	ok := filepath.Join(dir, "ok.json")
+	if err := os.WriteFile(ok, []byte(`{"retention.deleted-days": "7"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load([]string{"-config", ok}, none); err != nil {
+		t.Fatalf("a file with the unused key: %v", err)
+	}
+	bad := filepath.Join(dir, "bad.json")
+	if err := os.WriteFile(bad, []byte(`{"retention.deleted-days": "many"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load([]string{"-config", bad}, none); err == nil {
+		t.Fatal("a non-number was accepted")
 	}
 }

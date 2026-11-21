@@ -98,6 +98,17 @@
 </div>
 </section>
 
+<section id="past-avatars" class="page-section">
+<h2>Past avatars</h2>
+{{if .Player.Identity}}{{if .Page.Past}}<p>The avatars this identity had before Delete Avatar removed them. Each record is kept.</p>
+<div class="scroll"><table>
+<thead><tr><th>Record</th><th>Avatar id</th><th>Name</th><th>Deleted (UTC)</th></tr></thead>
+<tbody>{{range .Page.Past}}<tr><td><a href="{{.Href}}">#{{.ID}}</a></td><td>{{.Aid}}</td><td>{{.Name}}</td><td>{{.Date}}</td></tr>{{end}}</tbody>
+</table></div>
+{{else}}<p class="empty-state">This identity has deleted no avatar.</p>{{end}}
+{{else}}<p class="empty-state">A lab account has no identity, so its past avatars are not listed.</p>{{end}}
+</section>
+
 <section id="moderation" class="page-section">
 <h2>Moderation</h2>
 <div class="grid-2">

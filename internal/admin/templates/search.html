@@ -15,6 +15,14 @@
 {{if .Search.PlayersMore}}<p class="flash warn">More players match. Narrow the search.</p>{{end}}
 {{else}}<p class="empty-state">No player matches.</p>{{end}}
 
+<h2>Deleted avatars ({{len .Search.Deleted}}{{if .Search.DeletedMore}}+{{end}})</h2>
+{{if .Search.Deleted}}<div class="scroll"><table>
+<thead><tr><th>Record</th><th>Avatar id</th><th>Name</th><th>Identity</th><th>Deleted (UTC)</th></tr></thead>
+<tbody>{{range .Search.Deleted}}<tr><td><a href="{{.Href}}">#{{.ID}}</a></td><td>{{.Aid}}</td><td>{{.Name}}</td><td>{{.Identity}}</td><td>{{.Date}}</td></tr>{{end}}</tbody>
+</table></div>
+{{if .Search.DeletedMore}}<p class="flash warn">More deleted avatars match. Narrow the search.</p>{{end}}
+{{else}}<p class="empty-state">No deleted avatar matches.</p>{{end}}
+
 <h2>Chat messages ({{len .Search.Chat}}{{if .Search.ChatMore}}+{{end}})</h2>
 {{if .Search.Chat}}<div class="scroll"><table>
 <thead><tr><th>Time (UTC)</th><th>Channel</th><th>Sender</th><th>Text</th><th>Context</th></tr></thead>

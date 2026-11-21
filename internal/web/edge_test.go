@@ -5,11 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"cherry/internal/auth"
 	"cherry/internal/config"
@@ -19,7 +16,7 @@ import (
 )
 
 // PLAN 8.6b part 4, the edge of the game: the plain port's paths, the request limits, the AV_AUTH flags, the catalogue
-// check of create/avatar, the guestbook count, and the retention of deleted avatars.
+// check of create/avatar and the guestbook count.
 
 func TestPlainListenerAnswersOnlyTheClientPaths(t *testing.T) {
 	for path, want := range map[string]bool{
@@ -292,40 +289,6 @@ func TestCreateAvatarRefusesAnUnlistedCodeInIdentityMode(t *testing.T) {
 		}
 	})
 	createAvatarID(t, av, `{"name":"Eve","avatarType":"FEMALE","nationCode":"JP","skinColor":"1","itemCodes":["CUON001CH"]}`)
-}
-
-func TestScrubDeletedBackupsKeepsOnlyAidAndTimeOfOldRecords(t *testing.T) {
-	// The file function, not ScrubDeletedBackups: attaching a database here would replace the accounts other tests leave.
-	dir := t.TempDir()
-	now := time.Now().UTC()
-	old := now.AddDate(0, 0, -40).Format(time.RFC3339)
-	fresh := now.AddDate(0, 0, -2).Format(time.RFC3339)
-	lines := strings.Join([]string{
-		`{"time":"` + old + `","account":{"aid":"77","name":"Old Name","accessToken":"x"},"posts":[{"title":"private"}]}`,
-		`{"time":"` + fresh + `","account":{"aid":"78","name":"New Name"}}`,
-	}, "\n") + "\n"
-	path := filepath.Join(dir, "deleted-accounts.jsonl")
-	if err := os.WriteFile(path, []byte(lines), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	n, err := scrubFile(path, now, 30)
-	if err != nil || n != 1 {
-		t.Fatalf("scrubbed %d (err %v), want 1", n, err)
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(raw)
-	if strings.Contains(text, "Old Name") || strings.Contains(text, "private") || strings.Contains(text, `"accessToken"`) {
-		t.Fatalf("personal fields of the old record survived: %s", text)
-	}
-	if !strings.Contains(text, `"New Name"`) || !strings.Contains(text, `"aid":"77"`) || !strings.Contains(text, `"scrubbed":true`) {
-		t.Fatalf("file after scrub = %s", text)
-	}
-	if n, err := scrubFile(path, now, 0); err != nil || n != 0 {
-		t.Fatalf("retention off scrubbed %d (err %v)", n, err)
-	}
 }
 
 // TestStaticGETsHaveTheirOwnBucket (PLAN 8.6b part 5): static GETs spend their own bucket per address, the game bucket of

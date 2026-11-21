@@ -156,6 +156,10 @@ func OpenStore(path string) error {
 	if err != nil {
 		return err
 	}
+	if _, err := importDeletedJSONL(d, filepath.Dir(path)); err != nil {
+		d.Close()
+		return err
+	}
 	AccountsMu.Lock()
 	defer AccountsMu.Unlock()
 	if err := reloadLocked(d); err != nil {
@@ -448,7 +452,7 @@ func callerSite() string {
 	}
 }
 
-// StoredFrom is the persisted form of an account (also the deleted-accounts backup form). The clear access token and
+// StoredFrom is the persisted form of an account (also the record form of a deleted avatar, AvatarAccountOf). The clear access token and
 // guest code are not part of it: the database keeps their hashes only.
 func StoredFrom(acc *Account) StoredAccount {
 	var pi *ProfileImage

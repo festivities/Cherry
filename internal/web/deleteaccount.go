@@ -8,8 +8,6 @@ import (
 	"maps"
 	"math/big"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -113,41 +111,34 @@ func handleAvatarDelete(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, `{"result":true}`)
 }
 
-type deletedBackup struct {
-	Time        string                      `json:"time"`
-	Account     store.StoredAccount         `json:"account"`
-	Tokens      []string                    `json:"tokens"`
-	Posts       []store.DiaryPost           `json:"posts"`
-	Guestbook   []store.SavedGuestbookEntry `json:"guestbook"`
-	Friendships []store.Friendship          `json:"friendships"`
-	Comments    []store.DiaryComment        `json:"comments"`
-	Likes       []store.DiaryLike           `json:"likes"`
-	Replies     []store.GuestbookReply      `json:"replies"`
-	// GuestbookRead is the account's guestbook read marker (0 for none; a 0 marker counts like none).
-	GuestbookRead uint64 `json:"guestbookRead"`
-}
-
-// deleteAccount removes acc's avatar, its token aliases and its social rows. A full backup line is
-// appended to deleted-accounts.jsonl first. Friends keep a "removed" friendship so their native
+// deleteAccount removes acc's avatar, its token aliases and its social rows. First the avatar's record (its account, social
+// rows, chat, Treasure World board, circle and picture rows) is kept in deleted_avatars, one row: if that insert fails the
+// delete fails with nothing changed. The record stays for the staff panel, no expiry (2026-11-21). The avatar's pictures stay
+// too: nothing uses the old aid again. Friends keep a "removed" friendship so their native
 // caches (upsert-only) get a status -1 row on the next sync. The aid is never reused:
 // nextAvatarID only grows. A deleted lab aid stays in labAids, which is harmless for that reason.
 // In identity mode the account is not removed: it is reset to its identity and once-only grants
 // (store.ResetIdentityLocked), so the same Discord identity signs in again to a fresh avatar.
-// Lock order: accountsMu, then socialMu.
+// Lock order: accountsMu, then circlesMu, then socialMu.
 func deleteAccount(acc *store.Account) error {
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
-	store.SocialMu.Lock()
-	defer store.SocialMu.Unlock()
 
-	tokens := store.AccountTokenHashesLocked(acc)
-	if len(tokens) == 0 {
+	if len(store.AccountTokenHashesLocked(acc)) == 0 {
 		return fmt.Errorf("account already gone")
 	}
 	if config.IdentityMode() && acc.Aid == "0" {
 		return fmt.Errorf("no avatar to delete") // an identity without an avatar: nothing to remove
 	}
 	aid := acc.Aid
+	// The parts of the record that take the circle and Treasure World locks go before the social lock (the lock order).
+	rec := store.AvatarRecord{Time: time.Now().UTC().Format(time.RFC3339), Account: store.AvatarAccountOf(acc)}
+	if err := store.GatherAvatarHistoryLocked(&rec, aid); err != nil {
+		return err
+	}
+	store.SocialMu.Lock()
+	defer store.SocialMu.Unlock()
+
 	var posts []store.DiaryPost
 	var book []store.SavedGuestbookEntry
 	var rels []store.Friendship
@@ -188,26 +179,29 @@ func deleteAccount(acc *store.Account) error {
 			newFriends[i].State = "removed"
 		}
 	}
-	if err := appendDeletedBackup(deletedBackup{
-		Time: time.Now().UTC().Format(time.RFC3339), Account: store.StoredFrom(acc), Tokens: tokens,
-		Posts: posts, Guestbook: book, Friendships: rels, Comments: comments, Likes: likes, Replies: replies,
-		GuestbookRead: store.GuestbookRead[aid],
-	}); err != nil {
+	rec.Posts, rec.Guestbook, rec.Friendships, rec.Comments, rec.Likes, rec.Replies = posts, book, rels, comments, likes, replies
+	rec.GuestbookRead = store.GuestbookRead[aid]
+	recID, err := store.InsertAvatarRecordLocked(acc, rec)
+	if err != nil {
+		return err
+	}
+	// fail gives back the record of a delete that did not happen (the reset or the social save failed).
+	fail := func(err error) error {
+		if uerr := store.UndoAvatarRecord(recID); uerr != nil {
+			log.Printf("cherry: delete account: the record of avatar %s was not removed: %v", aid, uerr)
+		}
 		return err
 	}
 
 	lines := []store.LedgerLine{{Time: time.Now().UTC().Format(time.RFC3339), Aid: aid, Reason: "account deleted"}}
-	var (
-		undo func() error
-		err  error
-	)
+	var undo func() error
 	if config.IdentityMode() {
 		undo, err = store.ResetIdentityLocked(acc, lines)
 	} else {
 		undo, err = store.DeleteAccountLocked(acc, lines)
 	}
 	if err != nil {
-		return err
+		return fail(err)
 	}
 	prevPosts, prevBook, prevFriends := store.DiaryPosts, store.GuestbookEntries, store.Friendships
 	prevComments, prevLikes := store.DiaryComments, store.DiaryLikes
@@ -238,43 +232,16 @@ func deleteAccount(acc *store.Account) error {
 	for _, f := range rels {
 		change.Friends = append(change.Friends, [2]string{f.A, f.B})
 	}
-	// The pictures go with the avatar (PLAN 8.6b part 5): their rows in the same transaction as the social rows, their files
-	// after that commit. A picture of another player that a legacy post still names is left as a dead link, as it is for a
-	// post the owner deletes.
-	media, err := store.AccountMediaLocked(aid)
-	if err == nil {
-		err = store.SaveSocialMedia(change, media)
-	}
-	if err != nil {
+	// The pictures stay (2026-11-21): their rows and files are not touched, so the staff panel shows them and removes them as
+	// before. Their owner is the deleted aid, which no account has again.
+	if err := store.SaveSocialLocked(change); err != nil {
 		store.DiaryPosts, store.GuestbookEntries, store.Friendships = prevPosts, prevBook, prevFriends
 		store.DiaryComments, store.DiaryLikes = prevComments, prevLikes
 		store.GuestbookRead = prevRead
 		if rerr := undo(); rerr != nil {
 			log.Printf("cherry: delete account rollback save failed: %v", rerr)
 		}
-		return err
+		return fail(err)
 	}
-	store.RemoveMediaFiles(media)
 	return nil
-}
-
-// appendDeletedBackup writes one JSON line next to cherry.db; caller holds accountsMu.
-func appendDeletedBackup(b deletedBackup) error {
-	dir := store.StoreDirLocked()
-	if dir == "" {
-		return nil // in-memory test sessions
-	}
-	line, err := json.Marshal(b)
-	if err != nil {
-		return err
-	}
-	f, err := os.OpenFile(filepath.Join(dir, "deleted-accounts.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	_, err = f.Write(append(line, '\n'))
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	return err
 }

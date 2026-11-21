@@ -444,6 +444,12 @@ func handleMediaDownload(w http.ResponseWriter, r *http.Request, dir string, roo
 
 // serveMediaFile validates and serves one stored image (diary PNGs are flattened to JPEG).
 func serveMediaFile(w http.ResponseWriter, r *http.Request, path string, keepFormat bool) {
+	// A picture of a deleted avatar is not served to the game (2026-11-21: the staff panel keeps it; the game answered 404 for it
+	// before the records were kept, and still does).
+	if store.PictureOfDeletedAvatar(filepath.Base(path)) {
+		writeDiaryMediaJSON(w, http.StatusNotFound, diaryMediaNotFoundBody)
+		return
+	}
 	file, err := os.Open(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

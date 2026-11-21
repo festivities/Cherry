@@ -120,7 +120,7 @@ type Querier interface {
 }
 
 // migrations[i] takes the database from schema version i to i+1. Append only: a shipped step is never edited.
-var migrations = []string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6, schemaV7}
+var migrations = []string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6, schemaV7, schemaV8}
 
 // migrate applies the missing steps, each in its own transaction together with its user_version bump.
 func migrate(db *sql.DB) error { return migrateTo(db, len(migrations)) }
@@ -396,6 +396,25 @@ CREATE TABLE staff_mail (
 	expires_days INTEGER NOT NULL,
 	reason       TEXT NOT NULL
 ) STRICT;
+`
+
+// schemaV8 keeps every deleted avatar (deletedavatars.go): one row per Delete Avatar, with the whole record of the avatar as
+// JSON in data. aid is the avatar id (never reused, so it names the avatar for good); account_id is the accounts row the
+// avatar belonged to, NULL once that row is gone (lab accounts are deleted). identity is the Discord identity the avatar
+// belonged to ("" for lab accounts), which the player page matches. The game only inserts rows (and removes the one a failed
+// delete made); records kept in deleted-accounts.jsonl before this step are imported once (deletedavatars.go). Only new objects.
+const schemaV8 = `
+CREATE TABLE deleted_avatars (
+	id         INTEGER PRIMARY KEY,
+	aid        TEXT NOT NULL,
+	account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+	identity   TEXT NOT NULL DEFAULT '',
+	name       TEXT NOT NULL DEFAULT '',
+	deleted_at TEXT NOT NULL,
+	data       TEXT NOT NULL
+) STRICT;
+CREATE INDEX deleted_avatars_aid ON deleted_avatars(aid);
+CREATE INDEX deleted_avatars_identity ON deleted_avatars(identity, id);
 `
 
 // Path is the file the database was opened from.

@@ -64,8 +64,8 @@ type Config struct {
 	// Static GETs (asset files, pictures) per address, and frames a second per gateway or session connection (PLAN 8.6b
 	// part 5). A frame over the limit is dropped; a connection that sends ten times the rate for long enough is closed.
 	StaticRate, StaticBurst, FrameRate, FrameBurst int
-	// Retention (PLAN 8.6b part 4): days a deleted account keeps its personal fields, and days an alias token may stay unused.
-	// ChatDays is how long the chat log keeps a player's message (0 keeps every one).
+	// Retention: days an alias token may stay unused. ChatDays is how long the chat log keeps a player's message (0 keeps every
+	// one). DeletedDays is unused since 2026-11-21 (deleted avatars are kept); it is parsed so the key stays accepted.
 	DeletedDays, IdleTokenDays, ChatDays int
 }
 
@@ -115,7 +115,7 @@ var settings = []setting{
 	{"limits.static-burst", "0", "static GETs an address may send at once (identity modes: 5000)"},
 	{"limits.frame-rate", "0", "frames a second a gateway or session connection earns, token bucket; over it frames are dropped (identity modes: 100; 0 = off)"},
 	{"limits.frame-burst", "0", "frames a connection may send at once (identity modes: 400); ten times both values close a flooding connection"},
-	{"retention.deleted-days", "30", "days a deleted avatar keeps its personal fields in deleted-accounts.jsonl; then only its aid and time remain"},
+	{"retention.deleted-days", "30", "unused since 2026-11-21: deleted avatars are kept with no expiry (deleted_avatars); the key is still accepted"},
 	{"retention.idle-token-days", "30", "days an alias token may go unused before it is pruned; the device then signs in again"},
 	{"retention.chat-days", "30", "days the chat log keeps a player's message, then the sweep deletes it; 0 keeps every message"},
 }

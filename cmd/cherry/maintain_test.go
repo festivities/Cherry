@@ -43,7 +43,7 @@ func TestSweepPrunesOldChatMessages(t *testing.T) {
 	store.RecordChat(store.ChatEntry{Kind: store.ChatSquare, Channel: "7", Sender: "9002", SenderName: "New", Text: "just now"})
 	store.FlushChatLog()
 
-	sweep(logger, config.Config{ChatDays: 30, IdleTokenDays: 30, DeletedDays: 30})
+	sweep(logger, config.Config{ChatDays: 30, IdleTokenDays: 30})
 	rows, err := store.ChatLogSearch(store.ChatFilter{}, 0, 10)
 	if err != nil {
 		t.Fatal(err)
@@ -79,7 +79,7 @@ func TestSweepUsesThePanelRetention(t *testing.T) {
 
 	var logs bytes.Buffer
 	logger := log.New(&logs, "", 0)
-	cfg := config.Config{ChatDays: 30, IdleTokenDays: 30, DeletedDays: 30}
+	cfg := config.Config{ChatDays: 30, IdleTokenDays: 30}
 	sweep(logger, cfg)
 	rows, err := store.ChatLogSearch(store.ChatFilter{}, 0, 10)
 	if err != nil {

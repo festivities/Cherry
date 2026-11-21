@@ -349,12 +349,6 @@ func AccountMediaLocked(owner string) ([]MediaFile, error) {
 	return out, err
 }
 
-// SaveSocialMedia is SaveSocialLocked with the picture rows media removed in the same transaction (Delete Avatar). The files
-// are deleted by RemoveMediaFiles after this returns nil. Caller holds SocialMu.
-func SaveSocialMedia(c SocialChange, media []MediaFile) error {
-	return saveSocialMediaLocked(c, media, nil)
-}
-
 // RemoveMediaFiles deletes the files of rows that a committed save removed. A failed delete is logged: the row is gone, so the
 // file is an orphan that the folder's disk safety net still counts.
 func RemoveMediaFiles(files []MediaFile) {
@@ -454,6 +448,14 @@ func RemovePlayerMedia(id, mediaID int64, reason, actor string) error {
 	if !found || row.Owner != acc.Aid || !mediaFileOK(row.File) {
 		return ErrNoItem
 	}
+	return removeMediaLocked(d, row, reason, actor, playerTarget(id))
+}
+
+// removeMediaLocked is the body of a picture removal: the references to row's file go (posts, profiles, room thumbnails), the
+// row goes, and the audit row (target, the owner's aid, the row id and kind, the reason) is written in the same transaction; the
+// file goes after the commit. Caller holds AccountsMu and SocialMu, and d is the attached database.
+func removeMediaLocked(d *DB, row MediaFile, reason, actor, target string) error {
+	var err error
 	site := callerSite()
 
 	// The changes, each kept with its previous value for a rollback.
@@ -547,8 +549,8 @@ func RemovePlayerMedia(id, mediaID int64, reason, actor string) error {
 		if _, err := tx.Exec(`DELETE FROM media_files WHERE id = ?`, row.ID); err != nil {
 			return err
 		}
-		return auditTx(tx, actor, "remove-media", playerTarget(id), map[string]any{
-			"aid": acc.Aid, "media": row.ID, "kind": row.Kind, "reason": reason,
+		return auditTx(tx, actor, "remove-media", target, map[string]any{
+			"aid": row.Owner, "media": row.ID, "kind": row.Kind, "reason": reason,
 		})
 	})
 	if err != nil {

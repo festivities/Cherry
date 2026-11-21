@@ -332,7 +332,17 @@ func (s *Server) handlePhotoRemove(w http.ResponseWriter, r *http.Request, sess 
 	}
 	pid, ok := store.PlayerRowOfAid(row.Owner)
 	if !ok {
-		s.fail(w, http.StatusNotFound, "The uploader has no account, so this picture cannot be removed here.")
+		// A picture of a deleted avatar (deleted.go): the same removal, audited against the avatar.
+		err := store.RemoveDeletedAvatarMedia(mid, r.PostFormValue("reason"), sess.identity)
+		if errors.Is(err, store.ErrNoItem) {
+			s.fail(w, http.StatusNotFound, "The uploader has no account and no deleted avatar, so this picture cannot be removed here.")
+			return
+		}
+		if err != nil {
+			s.storeError(w, err)
+			return
+		}
+		redirect(w, http.StatusSeeOther, "/photos?notice=picture-removed")
 		return
 	}
 	if err := store.RemovePlayerMedia(pid, mid, r.PostFormValue("reason"), sess.identity); err != nil {

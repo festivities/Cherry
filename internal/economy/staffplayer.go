@@ -62,6 +62,11 @@ func PlayerBookOf(id int64, now time.Time) (PlayerBook, bool) {
 	if acc == nil {
 		return PlayerBook{}, false
 	}
+	return BookOfAccount(acc, now), true
+}
+
+// BookOfAccount is the book of acc at now. It reads acc only (a live account under AccountsMu, or a deleted avatar's record).
+func BookOfAccount(acc *store.Account, now time.Time) PlayerBook {
 	st := raceStatus(acc, now)
 	book := PlayerBook{RaceTickets: st.Tickets, RaceMax: st.MaxTickets, RidePoints: ridePointsLocked(acc), RoomItems: len(acc.RoomItems),
 		Smiles: acc.Smiles, FaceTickets: acc.FaceTickets, BossCoins: acc.BossCoins}
@@ -82,7 +87,7 @@ func PlayerBookOf(id int64, now time.Time) (PlayerBook, bool) {
 			book.Butlers = append(book.Butlers, butlerRow(b, h, now))
 		}
 	}
-	return book, true
+	return book
 }
 
 // materialName is the material's name, or "Item <id>" for an id the catalog does not name.

@@ -216,6 +216,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /docs/{name}/rollback", s.action(true, maxBodySmall, s.handleRollback))
 	mux.HandleFunc("GET /audit", s.page(s.handleAudit))
 	mux.HandleFunc("GET /players", s.page(s.handlePlayers))
+	mux.HandleFunc("GET /players/deleted", s.page(s.handleDeleted))
+	mux.HandleFunc("GET /players/deleted/{id}", s.page(s.handleDeletedAvatar))
 	mux.HandleFunc("GET /players/{id}", s.page(s.handlePlayer))
 	mux.HandleFunc("POST /players/{id}/grant", s.action(true, maxBodySmall, s.handleGrant))
 	mux.HandleFunc("POST /players/{id}/ban", s.action(true, maxBodySmall, s.handleBan))

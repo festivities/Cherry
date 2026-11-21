@@ -56,6 +56,7 @@ var playerSections = []link{
 	{Href: "#garden-bag", Label: "Garden bag"},
 	{Href: "#butlers", Label: "Butlers"},
 	{Href: "#social", Label: "Social"},
+	{Href: "#past-avatars", Label: "Past avatars"},
 	{Href: "#moderation", Label: "Moderation"},
 	{Href: "#ledger", Label: "Ledger"},
 	{Href: "#grant", Label: "Grant"},
@@ -75,6 +76,7 @@ type playerPage struct {
 	Audit         []store.AuditRow
 	Grants        []grantKind
 	Materials     []economy.GatherDrop
+	Past          []deletedRow // the deleted avatars of this identity (deleted.go), newest first
 }
 
 // ledgerWindowOf reads the ledger window query value. An absent value is the default; an unknown value is refused.
@@ -144,9 +146,17 @@ func (s *Server) handlePlayer(w http.ResponseWriter, r *http.Request, sess sessi
 	friends, total := store.PlayerFriends(p.Aid, friendsPage)
 	named := store.PlayersOfAids(friends)
 	circle, inCircle := store.PlayerCircle(p.Aid)
+	past, err := store.DeletedAvatarsOfIdentity(p.Identity, pastAvatarsPage)
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
 
 	page := playerPage{Created: rfcDate(created), Seen: rfcDate(seen), Book: book, Sections: playerSections, FriendTotal: total,
 		Audit: audit, Grants: grantKinds, Materials: economy.GatherMaterials(), WindowName: win.Name}
+	for _, d := range past {
+		page.Past = append(page.Past, deletedRowOf(d))
+	}
 	if inCircle {
 		page.Circle = &circle
 	}

@@ -104,7 +104,8 @@ func TestSearchFindsByAidNameAndIdentityAndCaps(t *testing.T) {
 		seedPlayer(t, fmt.Sprintf("dev-crowd%d", i), fmt.Sprintf("%d", 5000+i), "Crowd", 0)
 	}
 	crowd := c.get("/players?q=crowd").body
-	if n := strings.Count(crowd, `href="/players/`); n != 50 {
+	// The sidebar's own link to the deleted avatars is not a row.
+	if n := strings.Count(crowd, `href="/players/`) - strings.Count(crowd, `href="/players/deleted"`); n != 50 {
 		t.Fatalf("a search with 55 matches shows %d rows, want 50", n)
 	}
 	if !strings.Contains(crowd, "Only the first 50 matches are shown") {

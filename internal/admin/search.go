@@ -37,6 +37,8 @@ type searchPage struct {
 	Query       string
 	Players     []searchPlayer
 	PlayersMore bool
+	Deleted     []deletedRow // deleted avatars by avatar id (exact) or name (deleted.go)
+	DeletedMore bool
 	Chat        []chatRow
 	ChatMore    bool
 	Audit       []searchAudit
@@ -69,6 +71,16 @@ func (s *Server) searchInto(page *searchPage, q string) error {
 	page.PlayersMore = more
 	for _, p := range players {
 		page.Players = append(page.Players, searchPlayer{ID: p.ID, Href: playerPath(p.ID), Aid: p.Aid, Name: p.Name, Identity: auth.MaskIdentity(p.Identity)})
+	}
+	deleted, deletedMore, err := store.SearchDeletedAvatars(q, searchRows)
+	if err != nil {
+		return err
+	}
+	page.DeletedMore = deletedMore
+	for _, d := range deleted {
+		row := deletedRowOf(d)
+		row.Identity = auth.MaskIdentity(row.Identity) // the search masks identities, as the player hits do
+		page.Deleted = append(page.Deleted, row)
 	}
 	msgs, err := store.ChatLogSearch(store.ChatFilter{Text: q}, 0, searchRows)
 	if err != nil {

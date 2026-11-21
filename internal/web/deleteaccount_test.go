@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"image/color"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -105,15 +106,15 @@ func TestDeleteAccountRemovesEverything(t *testing.T) {
 	if err := store.ReloadAccounts(); err != nil {
 		t.Fatalf("reload accounts: %v", err)
 	}
-	// Backup line carries the full account and social rows.
-	raw, err := os.ReadFile(filepath.Join(f.dir, "deleted-accounts.jsonl"))
-	if err != nil {
-		t.Fatal(err)
+	// The record is a row of deleted_avatars: the whole account and social rows, and no credentials. Nothing goes to a jsonl file.
+	det := newestDeleted(t)
+	b := det.Record
+	if det.Aid != "9501" || det.Name != "Del" || b.Account.Gems != 5 || len(b.Posts) != 1 || len(b.Guestbook) != 2 ||
+		len(b.Friendships) != 1 || b.GuestbookRead != 2 || b.Account.SessionKey != "" || b.Account.Aid != "9501" {
+		t.Fatalf("record = %+v", det)
 	}
-	var b deletedBackup
-	if err := json.Unmarshal(raw, &b); err != nil || b.Account.Aid != "9501" || b.Account.Gems != 5 || len(b.Tokens) != 2 ||
-		len(b.Posts) != 1 || len(b.Guestbook) != 2 || len(b.Friendships) != 1 || b.GuestbookRead != 2 {
-		t.Fatalf("backup = %s (%v)", raw, err)
+	if _, err := os.Stat(filepath.Join(f.dir, "deleted-accounts.jsonl")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a jsonl backup was written: %v", err)
 	}
 	if l := readLedger(t); len(l) != 1 || l[0].Reason != "account deleted" || l[0].Aid != "9501" {
 		t.Fatalf("ledger = %+v", l)
@@ -199,7 +200,7 @@ func TestDeleteAccountSaveFailureRollsBack(t *testing.T) {
 	if !a1 || !a2 || latest != f.acc || state != "accepted" || n != 2 || g != 3 || read != 2 {
 		t.Fatalf("not rolled back: %v %v %v %s %d %d %d", a1, a2, latest, state, n, g, read)
 	}
-	// The database still holds the account: the rollback wrote it back.
+	// The database still holds the account: the rollback wrote it back. The record the delete kept is taken back too.
 	if err := store.ReloadAccounts(); err != nil {
 		t.Fatal(err)
 	}
@@ -209,6 +210,50 @@ func TestDeleteAccountSaveFailureRollsBack(t *testing.T) {
 	if !kept {
 		t.Fatal("the database lost the account after a failed delete")
 	}
+	if rows, _, err := store.DeletedAvatarList(0, 10); err != nil || len(rows) != 0 {
+		t.Fatalf("a failed delete left %d records (%v)", len(rows), err)
+	}
+}
+
+// TestDeleteAccountRecordFailureChangesNothing: a record that cannot be kept fails the delete before anything is removed.
+func TestDeleteAccountRecordFailureChangesNothing(t *testing.T) {
+	f := delSetup(t)
+	if err := store.AttachedDB().Update(func(tx *sql.Tx) error {
+		_, err := tx.Exec(`CREATE TRIGGER deleted_refused BEFORE INSERT ON deleted_avatars BEGIN SELECT RAISE(ABORT, 'refused'); END`)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if rec := f.del(t, "dtok"); rec.Code != http.StatusInternalServerError {
+		t.Fatalf("delete = %d %s", rec.Code, rec.Body.String())
+	}
+	store.AccountsMu.Lock()
+	a1 := store.AccountByTokenLocked("dtok") != nil
+	latest := store.LatestAcc
+	store.AccountsMu.Unlock()
+	store.SocialMu.Lock()
+	n, g := len(store.DiaryPosts), len(store.GuestbookEntries)
+	store.SocialMu.Unlock()
+	if !a1 || latest != f.acc || n != 2 || g != 3 {
+		t.Fatalf("a delete without its record changed the avatar: %v %v %d %d", a1, latest != f.acc, n, g)
+	}
+	if rows, _, err := store.DeletedAvatarList(0, 10); err != nil || len(rows) != 0 {
+		t.Fatalf("records = %d (%v)", len(rows), err)
+	}
+}
+
+// newestDeleted is the record the last delete kept.
+func newestDeleted(t *testing.T) store.DeletedAvatarDetail {
+	t.Helper()
+	rows, _, err := store.DeletedAvatarList(0, 1)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("deleted avatars = %d (%v), want 1", len(rows), err)
+	}
+	det, found, err := store.DeletedAvatarByID(rows[0].ID)
+	if err != nil || !found {
+		t.Fatalf("deleted avatar %d: found %v, %v", rows[0].ID, found, err)
+	}
+	return det
 }
 
 // refuseSocialDeletes makes the database refuse the delete of a read marker, so the social save of a delete fails while the
@@ -223,9 +268,10 @@ func refuseSocialDeletes(t *testing.T) {
 	}
 }
 
-// TestDeleteAccountRemovesItsPictures (PLAN 8.6b part 5): the avatar's picture rows and files go with it, the files after the
-// save; another player's pictures stay.
-func TestDeleteAccountRemovesItsPictures(t *testing.T) {
+// TestDeleteAccountKeepsItsPictures (2026-11-21, supersedes PLAN 8.6b part 5): the avatar's picture rows and files stay after
+// Delete Avatar, listed in its record, and they still show and remove as the staff panel's pictures; another player's pictures
+// stay too.
+func TestDeleteAccountKeepsItsPictures(t *testing.T) {
 	f := delSetup(t)
 	uploadConfig(t, config.Config{DataDir: f.dir, CacheDir: f.dir})
 	put := func(kind, owner, userID, ctime string) string {
@@ -250,21 +296,42 @@ func TestDeleteAccountRemovesItsPictures(t *testing.T) {
 		t.Fatalf("delete = %d %s", rec.Code, rec.Body.String())
 	}
 	for _, file := range []string{mine, mineProfile} {
-		if _, found, _ := store.MediaRowByFile(file); found {
-			t.Fatalf("the deleted avatar's picture row %s remains", file)
-		}
 		kind := store.MediaDiary
 		if file == mineProfile {
 			kind = store.MediaProfile
 		}
-		if _, err := os.Stat(filepath.Join(f.dir, kind+"-media", file)); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("the deleted avatar's picture file remains: %v", err)
+		if _, found, _ := store.MediaRowByFile(file); !found {
+			t.Fatalf("the deleted avatar's picture row %s went", file)
 		}
+		if _, err := os.Stat(filepath.Join(f.dir, kind+"-media", file)); err != nil {
+			t.Fatalf("the deleted avatar's picture file went: %v", err)
+		}
+	}
+	if det := newestDeleted(t); len(det.Record.Media) != 2 {
+		t.Fatalf("the record lists %d pictures, want the 2 the avatar owned", len(det.Record.Media))
 	}
 	if _, found, _ := store.MediaRowByFile(theirs); !found {
 		t.Fatal("another player's picture row went with the deleted avatar")
 	}
 	if _, err := os.Stat(filepath.Join(f.dir, store.MediaDiary+"-media", theirs)); err != nil {
 		t.Fatalf("another player's picture file: %v", err)
+	}
+	// The game does not serve the deleted avatar's picture any more (the staff panel does); another player's picture is served
+	// by the same route, so a 404 there would mean the route refuses everything.
+	dir := filepath.Join(f.dir, store.MediaDiary+"-media")
+	if err := os.WriteFile(filepath.Join(dir, theirs), solidThumbPNG(t, 4, 4, color.RGBA{R: 200, A: 255}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	download := func(userID, ctime string) int {
+		req := httptest.NewRequest(http.MethodGet, "/lineplay/d/download.nhn?userid="+userID+"&ctime="+ctime+"&oid="+userID+"_"+ctime, nil)
+		rec := httptest.NewRecorder()
+		handleDiaryImageDownloadAt(rec, req, dir)
+		return rec.Code
+	}
+	if code := download("9501", "1760000100"); code != http.StatusNotFound {
+		t.Fatalf("the game serves a deleted avatar's picture: %d", code)
+	}
+	if code := download("9502", "1760000300"); code == http.StatusNotFound {
+		t.Fatalf("the game refuses another player's picture too (%d): the route check is not what the test shows", code)
 	}
 }

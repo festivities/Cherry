@@ -74,8 +74,8 @@ func main() {
 	}
 	logger.Printf("cherry: config https=%s http=%s session=%s gateway=%s dns=%s admin=%s data=%s cache=%s public=%t auth=%s",
 		cfg.HTTPS, cfg.HTTP, cfg.Session, cfg.Gateway, dns, cfg.Admin, cfg.DataDir, cfg.CacheDir, cfg.Public, cfg.AuthMode)
-	logger.Printf("cherry: limits conns=%d/address %d total; api=%d/s burst %d; account=%d/s burst %d; guest=%d/min; retention deleted=%dd idle-tokens=%dd chat=%dd",
-		cfg.ConnsPerAddress, cfg.ConnsTotal, cfg.APIRate, cfg.APIBurst, cfg.AccountRate, cfg.AccountBurst, cfg.GuestPerMinute, cfg.DeletedDays, cfg.IdleTokenDays, cfg.ChatDays)
+	logger.Printf("cherry: limits conns=%d/address %d total; api=%d/s burst %d; account=%d/s burst %d; guest=%d/min; retention idle-tokens=%dd chat=%dd",
+		cfg.ConnsPerAddress, cfg.ConnsTotal, cfg.APIRate, cfg.APIBurst, cfg.AccountRate, cfg.AccountBurst, cfg.GuestPerMinute, cfg.IdleTokenDays, cfg.ChatDays)
 	// CHERRY_FAKE_NOW (RFC 3339) moves the game clock (economy.NowFunc) for season tests. Records written meanwhile
 	// carry the moved dates, so it runs only on a copy of the data: the data directory must not be the real folder.
 	if v := os.Getenv("CHERRY_FAKE_NOW"); v != "" {

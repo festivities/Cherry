@@ -1,0 +1,198 @@
+{{define "page"}}{{with .DeletedAvatar}}<h1>Deleted avatar #{{.ID}}{{with .Name}} <span class="muted">{{.}}</span>{{end}}</h1>
+<nav class="jump" aria-label="Sections">{{range .Sections}}<a href="{{.Href}}">{{.Label}}</a>{{end}}</nav>
+<p class="muted">A read-only record of the avatar Delete Avatar removed. Nothing here changes it. Balances and the ledger are the values at the delete, except the ledger, which is the live table's lines for this avatar id.</p>
+<p class="actions-row"><a href="/players/deleted">All deleted avatars</a> · <a href="/photos?player={{.Aid}}">Its pictures on the Photos page</a> · <a href="/audit?target=avatar:{{.Aid}}">Audit rows for this avatar</a></p>
+
+<section id="overview" class="page-section">
+<h2>Overview</h2>
+<div class="grid-2">
+<div class="card">
+<dl class="facts">
+<dt>Name</dt><dd>{{if .Name}}{{.Name}}{{else}}none{{end}}</dd>
+<dt>Avatar id</dt><dd>{{.Aid}}</dd>
+<dt>Identity</dt><dd>{{if .Identity}}{{.Identity}}{{else}}none (lab account){{end}}</dd>
+<dt>Avatar birthday (UTC)</dt><dd>{{if .Created}}{{.Created}}{{else}}—{{end}}</dd>
+<dt>Deleted (UTC)</dt><dd>{{.Deleted}}</dd>
+<dt>Ban at the delete</dt><dd>{{with .Ban}}banned on {{.At}} by {{.By}}: {{.Reason}}{{else}}not banned{{end}}</dd>
+</dl>
+</div>
+<div class="card">
+<h3>Balances</h3>
+<table>
+<tbody>
+<tr><th scope="row">Gems</th><td class="num">{{.Gems}}</td></tr>
+<tr><th scope="row">Cash</th><td class="num">{{.Cash}}</td></tr>
+<tr><th scope="row">Smiles</th><td class="num">{{.Book.Smiles}}</td></tr>
+<tr><th scope="row">Face Shop tickets</th><td class="num">{{.Book.FaceTickets}}</td></tr>
+<tr><th scope="row">Boss Coins</th><td class="num">{{.Book.BossCoins}}</td></tr>
+<tr><th scope="row">Ride points</th><td class="num">{{.Book.RidePoints}}</td></tr>
+<tr><th scope="row">Race tickets left that day</th><td class="num">{{.Book.RaceTickets}} of {{.Book.RaceMax}}</td></tr>
+</tbody>
+</table>
+</div>
+</div>
+</section>
+
+<section id="inventory" class="page-section">
+<h2>Inventory</h2>
+<p>{{.Book.Owned}} owned item codes · {{.Book.RoomItems}} room items · {{len .Book.Pets}} pets</p>
+{{if .Book.NewestCodes}}<p class="muted small">The newest {{len .Book.NewestCodes}} owned codes, newest first. Codes only.</p>
+<ul class="codes">{{range .Book.NewestCodes}}<li class="mono">{{.}}</li>{{end}}</ul>
+{{else}}<p class="empty-state">No owned items.</p>{{end}}
+{{if .Book.Pets}}<h3>Pets</h3>
+<div class="scroll"><table>
+<thead><tr><th>Name</th><th>Code</th></tr></thead>
+<tbody>{{range .Book.Pets}}<tr><td>{{.Name}}</td><td class="mono">{{.Code}}</td></tr>{{end}}</tbody>
+</table></div>{{end}}
+</section>
+
+<section id="garden-bag" class="page-section">
+<h2>Garden bag</h2>
+<div class="scroll"><table>
+<thead><tr><th>Material</th><th class="num">Item</th><th class="num">Count</th></tr></thead>
+<tbody>
+{{range .Book.Bag}}<tr><td>{{.Name}}</td><td class="num">{{.Item}}</td><td class="num">{{.Count}}</td></tr>
+{{else}}<tr class="empty"><td colspan="3">The Garden bag was empty.</td></tr>{{end}}
+</tbody>
+</table></div>
+</section>
+
+<section id="butlers" class="page-section">
+<h2>Butlers</h2>
+<div class="scroll"><table>
+<thead><tr><th>Butler</th><th>Contract (UTC)</th><th>Worn skin</th><th>Special order</th><th>Gathering</th><th>Memories (the roster's)</th></tr></thead>
+<tbody>
+{{range .Book.Butlers}}<tr>
+<td>{{.Name}} <span class="muted small">#{{.ID}}</span>{{if eq .ID $.DeletedAvatar.Book.Chief}} <span class="pill">chief</span>{{end}}</td>
+<td>{{unixms .Begin}} to {{unixms .End}}{{if .Ended}} <span class="pill warn">ended</span>{{end}}</td>
+<td>{{.Skin}}</td>
+<td>{{if .HasOrder}}grade {{.OrderGrade}}, {{.OrderCount}} materials, until {{unixms .OrderEnd}}{{else}}none{{end}}</td>
+<td>{{if .HasGathering}}until {{unixms .GatherEnd}}{{else}}idle{{end}}</td>
+<td>{{range $i, $m := .Memories}}{{if $i}}, {{end}}{{$m}}{{else}}none{{end}}</td>
+</tr>{{else}}<tr class="empty"><td colspan="6">No butlers hired.</td></tr>{{end}}
+</tbody>
+</table></div>
+</section>
+
+<section id="outfit" class="page-section">
+<h2>Outfit, room and mail</h2>
+<div class="grid-2">
+<div class="card">
+<h3>Outfit</h3>
+{{if .Outfit}}<ul class="codes">{{range .Outfit}}<li class="mono">{{.}}</li>{{end}}</ul>{{else}}<p class="empty-state">No outfit codes.</p>{{end}}
+</div>
+<div class="card">
+<h3>Mail</h3>
+{{if .Mail}}<div class="scroll"><table>
+<thead><tr><th>Sent (UTC)</th><th>Kind</th><th class="num">Amount</th><th>Item</th><th>Sender</th><th>Message</th></tr></thead>
+<tbody>{{range .Mail}}<tr><td>{{.Created}}</td><td>{{.Kind}}</td><td class="num">{{.Amount}}</td><td class="mono">{{.Item}}</td><td>{{.Sender}}</td><td>{{.Message}}</td></tr>{{end}}</tbody>
+</table></div>
+{{else}}<p class="empty-state">No mail waited.</p>{{end}}
+</div>
+</div>
+</section>
+
+<section id="social" class="page-section">
+<h2>Social</h2>
+<div class="grid-2">
+<div class="card">
+<h3>Friendships at the delete</h3>
+{{if .Friends}}<ul class="codes">{{range .Friends}}<li><span class="mono">{{.Aid}}</span> <span class="muted small">{{.State}}</span></li>{{end}}</ul>
+{{else}}<p class="empty-state">No friendships.</p>{{end}}
+</div>
+<div class="card">
+<h3>Circle</h3>
+{{with .Circle}}<p>{{.Name}} <span class="muted small">circle #{{.ID}}</span>, role {{.Role}}.</p>
+{{else}}<p class="empty-state">Not in a circle.</p>{{end}}
+</div>
+</div>
+</section>
+
+<section id="writing" class="page-section">
+<h2>Writing</h2>
+<h3>Diary posts (newest {{len .Posts}})</h3>
+<div class="scroll"><table>
+<thead><tr><th>Post</th><th>Date (UTC)</th><th>Text (first 80 characters)</th><th>Pictures</th></tr></thead>
+<tbody>
+{{range .Posts}}<tr><td>{{.No}}</td><td>{{.Date}}</td><td>{{.Text}}</td><td>{{range .Pictures}}<a href="/photos/{{.}}/file">#{{.}}</a> {{else}}none{{end}}</td></tr>
+{{else}}<tr class="empty"><td colspan="4">No diary posts.</td></tr>{{end}}
+</tbody>
+</table></div>
+<h3>Guestbook entries (newest {{len .Entries}})</h3>
+<div class="scroll"><table>
+<thead><tr><th>Entry</th><th>In the guestbook of</th><th>Written by</th><th>Date (UTC)</th><th>Text (first 80 characters)</th></tr></thead>
+<tbody>
+{{range .Entries}}<tr><td>{{.No}}</td><td class="mono">{{.Host}}</td><td class="mono">{{.By}}</td><td>{{.Date}}</td><td>{{.Text}}</td></tr>
+{{else}}<tr class="empty"><td colspan="5">No guestbook entries.</td></tr>{{end}}
+</tbody>
+</table></div>
+<h3>Diary comments (newest {{len .Comments}})</h3>
+<div class="scroll"><table>
+<thead><tr><th>Comment</th><th>Post</th><th>Owner of the post</th><th>Date (UTC)</th><th>Text (first 80 characters)</th></tr></thead>
+<tbody>
+{{range .Comments}}<tr><td>{{.No}}</td><td>{{.Post}}</td><td class="mono">{{.Host}}</td><td>{{.Date}}</td><td>{{.Text}}</td></tr>
+{{else}}<tr class="empty"><td colspan="5">No diary comments.</td></tr>{{end}}
+</tbody>
+</table></div>
+<p class="muted small">Diary likes at the delete: {{.Likes}}.</p>
+</section>
+
+<section id="pictures" class="page-section">
+<h2>Pictures</h2>
+{{if .Pictures}}<div class="photo-grid">
+{{range .Pictures}}<figure class="photo-card">
+<a href="/photos/{{.ID}}/file"><img src="/photos/{{.ID}}/file" alt="{{.Kind}} picture {{.ID}}" loading="lazy" width="320" height="320" class="photo-img"></a>
+<figcaption>
+<p><span class="pill">{{.Kind}}</span> <span class="muted small">#{{.ID}} · {{.KiB}} KiB</span></p>
+<p class="muted small">{{.Date}} UTC</p>
+</figcaption>
+</figure>{{end}}
+</div>
+<p class="muted small">Removing a picture is done on the <a href="/photos?player={{.Aid}}">Photos page</a>, where its reason is kept in the audit trail.</p>
+{{else}}<p class="empty-state">No pictures were uploaded by this avatar.</p>{{end}}
+</section>
+
+<section id="chat" class="page-section">
+<h2>Chat</h2>
+<h3>Chat lines (newest {{len .Lines}})</h3>
+<div class="scroll"><table>
+<thead><tr><th>Time (UTC)</th><th>Channel</th><th>Sender</th><th>Text</th></tr></thead>
+<tbody>
+{{range .Lines}}<tr><td>{{.Date}}</td><td>{{.Kind}} {{.Channel}}</td><td class="mono">{{.Sender}} {{.Name}}</td><td>{{.Text}}</td></tr>
+{{else}}<tr class="empty"><td colspan="4">No chat lines are kept (the chat log keeps messages for the retention days).</td></tr>{{end}}
+</tbody>
+</table></div>
+<h3>1:1 chat rooms ({{len .Rooms}})</h3>
+{{range .Rooms}}<p>With <span class="mono">{{.With}}</span>, the newest {{len .Msgs}} messages (oldest first):</p>
+<div class="scroll"><table>
+<thead><tr><th>Time (UTC)</th><th>Sender</th><th>Text</th></tr></thead>
+<tbody>{{range .Msgs}}<tr><td>{{.Date}}</td><td class="mono">{{.Sender}}</td><td>{{.Text}}</td></tr>{{else}}<tr class="empty"><td colspan="3">No messages.</td></tr>{{end}}</tbody>
+</table></div>
+{{else}}<p class="empty-state">No 1:1 chat room.</p>{{end}}
+</section>
+
+<section id="treasure" class="page-section">
+<h2>Treasure World</h2>
+{{with $.DeletedAvatar.Treasure}}<dl class="facts">
+<dt>Season</dt><dd>{{.Season}}</dd>
+<dt>Position</dt><dd>{{.Position}}</dd>
+<dt>Tickets</dt><dd>{{.Tickets}}</dd>
+<dt>Jewels</dt><dd>{{.Jewels}}</dd>
+<dt>Points</dt><dd>{{.Points}}</dd>
+<dt>Trapped</dt><dd>{{if .Trapped}}yes{{else}}no{{end}}</dd>
+</dl>
+{{else}}<p class="empty-state">No Treasure World board.</p>{{end}}
+</section>
+
+<section id="ledger" class="page-section">
+<h2>Ledger</h2>
+<p class="muted small">The newest {{len .Ledger}} ledger lines of this avatar id, from the live ledger table, newest first.</p>
+<div class="scroll"><table>
+<thead><tr><th>Time (UTC)</th><th>Currency</th><th class="num">Change</th><th class="num">Balance after</th><th>Reason</th></tr></thead>
+<tbody>
+{{range .Ledger}}<tr><td>{{.Time}}</td><td>{{.Currency}}</td><td class="num">{{.Delta}}</td><td class="num">{{.Balance}}</td><td>{{.Reason}}</td></tr>
+{{else}}<tr class="empty"><td colspan="5">No ledger lines.</td></tr>{{end}}
+</tbody>
+</table></div>
+</section>
+{{end}}{{end}}

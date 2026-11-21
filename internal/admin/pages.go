@@ -30,7 +30,7 @@ type navGroup struct {
 
 var navGroups = []navGroup{
 	{"Overview", []link{{Href: "/", Label: "Dashboard"}}},
-	{"Players", []link{{Href: "/players", Label: "Players"}, {Href: "/mail", Label: "Mail"}}},
+	{"Players", []link{{Href: "/players", Label: "Players"}, {Href: "/players/deleted", Label: "Deleted avatars"}, {Href: "/mail", Label: "Mail"}}},
 	{"Moderation", []link{{Href: "/chat", Label: "Chat log"}, {Href: "/photos", Label: "Photos"}}},
 	{"Insights", []link{{Href: "/online", Label: "Online now"}, {Href: "/economy", Label: "Economy"}, {Href: "/activity", Label: "Activity"}}},
 	{"Content", []link{{Href: "/docs", Label: "Documents"}}},
@@ -139,6 +139,10 @@ type view struct {
 	Mail     mailPage
 	Search   searchPage
 	Settings settingsPage
+
+	// deleted avatars (deleted.go): the list rows and one record
+	DeletedRows   []deletedRow
+	DeletedAvatar deletedAvatarPage
 }
 
 // base is the view of a signed-in page: the sidebar, the identity and role in the header, the session's CSRF token and the
