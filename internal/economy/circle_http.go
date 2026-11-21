@@ -450,7 +450,7 @@ func handleCircle(w http.ResponseWriter, r *http.Request) {
 			return circlePointSeasonView(nums[0], acc.Aid, b, now)
 		})
 	case "GET point/season/reward/#/#":
-		gacha := circleGachaDetail() // built before the book lock: the catalog is not read under it
+		gacha := circleGachaDetail(gachaOfferFor(r)) // built before the book lock: the catalog is not read under it
 		circleReadReply(w, token, func(acc *store.Account, b *store.CircleBook) (any, error) {
 			return circleRewardView(acc.Aid, b, nums[0], nums[1], gacha), nil
 		})
@@ -806,13 +806,14 @@ func applyInviteView(viewer string, b *store.CircleBook, id int64) circleApplyIn
 	return out
 }
 
-// circleGachaDetail is gachaDetail of the reward page: the Cherry Gacha when the circle data offers it, else {}.
-func circleGachaDetail() any {
+// circleGachaDetail is gachaDetail of the reward page: the Cherry Gacha when the circle data offers it, else {}. off is
+// the viewer's birthday discount (birthday.go).
+func circleGachaDetail(off birthdayOffer) any {
 	if !ActiveCircleData().Gacha.Enabled {
 		return circleEmpty{}
 	}
 	pool := gachaPoolNow()
-	return circleGachaJSON{gachaRow: gachaRowFor(pool), Collection: gachaCollectionFor(pool)}
+	return circleGachaJSON{gachaRow: gachaRowFor(pool, off), Collection: gachaCollectionFor(pool)}
 }
 
 // circleMS is an epoch-millisecond date as the client's string.

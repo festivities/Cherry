@@ -30,6 +30,7 @@ type AccountSnapshot struct {
 	ProfileImage   ProfileImage
 	DiaryProfile   *DiaryProfile
 	DyeColors      map[string][]DyeColor
+	BirthdayClaims map[int]int64 // birthday reward claims by avatar turn (economy/birthday.go); replaced, never edited in place
 }
 
 func AccountInventoryCodes(acc *Account) []string {
@@ -139,6 +140,7 @@ type Account struct {
 	DyeColors      map[string][]DyeColor // colours of dyed garments by item code (economy/dye.go); replaced, never edited in place
 	LuckySpinDay   int64                 // game day (economy.AttendDayKey) of the last free Lucky Spin (economy/spin.go); 0 = none
 	AvatarCreated  int64                 // create/avatar time in Unix ms: the profile's "Avatar Birthday" (result.created); 0 = unknown
+	BirthdayClaims map[int]int64         // avatar birthday reward claims: turn -> claim time in Unix ms (economy/birthday.go); replaced, never edited in place
 	GuestCode      string                // device uniqueCode bound by the guest login (GuestLogin); "" = none
 	Identity       string                // provider identity ("discord:<id>" or "dev-<name>"), discord and dev-fake modes (identity.go); "" = none
 	CodeHashes     []string              // SHA-256 hex of the uniqueCodes minted for Identity, oldest first, at most maxCodeHashes (identity.go)
@@ -594,6 +596,7 @@ func accountForToken(token string) (AccountSnapshot, bool) {
 		Aid: acc.Aid, Name: acc.Name, Gender: acc.Gender, Skin: acc.Skin,
 		Country: acc.Country, ItemCodes: append([]string(nil), acc.ItemCodes...),
 		InventoryCodes: append([]string(nil), AccountInventoryCodes(acc)...),
+		BirthdayClaims: acc.BirthdayClaims,
 	}
 	AccountsMu.Unlock()
 	return snapshot, true

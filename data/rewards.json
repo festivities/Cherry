@@ -1,6 +1,6 @@
 {
   "origin": "cherry",
-  "note": "Cherry-made rewards: the welcome Gems, the daily quests (ids 9001-9005 in CherryQuestFirst/Last; names, descriptions, Gem rewards and trigger keys), the season event quests (ids 9101-9303), the hearts rule and the mail rules (the sender 'Cherry Staff'). No original quest id, goal or reward exists in the archives (phaseD quests.md).",
+  "note": "Cherry-made rewards: the welcome Gems, the daily quests (ids 9001-9005 in CherryQuestFirst/Last; names, descriptions, Gem rewards and trigger keys), the season event quests (ids 9101-9303), the hearts rule, the mail rules (the sender 'Cherry Staff') and the avatar birthday reward (birthday: claim window in days, the gacha discount percent and how long it lasts; the birthday itself is the avatar's creation date, and the reward's keys and turn numbers are the client's own). No original quest id, goal or reward exists in the archives (phaseD quests.md).",
   "welcome_gems": 300,
   "quests": [
     {"id": 9001, "key": "garden-own", "name": "Visit your Garden", "desc": "Enter your own Garden today.", "gems": 30},
@@ -21,5 +21,6 @@
     {"id": 9303, "key": "square-fish", "season": "newyear", "name": "New Year: Catch a fish in Square", "desc": "Land one fish in Square fishing today.", "gems": 15}
   ],
   "hearts": {"base": 5, "reward_gems": 30, "from_limit": 50},
-  "mail": {"sender": "Cherry Staff", "default_days": 30, "max_amount": 1000000, "max_rows": 100}
+  "mail": {"sender": "Cherry Staff", "default_days": 30, "max_amount": 1000000, "max_rows": 100},
+  "birthday": {"claim_days": 7, "gacha_discount_percent": 30, "discount_days": 7}
 }

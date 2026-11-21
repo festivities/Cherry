@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"cherry/internal/economy"
 	"cherry/internal/httpx"
 	"cherry/internal/store"
 	"cherry/internal/testutil"
@@ -186,8 +187,8 @@ func TestSessionOutAndAvatarBirthday(t *testing.T) {
 		{time.Date(2027, 11, 15, 15, 5, 0, 0, time.UTC), false}, // already Nov 16 at GMT+9
 		{time.Date(2028, 11, 15, 12, 0, 0, 0, gmt9), true},
 	} {
-		if got := isAvatarBirthday(born, c.now); got != c.want || isAvatarBirthday(0, c.now) {
-			t.Fatalf("isAvatarBirthday(%v) = %v, want %v", c.now, got, c.want)
+		if got := economy.IsAvatarBirthday(born, c.now); got != c.want || economy.IsAvatarBirthday(0, c.now) {
+			t.Fatalf("IsAvatarBirthday(%v) = %v, want %v", c.now, got, c.want)
 		}
 	}
 

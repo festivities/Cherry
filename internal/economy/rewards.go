@@ -26,13 +26,23 @@ import (
 //	                  once a day with the base-th heart; from_limit: sender aids kept per receiver per day
 //	mail              sender: the name on staff mail; default_days: expiry when a staff grant gives none;
 //	                  max_amount: largest Gem, Cash or ticket amount per mail row; max_rows: mailbox size
+//	birthday          claim_days: days from the avatar's birthday on which its reward can be claimed;
+//	                  gacha_discount_percent: Gem gacha discount the claim gives; discount_days: how long it lasts
 type Rewards struct {
 	opdata.Provenance
-	WelcomeGems int64        `json:"welcome_gems"`
-	Quests      []QuestDef   `json:"quests"`
-	EventQuests []EventQuest `json:"event_quests"`
-	Hearts      HeartRules   `json:"hearts"`
-	Mail        MailRules    `json:"mail"`
+	WelcomeGems int64         `json:"welcome_gems"`
+	Quests      []QuestDef    `json:"quests"`
+	EventQuests []EventQuest  `json:"event_quests"`
+	Hearts      HeartRules    `json:"hearts"`
+	Mail        MailRules     `json:"mail"`
+	Birthday    BirthdayRules `json:"birthday"`
+}
+
+// BirthdayRules are the avatar birthday reward numbers (rewards.json birthday; birthday.go).
+type BirthdayRules struct {
+	ClaimDays            int   `json:"claim_days"`
+	GachaDiscountPercent int64 `json:"gacha_discount_percent"`
+	DiscountDays         int   `json:"discount_days"`
 }
 
 // EventQuest is one event quest (rewards.json event_quests). It has no display flag: only the daily
@@ -107,6 +117,12 @@ func checkRewards(r *Rewards) error {
 		return errors.New("mail.max_amount must be at least 1")
 	case r.Mail.MaxRows < 1:
 		return errors.New("mail.max_rows must be at least 1")
+	case r.Birthday.ClaimDays < 1 || r.Birthday.ClaimDays > 30:
+		return errors.New("birthday.claim_days must be 1 to 30")
+	case r.Birthday.GachaDiscountPercent < 1 || r.Birthday.GachaDiscountPercent > 90:
+		return errors.New("birthday.gacha_discount_percent must be 1 to 90")
+	case r.Birthday.DiscountDays < 1 || r.Birthday.DiscountDays > 365:
+		return errors.New("birthday.discount_days must be 1 to 365")
 	}
 	ids := map[int64]bool{}
 	keys := map[string]bool{}

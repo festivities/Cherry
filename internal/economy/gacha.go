@@ -217,8 +217,10 @@ func gachaRefund(price int64) int64 {
 // the price type to (gachaType != "S") = Cash, read by NaGachaManager::GetPriceTypeWithBuyPopupType
 // (0x25c0218), 0 = Gem. FirstBuyPrice equals the price: the client offers the first-purchase price
 // (GachaPriceData kind 1, "First purchase") only when firstBuyPrice < price and the collection's
-// gatheringCount is 0 (GetCurrentGachaPriceData 0x2618fb4, caller 0x261a890).
-func gachaRowFor(p gachaPool) gachaRow {
+// gatheringCount is 0 (GetCurrentGachaPriceData 0x2618fb4, caller 0x261a890). off is the requester's birthday discount
+// (birthday.go): the discounted prices (DiscountedPrice, RetryPrice, BundleDiscountedPrice) are the discounted ones; Price
+// and BundlePrice stay the table prices, and FirstBuyPrice stays the table price so no first-purchase offer appears.
+func gachaRowFor(p gachaPool, off birthdayOffer) gachaRow {
 	g := ActiveGacha()
 	code := ""
 	if len(p.rare) > 0 {
@@ -226,16 +228,20 @@ func gachaRowFor(p gachaPool) gachaRow {
 	} else if len(p.normal) > 0 {
 		code = p.normal[0].code
 	}
-	coin := int(g.CoinPrice)
-	return gachaRow{
+	coin, disc := int(g.CoinPrice), int(birthdayPriceOff(g.CoinPrice, off.Percent))
+	row := gachaRow{
 		ItemCode: code, ItemID: int(g.ID), GachaID: int(g.ID), GachaName: g.Name, GachaMainBannerImageURL: gachaCardURL(code),
 		GachaDesc: fmt.Sprintf("%d%% normal / %d%% RARE", 100-g.RarePercent, g.RarePercent), GachaType: "S",
-		Price: coin, DiscountedPrice: coin, FirstBuyPrice: coin, RetryPrice: coin,
+		Price: coin, DiscountedPrice: disc, FirstBuyPrice: coin, RetryPrice: disc,
 		BundleGachaEnabled: true, BundleGachaQuantity: g.BundleSize, BundlePrice: int(g.BundlePrice),
-		BundleDiscountedPrice: int(g.BundlePrice), BundleGachaGuarantee: 1,
+		BundleDiscountedPrice: int(birthdayPriceOff(g.BundlePrice, off.Percent)), BundleGachaGuarantee: 1,
 		Selling: true, Display: true,
 		GachaKindFlagNewTypes: []string{}, GachaKeywords: []string{},
 	}
+	if off.active() {
+		row.Discount, row.DiscountStart, row.DiscountEnd = true, strconv.FormatInt(off.Start, 10), strconv.FormatInt(off.End, 10)
+	}
+	return row
 }
 
 // gachaPoolFor is the pool a request sees: an animal requester gets animalPool, anyone else the whole pool.
@@ -518,7 +524,7 @@ func handleGachaList(top bool) http.HandlerFunc {
 		}
 		rep := gachaListEmpty()
 		if top {
-			rep.TotalCount, rep.Items = "1", []gachaRow{gachaRowFor(gachaPoolFor(r))}
+			rep.TotalCount, rep.Items = "1", []gachaRow{gachaRowFor(gachaPoolFor(r), gachaOfferFor(r))}
 		}
 		httpx.WriteObj(w, gachaResult[gachaListReply]{rep})
 	}
@@ -533,7 +539,7 @@ func handleGachaCategory(w http.ResponseWriter, r *http.Request) {
 	g := ActiveGacha()
 	rep := gachaListEmpty()
 	if strings.TrimPrefix(r.URL.Path, "/v4/shop/gachaList2/catg/all/") == strconv.FormatInt(g.Category.ID, 10) {
-		rep.TotalCount, rep.Items, rep.CategroyNm = "1", []gachaRow{gachaRowFor(gachaPoolFor(r))}, g.Category.Name
+		rep.TotalCount, rep.Items, rep.CategroyNm = "1", []gachaRow{gachaRowFor(gachaPoolFor(r), gachaOfferFor(r))}, g.Category.Name
 	}
 	httpx.WriteObj(w, gachaResult[gachaListReply]{rep})
 }
@@ -547,7 +553,7 @@ func handleGachaKeywordList(w http.ResponseWriter, r *http.Request) {
 	g := ActiveGacha()
 	rep := gachaListEmpty()
 	if strings.TrimPrefix(r.URL.Path, "/v4/shop/gachaList2/keyword/") == strconv.FormatInt(g.Keyword.ID, 10) {
-		rep.TotalCount, rep.Items, rep.KeywordNm = "1", []gachaRow{gachaRowFor(gachaPoolFor(r))}, g.Keyword.Name
+		rep.TotalCount, rep.Items, rep.KeywordNm = "1", []gachaRow{gachaRowFor(gachaPoolFor(r), gachaOfferFor(r))}, g.Keyword.Name
 	}
 	httpx.WriteObj(w, gachaResult[gachaListReply]{rep})
 }
@@ -575,7 +581,7 @@ func handleGachaCategories(w http.ResponseWriter, r *http.Request) {
 	g := ActiveGacha()
 	row := gachaCategoryRow{ID: g.Category.ID, Name: g.Category.Name, Link: strconv.FormatInt(g.Category.ID, 10),
 		LinkType: "goSomewhere(gachaCatg)", NMarkTimestamp: "0", Desc: g.Category.Desc, NewGachaNames: []string{},
-		RepGachaList: []gachaRepGacha{{GachaName: g.Name, ImgURL: gachaRowFor(gachaPoolFor(r)).GachaMainBannerImageURL}}}
+		RepGachaList: []gachaRepGacha{{GachaName: g.Name, ImgURL: gachaRowFor(gachaPoolFor(r), gachaOfferFor(r)).GachaMainBannerImageURL}}}
 	httpx.WriteObj(w, gachaResult[[]gachaCategoryRow]{[]gachaCategoryRow{row}})
 }
 
@@ -615,7 +621,7 @@ func handleGachaDetail(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimPrefix(r.URL.Path, "/v4/shop/gacha/detail/target/") == strconv.FormatInt(ActiveGacha().ID, 10) {
 		p := gachaPoolFor(r)
 		rep.TotalCount = "1"
-		rep.Items = []gachaDetailItem{{gachaRow: gachaRowFor(p), Collection: gachaCollectionFor(p),
+		rep.Items = []gachaDetailItem{{gachaRow: gachaRowFor(p, gachaOfferFor(r)), Collection: gachaCollectionFor(p),
 			NewUpgradeItems: []any{}, SimilarGachas: []any{}}}
 	}
 	httpx.WriteObj(w, gachaResult[gachaDetailReply]{rep})
@@ -666,7 +672,8 @@ type gachaPurchaseReq struct {
 }
 
 // handleGachaPurchase serves purchase/gacha/coin (one pull) and purchase/gacha/multi (ten pulls).
-// The gachaId and price are checked against this gacha's table; the Gem balance is the server's.
+// The gachaId and price are checked against this gacha's table (or its birthday-discounted price, birthday.go); the Gem
+// balance is the server's.
 // timeMagicYn and adFreeYn are not offered and are ignored (the price stays the table price).
 func handleGachaPurchase(bundle bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -684,15 +691,23 @@ func handleGachaPurchase(bundle bool) http.HandlerFunc {
 			return
 		}
 		g := ActiveGacha()
-		cost, draws := g.CoinPrice, 1
+		table, draws := g.CoinPrice, 1
 		if bundle {
-			cost, draws = g.BundlePrice, g.BundleSize
+			table, draws = g.BundlePrice, g.BundleSize
+		}
+		// While the requester's birthday discount lasts (birthday.go), the discounted price is charged and the table price
+		// is accepted as well; outside it only the table price is accepted and charged.
+		// A duplicate's refund is cut by the same percent, so a discounted pull refunds in the same ratio as a full one (a refund is
+		// 50 % of the item's shop price, near the pull price already; uncut, a big collection would earn Gems on discounted pulls).
+		cost, off := table, gachaOfferFor(r)
+		if off.active() {
+			cost = birthdayPriceOff(table, off.Percent)
 		}
 		if id, ok := lenientInt(req.GachaID); !ok || id != g.ID {
 			shopError(w, r, raw, errUpdated, "unknown gacha")
 			return
 		}
-		if price, ok := lenientInt(req.Price); !ok || price != cost {
+		if price, ok := lenientInt(req.Price); !ok || (price != table && price != cost) {
 			shopError(w, r, raw, errUpdated, "shop updated")
 			return
 		}
@@ -743,7 +758,7 @@ func handleGachaPurchase(bundle bool) http.HandlerFunc {
 			o := gachaOutcome{entry: e}
 			codes = append(codes, e.code)
 			if owned[e.code] {
-				o.dup, o.refund = true, gachaRefund(e.price)
+				o.dup, o.refund = true, birthdayPriceOff(gachaRefund(e.price), off.Percent)
 				refund += o.refund
 			} else {
 				owned[e.code] = true
