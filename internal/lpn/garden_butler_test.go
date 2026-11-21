@@ -292,9 +292,9 @@ func TestButlerSkinItemsAreNumericIDs(t *testing.T) {
 		id, _ := protobufUintField(item, 1)
 		items[id] = true
 	}
-	// CAEY0001O = 234100060 (eyes, animal face 41), CAEA0004N = 235700167 (ears, 57): the client's numeric ids.
-	if !items[234100060] || !items[235700167] {
-		t.Fatalf("merry's animal parts encoded as %v, want 234100060 and 235700167", items)
+	// CAEY0005R = 234100207 (eyes, animal face 41), CAEA0001W = 235700068 (ears, 57), CATL0000K = 235800020 (tail, 58).
+	if !items[234100207] || !items[235700068] || !items[235800020] {
+		t.Fatalf("merry's animal parts encoded as %v, want 234100207, 235700068 and 235800020", items)
 	}
 }
 

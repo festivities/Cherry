@@ -17,6 +17,7 @@ import (
 	"cherry/internal/itemcode"
 	"cherry/internal/opdata"
 	"cherry/internal/store"
+	"cherry/internal/thumbs"
 )
 
 // Garden butlers (Garden LPN agent 10; spec butler-spec.md). The Shop hires a butler for earned Cash, the Book
@@ -342,6 +343,13 @@ func checkButlerSkin(d ButlerDef, i int, s ButlerSkin, seen map[int64]bool) erro
 // art, or a part the Face Shop lists (faceForSale: human faces, animal parts, converted ones), and every portrait, skin
 // picture and voice line must be in the archive. No outfit slot is required: an archive without an item for a slot leaves
 // it empty. The archive is read here, as the shop catalog reads it.
+// butlerHasArt reports whether code decodes to an original custom or dress item with real part art in the asset store
+// (including robo-only face/ear/tail/garment items not listed in the santi-era Face Shop tables).
+func butlerHasArt(code string) bool {
+	n, ok := itemcode.ID(code)
+	return ok && (thumbs.HasArt("custom", n) || thumbs.HasArt("dress", n))
+}
+
 func verifyButlers(b *Butlers) error {
 	if !artVerifiable() { // no asset store: nothing has art, Cherry still starts (isolated instances, a host before its bucket)
 		return nil
@@ -353,7 +361,7 @@ func verifyButlers(b *Butlers) error {
 	for _, d := range b.Butlers {
 		for _, s := range d.Skins {
 			for _, code := range s.Outfit {
-				if !fashion[code] && !faceForSale(code) {
+				if !fashion[code] && !faceForSale(code) && !butlerHasArt(code) {
 					return fmt.Errorf("butler %d: skin %d: outfit item %s is not a shop item with art or a Face Shop part", d.ID, s.ID, code)
 				}
 			}

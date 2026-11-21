@@ -65,8 +65,8 @@
           "code": "cherry_ian",
           "name": "Ian",
           "skin_color": 1,
-          "outfit": ["CUON009CW", "CUHA006L7", "CUSH003KZ", "CUEY0024M", "CUEB000GA", "CUMO00106", "CUNO00006"],
-          "lookalikes": ["CUEY0024M", "CUEB000GA", "CUMO00106", "CUNO00006"],
+          "outfit": ["CUON009CW", "CUHA006L7", "CUSH003KZ", "CUEY001UQ", "CUEB000GA", "CUMO00106", "CUNO00006"],
+          "lookalikes": ["CUEY001UQ", "CUEB000GA", "CUMO00106", "CUNO00006"],
           "skin_image": "cache/butler/butler_skin_master/skin_1597832302.png"
         }
       ],
@@ -90,8 +90,8 @@
           "code": "cherry_merry",
           "name": "Merry",
           "skin_color": 0,
-          "outfit": ["CUON009CV", "CUSH003KY", "CUAH0087T", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
-          "lookalikes": ["CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
+          "outfit": ["CUON009CV", "CUSH003KY", "CUAH0087T", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
+          "lookalikes": ["CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
           "skin_image": "cache/butler/butler_skin_master/skin_1597832311.png"
         },
         {
@@ -99,8 +99,8 @@
           "code": "cherry_merry_silver_beret",
           "name": "Merry: Silver Beret",
           "skin_color": 0,
-          "outfit": ["CUON009F1", "CUSH003KY", "CUAH003VN", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
-          "lookalikes": ["CUON009F1", "CUSH003KY", "CUAH003VN", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
+          "outfit": ["CUON009F1", "CUSH003KY", "CUAH003VN", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
+          "lookalikes": ["CUON009F1", "CUSH003KY", "CUAH003VN", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
           "skin_image": "cache/butler/butler_skin_master/skin_1604557276.png",
           "price": 30,
           "note": "outfit: Cherry-picked look-alikes (2026-11-16, main agent by eye from the skin picture; the original skin outfit is not in any source): the one-piece and headwear chosen to resemble the picture, Merry's shoes, face, ears and body kept"
@@ -110,8 +110,8 @@
           "code": "cherry_merry_maid_bonnet",
           "name": "Merry: Maid Bonnet",
           "skin_color": 0,
-          "outfit": ["CAON006L7", "CUSH003KY", "CUAH0087T", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
-          "lookalikes": ["CAON006L7", "CUSH003KY", "CUAH0087T", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
+          "outfit": ["CAON006L7", "CUSH003KY", "CUAH0087T", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
+          "lookalikes": ["CAON006L7", "CUSH003KY", "CUAH0087T", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
           "skin_image": "cache/butler/butler_skin_master/skin_1609235872.png",
           "price": 30,
           "note": "outfit: Cherry-picked look-alikes (2026-11-16, main agent by eye from the skin picture; the original skin outfit is not in any source): the one-piece chosen to resemble the picture, Merry's shoes, face, ears and body kept"
@@ -121,8 +121,8 @@
           "code": "cherry_merry_chocolate_sundae",
           "name": "Merry: Chocolate Sundae",
           "skin_color": 0,
-          "outfit": ["CUON002BV", "CUSH003KY", "CUAH0053R", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
-          "lookalikes": ["CUON002BV", "CUSH003KY", "CUAH0053R", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
+          "outfit": ["CUON002BV", "CUSH003KY", "CUAH0053R", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
+          "lookalikes": ["CUON002BV", "CUSH003KY", "CUAH0053R", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
           "skin_image": "cache/butler/butler_skin_master/skin_1611033371.png",
           "price": 30,
           "note": "outfit: Cherry-picked look-alikes (2026-11-16, main agent by eye from the skin picture; the original skin outfit is not in any source): the one-piece and headwear chosen to resemble the picture, Merry's shoes, face, ears and body kept"
@@ -132,8 +132,8 @@
           "code": "cherry_merry_flower_crown",
           "name": "Merry: Flower Crown",
           "skin_color": 0,
-          "outfit": ["CUON005PM", "CUSH003KY", "CUAH004ZW", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
-          "lookalikes": ["CUON005PM", "CUSH003KY", "CUAH004ZW", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
+          "outfit": ["CUON005PM", "CUSH003KY", "CUAH004ZW", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
+          "lookalikes": ["CUON005PM", "CUSH003KY", "CUAH004ZW", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
           "skin_image": "cache/butler/butler_skin_master/skin_1614239936.png",
           "price": 30,
           "note": "outfit: Cherry-picked look-alikes (2026-11-16, main agent by eye from the skin picture; the original skin outfit is not in any source): the one-piece and headwear chosen to resemble the picture, Merry's shoes, face, ears and body kept"
@@ -143,8 +143,8 @@
           "code": "cherry_merry_jester",
           "name": "Merry: Jester",
           "skin_color": 0,
-          "outfit": ["CUON008RQ", "CUSH003KY", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
-          "lookalikes": ["CUON008RQ", "CUSH003KY", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
+          "outfit": ["CUON008RQ", "CUSH003KY", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
+          "lookalikes": ["CUON008RQ", "CUSH003KY", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
           "skin_image": "cache/butler/butler_skin_master/skin_1616737813.png",
           "price": 30,
           "note": "outfit: Cherry-picked look-alikes (2026-11-16, main agent by eye from the skin picture; the original skin outfit is not in any source): the one-piece chosen to resemble the picture, Merry's shoes, face, ears and body kept"
@@ -154,8 +154,8 @@
           "code": "cherry_merry_pink_gown",
           "name": "Merry: Pink Gown",
           "skin_color": 0,
-          "outfit": ["CUON008CN", "CUSH003KY", "CUAH0087T", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
-          "lookalikes": ["CUON008CN", "CUSH003KY", "CUAH0087T", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
+          "outfit": ["CUON008CN", "CUSH003KY", "CUAH0087T", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
+          "lookalikes": ["CUON008CN", "CUSH003KY", "CUAH0087T", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
           "skin_image": "cache/butler/butler_skin_master/skin_1620291045.png",
           "price": 30,
           "note": "outfit: Cherry-picked look-alikes (2026-11-16, main agent by eye from the skin picture; the original skin outfit is not in any source): the one-piece chosen to resemble the picture, Merry's shoes, face, ears and body kept"
@@ -165,8 +165,8 @@
           "code": "cherry_merry_rainy_day",
           "name": "Merry: Rainy Day",
           "skin_color": 0,
-          "outfit": ["CUON005P3", "CUSH003KY", "CAAH00736", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
-          "lookalikes": ["CUON005P3", "CUSH003KY", "CAAH00736", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
+          "outfit": ["CUON005P3", "CUSH003KY", "CAAH00736", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
+          "lookalikes": ["CUON005P3", "CUSH003KY", "CAAH00736", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
           "skin_image": "cache/butler/butler_skin_master/skin_1622453130.png",
           "price": 30,
           "note": "outfit: Cherry-picked look-alikes (2026-11-16, main agent by eye from the skin picture; the original skin outfit is not in any source): the one-piece and headwear chosen to resemble the picture, Merry's shoes, face, ears and body kept"
@@ -176,8 +176,8 @@
           "code": "cherry_merry_chick_hood",
           "name": "Merry: Chick Hood",
           "skin_color": 0,
-          "outfit": ["CAON007KR", "CUSH003KY", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
-          "lookalikes": ["CAON007KR", "CUSH003KY", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
+          "outfit": ["CAON007KR", "CUSH003KY", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
+          "lookalikes": ["CAON007KR", "CUSH003KY", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
           "skin_image": "cache/butler/butler_skin_master/skin_1624891808.png",
           "price": 30,
           "note": "outfit: Cherry-picked look-alikes (2026-11-16, main agent by eye from the skin picture; the original skin outfit is not in any source): the one-piece chosen to resemble the picture, Merry's shoes, face, ears and body kept"
@@ -187,8 +187,8 @@
           "code": "cherry_merry_skeleton_friend",
           "name": "Merry: Skeleton Friend",
           "skin_color": 0,
-          "outfit": ["CUON00981", "CUSH003KY", "CAAH00A18", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
-          "lookalikes": ["CUON00981", "CUSH003KY", "CAAH00A18", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
+          "outfit": ["CUON00981", "CUSH003KY", "CAAH00A18", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
+          "lookalikes": ["CUON00981", "CUSH003KY", "CAAH00A18", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
           "skin_image": "cache/butler/butler_skin_master/skin_1627827889.png",
           "price": 30,
           "note": "outfit: Cherry-picked look-alikes (2026-11-16, main agent by eye from the skin picture; the original skin outfit is not in any source): the one-piece and headwear chosen to resemble the picture, Merry's shoes, face, ears and body kept"
@@ -198,8 +198,8 @@
           "code": "cherry_merry_striped_bow",
           "name": "Merry: Striped Bow",
           "skin_color": 0,
-          "outfit": ["CUON008JM", "CUSH003KY", "CUAH004ZE", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
-          "lookalikes": ["CUON008JM", "CUSH003KY", "CUAH004ZE", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
+          "outfit": ["CUON008JM", "CUSH003KY", "CUAH004ZE", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
+          "lookalikes": ["CUON008JM", "CUSH003KY", "CUAH004ZE", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
           "skin_image": "cache/butler/butler_skin_master/skin_1630926111.png",
           "price": 30,
           "note": "outfit: Cherry-picked look-alikes (2026-11-16, main agent by eye from the skin picture; the original skin outfit is not in any source): the one-piece and headwear chosen to resemble the picture, Merry's shoes, face, ears and body kept"
@@ -209,8 +209,8 @@
           "code": "cherry_merry_bandaged",
           "name": "Merry: Bandaged",
           "skin_color": 0,
-          "outfit": ["CUON0063F", "CUSH003KY", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
-          "lookalikes": ["CUON0063F", "CUSH003KY", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
+          "outfit": ["CUON0063F", "CUSH003KY", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
+          "lookalikes": ["CUON0063F", "CUSH003KY", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
           "skin_image": "cache/butler/butler_skin_master/skin_1633349988.png",
           "price": 30,
           "note": "outfit: Cherry-picked look-alikes (2026-11-16, main agent by eye from the skin picture; the original skin outfit is not in any source): the one-piece chosen to resemble the picture, Merry's shoes, face, ears and body kept"
@@ -220,8 +220,8 @@
           "code": "cherry_merry_angel",
           "name": "Merry: Angel",
           "skin_color": 0,
-          "outfit": ["CUON008N7", "CUSH003KY", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
-          "lookalikes": ["CUON008N7", "CUSH003KY", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
+          "outfit": ["CUON008N7", "CUSH003KY", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
+          "lookalikes": ["CUON008N7", "CUSH003KY", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
           "skin_image": "cache/butler/butler_skin_master/skin_1636004318.png",
           "price": 30,
           "note": "outfit: Cherry-picked look-alikes (2026-11-16, main agent by eye from the skin picture; the original skin outfit is not in any source): the one-piece chosen to resemble the picture, Merry's shoes, face, ears and body kept"
@@ -231,8 +231,8 @@
           "code": "cherry_merry_pastel_crown",
           "name": "Merry: Pastel Crown",
           "skin_color": 0,
-          "outfit": ["CUON005Z4", "CUSH003KY", "CUAH002OX", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
-          "lookalikes": ["CUON005Z4", "CUSH003KY", "CUAH002OX", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
+          "outfit": ["CUON005Z4", "CUSH003KY", "CUAH002OX", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
+          "lookalikes": ["CUON005Z4", "CUSH003KY", "CUAH002OX", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
           "skin_image": "cache/butler/butler_skin_master/skin_1638800020.png",
           "price": 30,
           "note": "outfit: Cherry-picked look-alikes (2026-11-16, main agent by eye from the skin picture; the original skin outfit is not in any source): the one-piece and headwear chosen to resemble the picture, Merry's shoes, face, ears and body kept"
@@ -242,8 +242,8 @@
           "code": "cherry_merry_party_time",
           "name": "Merry: Party Time",
           "skin_color": 0,
-          "outfit": ["CUON007BD", "CUSH003KY", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
-          "lookalikes": ["CUON007BD", "CUSH003KY", "CAEY0001O", "CAMO0003W", "CANO0000B", "CAEA0004N", "CAFA0000T"],
+          "outfit": ["CUON007BD", "CUSH003KY", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
+          "lookalikes": ["CUON007BD", "CUSH003KY", "CAEY0005R", "CAMO0003W", "CANO0000B", "CAEA0001W", "CATL0000K", "CAFA0000T"],
           "skin_image": "cache/butler/butler_skin_master/skin_1656578272.png",
           "price": 30,
           "note": "outfit: Cherry-picked look-alikes (2026-11-16, main agent by eye from the skin picture; the original skin outfit is not in any source): the one-piece chosen to resemble the picture, Merry's shoes, face, ears and body kept"
@@ -291,8 +291,8 @@
           "code": "cherry_kai",
           "name": "Kai",
           "skin_color": 1,
-          "outfit": ["CUON009CT", "CUHA006LD", "CUSH003KU", "CUEY000LW", "CUEB0007D", "CUMO0011W", "CUNO00006", "CUAH005Z7"],
-          "lookalikes": ["CUEY000LW", "CUEB0007D", "CUMO0011W", "CUNO00006", "CUAH005Z7"]
+          "outfit": ["CUON009CT", "CUHA006LD", "CUSH003KU", "CUEY000Y6", "CUEB0007D", "CUMO0011W", "CUNO00006", "CUAH0077O"],
+          "lookalikes": ["CUEY000Y6", "CUEB0007D", "CUMO0011W", "CUNO00006", "CUAH0077O"]
         }
       ],
       "abilities": ["fish", "essence", "ore"],
@@ -316,8 +316,8 @@
           "code": "cherry_celina",
           "name": "Celina",
           "skin_color": 1,
-          "outfit": ["CUHA006L6", "CUSH003KX", "CUON008U1", "CUEY00186", "CUEB000D7", "CUMO0013O", "CUNO00016", "CUAH005L1"],
-          "lookalikes": ["CUON008U1", "CUEY00186", "CUEB000D7", "CUMO0013O", "CUNO00016", "CUAH005L1"]
+          "outfit": ["CUHA006L6", "CUSH003KX", "CUON008J8", "CUEY002O2", "CUEB000D7", "CUMO0013O", "CUNO00016", "CUAH005L1"],
+          "lookalikes": ["CUON008J8", "CUEY002O2", "CUEB000D7", "CUMO0013O", "CUNO00016", "CUAH005L1"]
         }
       ],
       "abilities": ["essence", "ore"],
@@ -341,8 +341,8 @@
           "code": "cherry_elena",
           "name": "Elena",
           "skin_color": 1,
-          "outfit": ["CUON009CS", "CUSH003KT", "CUHA006J0", "CUEY000XA", "CUEB000E7", "CUMO0000I", "CUNO00016", "CUAH000OC"],
-          "lookalikes": ["CUHA006J0", "CUEY000XA", "CUEB000E7", "CUMO0000I", "CUNO00016", "CUAH000OC"]
+          "outfit": ["CUON009CS", "CUSH003KT", "CUHA005WE", "CUEY002Q0", "CUEB000E7", "CUMO0000I", "CUNO00016", "CUAH007CQ"],
+          "lookalikes": ["CUHA005WE", "CUEY002Q0", "CUEB000E7", "CUMO0000I", "CUNO00016", "CUAH007CQ"]
         }
       ],
       "abilities": ["essence"],
@@ -366,8 +366,8 @@
           "code": "cherry_michel",
           "name": "Michel",
           "skin_color": 1,
-          "outfit": ["CUON009CU", "CUHA006LA", "CUSH003KW", "CUEY001EM", "CUEB000IU", "CUMO0008T", "CUNO00006"],
-          "lookalikes": ["CUEY001EM", "CUEB000IU", "CUMO0008T", "CUNO00006"]
+          "outfit": ["CUON009CU", "CUHA006LA", "CUSH003KW", "CUEY002PW", "CUEB000IU", "CUMO0008T", "CUNO00006"],
+          "lookalikes": ["CUEY002PW", "CUEB000IU", "CUMO0008T", "CUNO00006"]
         }
       ],
       "abilities": ["fish"],
