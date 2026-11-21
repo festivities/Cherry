@@ -60,6 +60,8 @@ The server on the user's Oracle host was deployed to **`4fd87ec`** (schema v10),
 - Never commit private production values (hostnames, ports, IPs, Discord IDs, bucket names, secrets).
 - Never run `git commit -a` when workers have edits; always stage explicit paths and run the full gate before pushing.
 
+**HANDOFF ACCEPTED — 2026-11-21 (Claude Code, Cherry session):** context loaded (AGENTS, CONTRACT, DATASET, this block). Rechecked: `git status` clean on `main` at `2ae7b69`; `gh run list --limit 3` all green (newest 44910238344 = the handoff commit); `.opencode/line-play-artifacts` intact (8 entries, ignored at `.gitignore:35`); no `README.md` existed. Production not checked (the README task does not need it; nothing on the host was read or touched). No state corrections. **README task done the same evening:** `README.md` written (features, protocols, build and gate, sandbox / lab / public run, configuration, assets, client, operator data, operations, layout, known gaps, legal; AGPL-3.0 noted). The config keys and flags in its examples were checked against `internal/config` settings; the sandbox commands were run on a scratch build (`/healthz` ok, `/cherry/v1/info`, staff `?as=owner` 302) and the instance was stopped; scanned for private production values (none). Open for the user: GitHub private vulnerability reporting is off on the repo, so the README asks for a private contact through an issue.
+
 ## Status (2026-11-21)
 
 | Milestone | Scope | Status |
