@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"math/rand/v2"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -93,7 +94,9 @@ var circleInterestCodes = []int64{
 //	origin, note  mixed: the ids and the product are Cherry-made, the pictures are the client's (opdata.Provenance)
 //	product       code (the create request must send it), name, price_gems (Gems; paymentType GEM), max_members
 //	room          the circle room's map, size and spawn (the original room, see note)
-//	logos         symbols a circle may use: id in the logo block, art = a file in UIResource/UIImage_hd (read from the store)
+//	logos         symbols a circle may use: id in the logo block, art = the picture's path in the device files tree
+//	              (UIResource/UIImage_hd/<name>.png or cache/circle_symbol_image/<name>.png), read from the store; Cherry
+//	              serves it under its file name, which the client caches by that name
 //	backgrounds   backgrounds a circle may use: the same rules
 //	points        season length, triggers, the daily cap and the point steps (circle_points.go)
 //	missions      the mission chain: one mission at a time per member and season (circle_points.go)
@@ -188,7 +191,7 @@ type CircleTile struct {
 	Y uint64 `json:"y"`
 }
 
-// CircleArt is one logo or background choice.
+// CircleArt is one logo or background choice: Art is the picture's path in the device files tree.
 type CircleArt struct {
 	ID  int64  `json:"id"`
 	Art string `json:"art"`
@@ -196,8 +199,12 @@ type CircleArt struct {
 
 var circleFile = opdata.New("circle.json", data.CircleJSON, checkCircleData, verifyCircleData)
 
-// circleArtFS is the original UI art tree (UIResource/UIImage_hd) read from the store. The logo pictures are originals.
-var circleArtFS fs.FS = assets.DeviceFiles("UIResource/UIImage_hd")
+// circleArtFS is the original picture tree (the device files/ tree) read from the store. The pictures are originals: the
+// client's default pair (UIResource/UIImage_hd) and the symbols and backgrounds of the robo iOS cache (cache/circle_symbol_image/).
+var circleArtFS fs.FS = assets.DeviceFiles("")
+
+// circleArtDirs are the folders a logo or background picture may come from (CircleArt.Art).
+var circleArtDirs = []string{"UIResource/UIImage_hd/", "cache/circle_symbol_image/"}
 
 // ActiveCircleData is data/circle.json in use.
 func ActiveCircleData() *CircleData { return circleFile.Get() }
@@ -222,8 +229,18 @@ func checkCircleBook(b *store.CircleBook) error {
 	return nil
 }
 
+// circleArtOK reports whether art is a .png file name directly under one of circleArtDirs (no folder below it).
+func circleArtOK(art string) bool {
+	for _, dir := range circleArtDirs {
+		if name, ok := strings.CutPrefix(art, dir); ok {
+			return !strings.ContainsAny(name, `/\`) && strings.HasSuffix(name, ".png")
+		}
+	}
+	return false
+}
+
 // checkCircleData validates the structure at startup: the origin and note, the product, the member cap, and the logo
-// and background lists (ids in the block, unique, one picture file each).
+// and background lists (ids in the block, unique, one picture file each, the file names unique).
 func checkCircleData(c *CircleData) error {
 	if err := c.CheckOrigin(opdata.OriginMixed); err != nil {
 		return err
@@ -248,6 +265,7 @@ func checkCircleData(c *CircleData) error {
 		return errors.New("logos and backgrounds must each list at least one picture")
 	}
 	seen := map[int64]bool{}
+	names := map[string]bool{} // the client caches a picture by its file name, so one name serves one picture
 	for _, list := range []struct {
 		name string
 		arts []CircleArt
@@ -259,10 +277,13 @@ func checkCircleData(c *CircleData) error {
 				return fmt.Errorf("%s: id must be inside the Cherry block %d-%d", where, CherryCircleArtFirst, CherryCircleArtLast)
 			case seen[a.ID]:
 				return fmt.Errorf("%s: id must be unique", where)
-			case a.Art == "" || strings.ContainsAny(a.Art, `/\`) || !strings.HasSuffix(a.Art, ".png"):
-				return fmt.Errorf("%s: art must be a .png file name", where)
+			case !circleArtOK(a.Art):
+				return fmt.Errorf("%s: art must be a .png file under %s", where, strings.Join(circleArtDirs, " or "))
+			case names[path.Base(a.Art)]:
+				return fmt.Errorf("%s: picture %s is listed twice", where, path.Base(a.Art))
 			}
 			seen[a.ID] = true
+			names[path.Base(a.Art)] = true
 		}
 	}
 	return checkCircleRules(c)

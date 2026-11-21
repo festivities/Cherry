@@ -1,6 +1,6 @@
 {
-  "origin": "cherry",
-  "note": "Cherry-made Colorant (dye) catalog: the dye names, prices (Gems), colours, the random draw, the custom palette and the shop picture set are Cherry's own, not original game data. The dyeable garments are the 15 client items whose artsitem carries the dye flag and a <part>_mask.png (spec colorant-spec.md 16.B); dyeable may only list a subset of them. Dye item numbers lie in the Cherry block 9501-9599 (economy.CherryDyeFirst/Last). Pictures are served by Cherry at /cherry/dye/<itemNo>.png. The Bleach (9511) is Cherry-made too: it takes a garment's dye away (bleach true, kind SINGLE, colour white = no tint); its price is Cherry's.",
+  "origin": "mixed",
+  "note": "Colorant (dye) catalog, mixed (2026-11-21). ORIGINAL: each dye's tube picture, the file named by its tube field, read from the robo iOS cache (cache/dye/, R2 static/cache/dye/, served by Cherry at /cherry/dye/<itemNo>.png); the dyeable garments are the client's own flagged list (dyeFlagged in dye.go; Cherry may only narrow it). CHERRY-MADE: the dye item numbers 9501-9511 (economy.CherryDyeFirst/Last; not the original numbers, and stored player items are never renumbered), the names, kinds, prices, colours, the RANDOM odds, the CUSTOM palette and the bleach. Tube choice, by eye from the contact sheet of the original tubes, with confidence: 9501 Red #E53935 dye_56_1 (high); 9502 Orange #FB8C00 dye_71_1 (high); 9503 Yellow #FDD835 dye_80_1 (medium-high); 9504 Green #43A047 dye_81_1 (low: no green tube exists, dye_81 is the mint one); 9505 Blue #1E88E5 dye_14_1 (high; it carries the '12' badge of the family); 9506 Purple #8E24AA dye_50_1 (medium: a magenta-purple); 9507 Pink #EC407A dye_68_1 (high); 9508 Black #212121 dye_82_1 (high); 9509 Random dye_17_1 (medium: the rainbow tube of the '12' family); 9510 Custom dye_65_1-1 (high: the palette); 9511 Bleach dye_83_1 (medium-low: the palest tube, no clear one). Pictures are served by Cherry; a dye without a tube is drawn in its colours. Dye numbers lie in the Cherry block 9501-9599.",
   "dyeable": [
     224102309, 224102378, 224102536, 224102579, 224102653, 224102775, 224102816, 224102858, 224102932, 224103060,
     224406975, 224407224,
@@ -11,19 +11,19 @@
     "#FFFFFF", "#8D6E63", "#00ACC1", "#7CB342", "#3949AB", "#F48FB1", "#FFB74D", "#90A4AE"
   ],
   "dyes": [
-    {"item_no": 9501, "name": "Red Dye", "kind": "SINGLE", "price": 100, "colors": [{"color": "#E53935", "prob": 1}]},
-    {"item_no": 9502, "name": "Orange Dye", "kind": "SINGLE", "price": 100, "colors": [{"color": "#FB8C00", "prob": 1}]},
-    {"item_no": 9503, "name": "Yellow Dye", "kind": "SINGLE", "price": 100, "colors": [{"color": "#FDD835", "prob": 1}]},
-    {"item_no": 9504, "name": "Green Dye", "kind": "SINGLE", "price": 100, "colors": [{"color": "#43A047", "prob": 1}]},
-    {"item_no": 9505, "name": "Blue Dye", "kind": "SINGLE", "price": 100, "colors": [{"color": "#1E88E5", "prob": 1}]},
-    {"item_no": 9506, "name": "Purple Dye", "kind": "SINGLE", "price": 100, "colors": [{"color": "#8E24AA", "prob": 1}]},
-    {"item_no": 9507, "name": "Pink Dye", "kind": "SINGLE", "price": 100, "colors": [{"color": "#EC407A", "prob": 1}]},
-    {"item_no": 9508, "name": "Black Dye", "kind": "SINGLE", "price": 100, "colors": [{"color": "#212121", "prob": 1}]},
-    {"item_no": 9509, "name": "Random Dye", "kind": "RANDOM", "price": 60, "colors": [
+    {"item_no": 9501, "name": "Red Dye", "kind": "SINGLE", "price": 100, "tube": "dye_56_1.png", "colors": [{"color": "#E53935", "prob": 1}]},
+    {"item_no": 9502, "name": "Orange Dye", "kind": "SINGLE", "price": 100, "tube": "dye_71_1.png", "colors": [{"color": "#FB8C00", "prob": 1}]},
+    {"item_no": 9503, "name": "Yellow Dye", "kind": "SINGLE", "price": 100, "tube": "dye_80_1.png", "colors": [{"color": "#FDD835", "prob": 1}]},
+    {"item_no": 9504, "name": "Green Dye", "kind": "SINGLE", "price": 100, "tube": "dye_81_1.png", "colors": [{"color": "#43A047", "prob": 1}]},
+    {"item_no": 9505, "name": "Blue Dye", "kind": "SINGLE", "price": 100, "tube": "dye_14_1.png", "colors": [{"color": "#1E88E5", "prob": 1}]},
+    {"item_no": 9506, "name": "Purple Dye", "kind": "SINGLE", "price": 100, "tube": "dye_50_1.png", "colors": [{"color": "#8E24AA", "prob": 1}]},
+    {"item_no": 9507, "name": "Pink Dye", "kind": "SINGLE", "price": 100, "tube": "dye_68_1.png", "colors": [{"color": "#EC407A", "prob": 1}]},
+    {"item_no": 9508, "name": "Black Dye", "kind": "SINGLE", "price": 100, "tube": "dye_82_1.png", "colors": [{"color": "#212121", "prob": 1}]},
+    {"item_no": 9509, "name": "Random Dye", "kind": "RANDOM", "price": 60, "tube": "dye_17_1.png", "colors": [
       {"color": "#E53935", "prob": 0.125}, {"color": "#FB8C00", "prob": 0.125}, {"color": "#FDD835", "prob": 0.125},
       {"color": "#43A047", "prob": 0.125}, {"color": "#1E88E5", "prob": 0.125}, {"color": "#8E24AA", "prob": 0.125},
       {"color": "#EC407A", "prob": 0.125}, {"color": "#212121", "prob": 0.125}]},
-    {"item_no": 9510, "name": "Custom Dye", "kind": "CUSTOM", "price": 200, "colors": []},
-    {"item_no": 9511, "name": "Bleach", "kind": "SINGLE", "price": 60, "bleach": true, "colors": [{"color": "#FFFFFF", "prob": 1}]}
+    {"item_no": 9510, "name": "Custom Dye", "kind": "CUSTOM", "price": 200, "tube": "dye_65_1-1.png", "colors": []},
+    {"item_no": 9511, "name": "Bleach", "kind": "SINGLE", "price": 60, "bleach": true, "tube": "dye_83_1.png", "colors": [{"color": "#FFFFFF", "prob": 1}]}
   ]
 }

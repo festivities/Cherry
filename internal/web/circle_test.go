@@ -141,7 +141,7 @@ func TestCircleCreateFlowOverHTTP(t *testing.T) {
 		var env struct {
 			Result []map[string]any `json:"result"` // the parser indexes an array (CircleImageInfoParser)
 		}
-		if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil || len(env.Result) != 1 {
+		if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil || len(env.Result) != map[string]int{"sb": 24, "bg": 19}[list] {
 			t.Fatalf("%s list: %v %s", list, err, rec.Body.String())
 		}
 		if row := env.Result[0]; row["logoId"] != wantID[list] || row["logoImagePath"] != "cherry/circle/"+map[string]string{"sb": "circle_logo_sd_dp.png", "bg": "circle_logo_bg_dp.png"}[list] {
@@ -188,11 +188,15 @@ func gemsFor(t *testing.T, aid string) int64 {
 // TestCircleArtServesOnlyTheListedPictures: the two original logo pictures are served as PNG; any other name is not.
 func TestCircleArtServesOnlyTheListedPictures(t *testing.T) {
 	testutil.RequireArchive(t)
-	for _, name := range []string{"circle_logo_sd_dp.png", "circle_logo_bg_dp.png"} {
+	for _, name := range []string{"circle_logo_sd_dp.png", "circle_logo_bg_dp.png", "circle_logo_sb_36.png", "circle_logo_bg_18.png"} {
 		rec := circleCall(t, http.MethodGet, "/cherry/circle/"+name, "", "")
 		if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" || !strings.HasPrefix(rec.Body.String(), "\x89PNG") {
 			t.Fatalf("%s: status %d type %q", name, rec.Code, rec.Header().Get("Content-Type"))
 		}
+	}
+	// a client render (symbol on background) is not offered, so it is not served either
+	if rec := circleCall(t, http.MethodGet, "/cherry/circle/circle_logo_sb_36_bg_18.png", "", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("client render: status %d, want 404", rec.Code)
 	}
 	if rec := circleCall(t, http.MethodGet, "/cherry/circle/circle_btn_dummy.png", "", ""); rec.Code != http.StatusNotFound {
 		t.Fatalf("unlisted name: status %d, want 404", rec.Code)

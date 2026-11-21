@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"path"
 	"slices"
 	"strconv"
 	"strings"
@@ -589,17 +590,21 @@ func circleCreatedView(c store.Circle) circleCreatedJSON {
 func circleLogoView(list []CircleArt) []circleLogoJSON {
 	out := []circleLogoJSON{}
 	for _, a := range list {
-		path := "cherry/circle/" + a.Art
-		out = append(out, circleLogoJSON{LogoID: a.ID, LogoImagePath: path, LogoDpImagePath: path})
+		p := circleArtURL(a.Art)
+		out = append(out, circleLogoJSON{LogoID: a.ID, LogoImagePath: p, LogoDpImagePath: p})
 	}
 	return out
 }
+
+// circleArtURL is the relative path of a picture: the client prefixes its static base, and the file name is the name it caches
+// the picture by (the client looks a symbol up by that name when it draws a logo).
+func circleArtURL(art string) string { return "cherry/circle/" + path.Base(art) }
 
 // circleArtPath is the relative path of the picture of art id in list ("" for an unknown id).
 func circleArtPath(list []CircleArt, id int64) string {
 	for _, a := range list {
 		if a.ID == id {
-			return "cherry/circle/" + a.Art
+			return circleArtURL(a.Art)
 		}
 	}
 	return ""
@@ -1001,15 +1006,16 @@ func circleRewardView(viewer string, b *store.CircleBook, season, seq int64, gac
 	return out
 }
 
-// HandleCircleArt serves GET /cherry/circle/<file>: the logo and background pictures the circle data names, read in
-// place from the archive. Any other name is not found.
+// HandleCircleArt serves GET /cherry/circle/<file>: the logo and background pictures the circle data names, read from the
+// store. Any other name is not found.
 func HandleCircleArt(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, "/cherry/circle/")
-	if r.Method != http.MethodGet || !circleArtListed(name) {
+	art, ok := circleArtNamed(name)
+	if r.Method != http.MethodGet || !ok {
 		http.NotFound(w, r)
 		return
 	}
-	b, err := fs.ReadFile(circleArtFS, name)
+	b, err := fs.ReadFile(circleArtFS, art)
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -1018,11 +1024,17 @@ func HandleCircleArt(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(b)
 }
 
-// circleArtListed reports whether name is a picture the circle data offers.
-func circleArtListed(name string) bool {
+// circleArtNamed returns the picture the circle data offers under the file name name (its path in the device files tree).
+func circleArtNamed(name string) (string, bool) {
 	d := ActiveCircleData()
-	return slices.ContainsFunc(d.Logos, func(a CircleArt) bool { return a.Art == name }) ||
-		slices.ContainsFunc(d.Backgrounds, func(a CircleArt) bool { return a.Art == name })
+	for _, list := range [][]CircleArt{d.Logos, d.Backgrounds} {
+		for _, a := range list {
+			if path.Base(a.Art) == name {
+				return a.Art, true
+			}
+		}
+	}
+	return "", false
 }
 
 // circleInviteStatusRequest is the body of POST circle/invite/target/status (builder 0x1bcea18): the circle id and the

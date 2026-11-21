@@ -422,7 +422,7 @@ func TestDyeApplyRefusals(t *testing.T) {
 }
 
 // TestDyeMaskIsAPictureForDyeableGarments: a dyeable garment the archive has no mask for gets a composed dp_mask.png (the
-// dye cell's picture: 224102378, 224407224, 225409234). The archive's original mask (224102309) is served as is when no
+// dye cell's picture: the robo originals 224102378, 224407224, 225409234, and the composed 224102536). The archive's original mask (224102309) is served as is when no
 // stream answered it; a garment that is not dyeable, another kind or another file keeps its 404. Needs the device
 // archive; the cache is a temp dir.
 func TestDyeMaskIsAPictureForDyeableGarments(t *testing.T) {
@@ -432,7 +432,7 @@ func TestDyeMaskIsAPictureForDyeableGarments(t *testing.T) {
 	oldCache := thumbs.DpCacheDir
 	thumbs.DpCacheDir = t.TempDir()
 	t.Cleanup(func() { thumbs.DpCacheDir = oldCache })
-	for _, path := range []string{"/arts_item_custom_224102378/dp_mask.png", "/arts_item_custom_224407224/dp_mask.png",
+	for _, path := range []string{"/arts_item_custom_224102378/dp_mask.png", "/arts_item_custom_224407224/dp_mask.png", "/arts_item_custom_224102536/dp_mask.png",
 		"/img/read/arts_item_dress_225409234/dp_mask.png"} {
 		rec := decorReq(t, "", http.MethodGet, path, "")
 		if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" {
@@ -456,12 +456,15 @@ func TestDyeMaskIsAPictureForDyeableGarments(t *testing.T) {
 
 // TestDyeImageIsAPicture: /cherry/dye/<itemNo>.png is a PNG; an unknown dye is 404.
 func TestDyeImageIsAPicture(t *testing.T) {
-	rec := decorReq(t, "", http.MethodGet, "/cherry/dye/9501.png", "")
-	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" {
-		t.Fatalf("status %d type %q", rec.Code, rec.Header().Get("Content-Type"))
-	}
-	if _, err := png.Decode(rec.Body); err != nil {
-		t.Fatal(err)
+	testutil.RequireArchive(t)
+	for _, path := range []string{"/cherry/dye/9501.png", "/cherry/dye/9511.png"} {
+		rec := decorReq(t, "", http.MethodGet, path, "")
+		if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" {
+			t.Fatalf("%s: status %d type %q", path, rec.Code, rec.Header().Get("Content-Type"))
+		}
+		if _, err := png.Decode(rec.Body); err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
 	}
 	if rec := decorReq(t, "", http.MethodGet, "/cherry/dye/9599.png", ""); rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown dye status %d", rec.Code)
@@ -667,8 +670,10 @@ func TestBleachIsAOneColourDyeInTheLists(t *testing.T) {
 		!strings.Contains(body, `"count":2`) || !strings.Contains(body, `"bleach":true`) {
 		t.Fatalf("inventory = %s", inven.Body.String())
 	}
-	if rec := decorReq(t, "", http.MethodGet, "/cherry/dye/9511.png", ""); rec.Code != http.StatusOK {
-		t.Fatalf("bleach picture: status %d", rec.Code)
+	if testutil.ArchiveFound() {
+		if rec := decorReq(t, "", http.MethodGet, "/cherry/dye/9511.png", ""); rec.Code != http.StatusOK {
+			t.Fatalf("bleach picture: status %d", rec.Code)
+		}
 	}
 }
 

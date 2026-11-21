@@ -1,11 +1,14 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -19,16 +22,41 @@ import (
 const originalAssetsRoot = `D:\Dev\projects\Cherry\.opencode\line-play-artifacts\lineplay-original-assets`
 
 // origSource is one listed folder: the files under base\top\tree (tree "" is the whole top folder), or one file of top
-// (file, a path under top).
+// (file, a path under top). device marks a device backup's folder (cacheSources): it may lack the folder, and its
+// half-downloaded files are skipped (partialFile). The APK originals keep every file (an empty .avc is one of them).
 type origSource struct {
-	top  string
-	base string
-	tree string
-	file string
+	top    string
+	base   string
+	tree   string
+	file   string
+	device bool
 }
 
+// cacheTrees are the cache folders whose originals Cherry serves: the dye tubes (economy/dye.go), the circle symbol and
+// background pictures (economy/circle.go), the fishing and lucky spin art (the next features). Every archive root that
+// holds one lists it.
+var cacheTrees = []string{"dye", "circle_symbol_image", "fishing", "luckyspin"}
+
+// cacheSources lists cacheTrees from every archive root, in the root order: a root without the folder adds nothing, and
+// origObjects keeps the first root's file for each key (the later roots fill gaps, as for the items).
+func cacheSources() []origSource {
+	var out []origSource
+	for _, root := range archiveRoots {
+		for _, tree := range cacheTrees {
+			out = append(out, origSource{top: "cache", base: root, tree: tree, device: true})
+		}
+	}
+	return out
+}
+
+// deviceRender names the circle symbol-on-background pictures (circle_logo_sb_<N>_bg_<M>.png). The client draws them itself
+// (NaCircleSymbolMgr::CreateCircleImageRenderTexture_ composes the symbol over the background and saves the result into the
+// same cache folder), so they are not originals and are never uploaded: Cherry serves the two pictures and the client
+// makes the rest.
+var deviceRender = regexp.MustCompile(`^circle_logo_sb_\d+_bg_\d+\.png$`)
+
 // origSources are the only such originals uploaded. The key folder of each is its top name.
-var origSources = []origSource{
+var origSources = append([]origSource{
 	{top: "android-10.1.0.0-2024", base: originalAssetsRoot, tree: "avatar_data"},
 	{top: "android-4.0.0.0-2016", base: originalAssetsRoot, file: "animation/fish/fish_ani_0001.png"},
 	{top: "DailyBonus", base: extraDataset},
@@ -45,7 +73,7 @@ var origSources = []origSource{
 	{top: "cache", base: roboDataset, tree: "butler/butler_voice_master"},
 	// Butler memory pictures (butlers.json memories, economy memoryPicture): the robo iOS cache's memory art, served at /cherry/butler/memory/<file>.png.
 	{top: "cache", base: roboDataset, tree: "butler/butler_memory_master"},
-}
+}, cacheSources()...)
 
 // origRoot is the folder a source's files are under.
 func origRoot(src origSource) string {
@@ -67,9 +95,11 @@ func cherryMadeName(rel string) bool {
 }
 
 // origObjects lists the origin originals of origSources, sorted by key. object.source is the top folder and object.rel the
-// path under it, so the plan group is the source's own.
+// path under it, so the plan group is the source's own. A key listed by an earlier source wins; a half-downloaded file
+// (partialFile) and a device render (deviceRender) are not listed.
 func origObjects() ([]*object, error) {
 	var objs []*object
+	seen := map[string]bool{}
 	for _, src := range origSources {
 		if src.file != "" {
 			p := filepath.Join(src.base, src.top, filepath.FromSlash(src.file))
@@ -81,6 +111,9 @@ func origObjects() ([]*object, error) {
 			continue
 		}
 		root := origRoot(src)
+		if _, err := os.Stat(root); src.device && errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
 		err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
@@ -92,8 +125,16 @@ func origObjects() ([]*object, error) {
 			if err != nil {
 				return err
 			}
+			if (src.device && partialFile(d.Name(), info.Size())) || deviceRender.MatchString(d.Name()) {
+				return nil
+			}
 			rel := joinRel(src.tree, filepath.ToSlash(mustRel(root, p)))
-			objs = append(objs, &object{key: "static/" + src.top + "/" + rel, path: p, size: info.Size(), source: src.top, rel: rel})
+			key := "static/" + src.top + "/" + rel
+			if seen[key] {
+				return nil
+			}
+			seen[key] = true
+			objs = append(objs, &object{key: key, path: p, size: info.Size(), source: src.top, rel: rel})
 			return nil
 		})
 		if err != nil {
@@ -150,11 +191,14 @@ func onlySource(objs []*object, source string) []*object {
 	return out
 }
 
-// origMounts maps each origin key folder to its local folder, for the tool's own reads (convert renders the avatar rigs).
+// origMounts maps each origin key folder to its local folders, for the tool's own reads (convert renders the avatar rigs).
 func origMounts() map[string][]string {
 	m := map[string][]string{}
 	for _, src := range origSources {
-		m["static/"+src.top+"/"] = []string{filepath.Join(src.base, src.top)}
+		key, folder := "static/"+src.top+"/", filepath.Join(src.base, src.top)
+		if !slices.Contains(m[key], folder) {
+			m[key] = append(m[key], folder)
+		}
 	}
 	return m
 }

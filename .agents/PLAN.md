@@ -42,6 +42,14 @@ Earlier handoffs are in HISTORY.md: the LAST section is the INITIATED block of 2
 - `deleted-accounts.jsonl` on the host is renamed `.imported` at the first start of the new build; never delete it.
 - Uploads are outward-facing; the robo `cache/` folders are not in R2 yet, so serving their pictures before the upload gives grey/missing art.
 
+### HANDOFF ACCEPTED — 2026-11-21 ~18:59 host time (Antigravity, Cherry session)
+
+Context loaded (`AGENTS.md`, `PLAN.md`, `CONTRACT.md`, Raspberry `CONTRACT.md` §4 and `PLAN.md` read-only, host `/home/cherry/AGENTS.md` read-only). State rechecked with no discrepancies:
+- Git: clean on `main` at `5036e6b`; `wip/robo-art-20261121` present; last 3 GitHub Actions gate runs green.
+- Production (read-only): running `f8180ef`, `/healthz` = `ok`, `cherry` and `litestream` both `active`, `auth.signup` = `allowlist`.
+- Local: no `cherry` process running; `emulator-5559` = AVD `Raspberry`; `.opencode/line-play-artifacts` has all 8 entries and is git-ignored at `.gitignore:35`.
+- Waiting on the user's word for deploy, R2 asset upload, or opening sign-up, and for direction on next task (e.g., reviewing `wip/robo-art-20261121` / robo originals, fishing rebuild, or deploying `main`).
+
 ## Status (2026-11-21)
 
 | Milestone | Scope | Status |
@@ -171,6 +179,7 @@ Only M0–M4 are numbered. Later work is tracked as features:
 | Avatar birthday reward: Garden entry (`home/integrated/info` `birthday_home`), receive list `birthday/info/year`, claim `birthday/reward/year/<turn>` → Gem gacha discount (list prices, discounted charge, duplicate refunds cut by the same percent); `birthday/info/day` and `birthday/home` answered; Cherry-made values `rewards.json` `birthday` (claim 7 days, 30 %, 7 days) | Unit-tested only (no anniversary on production before 2027-11-15); NOT deployed | `32c007e` |
 | Robo donation survey #2 (user 2026-11-21: "anything we aren't using yet", incl. replacing Cherry-made art) | Read-only, done; report = the worker's hand-back summarised here, evidence `%TEMP%\opencode\cherry\robo-survey-20261121\` (tables, `sheets\*.png`, e.g. `menu_pairs.png`; `dbs\` holds personal copies: delete after review). Unused originals, almost all in robo `cache/` (never uploaded: not an uploader bulk category): 44 menu icons (5 high, 13 medium confidence by sight; no file binds icon to row), 80 colour fish, 307 season popup pictures with original numbers, 16 Lucky/Jackpot Spin sets, 83 Circle logos/backgrounds, 9 more dye masks (13 of 15), 36 dye tubes, 8 fishing gear pictures, a full 25-day May 2023 calendar, ~1,650 gacha banners, 11 Garden event icons, store/brand covers, Story Gacha/Fashionista/lotto art; santi `cache/actionsticker` has 104 chat stickers. Code comments that say "no original" are now wrong: `economy/popup.go`, `gacha.go`, `fishing_shop.go`, `thumbs/dpmask.go`. **Waiting on the user: which to build** (each needs an R2 upload go) | — |
 | Avatar move to another Discord id and restore of a deleted avatar (owner only, fresh login, review → typed confirm, audited; schema v10 `restored_at`/`restored_account`); **Delete Avatar in identity modes now makes a new player** (user 2026-11-21: welcome gift, butler free hire, boss book granted again; identity and ban kept) | Unit-tested; NOT deployed | `2290d9e` |
+| Robo originals, part 3: uploader `cache/{dye,circle_symbol_image,fishing,luckyspin}`, original dye tubes (`data/dyes.json` `tube`), original dye masks (13 of 15; only 224102536 and 235411996 composed), Circle 24 symbols + 19 backgrounds (`data/circle.json`, client renders excluded) | Reviewed from `wip/robo-art-20261121`, `NO_ARCHIVE` test guards added in `internal/web/dye_test.go`, full gate green; R2 `upload -only cache` (+241 objects) and deploy pending user go | merged on `main` |
 
 Older commit-by-commit evidence (M3 entry errors, keepalives, preload fixtures) is summarized in AGENTS "Architecture" and detailed in HISTORY.md.
 

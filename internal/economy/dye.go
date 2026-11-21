@@ -8,6 +8,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"io/fs"
 	"maps"
 	"math"
 	"math/rand/v2"
@@ -17,6 +18,7 @@ import (
 	"strings"
 
 	"cherry/data"
+	"cherry/internal/assets"
 	"cherry/internal/httpx"
 	"cherry/internal/itemcode"
 	"cherry/internal/opdata"
@@ -27,10 +29,13 @@ import (
 // Colorant (dye): the Dye Shop (home menu goSomewhere(colorantShop)) sells dye items for Gems, the Dye Inventory
 // (goSomewhere(colorantInven)) lists the dyes an account owns, and applying a dye recolours the two tone layers of one
 // owned garment (spec menu-audit-20261028/colorant-spec.md: sections 3, 5, 6, 7 and 11). Which garments can be dyed is
-// the client's (dyeFlagged); the dye items, prices, colours and palette are Cherry-made (data/dyes.json).
+// the client's (dyeFlagged); the dye items, prices, colours and palette are Cherry-made (data/dyes.json), and each dye's
+// tube picture is an original file of the robo iOS cache.
 
-// CherryDyeFirst and CherryDyeLast bound the dye item numbers Cherry makes (data/dyes.json). No original dye item
-// number is in the archives, and the block is clear of the other Cherry blocks.
+// CherryDyeFirst and CherryDyeLast bound the dye item numbers Cherry makes (data/dyes.json). The original game numbers its
+// tube pictures dye_<n>_<k>.png (13 to 91 in the robo cache); the client takes the picture path from the server's reply, so
+// Cherry's own numbers are unrelated, and a dye's tube is mapped by file name (DyeItem.Tube), never renumbered: player
+// data stores the item numbers. The block is clear of the other Cherry blocks.
 const (
 	CherryDyeFirst int64 = 9501
 	CherryDyeLast  int64 = 9599
@@ -54,14 +59,15 @@ const dyeSaleEnd = "20991231235959"
 
 // DyeCatalog is data/dyes.json. Strict JSON: unknown keys are an error.
 //
-//	origin, note  Cherry-made (opdata.Provenance)
+//	origin, note  mixed (opdata.Provenance): the tube pictures are original, the rest is Cherry-made; the note says which
 //	dyeable       numeric item ids of the garments that can be dyed; each must be one of the 15 flagged garments
 //	              (dyeFlagged), so an operator can only narrow the list (itemcode decodes each id to its item code)
 //	palette       "#RRGGBB" colours that shop/dye/preview serves and the CUSTOM dye picture is drawn in
 //	dyes          the catalog: item_no inside 9501-9599 and unique; name; kind SINGLE, RANDOM or CUSTOM; price in Gems
 //	              (above 0); colors: SINGLE one colour, RANDOM two or more colours drawn by prob (each above 0, summing
 //	              to 1), CUSTOM none (the player picks any #RRGGBB colour when applying); bleach (optional): applying
-//	              it removes the garment's dye instead of recolouring it, so it must be kind SINGLE
+//	              it removes the garment's dye instead of recolouring it, so it must be kind SINGLE; tube (optional): the
+//	              original tube picture file name in cache/dye/ that the dye's picture is (a dye without one is drawn)
 type DyeCatalog struct {
 	opdata.Provenance
 	Dyeable []int64   `json:"dyeable"`
@@ -76,6 +82,7 @@ type DyeItem struct {
 	Kind   string        `json:"kind"`
 	Price  int64         `json:"price"`
 	Bleach bool          `json:"bleach"`
+	Tube   string        `json:"tube"`
 	Colors []DyeColorDef `json:"colors"`
 }
 
@@ -85,15 +92,34 @@ type DyeColorDef struct {
 	Prob  float64 `json:"prob"`
 }
 
-var dyesFile = opdata.New("dyes.json", data.DyesJSON, checkDyes, nil)
+var dyesFile = opdata.New("dyes.json", data.DyesJSON, checkDyes, verifyDyes)
+
+// dyeTubeFS is the original tube pictures (the device's cache/dye/, R2 static/cache/dye/) read from the store.
+var dyeTubeFS fs.FS = assets.DeviceFiles("cache/dye")
 
 // ActiveDyes is the dye catalog in use.
 func ActiveDyes() *DyeCatalog { return dyesFile.Get() }
 
+// verifyDyes runs at load (not for the embedded default alone): every tube picture a dye names must be in the archive.
+func verifyDyes(d *DyeCatalog) error {
+	if !artVerifiable() {
+		return nil
+	}
+	for _, it := range d.Dyes {
+		if it.Tube == "" {
+			continue
+		}
+		if _, err := fs.Stat(dyeTubeFS, it.Tube); err != nil {
+			return fmt.Errorf("dye %d: tube %s is not in the archive", it.ItemNo, it.Tube)
+		}
+	}
+	return nil
+}
+
 // checkDyes validates the structure at startup: the origin and note, the dyeable ids (each decodes to an item code
 // and is one of the flagged garments), the palette and every dye.
 func checkDyes(d *DyeCatalog) error {
-	if err := d.CheckOrigin("cherry"); err != nil {
+	if err := d.CheckOrigin(opdata.OriginMixed); err != nil {
 		return err
 	}
 	if len(d.Dyeable) == 0 {
@@ -137,6 +163,8 @@ func checkDyes(d *DyeCatalog) error {
 			return fmt.Errorf("dye %d: price must be at least 1 Gem", it.ItemNo)
 		case it.Bleach && it.Kind != "SINGLE":
 			return fmt.Errorf("dye %d: a bleach must be kind SINGLE", it.ItemNo)
+		case it.Tube != "" && (strings.ContainsAny(it.Tube, `/\`) || !strings.HasSuffix(it.Tube, ".png")):
+			return fmt.Errorf("dye %d: tube must be a .png file name in cache/dye/", it.ItemNo)
 		}
 		nos[it.ItemNo] = true
 		if err := checkDyeColors(it); err != nil {
@@ -669,14 +697,25 @@ func dyeIconPNG(hexes []string) ([]byte, error) {
 // bleachPictureColor is the grey the bleach's picture is drawn in (its own colour is white, so it would not show).
 const bleachPictureColor = "#B0BEC5"
 
-// HandleDyeImage serves GET /cherry/dye/<itemNo>.png: the dye's picture, drawn in its colours (RANDOM and CUSTOM in bands
-// of all their colours; a bleach in bleachPictureColor). The archive has no dye pictures.
-// ponytail: drawn shapes, not art; swap in real icons if the archive ever has them.
+// HandleDyeImage serves GET /cherry/dye/<itemNo>.png: the dye's original tube picture (DyeItem.Tube, read from the store).
+// A dye without a tube is drawn in its colours (RANDOM and CUSTOM in bands of all their colours; a bleach in
+// bleachPictureColor).
+// ponytail: the drawn fallback is for an operator who removes a tube; every shipped dye has one.
 func HandleDyeImage(w http.ResponseWriter, r *http.Request) {
 	no, err := strconv.ParseInt(strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/cherry/dye/"), ".png"), 10, 64)
 	it, known := dyeItemNo(no)
 	if err != nil || !known || r.Method != http.MethodGet {
 		http.NotFound(w, r)
+		return
+	}
+	if it.Tube != "" {
+		b, err := fs.ReadFile(dyeTubeFS, it.Tube)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(b)
 		return
 	}
 	hexes := ActiveDyes().Palette
@@ -699,9 +738,9 @@ func HandleDyeImage(w http.ResponseWriter, r *http.Request) {
 }
 
 // ServeDyeMask answers GET <arts_item_<kind>_<id>/dp_mask.png> (and the /img/read form) for a dyeable garment when the
-// streamed files had no such file; handleRoot calls it after the stream. The mask is composed from the garment's part
-// masks (thumbs.ServeDyeMask, Cherry-made); the archive's original masks are never answered here. false leaves the
-// request to the rest of handleRoot, which answers 404 (the dye cell then shows its warning icon).
+// streamed files had no such file; handleRoot calls it after the stream. thumbs.ServeDyeMask serves the garment's original
+// mask when the store index lists it, and composes one from the part masks (Cherry-made) only for a garment without an
+// original. false leaves the request to the rest of handleRoot, which answers 404 (the dye cell then shows its warning icon).
 func ServeDyeMask(w http.ResponseWriter, r *http.Request) bool {
 	if r.Method != http.MethodGet {
 		return false

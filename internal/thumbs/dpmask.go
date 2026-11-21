@@ -15,11 +15,13 @@ import (
 	"cherry/internal/assets"
 )
 
-// Dye masks (dp_mask.png) of the dyeable garments. The dye cell draws dp.png and dp_mask.png together. The archive has an
-// original mask for only four of the fifteen dyeable garments (custom 224102309, 224102579, 224406975; dress 225001650);
-// the others get a mask composed here from their per-part masks <part>_mask.png (Cherry-made, cached under dp-cache\).
+// Dye masks (dp_mask.png) of the dyeable garments. The dye cell draws dp.png and dp_mask.png together. The archive holds an
+// original mask for thirteen of the fifteen dyeable garments: the santi backup has four (custom 224102309, 224102579,
+// 224406975; dress 225001650) and the robo iOS donation adds nine. ServeDyeMask serves an original whenever the store
+// index lists it. Only custom 224102536 and dress 235411996 have none; their masks are composed here from the per-part
+// masks <part>_mask.png (Cherry-made, cached under dp-cache\).
 //
-// The convention, read off the four original pairs: the mask is the same size as dp.png, its alpha is the garment's, and
+// The convention, read off the original pairs: the mask is the same size as dp.png, its alpha is the garment's, and
 // each pixel's colour is a tone code, pure red (255,0,0) or pure blue (0,0,255) with blends at the edges of the parts.
 // The bald head a face or hair preview draws under the parts is the base layer, and the originals paint it blue (skin
 // pixels are blue in all three originals that have a head). A part without a mask contributes transparent pixels. A
@@ -27,10 +29,8 @@ import (
 //
 // The mask runs the dp.png compositor with the masks in place of the sprites, so the layout is the preview's: the same
 // layers, canvas and frame box (the colour render's alpha box, so a part without a mask cannot move the frame), and no
-// shadow. Every mask-bearing part is placed on its sprite's top-left corner.
-// ponytail: 3 of the 15 garments have a mask 1 px off its sprite's size (224102816, 224102858, 225409234); top-left
-// placement is the simple fit, and a centred or alpha-fitted offset would move their edges by a pixel. Upgrade when the
-// device shows a seam there.
+// shadow. Every mask-bearing part is placed on its sprite's top-left corner; for the two composed garments each part mask
+// is exactly its sprite's size (checked 2026-11-21), so no offset is needed.
 
 // dpMaskCacheVersion prefixes the cached masks (the dp.png composites carry dpCacheVersion).
 const dpMaskCacheVersion = "dm1_"
@@ -101,10 +101,10 @@ func composeItemMask(dir, kind string) (*image.RGBA, bool) {
 	return dpFrameWith(tone, p), true
 }
 
-// ServeDyeMask answers GET dp_mask.png of a dyeable garment (the caller checks the id is dyeable). It serves the composed
-// mask from dp-cache, or composes and caches it. It returns false, with nothing written, when the archive holds the original
-// mask (the stream serves those, never this generator), the kind is not custom or dress, or the item cannot be composed;
-// the caller then answers 404, which the dye cell shows as its warning icon.
+// ServeDyeMask answers GET dp_mask.png of a dyeable garment (the caller checks the id is dyeable). The garment's original
+// mask is served as is when the store index lists it (with streaming on the stream has answered first). Otherwise it serves
+// the composed mask from dp-cache, or composes and caches it. It returns false, with nothing written, when the kind is not
+// custom or dress or the item cannot be composed; the caller then answers 404, which the dye cell shows as its warning icon.
 func ServeDyeMask(w http.ResponseWriter, kind, id string) bool {
 	if kind != "custom" && kind != "dress" {
 		return false

@@ -1,6 +1,6 @@
 {
   "origin": "mixed",
-  "note": "Circle (player clubs), slices 1-3. Cherry-made: the creation product (code and name, both shown only in Cherry's replies), its price (5000 Gems, paymentType GEM, decided by the user 2026-11-01), the base member cap (30), every id in this file (circle ids are in the Cherry block 1940000000-1940000999, economy.CherryCircleFirst/Last; logo and background ids in 1940001000-1940001999, economy.CherryCircleArtFirst/Last). The circle room is ORIGINAL (2026-11-17): room.map 2012221744 is the original cat hot spa room from the robo iOS cache (Library/Caches/circle/2012221744.mworldpack: 60 x 60 tiles, 96 furnished objects of 39 interior items), delivered as the pack static/circle/2012221744.mworldpack and named by its bare id (the client opens files/circle/<id>.mworldpack). room.map_size 60 and room.spawn (40, 42) are the pack's own grid size and AVATAR_START (original too). Until 2026-11-17 the room was the LINE Cafe Square map 2202250100 as a stand-in (user decision 2026-11-01). Original: the two pictures, read in place from the read-only archive (UIResource/UIImage_hd/circle_logo_sd_dp.png = the symbol, circle_logo_bg_dp.png = the pink background; the client's own default pair, the only art the archive holds for Circle). The interest categories are not here: the client hard-codes them (NaCircleDataManager::InitData 0x24e1228), so economy/circle.go lists them in code. Slice 3, Cherry-made except the mission type and text (the client's, below): points.season_days (14), points.season_start (2026-11-02, so circles formed on launch day 2026-11-01 are eligible for season 1; points before the start count toward season 1), points.season_name (the title format), points.daily_cap (60), every trigger's points and per_day, points.steps (targets and Gem rewards), every mission's stage, Gems and points (the mission is the client's type 2, 'Clear Stage %s for Circle points!', arts 5485; the step each mission names is a Cherry choice; the stages are point steps of points.steps, in order), every upgrade (codes, caps, Gem prices; the caps 40 and 50 follow the base 30) and gacha.enabled (the circle page offers the main Cherry Gacha; its odds and prices are data/gacha.json's). The client's own limits and field names are used as they are; the upgrade shop's picture is the circle's default background.",
+  "note": "Circle (player clubs), slices 1-3. Cherry-made: the creation product (code and name, both shown only in Cherry's replies), its price (5000 Gems, paymentType GEM, decided by the user 2026-11-01), the base member cap (30), every id in this file (circle ids are in the Cherry block 1940000000-1940000999, economy.CherryCircleFirst/Last; logo and background ids in 1940001000-1940001999, economy.CherryCircleArtFirst/Last). The circle room is ORIGINAL (2026-11-17): room.map 2012221744 is the original cat hot spa room from the robo iOS cache (Library/Caches/circle/2012221744.mworldpack: 60 x 60 tiles, 96 furnished objects of 39 interior items), delivered as the pack static/circle/2012221744.mworldpack and named by its bare id (the client opens files/circle/<id>.mworldpack). room.map_size 60 and room.spawn (40, 42) are the pack's own grid size and AVATAR_START (original too). Until 2026-11-17 the room was the LINE Cafe Square map 2202250100 as a stand-in (user decision 2026-11-01). Original (2026-11-21): the pictures. The client's default pair (UIResource/UIImage_hd/circle_logo_sd_dp.png = the symbol, circle_logo_bg_dp.png = the pink background) keeps the first id of each list; the robo iOS cache's 23 symbols (cache/circle_symbol_image/circle_logo_sb_<N>.png) and 18 backgrounds (circle_logo_bg_<M>.png) follow, read from the store and served by file name at /cherry/circle/<name>. The 42 circle_logo_sb_<N>_bg_<M>.png files of that cache are NOT original: the client draws each symbol-on-background picture itself (NaCircleSymbolMgr::CreateCircleImageRenderTexture_ saves it into the cache), so Cherry neither serves nor uploads them. Logo ids 1940001001-1940001024 and background ids 1940001101-1940001119 are Cherry-made. The interest categories are not here: the client hard-codes them (NaCircleDataManager::InitData 0x24e1228), so economy/circle.go lists them in code. Slice 3, Cherry-made except the mission type and text (the client's, below): points.season_days (14), points.season_start (2026-11-02, so circles formed on launch day 2026-11-01 are eligible for season 1; points before the start count toward season 1), points.season_name (the title format), points.daily_cap (60), every trigger's points and per_day, points.steps (targets and Gem rewards), every mission's stage, Gems and points (the mission is the client's type 2, 'Clear Stage %s for Circle points!', arts 5485; the step each mission names is a Cherry choice; the stages are point steps of points.steps, in order), every upgrade (codes, caps, Gem prices; the caps 40 and 50 follow the base 30) and gacha.enabled (the circle page offers the main Cherry Gacha; its odds and prices are data/gacha.json's). The client's own limits and field names are used as they are; the upgrade shop's picture is the circle's default background.",
   "product": {
     "code": "cherry_circle_create",
     "name": "Create a Circle",
@@ -13,10 +13,51 @@
     "spawn": {"x": 40, "y": 42}
   },
   "logos": [
-    {"id": 1940001001, "art": "circle_logo_sd_dp.png"}
+    {"id": 1940001001, "art": "UIResource/UIImage_hd/circle_logo_sd_dp.png"},
+    {"id": 1940001002, "art": "cache/circle_symbol_image/circle_logo_sb_1.png"},
+    {"id": 1940001003, "art": "cache/circle_symbol_image/circle_logo_sb_2.png"},
+    {"id": 1940001004, "art": "cache/circle_symbol_image/circle_logo_sb_3.png"},
+    {"id": 1940001005, "art": "cache/circle_symbol_image/circle_logo_sb_4.png"},
+    {"id": 1940001006, "art": "cache/circle_symbol_image/circle_logo_sb_6.png"},
+    {"id": 1940001007, "art": "cache/circle_symbol_image/circle_logo_sb_7.png"},
+    {"id": 1940001008, "art": "cache/circle_symbol_image/circle_logo_sb_8.png"},
+    {"id": 1940001009, "art": "cache/circle_symbol_image/circle_logo_sb_9.png"},
+    {"id": 1940001010, "art": "cache/circle_symbol_image/circle_logo_sb_10.png"},
+    {"id": 1940001011, "art": "cache/circle_symbol_image/circle_logo_sb_12.png"},
+    {"id": 1940001012, "art": "cache/circle_symbol_image/circle_logo_sb_18.png"},
+    {"id": 1940001013, "art": "cache/circle_symbol_image/circle_logo_sb_20.png"},
+    {"id": 1940001014, "art": "cache/circle_symbol_image/circle_logo_sb_27.png"},
+    {"id": 1940001015, "art": "cache/circle_symbol_image/circle_logo_sb_28.png"},
+    {"id": 1940001016, "art": "cache/circle_symbol_image/circle_logo_sb_29.png"},
+    {"id": 1940001017, "art": "cache/circle_symbol_image/circle_logo_sb_31.png"},
+    {"id": 1940001018, "art": "cache/circle_symbol_image/circle_logo_sb_33.png"},
+    {"id": 1940001019, "art": "cache/circle_symbol_image/circle_logo_sb_36.png"},
+    {"id": 1940001020, "art": "cache/circle_symbol_image/circle_logo_sb_37.png"},
+    {"id": 1940001021, "art": "cache/circle_symbol_image/circle_logo_sb_39.png"},
+    {"id": 1940001022, "art": "cache/circle_symbol_image/circle_logo_sb_40.png"},
+    {"id": 1940001023, "art": "cache/circle_symbol_image/circle_logo_sb_43.png"},
+    {"id": 1940001024, "art": "cache/circle_symbol_image/circle_logo_sb_44.png"}
   ],
   "backgrounds": [
-    {"id": 1940001101, "art": "circle_logo_bg_dp.png"}
+    {"id": 1940001101, "art": "UIResource/UIImage_hd/circle_logo_bg_dp.png"},
+    {"id": 1940001102, "art": "cache/circle_symbol_image/circle_logo_bg_3.png"},
+    {"id": 1940001103, "art": "cache/circle_symbol_image/circle_logo_bg_6.png"},
+    {"id": 1940001104, "art": "cache/circle_symbol_image/circle_logo_bg_8.png"},
+    {"id": 1940001105, "art": "cache/circle_symbol_image/circle_logo_bg_9.png"},
+    {"id": 1940001106, "art": "cache/circle_symbol_image/circle_logo_bg_10.png"},
+    {"id": 1940001107, "art": "cache/circle_symbol_image/circle_logo_bg_11.png"},
+    {"id": 1940001108, "art": "cache/circle_symbol_image/circle_logo_bg_12.png"},
+    {"id": 1940001109, "art": "cache/circle_symbol_image/circle_logo_bg_13.png"},
+    {"id": 1940001110, "art": "cache/circle_symbol_image/circle_logo_bg_14.png"},
+    {"id": 1940001111, "art": "cache/circle_symbol_image/circle_logo_bg_18.png"},
+    {"id": 1940001112, "art": "cache/circle_symbol_image/circle_logo_bg_19.png"},
+    {"id": 1940001113, "art": "cache/circle_symbol_image/circle_logo_bg_20.png"},
+    {"id": 1940001114, "art": "cache/circle_symbol_image/circle_logo_bg_21.png"},
+    {"id": 1940001115, "art": "cache/circle_symbol_image/circle_logo_bg_23.png"},
+    {"id": 1940001116, "art": "cache/circle_symbol_image/circle_logo_bg_24.png"},
+    {"id": 1940001117, "art": "cache/circle_symbol_image/circle_logo_bg_25.png"},
+    {"id": 1940001118, "art": "cache/circle_symbol_image/circle_logo_bg_29.png"},
+    {"id": 1940001119, "art": "cache/circle_symbol_image/circle_logo_bg_30.png"}
   ],
   "points": {
     "season_days": 14,

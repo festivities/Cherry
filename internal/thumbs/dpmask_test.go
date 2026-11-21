@@ -6,7 +6,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
+
+	"cherry/internal/assets"
+	"cherry/internal/testutil"
 )
 
 // archiveMaskFixture points the mask cache at a temp dir (never the live dp-cache) and skips without the device archive.
@@ -73,17 +77,23 @@ func TestDyeMaskOfAGeneratedGarment(t *testing.T) {
 }
 
 // TestDyeMaskServesAnOriginal: an archive original mask is served byte for byte (streaming off), never generated or
-// cached; a kind other than custom or dress is refused.
+// cached: a santi one (224102309, 225001650) and a robo one the santi backup lacks (224102378, 225409234); a kind other
+// than custom or dress is refused.
 func TestDyeMaskServesAnOriginal(t *testing.T) {
 	cacheDir := archiveMaskFixture(t)
-	for _, c := range [][2]string{{"custom", "224102309"}, {"dress", "225001650"}} {
-		want, err := os.ReadFile(filepath.Join(santiFiles, "item", c[0], c[1], "dp_mask.png"))
+	for _, c := range []struct{ kind, id, root string }{
+		{"custom", "224102309", santiFiles},
+		{"dress", "225001650", santiFiles},
+		{"custom", "224102378", testutil.RoboCaches()},
+		{"dress", "225409234", testutil.RoboCaches()},
+	} {
+		want, err := os.ReadFile(filepath.Join(c.root, "item", c.kind, c.id, "dp_mask.png"))
 		if err != nil {
 			t.Fatal(err)
 		}
 		rec := httptest.NewRecorder()
-		if !ServeDyeMask(rec, c[0], c[1]) || !bytes.Equal(rec.Body.Bytes(), want) {
-			t.Fatalf("%s %s: the original mask was not served as is", c[0], c[1])
+		if !ServeDyeMask(rec, c.kind, c.id) || !bytes.Equal(rec.Body.Bytes(), want) {
+			t.Fatalf("%s %s: the original mask was not served as is", c.kind, c.id)
 		}
 	}
 	if rec := httptest.NewRecorder(); ServeDyeMask(rec, "pet", "224102536") {
@@ -91,6 +101,31 @@ func TestDyeMaskServesAnOriginal(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(cacheDir); len(entries) != 0 {
 		t.Fatalf("cache holds %d files after refusals", len(entries))
+	}
+}
+
+// TestDyeMaskComposesTheGarmentsWithoutAnOriginal: the two dyeable garments the archive holds no mask for (custom
+// 224102536, dress 235411996) are composed, a PNG the size of their dp.png, and cached under dm1_.
+func TestDyeMaskComposesTheGarmentsWithoutAnOriginal(t *testing.T) {
+	cacheDir := archiveMaskFixture(t)
+	for _, c := range [][2]string{{"custom", "224102536"}, {"dress", "235411996"}} {
+		rec := httptest.NewRecorder()
+		if !ServeDyeMask(rec, c[0], c[1]) || rec.Code != 200 {
+			t.Fatalf("%s %s: not composed (code %d)", c[0], c[1], rec.Code)
+		}
+		mask := decodePNG(t, rec.Body.Bytes())
+		n, _ := strconv.ParseInt(c[1], 10, 64)
+		dir, ok := assets.Archive.ItemDir(c[0], n)
+		if !ok {
+			t.Fatalf("%s %s: no item folder", c[0], c[1])
+		}
+		dpb, ok := RenderDP(dir, c[0])
+		if !ok || decodePNG(t, dpb).Bounds() != mask.Bounds() {
+			t.Fatalf("%s %s: mask %v does not match its dp.png", c[0], c[1], mask.Bounds())
+		}
+		if _, err := os.Stat(filepath.Join(cacheDir, "dm1_"+c[0]+"_"+c[1]+".png")); err != nil {
+			t.Fatalf("%s %s: mask not cached: %v", c[0], c[1], err)
+		}
 	}
 }
 

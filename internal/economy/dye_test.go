@@ -15,15 +15,17 @@ import (
 func TestDyeCatalogRefusesBadFiles(t *testing.T) {
 	good := string(data.DyesJSON)
 	for _, c := range []struct{ name, old, new, want string }{
-		{"no origin", `"origin": "cherry",`, ``, "origin"},
+		{"no origin", `"origin": "mixed",`, ``, "origin"},
+		{"tube with a folder", `"tube": "dye_56_1.png"`, `"tube": "x/dye_56_1.png"`, "tube must be"},
+		{"tube not a png", `"tube": "dye_56_1.png"`, `"tube": "dye_56_1.jpg"`, "tube must be"},
 		{"garment the client does not flag", `224103060`, `224103061`, "not one of the garments the client flags"},
 		{"dye outside the Cherry block", `"item_no": 9510`, `"item_no": 9600`, "Cherry block"},
 		{"free dye", `"price": 200`, `"price": 0`, "price must be at least 1 Gem"},
 		{"random odds not summing to 1", `{"color": "#212121", "prob": 0.125}]`, `{"color": "#212121", "prob": 0.5}]`, "sum to"},
 		{"colour not #rrggbb", `{"color": "#E53935", "prob": 1}`, `{"color": "red", "prob": 1}`, "must be #rrggbb"},
 		{"palette colour not #rrggbb", `"#90A4AE"`, `"#90A4AEZ"`, "palette"},
-		{"custom dye with its own colours", `"kind": "CUSTOM", "price": 200, "colors": []`, `"kind": "CUSTOM", "price": 200, "colors": [{"color": "#E53935", "prob": 1}]`, "CUSTOM"},
-		{"bleach that is not SINGLE", `"item_no": 9511, "name": "Bleach", "kind": "SINGLE", "price": 60, "bleach": true, "colors": [{"color": "#FFFFFF", "prob": 1}]`, `"item_no": 9511, "name": "Bleach", "kind": "RANDOM", "price": 60, "bleach": true, "colors": [{"color": "#FFFFFF", "prob": 0.5}, {"color": "#FFFFFF", "prob": 0.5}]`, "must be kind SINGLE"},
+		{"custom dye with its own colours", `"kind": "CUSTOM", "price": 200, "tube": "dye_65_1-1.png", "colors": []`, `"kind": "CUSTOM", "price": 200, "tube": "dye_65_1-1.png", "colors": [{"color": "#E53935", "prob": 1}]`, "CUSTOM"},
+		{"bleach that is not SINGLE", `"item_no": 9511, "name": "Bleach", "kind": "SINGLE", "price": 60, "bleach": true, "tube": "dye_83_1.png", "colors": [{"color": "#FFFFFF", "prob": 1}]`, `"item_no": 9511, "name": "Bleach", "kind": "RANDOM", "price": 60, "bleach": true, "tube": "dye_83_1.png", "colors": [{"color": "#FFFFFF", "prob": 0.5}, {"color": "#FFFFFF", "prob": 0.5}]`, "must be kind SINGLE"},
 	} {
 		if !strings.Contains(good, c.old) {
 			t.Fatalf("%s: the edit target %q is not in dyes.json", c.name, c.old)

@@ -100,6 +100,12 @@ func ArchiveFound() bool {
 // SantiItems is the santi device backup's item folder.
 func SantiItems() string { return filepath.Join(santiFiles, "item") }
 
+// RoboCaches is the robo iOS donation's Library/Caches folder (item/, cache/, circle/), the root of the robo originals.
+func RoboCaches() string { return roboCaches }
+
+// LPBackupFiles is the lpbackup device backup's files/ tree (cache/dye/ has two originals the robo cache lacks).
+func LPBackupFiles() string { return lpFiles }
+
 // LPBackupItems is the lpbackup device backup's item folder: the items production R2 holds beside santi's (the Treasure
 // World dress CUAH008A9 has its art only here).
 func LPBackupItems() string { return filepath.Join(lpFiles, "item") }
@@ -128,7 +134,7 @@ func ArchiveMounts(items ...string) map[string][]string {
 		"static/garden01/":              {filepath.Join(craft, "garden01")},
 		"static/craft01/":               {filepath.Join(craft, "craft01")},
 		"static/photozone/frame/":       {filepath.Join(santiFiles, "cache", "photozone", "frame")},
-		"static/cache/":                 {filepath.Join(roboCaches, "cache")}, // the robo iOS cache's season and butler art (origin.go)
+		"static/cache/":                 {filepath.Join(roboCaches, "cache"), filepath.Join(lpFiles, "cache")}, // the origin cache trees (origin.go): robo first, then lpbackup's two dye tubes
 		"static/android-10.1.0.0-2024/": {filepath.Join(originalsAPK, "android-10.1.0.0-2024")},
 		"static/android-4.0.0.0-2016/":  {filepath.Join(originalsAPK, "android-4.0.0.0-2016")},
 	}
