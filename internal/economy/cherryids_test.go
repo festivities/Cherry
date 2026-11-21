@@ -64,7 +64,7 @@ func TestFishIDsStayInCherryBlocks(t *testing.T) {
 	fishing := string(data.FishingJSON)
 	for _, c := range []struct{ text, want string }{
 		{strings.Replace(fishing, `"id": 4101`, `"id": 4100`, 1), "fish 4100: id must be unique and inside the Cherry block 4101-4999"},
-		{strings.Replace(fishing, `{"id": 9001, "name": "Square Rod"`, `{"id": 9200, "name": "Square Rod"`, 1), "shop item 9200: id and name must be set"},
+		{strings.Replace(fishing, `{"id": 9001, "name": "Basic Fishing Pole"`, `{"id": 9200, "name": "Basic Fishing Pole"`, 1), "shop item 9200: id and name must be set"},
 		{strings.Replace(string(data.FishbossJSON), `"id": 4901`, `"id": 5000`, 1), "boss id must be inside the Cherry fish block 4101-4999"},
 	} {
 		var err error

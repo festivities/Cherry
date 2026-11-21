@@ -22,33 +22,44 @@ func bookEntries(t *testing.T, body []byte) [][]byte {
 	return out
 }
 
-// The fishing book, the bag, the fish shop, the boss refusal and the collection reward, end to end
-// through the Square room. Only the fields the client reads are checked; no billing rows appear.
+// The fishing book (9 pages of 9, per-page reward + RewardRatio), the bag, the fish shop and the
+// boss try, end to end through the Square room.
 func TestSquareFishingBookAndScreens(t *testing.T) {
 	const aidText = "9811"
 	c := fishingRoomAccount(t, aidText, 0)
 	cat := economy.FishCatalog()
 	now := economy.NowFunc()
-	if _, ok := economy.FishCatch(aidText, cat[0], now); !ok { // Square Carp
+	if _, ok := economy.FishCatch(aidText, cat[0], now); !ok { // 4101 Mackerel
 		t.Fatal("catch failed")
 	}
-	if _, ok := economy.FishCatch(aidText, cat[6], now); !ok { // Golden Square Koi (rare)
-		t.Fatal("rare catch failed")
+	if _, ok := economy.FishCatch(aidText, cat[6], now); !ok { // 4107 Striped beakfish
+		t.Fatal("second catch failed")
 	}
 
-	// Book, page 1 of 1: one entry per catalogue fish, in catalogue order, locked unless caught.
+	// Book, page 1 of 9: 9 entries, in catalogue order, locked unless caught.
 	c.send(25, pbVar(nil, 1, 1))
 	id, body := c.read()
 	if id != 28 {
 		t.Fatalf("book msgid = %d, want 28", id)
 	}
-	if squareUint(t, body, 1) != squareFishOK || squareUint(t, body, 2) != squareFishPages ||
-		squareUint(t, body, 3) != 1 || squareUint(t, body, 4) != 3 || squareUint(t, body, 6) != 0 {
-		t.Fatalf("book header = %x (want result %d, max 1, page 1, version 3, coin 0)", body, squareFishOK)
+	if squareUint(t, body, 1) != squareFishOK || squareUint(t, body, 2) != 9 ||
+		squareUint(t, body, 3) != 1 || squareUint(t, body, 4) != 3 ||
+		squareUint(t, body, 5) != 4 || squareUint(t, body, 6) != 100 ||
+		squareUint(t, body, 9) != 0 || squareUint(t, body, 10) != 0 {
+		t.Fatalf("book header = %x", body)
+	}
+	if prev, _, _ := pbBytesField(body, 12); !bytes.Equal(prev, []byte(economy.FishImageURL(cat[8].ID))) {
+		t.Fatalf("preview url = %q, want %q", prev, economy.FishImageURL(cat[8].ID))
+	}
+	ratios := squareRepeated(t, body, 11)
+	if len(ratios) != 2 ||
+		squareUint(t, ratios[0], 1) != 1 || squareUint(t, ratios[0], 2) != 900000 ||
+		squareUint(t, ratios[1], 1) != 2 || squareUint(t, ratios[1], 2) != 100000 {
+		t.Fatalf("RewardRatio = %x", ratios)
 	}
 	entries := bookEntries(t, body)
-	if len(entries) != len(cat) {
-		t.Fatalf("book entries = %d, want %d", len(entries), len(cat))
+	if len(entries) != 9 {
+		t.Fatalf("book entries = %d, want 9", len(entries))
 	}
 	for i, e := range entries {
 		f := cat[i]
@@ -75,16 +86,62 @@ func TestSquareFishingBookAndScreens(t *testing.T) {
 		}
 	}
 
-	// A page past MaxPage is served as page 1 and says so.
-	c.send(25, pbVar(nil, 1, 2))
-	if id, body := c.read(); id != 28 || squareUint(t, body, 3) != 1 {
-		t.Fatalf("page 2 reply = %d/%x, want page 1", id, body)
+	// Page 9 returns the last 9 species (4173-4181) with last fish preview URL.
+	c.send(25, pbVar(nil, 1, 9))
+	if id, body := c.read(); id != 28 || squareUint(t, body, 3) != 9 || len(bookEntries(t, body)) != 9 {
+		t.Fatalf("page 9 reply = %d/%x", id, body)
+	} else if prev, _, _ := pbBytesField(body, 12); !bytes.Equal(prev, []byte(economy.FishImageURL(cat[80].ID))) {
+		t.Fatalf("page 9 preview = %q", prev)
 	}
 
-	// Collection reward: refused as {Success false}, no payout.
+	// Out-of-range page numbers clamp to 1..9.
+	c.send(25, pbVar(nil, 1, 10))
+	if id, body := c.read(); id != 28 || squareUint(t, body, 3) != 9 {
+		t.Fatalf("page 10 reply = %d/%x, want page 9", id, body)
+	}
+	c.send(25, pbVar(nil, 1, 0))
+	if id, body := c.read(); id != 28 || squareUint(t, body, 3) != 1 {
+		t.Fatalf("page 0 reply = %d/%x, want page 1", id, body)
+	}
+
+	// Incomplete page claim is refused as {Success false}.
 	c.send(26, pbVar(nil, 1, 1))
 	if id, body := c.read(); id != 29 || !bytes.Equal(body, []byte{0x08, 0}) {
-		t.Fatalf("complete = %d/%x, want 29 Success=false", id, body)
+		t.Fatalf("incomplete complete = %d/%x, want 29 Success=false", id, body)
+	}
+
+	// Catch remaining 7 species on page 1 -> PossibleComplete=1 -> claim pays 100 Gems once.
+	for i := 0; i < 9; i++ {
+		if i == 0 || i == 6 {
+			continue
+		}
+		if _, ok := economy.FishCatch(aidText, cat[i], now); !ok {
+			t.Fatalf("catch %d failed", i)
+		}
+	}
+	c.send(25, pbVar(nil, 1, 1))
+	if id, body := c.read(); id != 28 || squareUint(t, body, 9) != 1 || squareUint(t, body, 10) != 0 {
+		t.Fatalf("ready page 1 = %d/%x, want PossibleComplete=1 CompleteAlready=0", id, body)
+	}
+	beforeClaim := fishingBalance(t, aidText)
+	c.send(26, pbVar(nil, 1, 1))
+	if id, body := c.read(); id != 29 || !bytes.Equal(body, []byte{0x08, 1}) {
+		t.Fatalf("claim page 1 = %d/%x, want 29 Success=true", id, body)
+	}
+	if got := fishingBalance(t, aidText); got != beforeClaim+100 {
+		t.Fatalf("balance after page 1 claim = %d, want %d", got, beforeClaim+100)
+	}
+	c.send(25, pbVar(nil, 1, 1))
+	if id, body := c.read(); id != 28 || squareUint(t, body, 9) != 0 || squareUint(t, body, 10) != 1 {
+		t.Fatalf("claimed page 1 = %d/%x, want PossibleComplete=0 CompleteAlready=1", id, body)
+	}
+	// Duplicate claim is refused without paying again.
+	c.send(26, pbVar(nil, 1, 1))
+	if id, body := c.read(); id != 29 || !bytes.Equal(body, []byte{0x08, 0}) {
+		t.Fatalf("duplicate claim = %d/%x, want 29 Success=false", id, body)
+	}
+	if got := fishingBalance(t, aidText); got != beforeClaim+100 {
+		t.Fatalf("balance changed on duplicate claim: %d", got)
 	}
 
 	// Boss try: started with the day's first try, then rc6 enters the boss world (theme 28).
@@ -102,8 +159,7 @@ func TestSquareFishingBookAndScreens(t *testing.T) {
 		t.Fatalf("bag = %d/%x, want 116 empty BagType 3", id, body)
 	}
 
-	// Fish shop: the Gem-priced rods and bait (shop_test checks the rows); Gem is the real balance
-	// and Cash the real Cash (0 here).
+	// Fish shop: the 3 bait packs; Gem is the real balance and Cash the real Cash (0 here).
 	c.send(87, nil)
 	id, shop := c.read()
 	if id != 115 {

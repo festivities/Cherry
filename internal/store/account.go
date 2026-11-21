@@ -91,69 +91,71 @@ type Account struct {
 	SessionSalt  string // derived keys: random per account (sessionkey.go)
 	SessionEpoch int64  // derived keys: bumped by a ban and Delete Avatar
 	// LegacyKeyHash is the SHA-256 of a migrated account's old clear key, until the account presents its derived key.
-	LegacyKeyHash  string
-	Mid            string
-	AvatarUserID   string
-	Aid            string
-	Name           string
-	Gender         string
-	Skin           string
-	Country        string
-	ItemCodes      []string
-	InventoryCodes []string
-	RoomItems      []RoomItem
-	NextRoomSeq    int64
-	Rooms          map[string]RoomLayout
-	Presets        map[string]RoomPreset
-	Pets           []PetItem
-	Gems           int64 // economy ledger balances, never negative (economy.go)
-	Cash           int64
-	FaceTickets    int64
-	Welcomed       bool      // 300-Gem welcome gift already credited
-	AttendDay      int       // last attended day in the 7-day login cycle (0 = none yet), loginbonus.go
-	AttendKey      int64     // day key (06:00 JST boundary) of the last attend
-	Mail           []MailRow // unclaimed mailbox rows, mailbox.go; replaced, never edited in place
-	NextMailSeq    int64
-	ProfileImage   ProfileImage          // saved profile picture (OBS paths + background), profileimage.go
-	Quests         *QuestDay             // Garden daily quest progress, economy/quests.go; replaced, never edited in place
-	Fishing        *FishingDay           // Square fishing Gems for one game day, economy/fishing.go; replaced, never edited in place
-	FishCaught     map[int64]int64       // Square catches per fish id (the fishing book); replaced, never edited in place
-	Gear           *FishingGear          // Square fish shop: bought gear and what is in use, economy/fishing_shop.go; replaced, never edited in place
-	BossCoins      int64                 // Square boss Boss Coins (economy/fishboss.go); not in the ledger, an exchange will spend it
-	BossTries      *BossDay              // Square boss tries used on one game day, economy/fishboss.go; replaced, never edited in place
-	BossCaught     map[int64]int64       // Square boss catches per boss id (economy/fishboss.go); replaced, never edited in place
-	BossBook       map[int64]bool        // Square boss book reward claimed per boss id (economy/fishboss.go); replaced, never edited in place
-	Hearts         *Hearts               // heart quest state, economy/hearts.go; replaced, never edited in place
-	PaidPrices     map[string]int64      // clothing codes bought at a daily deal: Gems paid; negative = a player's gift, sells for nothing (economy/deals.go); replaced, never edited in place
-	Smiles         int64                 // earned Smiles (Garden gathering, economy/gathering.go); ledger-backed like Gems
-	GardenBag      []GardenBagStack      // Garden materials in the Bag (economy/gathering.go); replaced, never edited in place
-	Gather         *GatherDay            // Garden gathering caps and Gem bonus for one game day (economy/gathering.go); replaced, never edited in place
-	Atelier        *AtelierState         // Garden Atelier stamina and blueprints (economy/atelier.go); replaced, never edited in place
-	Racing         *RacingRecord         // Riding Pet Race tickets, exp, MMR and store points (economy/racing.go); replaced, never edited in place
-	GardenMap      string                // Garden map this account's Garden shows (economy/gardens.go); "" = the default
-	Landscapes     []string              // bought Garden landscape item codes (economy/landscape.go); replaced, never edited in place
-	Pins           []string              // avatar ids on the requester's My Pins, in pin order (web/pins.go); replaced, never edited in place
-	DiaryProfile   *DiaryProfile         // Diary profile edit fields (diaryprofile.go, web/profileedit.go); replaced, never edited in place
-	Wishes         []string              // item codes on the requester's wish list, at most four (web/wishlist.go); replaced, never edited in place
-	Butlers        *ButlerBook           // Garden butlers: contracts, chief, gathering (economy/butler.go); replaced, never edited in place
-	Dyes           map[string]int        // dye items owned by item number (economy/dye.go); replaced, never edited in place
-	DyeColors      map[string][]DyeColor // colours of dyed garments by item code (economy/dye.go); replaced, never edited in place
-	LuckySpinDay   int64                 // game day (economy.AttendDayKey) of the last free Lucky Spin (economy/spin.go); 0 = none
-	AvatarCreated  int64                 // create/avatar time in Unix ms: the profile's "Avatar Birthday" (result.created); 0 = unknown
-	BirthdayClaims map[int]int64         // avatar birthday reward claims: turn -> claim time in Unix ms (economy/birthday.go); replaced, never edited in place
-	GuestCode      string                // device uniqueCode bound by the guest login (GuestLogin); "" = none
-	Identity       string                // provider identity ("discord:<id>" or "dev-<name>"), discord and dev-fake modes (identity.go); "" = none
-	CodeHashes     []string              // SHA-256 hex of the uniqueCodes minted for Identity, oldest first, at most maxCodeHashes (identity.go)
-	GuestCodeHash  string                // SHA-256 hex of the guest uniqueCode (bindGuest); the lookups use it, GuestCode is "" after a reload
-	Ban            *Ban                  // staff ban (staff.go); nil = not banned. A banned account resolves to no token and mints none
+	LegacyKeyHash   string
+	Mid             string
+	AvatarUserID    string
+	Aid             string
+	Name            string
+	Gender          string
+	Skin            string
+	Country         string
+	ItemCodes       []string
+	InventoryCodes  []string
+	RoomItems       []RoomItem
+	NextRoomSeq     int64
+	Rooms           map[string]RoomLayout
+	Presets         map[string]RoomPreset
+	Pets            []PetItem
+	Gems            int64 // economy ledger balances, never negative (economy.go)
+	Cash            int64
+	FaceTickets     int64
+	Welcomed        bool      // 300-Gem welcome gift already credited
+	AttendDay       int       // last attended day in the 7-day login cycle (0 = none yet), loginbonus.go
+	AttendKey       int64     // day key (06:00 JST boundary) of the last attend
+	Mail            []MailRow // unclaimed mailbox rows, mailbox.go; replaced, never edited in place
+	NextMailSeq     int64
+	ProfileImage    ProfileImage          // saved profile picture (OBS paths + background), profileimage.go
+	Quests          *QuestDay             // Garden daily quest progress, economy/quests.go; replaced, never edited in place
+	Fishing         *FishingDay           // Square fishing Gems for one game day, economy/fishing.go; replaced, never edited in place
+	FishCaught      map[int64]int64       // Square catches per fish id (the fishing book); replaced, never edited in place
+	FishBookClaimed []int64               // Square fishing book page numbers (1-based) claimed; replaced, never edited in place
+	Gear            *FishingGear          // Square fish shop: bought gear and what is in use, economy/fishing_shop.go; replaced, never edited in place
+	BossCoins       int64                 // Square boss Boss Coins (economy/fishboss.go); not in the ledger, an exchange will spend it
+	BossTries       *BossDay              // Square boss tries used on one game day, economy/fishboss.go; replaced, never edited in place
+	BossCaught      map[int64]int64       // Square boss catches per boss id (economy/fishboss.go); replaced, never edited in place
+	BossBook        map[int64]bool        // Square boss book reward claimed per boss id (economy/fishboss.go); replaced, never edited in place
+	Hearts          *Hearts               // heart quest state, economy/hearts.go; replaced, never edited in place
+	PaidPrices      map[string]int64      // clothing codes bought at a daily deal: Gems paid; negative = a player's gift, sells for nothing (economy/deals.go); replaced, never edited in place
+	Smiles          int64                 // earned Smiles (Garden gathering, economy/gathering.go); ledger-backed like Gems
+	GardenBag       []GardenBagStack      // Garden materials in the Bag (economy/gathering.go); replaced, never edited in place
+	Gather          *GatherDay            // Garden gathering caps and Gem bonus for one game day (economy/gathering.go); replaced, never edited in place
+	Atelier         *AtelierState         // Garden Atelier stamina and blueprints (economy/atelier.go); replaced, never edited in place
+	Racing          *RacingRecord         // Riding Pet Race tickets, exp, MMR and store points (economy/racing.go); replaced, never edited in place
+	GardenMap       string                // Garden map this account's Garden shows (economy/gardens.go); "" = the default
+	Landscapes      []string              // bought Garden landscape item codes (economy/landscape.go); replaced, never edited in place
+	Pins            []string              // avatar ids on the requester's My Pins, in pin order (web/pins.go); replaced, never edited in place
+	DiaryProfile    *DiaryProfile         // Diary profile edit fields (diaryprofile.go, web/profileedit.go); replaced, never edited in place
+	Wishes          []string              // item codes on the requester's wish list, at most four (web/wishlist.go); replaced, never edited in place
+	Butlers         *ButlerBook           // Garden butlers: contracts, chief, gathering (economy/butler.go); replaced, never edited in place
+	Dyes            map[string]int        // dye items owned by item number (economy/dye.go); replaced, never edited in place
+	DyeColors       map[string][]DyeColor // colours of dyed garments by item code (economy/dye.go); replaced, never edited in place
+	LuckySpinDay    int64                 // game day (economy.AttendDayKey) of the last free Lucky Spin (economy/spin.go); 0 = none
+	AvatarCreated   int64                 // create/avatar time in Unix ms: the profile's "Avatar Birthday" (result.created); 0 = unknown
+	BirthdayClaims  map[int]int64         // avatar birthday reward claims: turn -> claim time in Unix ms (economy/birthday.go); replaced, never edited in place
+	GuestCode       string                // device uniqueCode bound by the guest login (GuestLogin); "" = none
+	Identity        string                // provider identity ("discord:<id>" or "dev-<name>"), discord and dev-fake modes (identity.go); "" = none
+	CodeHashes      []string              // SHA-256 hex of the uniqueCodes minted for Identity, oldest first, at most maxCodeHashes (identity.go)
+	GuestCodeHash   string                // SHA-256 hex of the guest uniqueCode (bindGuest); the lookups use it, GuestCode is "" after a reload
+	Ban             *Ban                  // staff ban (staff.go); nil = not banned. A banned account resolves to no token and mints none
 }
 
 // FishingGear is the Square fishing gear an account bought (economy/fishing_shop.go): the item IDs
-// it owns and the rod and bait in use (0 = none).
+// it owns, remaining consumable bait uses per item ID, and the rod and bait in use (0 = none).
 type FishingGear struct {
-	Owned []int64 `json:"owned,omitempty"`
-	Rod   int64   `json:"rod,omitempty"`
-	Bait  int64   `json:"bait,omitempty"`
+	Owned    []int64         `json:"owned,omitempty"`
+	Rod      int64           `json:"rod,omitempty"`
+	Bait     int64           `json:"bait,omitempty"`
+	BaitUses map[int64]int64 `json:"baitUses,omitempty"`
 }
 
 // ProfileImage is the "Take profile picture" result: OBS paths as the client sent them

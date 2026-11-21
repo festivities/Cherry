@@ -45,9 +45,13 @@ func squareBusyStatus(aid, status uint64) []byte {
 	return pbVar(pbVar(nil, 1, aid), 2, status)
 }
 
-// squareFish is the catch the server chose at the last start. It is paid once, by the next finish
-// with Result true, and any begin or end clears it.
-type squareFish struct{ def economy.FishDef }
+// squareFish is the cast state on the session: the active pending catch (paid once by the next
+// finish with Result true) and, after a missed rare fish, the rare fish offered for a Gem retry.
+type squareFish struct {
+	def       economy.FishDef
+	active    bool
+	retryFish *economy.FishDef
+}
 
 const (
 	// The fish shop (NaWorldInteriorManager::Create case 1 -> NaFishShopInterior). It links to the host object whose item
@@ -122,8 +126,8 @@ func squareLang(s string) []byte {
 	return pbLen(pbLen(nil, 1, []byte(s)), 3, []byte(s))
 }
 
-// squareShopRow is one ShopItem. PriceType 1 is Gems. Count is 1 (the client's row loop stops at
-// Count -1). Dates stay unset (0), so IsSaleItem is false. BillingCode and BillingText are never set.
+// squareShopRow is one ShopItem. PriceType 1 is Gems. Count is max(uses, 1) (20 for 20-use bait
+// packs). Dates stay unset (0), so IsSaleItem is false. BillingCode and BillingText are never set.
 func squareShopRow(it economy.FishingItem, displayIdx uint64) []byte {
 	url := []byte(economy.FishingItemImageURL(it.ID))
 	row := pbVar(nil, 1, uint64(it.ID))                  // ShopItemId
@@ -132,7 +136,7 @@ func squareShopRow(it economy.FishingItem, displayIdx uint64) []byte {
 	row = pbLen(row, 4, squareLang(it.Name))             // Name
 	row = pbVar(row, 5, 1)                               // PriceType: fish-shop numbering, 1 = Gems (2 = Cash)
 	row = pbVar(row, 6, uint64(it.Price))                // Price
-	row = pbVar(row, 7, 1)                               // Count
+	row = pbVar(row, 7, uint64(max(it.Uses, 1)))         // Count
 	row = pbLen(row, 12, url)                            // ImageUrl
 	row = pbLen(row, 14, squareLang(squareItemDesc(it))) // Description
 	row = pbLen(row, 15, url)                            // DpImgUrl
@@ -140,14 +144,17 @@ func squareShopRow(it economy.FishingItem, displayIdx uint64) []byte {
 }
 
 // squareInvenItemPlain is an InvenItem with only the fields the shop reads for owned counts: ItemId
-// (1), Count (3), ItemType (7: 1 bait, 2 rod) and MaxCount (9). MaxCount = Count marks the item as
-// owned, so FishingShopInfo::SetData sets the "cannot buy more" flag. No strings: names, pictures
-// and the period are not sent to the bag cell (the bag crashed on them, see gathering.txt).
+// (1), Count (3), ItemType (7: 1 bait, 2 rod) and MaxCount (9). Consumable bait packs send
+// MaxCount = 999 so the client does not lock out repeat purchases; permanent gear sends MaxCount = Count.
 func squareInvenItemPlain(it economy.FishingItem, count uint64) []byte {
+	maxCount := count
+	if it.Uses > 0 {
+		maxCount = uint64(economy.MaxBaitUses)
+	}
 	b := pbVar(nil, 1, uint64(it.ID))
 	b = pbVar(b, 3, count)
 	b = pbVar(b, 7, uint64(it.Kind))
-	return pbVar(b, 9, count)
+	return pbVar(b, 9, maxCount)
 }
 
 // squareBagShowsOwned controls the bag rows in rc_open_inven_res (116). false: the bag is empty,
@@ -180,12 +187,16 @@ func squareInvenItemClient(it economy.FishingItem, count uint64) []byte {
 	return pbVar(pbLen(nil, 1, squareAsset(it, "")), 2, count)
 }
 
-// squareOwned returns every shop item the account owns, rods and bait.
-func squareOwned(aid string) []economy.FishingItem {
-	var out []economy.FishingItem
+// squareOwned returns every non-basic shop item the account owns with its count, rods and bait.
+func squareOwned(aid string) []economy.FishingBagEntry {
+	var out []economy.FishingBagEntry
 	for _, kind := range []int64{economy.FishKindRod, economy.FishKindBait} {
-		owned, _ := economy.FishingBag(aid, kind)
-		out = append(out, owned...)
+		entries, _ := economy.FishingBagEntries(aid, kind)
+		for _, e := range entries {
+			if !e.Item.Basic {
+				out = append(out, e)
+			}
+		}
 	}
 	return out
 }
@@ -211,20 +222,40 @@ func (s *squareSession) handleFishing(frame []byte, msgid uint16, data []byte) e
 		s.fish = nil
 		body := pbVar(nil, 1, aid)
 		body = pbVar(body, 2, squareFishOK)
-		body = pbVar(body, 3, serial) // echo the spot serial
-		body = pbVar(body, 4, 0)      // RetryGem: no retry cost
+		body = pbVar(body, 3, serial)                                    // echo the spot serial
+		body = pbVar(body, 4, uint64(economy.ActiveFishing().RetryGems)) // RetryGem
 		s.logger.Printf("SQUARE fishing begin aid=%d fish=- gems=0 result=%d", aid, squareFishOK)
 		return s.reply(frame, 30, body)
-	case 29: // cr_start_fishing_req -> rc_start_fishing_all (32)
-		def := economy.ChooseFishWithBonus(rand.IntN, economy.FishingGearBonus(aidText))
-		s.fish = &squareFish{def: def}
+	case 29: // cr_start_fishing_req {Retry} -> rc_start_fishing_all (32)
+		retry, _ := protobufUintField(data, 1)
+		var def economy.FishDef
+		if retry != 0 {
+			if s.fish == nil || s.fish.retryFish == nil {
+				s.fish = nil
+				s.logger.Printf("SQUARE fishing retry refused aid=%d reason=no-pending", aid)
+				return s.reply(frame, 32, pbVar(pbVar(nil, 1, aid), 2, squareFishMiss))
+			}
+			if _, ok := economy.FishRetry(aidText, economy.NowFunc()); !ok {
+				s.fish = nil
+				s.logger.Printf("SQUARE fishing retry refused aid=%d reason=gems-or-save", aid)
+				return s.reply(frame, 32, pbVar(pbVar(nil, 1, aid), 2, squareFishMiss))
+			}
+			def = *s.fish.retryFish
+		} else {
+			def = economy.ChooseFishWithBonus(rand.IntN, economy.FishingGearBonus(aidText))
+		}
+		s.fish = &squareFish{def: def, active: true}
+		isRare := squareBool(def.Rare)
+		if retry != 0 {
+			isRare = 1
+		}
 		body := pbVar(nil, 1, aid)
 		body = pbVar(body, 2, squareFishOK)
 		body = pbVar(body, 3, squareHitTimeMs)
-		body = pbVar(body, 4, squareBool(def.Rare))
+		body = pbVar(body, 4, isRare)
 		body = pbVar(body, 5, squareDifficult)
 		body = pbVar(body, 6, 0) // RareGrade: 1000 would force a rare bite, none here
-		s.logger.Printf("SQUARE fishing start aid=%d fish=%d gems=%d result=%d", aid, def.ID, def.Gems, squareFishOK)
+		s.logger.Printf("SQUARE fishing start aid=%d fish=%d gems=%d retry=%d result=%d", aid, def.ID, def.Gems, retry, squareFishOK)
 		s.room.broadcast(s.logger, nil, squareRcPlayerStatus, squareBusyStatus(aid, squareStatusFishing))
 		s.fishing = true
 		return s.reply(frame, 32, body)
@@ -232,9 +263,24 @@ func (s *squareSession) handleFishing(frame []byte, msgid uint16, data []byte) e
 		hooked, _ := protobufUintField(data, 1)
 		pending := s.fish
 		s.fish = nil
-		if hooked == 0 || pending == nil {
+		hasActive := pending != nil && pending.active
+		var exhausted bool
+		if hasActive {
+			exhausted = economy.ConsumeFishingBait(aidText)
+		}
+		if hooked == 0 || !hasActive {
 			body := pbVar(nil, 1, aid)
 			body = pbVar(body, 2, squareFishMiss)
+			if exhausted {
+				body = pbVar(body, 17, 1) // BaitExaust
+			}
+			retryGems := economy.ActiveFishing().RetryGems
+			if hasActive && pending.def.Rare && retryGems > 0 {
+				retryDef := pending.def
+				s.fish = &squareFish{retryFish: &retryDef}
+				body = pbVar(body, 23, 1)                                             // RetryPossible
+				body = pbLen(body, 31, pbVar(pbVar(nil, 1, 1), 2, uint64(retryGems))) // TryCountResetCost {CoinType: 1, CoinCount: retryGems}
+			}
 			s.logger.Printf("SQUARE fishing finish aid=%d fish=- gems=0 result=%d", aid, squareFishMiss)
 			return s.reply(frame, 33, body)
 		}
@@ -258,6 +304,9 @@ func (s *squareSession) handleFishing(frame []byte, msgid uint16, data []byte) e
 		body = pbVar(body, 10, squareBool(def.Rare))
 		body = pbVar(body, 15, 1) // Count
 		body = pbLen(body, 16, []byte(economy.FishImageURL(def.ID)))
+		if exhausted {
+			body = pbVar(body, 17, 1) // BaitExaust
+		}
 		return s.reply(frame, 33, body)
 	case 28: // cr_end_fishing_req -> rc_end_fishing_all (31)
 		s.fish, s.fishing = nil, false
@@ -267,14 +316,17 @@ func (s *squareSession) handleFishing(frame []byte, msgid uint16, data []byte) e
 		s.room.broadcast(s.logger, nil, squareRcPlayerStatus, squareBusyStatus(aid, squareStatusIdle))
 		return s.reply(frame, 31, body)
 	case 25: // cr_fish_collection_req {PageNo} -> rc_fish_collection_res (28): the fishing book
+		maxPage := uint64(economy.FishBookPageCount())
 		page, _ := protobufUintField(data, 1)
-		page = min(max(page, 1), squareFishPages)
-		body, caught := squareFishCollection(aidText, page)
+		page = min(max(page, 1), maxPage)
+		body, caught := squareFishCollection(aidText, page, maxPage)
 		s.logger.Printf("SQUARE fishing book aid=%d page=%d caught=%d", aid, page, caught)
 		return s.reply(frame, 28, body)
-	case 26: // cr_complete_collection_req -> rc_complete_collection_res (29): no page rewards yet
-		s.logger.Printf("SQUARE fishing book reward refused aid=%d", aid)
-		return s.reply(frame, 29, pbVar(nil, 1, 0))
+	case 26: // cr_complete_collection_req {PageNo} -> rc_complete_collection_res (29)
+		page, _ := protobufUintField(data, 1)
+		reward, ok := economy.ClaimFishBookPage(aidText, int(page))
+		s.logger.Printf("SQUARE fishing book reward aid=%d page=%d gems=%d ok=%v", aid, page, reward, ok)
+		return s.reply(frame, 29, pbVar(nil, 1, squareBool(ok)))
 	case 59: // cr_inven_item_list_req -> rc_inven_item_list_res (78): RodList stays empty (rods live in the bag)
 		if err := s.reply(frame, 78, nil); err != nil {
 			return err
@@ -283,7 +335,7 @@ func (s *squareSession) handleFishing(frame []byte, msgid uint16, data []byte) e
 		// exists, and rc58 sets that UI's icon visible. Pushed with the room-enter roster, during the
 		// scene load, it crashed the client (GLThread SIGSEGV, device 2026-10-25).
 		return s.reply(frame, squareRcBossRooms, pbVar(nil, 1, squareBossRoomsReady))
-	case 87: // cr_open_shop_req -> rc_open_shop_res (115): Gem-priced rods and bait, real Gem and Cash balances
+	case 87: // cr_open_shop_req -> rc_open_shop_res (115): Gem-priced bait packs, real Gem and Cash balances
 		gems, cash, _ := economy.Balances(aidText)
 		body := pbVar(pbVar(nil, 1, squareFishOK), 2, 1) // ShopId
 		for i, it := range economy.FishingShopItems() {
@@ -292,8 +344,8 @@ func (s *squareSession) handleFishing(frame []byte, msgid uint16, data []byte) e
 		// InvenItems (4) = what the account owns: the shop popup shows Count as "owned" (dword 17
 		// of the InvenItem, copied to ShopItem+36 by FishingShopInfo::SetData 0x1e365d0).
 		owned := squareOwned(aidText)
-		for _, it := range owned {
-			body = pbLen(body, 4, squareInvenItemPlain(it, 1))
+		for _, entry := range owned {
+			body = pbLen(body, 4, squareInvenItemPlain(entry.Item, uint64(entry.Count)))
 		}
 		body = pbVar(body, 5, uint64(gems))
 		body = pbVar(body, 6, uint64(cash))
@@ -301,26 +353,30 @@ func (s *squareSession) handleFishing(frame []byte, msgid uint16, data []byte) e
 		return s.reply(frame, 115, body)
 	case 88: // cr_open_inven_req {BagType: 1 bait, 2 rod} -> rc_open_inven_res (116): owned rows if the switch is on
 		bagType, _ := protobufUintField(data, 1)
-		owned, inUse := economy.FishingBag(aidText, int64(bagType))
+		entries, inUse := economy.FishingBagEntries(aidText, int64(bagType))
 		body := pbVar(pbVar(nil, 1, squareFishOK), 3, bagType)
 		shown := 0
 		if squareBagShowsOwned {
-			for _, it := range owned {
-				body = pbLen(body, 2, squareInvenItemClient(it, 1)) // InvenItems: InvenItemClient rows
+			for _, entry := range entries {
+				body = pbLen(body, 2, squareInvenItemClient(entry.Item, uint64(entry.Count))) // InvenItems: InvenItemClient rows
 				shown++
 			}
 		}
-		s.logger.Printf("SQUARE fishing bag aid=%d type=%d owned=%d inUse=%d shown=%d", aid, bagType, len(owned), inUse, shown)
+		s.logger.Printf("SQUARE fishing bag aid=%d type=%d owned=%d inUse=%d shown=%d", aid, bagType, len(entries), inUse, shown)
 		return s.reply(frame, 116, body)
 	case 89: // cr_buy_item_req {ShopItemId, Count} -> rc_buy_item_res (117): Gems only
 		id, _ := protobufUintField(data, 1)
-		status, gems := economy.BuyFishingItem(aidText, int64(id))
-		s.logger.Printf("SQUARE fishing buy aid=%d item=%d status=%d gems=%d", aid, id, status, gems)
+		status, gems, total := economy.BuyFishingItem(aidText, int64(id))
+		s.logger.Printf("SQUARE fishing buy aid=%d item=%d status=%d gems=%d total=%d", aid, id, status, gems, total)
 		switch status {
 		case economy.FishBuyOK:
-			body := pbVar(nil, 2, id) // ItemId
-			body = pbVar(body, 3, 1)  // Count bought
-			body = pbVar(body, 4, 1)  // TotalCount owned
+			bought := uint64(1)
+			if it, ok := economy.FishingItemByID(int64(id)); ok && it.Uses > 0 {
+				bought = uint64(it.Uses)
+			}
+			body := pbVar(nil, 2, id)            // ItemId
+			body = pbVar(body, 3, bought)        // Count bought
+			body = pbVar(body, 4, uint64(total)) // TotalCount owned
 			return s.reply(frame, 117, body)
 		case economy.FishBuyOwned:
 			return s.reply(frame, 117, pbVar(nil, 1, 393237)) // "Can't buy more than your retention limit."
@@ -331,10 +387,18 @@ func (s *squareSession) handleFishing(frame []byte, msgid uint16, data []byte) e
 		default:
 			return s.reply(frame, 117, pbVar(nil, 1, 10130)) // save failed: "Network Error."
 		}
-	case 90: // cr_equip_item_req -> rc_equip_item_res (118): refused, the bag is not shown (see 88)
-		id, _ := protobufUintField(data, 1)
-		s.logger.Printf("SQUARE fishing equip refused aid=%d item=%d (bag display unsupported)", aid, id)
-		return s.reply(frame, 118, pbVar(nil, 1, 655376)) // "This item is currently unavailable."
+	case 90: // cr_equip_item_req {ItemId, BagType} -> rc_equip_item_res (118)
+		itemID, _ := protobufUintField(data, 1)
+		bagType, _ := protobufUintField(data, 2)
+		status, it := economy.EquipFishingItem(aidText, int64(itemID), int64(bagType))
+		s.logger.Printf("SQUARE fishing equip aid=%d item=%d type=%d status=%d", aid, itemID, bagType, status)
+		if status != economy.FishBuyOK {
+			return s.reply(frame, 118, pbVar(nil, 1, 655376)) // "This item is currently unavailable."
+		}
+		body := pbVar(nil, 1, squareFishOK)
+		body = pbLen(body, 2, squareAsset(it, economy.FishingItemInvenImageURL(it.ID)))
+		body = pbVar(body, 3, aid)
+		return s.reply(frame, 118, body)
 	case 91: // cr_get_equip_item_req -> rc_get_equip_item_res (119): nothing listed (no chat-bar rows)
 		s.logger.Printf("SQUARE fishing gear aid=%d listed=0", aid)
 		return s.reply(frame, 119, nil)
@@ -342,21 +406,19 @@ func (s *squareSession) handleFishing(frame []byte, msgid uint16, data []byte) e
 	return nil
 }
 
-// squareFishPages is the page count of the fishing book (MaxPage). Every Cherry fish fits on page 1.
-const squareFishPages = 1
-
-// squareFishCollection builds rc_fish_collection_res (28) for the book. Entries follow
-// economy.FishCatalog, ItemIndex is the 1-based position (the client sorts by it). A fish the
-// account has not caught sends only its id and count 0, which the client draws as a locked slot
-// (name, level and picture are withheld). RewardCoin stays 0 and PossibleComplete/CompleteAlready
-// are false. The preview picture is the rare fish's, because the client downloads any URL it does
-// not have cached and an empty one would start a request for "". CurrentVersion is 1 + total
-// catches, so the client's cache is refreshed after every catch.
-func squareFishCollection(aidText string, page uint64) ([]byte, int) {
-	counts, total := economy.FishCollection(aidText)
+// squareFishCollection builds rc_fish_collection_res (28) for one page of the book (up to 9
+// species per page). ItemIndex is the 1-based position on the page (the client sorts by it). A
+// fish the account has not caught sends only its id and count 0, which the client draws as a locked
+// slot (name, level and picture are withheld). RewardType 4 (Gem) and RewardCoin carry the page
+// completion reward; PossibleComplete and CompleteAlready reflect the account's progress on that
+// page. RewardRatio lists normal (type 1) and rare (type 2) catch chances in units of 1/10000.
+// PreviewItemImageUrl uses the last fish on the page. CurrentVersion is 1 + total catches, so the
+// client's cache is refreshed after every catch.
+func squareFishCollection(aidText string, page, maxPage uint64) ([]byte, int) {
+	slice, counts, total, possibleComplete, completeAlready, rewardGems := economy.FishBookPage(aidText, int(page))
 	var coll []byte
 	caught := 0
-	for i, f := range economy.FishCatalog() {
+	for i, f := range slice {
 		n := counts[f.ID]
 		entry := pbVar(nil, 1, uint64(i+1))
 		entry = pbVar(entry, 2, uint64(f.ID))
@@ -371,12 +433,25 @@ func squareFishCollection(aidText string, page uint64) ([]byte, int) {
 		coll = pbLen(coll, 1, entry)
 	}
 	out := pbVar(nil, 1, squareFishOK)
-	out = pbVar(out, 2, squareFishPages)
+	out = pbVar(out, 2, maxPage)
 	out = pbVar(out, 3, page)
 	out = pbVar(out, 4, uint64(1+total))
-	out = pbVar(out, 6, 0)
+	if rewardGems > 0 {
+		out = pbVar(out, 5, 4) // Gem
+	}
+	out = pbVar(out, 6, uint64(rewardGems))
 	out = pbLen(out, 8, coll)
-	out = pbVar(out, 9, 0)
-	out = pbVar(out, 10, 0)
-	return pbLen(out, 12, []byte(economy.FishImageURL(4201))), caught
+	out = pbVar(out, 9, squareBool(possibleComplete))
+	out = pbVar(out, 10, squareBool(completeAlready))
+
+	rarePct := min(max(economy.ActiveFishing().RarePercent+int(economy.FishingGearBonus(aidText)), 0), 100)
+	rareRatio := uint64(rarePct) * 10000
+	normalRatio := uint64(100-rarePct) * 10000
+	out = pbLen(out, 11, pbVar(pbVar(nil, 1, 1), 2, normalRatio))
+	out = pbLen(out, 11, pbVar(pbVar(nil, 1, 2), 2, rareRatio))
+
+	if len(slice) > 0 {
+		out = pbLen(out, 12, []byte(economy.FishImageURL(slice[len(slice)-1].ID)))
+	}
+	return out, caught
 }

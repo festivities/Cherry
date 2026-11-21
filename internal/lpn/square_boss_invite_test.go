@@ -6,10 +6,10 @@ import (
 	"log"
 	"net"
 	"reflect"
-	"strconv"
 	"strings"
 	"testing"
 
+	"cherry/internal/economy"
 	"cherry/internal/store"
 	"cherry/internal/testutil"
 )
@@ -162,7 +162,7 @@ func TestSquareBossRosterRodAndPicture(t *testing.T) {
 		"boss-9991": {AccessToken: "boss-9991", SessionKey: "sk-9991", Aid: "9991", Name: "Master",
 			ProfileImage: store.ProfileImage{Image: "/lineplay/pr/9991_1700000000"}},
 		"boss-9992": {AccessToken: "boss-9992", SessionKey: "sk-9992", Aid: "9992", Name: "Member",
-			Gear: &store.FishingGear{Owned: []int64{9002}, Rod: 9002}},
+			Gear: &store.FishingGear{Owned: []int64{9001}, Rod: 9001}},
 	})
 	room := &squareRoom{}
 	master := newSqClient(t, room, 1)
@@ -183,8 +183,8 @@ func TestSquareBossRosterRodAndPicture(t *testing.T) {
 		rod     uint64
 		profile string
 	}{
-		9991: {9001, static + "/lineplay/pr/9991_1700000000"}, // no rod in use: the shop's first rod
-		9992: {9002, static + "/cherry/menu/user-star.png"},   // the rod in use; no picture: the placeholder
+		9991: {9001, static + "/lineplay/pr/9991_1700000000"}, // no rod in use: the basic rod
+		9992: {9001, static + "/cherry/menu/user-star.png"},   // the rod in use; no picture: the placeholder
 	}
 	seen := 0
 	ok := pbScan(body, func(f, _ uint64, d []byte) {
@@ -208,7 +208,7 @@ func TestSquareBossRosterRodAndPicture(t *testing.T) {
 		}
 		url, _, _ := pbBytesField(rod, 5)
 		playing, _, _ := pbBytesField(rod, 6)
-		wantURL := static + "/cherry/fishing/" + strconv.FormatUint(exp.rod, 10) + ".png"
+		wantURL := static + "/" + economy.FishingItemInvenImageURL(int64(exp.rod))
 		if string(url) != wantURL || len(playing) != 0 {
 			t.Fatalf("aid %d: rod ImageUrl %q, PlayingImageUrl %q; want %q and empty", aid, url, playing, wantURL)
 		}

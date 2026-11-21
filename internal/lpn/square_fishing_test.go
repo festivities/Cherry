@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"cherry/internal/economy"
 	"cherry/internal/store"
 	"cherry/internal/testutil"
 )
@@ -102,8 +103,8 @@ func fishingBalance(t *testing.T, aid string) int64 {
 func fishingReply(t *testing.T, c *sqClient, req uint16, body []byte, wantID uint16, wantResult uint64, aid uint64) []byte {
 	t.Helper()
 	c.send(req, body)
-	if req == 29 || req == 28 {
-		// start and end first broadcast rc_player_status_all (10) to the room, before the reply.
+	if (req == 29 && wantResult == squareFishOK) || req == 28 {
+		// successful start and end first broadcast rc_player_status_all (10) to the room, before the reply.
 		want := uint64(squareStatusFishing)
 		if req == 28 {
 			want = squareStatusIdle
@@ -138,9 +139,9 @@ func TestSquareFishingCastCredits(t *testing.T) {
 	// Entering Square pays the daily "Hang out in Square" quest (40 Gems), so count fishing from here.
 	base := fishingBalance(t, aidText)
 
-	// begin: the serial is echoed and the retry cost stays 0.
+	// begin: the serial is echoed and RetryGem matches ActiveFishing().RetryGems (1250).
 	begin := fishingReply(t, c, 27, pbVar(nil, 1, squareSpotSerial), 30, squareFishOK, aid)
-	if squareUint(t, begin, 3) != squareSpotSerial || squareUint(t, begin, 4) != 0 {
+	if squareUint(t, begin, 3) != squareSpotSerial || squareUint(t, begin, 4) != uint64(economy.ActiveFishing().RetryGems) {
 		t.Fatalf("begin serial/retry = %d/%d", squareUint(t, begin, 3), squareUint(t, begin, 4))
 	}
 
@@ -156,7 +157,7 @@ func TestSquareFishingCastCredits(t *testing.T) {
 	if squareUint(t, fin, 3) != squareRewardFish || squareUint(t, fin, 15) != 1 || squareUint(t, fin, 6) == 0 || len(squareNested(t, fin, 7)) == 0 {
 		t.Fatalf("finish card fields = %x", fin)
 	}
-	if gems == 0 || gems > 25 || (gems > 10 && gems != 25) {
+	if gems < 5 || gems > 35 || (gems > 14 && gems < 22) {
 		t.Fatalf("payout = %d outside the fish table", gems)
 	}
 	if got := fishingBalance(t, aidText); got != base+int64(gems) {
@@ -189,6 +190,113 @@ func TestSquareFishingCastCredits(t *testing.T) {
 	end := fishingReply(t, c, 28, nil, 31, squareFishOK, aid)
 	if !bytes.Equal(end, pbVar(pbVar(nil, 1, aid), 2, squareFishOK)) {
 		t.Fatalf("end body = %x", end)
+	}
+}
+
+func TestSquareFishingRareRetry(t *testing.T) {
+	now := time.Date(2026, time.October, 11, 12, 0, 0, 0, eventJST)
+	pinEventClock(t, now)
+	const aidText = "9804"
+	aid, err := strconv.ParseUint(aidText, 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := fishingRoomAccount(t, aidText, 2000)
+	// Put account at daily Gem cap so retry + rare catch tests independence from daily cap.
+	store.AccountsMu.Lock()
+	acc := store.AccountByAidLocked(aidText)
+	acc.Fishing = &store.FishingDay{Day: economy.AttendDayKey(now), Gems: economy.ActiveFishing().DailyCap}
+	_ = store.SaveLocked(nil, acc)
+	store.AccountsMu.Unlock()
+	startBal := fishingBalance(t, aidText)
+
+	cat := economy.FishCatalog()
+	normalFish := cat[0] // 4101 Mackerel (not rare)
+	rareFish := cat[25]  // 4126 Piranha (rare)
+
+	// Missing a normal fish sets RetryPossible = 0 and omits TryCountResetCost.
+	c.sess.fish = &squareFish{def: normalFish, active: true}
+	missNormal := fishingReply(t, c, 30, pbVar(nil, 1, 0), 33, squareFishMiss, aid)
+	if v, found := protobufUintField(missNormal, 23); found && v != 0 {
+		t.Fatalf("normal miss RetryPossible = %d, want 0", v)
+	}
+	if _, found, _ := pbBytesField(missNormal, 31); found {
+		t.Fatalf("normal miss unexpectedly included TryCountResetCost: %x", missNormal)
+	}
+	// Retry without a missed rare fish is refused.
+	fishingReply(t, c, 29, pbVar(nil, 1, 1), 32, squareFishMiss, aid)
+
+	// Missing a rare fish sets RetryPossible = 1 and TryCountResetCost = {CoinType: 1, CoinCount: 1250}.
+	c.sess.fish = &squareFish{def: rareFish, active: true}
+	missRare := fishingReply(t, c, 30, pbVar(nil, 1, 0), 33, squareFishMiss, aid)
+	if squareUint(t, missRare, 23) != 1 {
+		t.Fatalf("rare miss RetryPossible = %x, want 1", missRare)
+	}
+	cost := squareNested(t, missRare, 31)
+	if squareUint(t, cost, 1) != 1 || squareUint(t, cost, 2) != 1250 {
+		t.Fatalf("TryCountResetCost = %x, want {1, 1250}", cost)
+	}
+
+	// Retry charges 1250 Gems outside the daily cap and restarts the same rare fish.
+	retryStart := fishingReply(t, c, 29, pbVar(nil, 1, 1), 32, squareFishOK, aid)
+	if squareUint(t, retryStart, 4) != 1 {
+		t.Fatalf("retry IsRare = %x, want 1", retryStart)
+	}
+	if got := fishingBalance(t, aidText); got != startBal-1250 {
+		t.Fatalf("balance after retry = %d, want %d", got, startBal-1250)
+	}
+	finRetry := fishingReply(t, c, 30, pbVar(nil, 1, 1), 33, squareFishOK, aid)
+	if squareUint(t, finRetry, 6) != uint64(rareFish.ID) {
+		t.Fatalf("retry catch fish = %d, want %d", squareUint(t, finRetry, 6), rareFish.ID)
+	}
+
+	// Insufficient Gems refuses retry without charging.
+	c.sess.fish = &squareFish{def: rareFish, active: true}
+	fishingReply(t, c, 30, pbVar(nil, 1, 0), 33, squareFishMiss, aid)
+	balBefore := fishingBalance(t, aidText) // < 1250
+	fishingReply(t, c, 29, pbVar(nil, 1, 1), 32, squareFishMiss, aid)
+	if got := fishingBalance(t, aidText); got != balBefore {
+		t.Fatalf("balance changed on refused retry: %d != %d", got, balBefore)
+	}
+}
+
+func TestSquareFishingBaitConsumeAndExhaust(t *testing.T) {
+	pinEventClock(t, time.Date(2026, time.October, 11, 12, 0, 0, 0, eventJST))
+	const aidText = "9805"
+	aid, err := strconv.ParseUint(aidText, 10, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := fishingRoomAccount(t, aidText, 500)
+	if st, _, _ := economy.BuyFishingItem(aidText, 9102); st != economy.FishBuyOK {
+		t.Fatalf("buy B bait = %d", st)
+	}
+	// Set remaining uses to 2 so two casts exercise non-exhausted and exhausted transitions.
+	store.AccountsMu.Lock()
+	acc := store.AccountByAidLocked(aidText)
+	acc.Gear.BaitUses[9102] = 2
+	_ = store.SaveLocked(nil, acc)
+	store.AccountsMu.Unlock()
+
+	fishingReply(t, c, 29, pbVar(nil, 1, 0), 32, squareFishOK, aid)
+	fin1 := fishingReply(t, c, 30, pbVar(nil, 1, 1), 33, squareFishOK, aid)
+	if v, found := protobufUintField(fin1, 17); found && v != 0 {
+		t.Fatalf("cast 1 BaitExaust = %d, want unset", v)
+	}
+	if _, inUse := economy.FishingBag(aidText, economy.FishKindBait); inUse != 9102 {
+		t.Fatalf("bait in use after cast 1 = %d, want 9102", inUse)
+	}
+
+	fishingReply(t, c, 29, pbVar(nil, 1, 0), 32, squareFishOK, aid)
+	fin2 := fishingReply(t, c, 30, pbVar(nil, 1, 0), 33, squareFishMiss, aid)
+	if squareUint(t, fin2, 17) != 1 {
+		t.Fatalf("cast 2 BaitExaust missing: %x", fin2)
+	}
+	if _, inUse := economy.FishingBag(aidText, economy.FishKindBait); inUse != 9101 {
+		t.Fatalf("bait in use after exhaustion = %d, want 9101", inUse)
+	}
+	if bonus := economy.FishingGearBonus(aidText); bonus != 0 {
+		t.Fatalf("gear bonus after exhaustion = %d, want 0", bonus)
 	}
 }
 

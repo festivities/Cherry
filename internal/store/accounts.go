@@ -19,64 +19,65 @@ import (
 )
 
 type StoredAccount struct {
-	AccessToken    string                `json:"accessToken"`
-	SessionKey     string                `json:"sessionKey"` // clear only while no session secret is set (sessionkey.go)
-	SessionSalt    string                `json:"sessionSalt,omitempty"`
-	SessionEpoch   int64                 `json:"sessionEpoch,omitempty"`
-	LegacyKeyHash  string                `json:"legacySessionKeyHash,omitempty"`
-	Mid            string                `json:"mid"`
-	AvatarUserID   string                `json:"avatarUserId"`
-	Aid            string                `json:"aid"`
-	Name           string                `json:"name"`
-	Gender         string                `json:"gender"`
-	Skin           string                `json:"skin"`
-	Country        string                `json:"country"`
-	ItemCodes      []string              `json:"itemCodes"`
-	InventoryCodes []string              `json:"inventoryCodes"`
-	RoomItems      []RoomItem            `json:"roomItems,omitempty"`
-	NextRoomSeq    int64                 `json:"nextRoomSeq,omitempty"`
-	Rooms          map[string]RoomLayout `json:"rooms,omitempty"`
-	Presets        map[string]RoomPreset `json:"roomPresets,omitempty"`
-	Pets           []PetItem             `json:"pets,omitempty"`
-	Gems           int64                 `json:"gems,omitempty"`
-	Cash           int64                 `json:"cash,omitempty"`
-	FaceTickets    int64                 `json:"faceTickets,omitempty"`
-	Welcomed       bool                  `json:"welcomed,omitempty"`
-	AttendDay      int                   `json:"attendDay,omitempty"`
-	AttendKey      int64                 `json:"attendKey,omitempty"`
-	Mail           []MailRow             `json:"mail,omitempty"`
-	NextMailSeq    int64                 `json:"nextMailSeq,omitempty"`
-	ProfileImage   *ProfileImage         `json:"profileImage,omitempty"`
-	Quests         *QuestDay             `json:"quests,omitempty"`
-	Fishing        *FishingDay           `json:"fishing,omitempty"`
-	FishCaught     map[int64]int64       `json:"fishCaught,omitempty"`
-	Gear           *FishingGear          `json:"fishingGear,omitempty"`
-	BossCoins      int64                 `json:"bossCoins,omitempty"`
-	BossTries      *BossDay              `json:"bossTries,omitempty"`
-	BossCaught     map[int64]int64       `json:"bossCaught,omitempty"`
-	BossBook       map[int64]bool        `json:"bossBook,omitempty"`
-	Hearts         *Hearts               `json:"hearts,omitempty"`
-	PaidPrices     map[string]int64      `json:"paidPrices,omitempty"`
-	Smiles         int64                 `json:"smiles,omitempty"`
-	GardenBag      []GardenBagStack      `json:"gardenBag,omitempty"`
-	Gather         *GatherDay            `json:"gathering,omitempty"`
-	Atelier        *AtelierState         `json:"atelier,omitempty"`
-	Racing         *RacingRecord         `json:"racing,omitempty"`
-	GardenMap      string                `json:"gardenMap,omitempty"`
-	Landscapes     []string              `json:"landscapes,omitempty"`
-	Pins           []string              `json:"pins,omitempty"`
-	DiaryProfile   *DiaryProfile         `json:"diaryProfile,omitempty"`
-	Wishes         []string              `json:"wishes,omitempty"`
-	Butlers        *ButlerBook           `json:"butlers,omitempty"`
-	Dyes           map[string]int        `json:"dyes,omitempty"`
-	DyeColors      map[string][]DyeColor `json:"dyeColors,omitempty"`
-	LuckySpinDay   int64                 `json:"luckySpinDay,omitempty"`
-	AvatarCreated  int64                 `json:"avatarCreated,omitempty"`
-	BirthdayClaims map[int]int64         `json:"birthdayClaims,omitempty"`
-	GuestCode      string                `json:"guestCode,omitempty"`
-	Identity       string                `json:"identity,omitempty"`
-	CodeHashes     []string              `json:"codeHashes,omitempty"`
-	Ban            *Ban                  `json:"ban,omitempty"`
+	AccessToken     string                `json:"accessToken"`
+	SessionKey      string                `json:"sessionKey"` // clear only while no session secret is set (sessionkey.go)
+	SessionSalt     string                `json:"sessionSalt,omitempty"`
+	SessionEpoch    int64                 `json:"sessionEpoch,omitempty"`
+	LegacyKeyHash   string                `json:"legacySessionKeyHash,omitempty"`
+	Mid             string                `json:"mid"`
+	AvatarUserID    string                `json:"avatarUserId"`
+	Aid             string                `json:"aid"`
+	Name            string                `json:"name"`
+	Gender          string                `json:"gender"`
+	Skin            string                `json:"skin"`
+	Country         string                `json:"country"`
+	ItemCodes       []string              `json:"itemCodes"`
+	InventoryCodes  []string              `json:"inventoryCodes"`
+	RoomItems       []RoomItem            `json:"roomItems,omitempty"`
+	NextRoomSeq     int64                 `json:"nextRoomSeq,omitempty"`
+	Rooms           map[string]RoomLayout `json:"rooms,omitempty"`
+	Presets         map[string]RoomPreset `json:"roomPresets,omitempty"`
+	Pets            []PetItem             `json:"pets,omitempty"`
+	Gems            int64                 `json:"gems,omitempty"`
+	Cash            int64                 `json:"cash,omitempty"`
+	FaceTickets     int64                 `json:"faceTickets,omitempty"`
+	Welcomed        bool                  `json:"welcomed,omitempty"`
+	AttendDay       int                   `json:"attendDay,omitempty"`
+	AttendKey       int64                 `json:"attendKey,omitempty"`
+	Mail            []MailRow             `json:"mail,omitempty"`
+	NextMailSeq     int64                 `json:"nextMailSeq,omitempty"`
+	ProfileImage    *ProfileImage         `json:"profileImage,omitempty"`
+	Quests          *QuestDay             `json:"quests,omitempty"`
+	Fishing         *FishingDay           `json:"fishing,omitempty"`
+	FishCaught      map[int64]int64       `json:"fishCaught,omitempty"`
+	FishBookClaimed []int64               `json:"fishBookClaimed,omitempty"`
+	Gear            *FishingGear          `json:"fishingGear,omitempty"`
+	BossCoins       int64                 `json:"bossCoins,omitempty"`
+	BossTries       *BossDay              `json:"bossTries,omitempty"`
+	BossCaught      map[int64]int64       `json:"bossCaught,omitempty"`
+	BossBook        map[int64]bool        `json:"bossBook,omitempty"`
+	Hearts          *Hearts               `json:"hearts,omitempty"`
+	PaidPrices      map[string]int64      `json:"paidPrices,omitempty"`
+	Smiles          int64                 `json:"smiles,omitempty"`
+	GardenBag       []GardenBagStack      `json:"gardenBag,omitempty"`
+	Gather          *GatherDay            `json:"gathering,omitempty"`
+	Atelier         *AtelierState         `json:"atelier,omitempty"`
+	Racing          *RacingRecord         `json:"racing,omitempty"`
+	GardenMap       string                `json:"gardenMap,omitempty"`
+	Landscapes      []string              `json:"landscapes,omitempty"`
+	Pins            []string              `json:"pins,omitempty"`
+	DiaryProfile    *DiaryProfile         `json:"diaryProfile,omitempty"`
+	Wishes          []string              `json:"wishes,omitempty"`
+	Butlers         *ButlerBook           `json:"butlers,omitempty"`
+	Dyes            map[string]int        `json:"dyes,omitempty"`
+	DyeColors       map[string][]DyeColor `json:"dyeColors,omitempty"`
+	LuckySpinDay    int64                 `json:"luckySpinDay,omitempty"`
+	AvatarCreated   int64                 `json:"avatarCreated,omitempty"`
+	BirthdayClaims  map[int]int64         `json:"birthdayClaims,omitempty"`
+	GuestCode       string                `json:"guestCode,omitempty"`
+	Identity        string                `json:"identity,omitempty"`
+	CodeHashes      []string              `json:"codeHashes,omitempty"`
+	Ban             *Ban                  `json:"ban,omitempty"`
 }
 
 // accountFile is the account part of a legacy accounts.json, parsed without touching the store. Only cmd/cherry-import
@@ -470,7 +471,7 @@ func StoredFrom(acc *Account) StoredAccount {
 		RoomItems:      acc.RoomItems, NextRoomSeq: acc.NextRoomSeq, Rooms: acc.Rooms, Presets: acc.Presets, Pets: acc.Pets,
 		Gems: acc.Gems, Cash: acc.Cash, FaceTickets: acc.FaceTickets, Welcomed: acc.Welcomed,
 		AttendDay: acc.AttendDay, AttendKey: acc.AttendKey, Mail: acc.Mail, NextMailSeq: acc.NextMailSeq,
-		ProfileImage: pi, Quests: acc.Quests, Fishing: acc.Fishing, FishCaught: acc.FishCaught, Gear: acc.Gear,
+		ProfileImage: pi, Quests: acc.Quests, Fishing: acc.Fishing, FishCaught: acc.FishCaught, FishBookClaimed: slices.Clone(acc.FishBookClaimed), Gear: acc.Gear,
 		BossCoins: acc.BossCoins, BossTries: acc.BossTries, BossCaught: acc.BossCaught, BossBook: acc.BossBook,
 		Hearts: acc.Hearts, PaidPrices: acc.PaidPrices,
 		Smiles: acc.Smiles, GardenBag: acc.GardenBag, Gather: acc.Gather, Atelier: acc.Atelier,
@@ -499,7 +500,7 @@ func accountFromStored(saved StoredAccount) *Account {
 		Gems: max(saved.Gems, 0), Cash: max(saved.Cash, 0), FaceTickets: max(saved.FaceTickets, 0), Welcomed: saved.Welcomed,
 		AttendDay: saved.AttendDay, AttendKey: saved.AttendKey, Mail: saved.Mail, NextMailSeq: saved.NextMailSeq,
 		ProfileImage: derefProfile(saved.ProfileImage), Quests: saved.Quests, Fishing: saved.Fishing,
-		FishCaught: saved.FishCaught, Gear: saved.Gear, BossCoins: max(saved.BossCoins, 0), BossTries: saved.BossTries,
+		FishCaught: saved.FishCaught, FishBookClaimed: slices.Clone(saved.FishBookClaimed), Gear: saved.Gear, BossCoins: max(saved.BossCoins, 0), BossTries: saved.BossTries,
 		BossCaught: saved.BossCaught, BossBook: saved.BossBook, Hearts: saved.Hearts, PaidPrices: saved.PaidPrices,
 		Smiles: max(saved.Smiles, 0), GardenBag: saved.GardenBag, Gather: saved.Gather,
 		Atelier: saved.Atelier,

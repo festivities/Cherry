@@ -135,13 +135,11 @@ func TestGatheringFileRefusals(t *testing.T) {
 func TestFishingFileRefusals(t *testing.T) {
 	t.Cleanup(resetOperatorData)
 	raw := data.FishingJSON
-	noRare := mutateDefault(t, raw,
-		`"rare": true, "tint": "#ffcd1e"`, `"rare": false, "tint": "#ffcd1e"`,
-		`"rare": true, "tint": "#78e1ff"`, `"rare": false, "tint": "#78e1ff"`)
+	noRare := strings.ReplaceAll(string(raw), `"rare": true`, `"rare": false`)
 	cases := []struct{ text, want string }{
 		{noRare, "needs at least one normal and one rare fish"},
-		{mutateDefault(t, raw, `"tint": "#f08228"`, `"tint": "red"`), "must be #rrggbb"},
-		{mutateDefault(t, raw, `"kind": "bait", "price": 40`, `"kind": "boat", "price": 40`), `kind must be rod or bait, not "boat"`},
+		{mutateDefault(t, raw, `"tint": "#4f86c6"`, `"tint": "red"`), "must be #rrggbb"},
+		{mutateDefault(t, raw, `"kind": "bait", "price": 150`, `"kind": "boat", "price": 150`), `kind must be rod or bait, not "boat"`},
 		{mutateDefault(t, raw, `"daily_cap": 150`, `"daily_cap": -5`), "daily_cap must not be negative"},
 	}
 	for _, c := range cases {

@@ -107,8 +107,11 @@ const (
 	squareProfilePlaceholder = squareStaticHost + "/cherry/menu/user-star.png" // Profile5 of an account with no picture
 )
 
-// squareDefaultRod is the first rod of the fish shop: the rod a member shows when none is in use.
+// squareDefaultRod is the basic rod (or the first rod of the fish shop): the rod a member shows when none is in use.
 func squareDefaultRod() (economy.FishingItem, bool) {
+	if it, ok := economy.FishingBasicItem(economy.FishKindRod); ok {
+		return it, true
+	}
 	for _, it := range economy.FishingShopItems() {
 		if it.Kind == economy.FishKindRod {
 			return it, true
@@ -119,7 +122,7 @@ func squareDefaultRod() (economy.FishingItem, bool) {
 
 // squareBossRod is RodInfo4 of a lobby entry: an AssetItemClient for the rod the member has in use (the default rod
 // when none). The picture is an absolute URL, because the lobby's picture download takes the URL as it is
-// (boss-mp-addendum 3). nil only when the shop lists no rod at all.
+// (boss-mp-addendum 3). nil only when no rod is configured at all.
 func squareBossRod(aid uint64) []byte {
 	_, inUse := economy.FishingBag(strconv.FormatUint(aid, 10), economy.FishKindRod)
 	rod, ok := economy.FishingItemByID(inUse)
@@ -129,7 +132,7 @@ func squareBossRod(aid uint64) []byte {
 	if !ok {
 		return nil
 	}
-	return squareAsset(rod, squareStaticHost+"/"+economy.FishingItemImageURL(rod.ID))
+	return squareAsset(rod, squareStaticHost+"/"+economy.FishingItemInvenImageURL(rod.ID))
 }
 
 // squareBossPicture is Profile5 of a lobby entry, an absolute URL that is never empty: the member's uploaded picture
