@@ -404,7 +404,7 @@ These are known and documented, and each has a reason:
 - **No LINE files:** never commit game assets, APKs, client binaries, credentials, databases or logs. The repository is public.
 - **No private values:** keep code and docs endpoint-agnostic. Never commit a real host name, port, address, Discord id, bucket name or secret.
 - **Verify against the client:** check every reply shape against what the client parses. The client crashes on a wrong JSON type and silently drops a protobuf frame with a missing required field. [.agents/REFERENCE.md](.agents/REFERENCE.md) has the per-feature protocol notes, and [.agents/AGENTS.md](.agents/AGENTS.md) has the architecture and rules.
-- **Security issues:** please don't post the details in a public issue. Open an issue asking for a private contact instead.
+- **Security issues:** please don't post the details in a public issue. Report them privately through [GitHub's private vulnerability reporting](https://github.com/festivities/Cherry/security/advisories/new) (the repository's Security tab → "Report a vulnerability").
 
 ## Legal
 
