@@ -2355,3 +2355,55 @@ Context loaded (`AGENTS.md`, `PLAN.md`, `CONTRACT.md`, Raspberry `CONTRACT.md` �
 - Production (read-only): running `f8180ef`, `/healthz` = `ok`, `cherry` and `litestream` both `active`, `auth.signup` = `allowlist`.
 - Local: no `cherry` process running; `emulator-5559` = AVD `Raspberry`; `.opencode/line-play-artifacts` has all 8 entries and is git-ignored at `.gitignore:35`.
 - Waiting on the user's word for deploy, R2 asset upload, or opening sign-up, and for direction on next task (e.g., reviewing `wip/robo-art-20261121` / robo originals, fishing rebuild, or deploying `main`).
+
+### HANDOFF INITIATED — 2026-11-21 ~21:40 host time (Antigravity, Cherry session → next agent; focus: comprehensive `README.md`)
+
+**CRITICAL — PRODUCTION IS NOW LIVE FOR PUBLIC SIGN-UPS (`auth.signup = open`).**
+The server on the user's Oracle host was deployed to **`4fd87ec`** (schema v10), verified end-to-end (AVD `Raspberry` smoke test + staff panel read-only check in `charlotte`), wiped of pre-launch test accounts so the owner could claim `aid = 10`, and **opened for public sign-ups (`auth.signup = open`)** on 2026-11-21 ~21:30. **Extra care is mandatory from now on:**
+- Real players may be online and creating real data in `cherry.db` at any time.
+- **Never** wipe, reset, or edit production `cherry.db` rows without explicit user instruction.
+- **Never** deploy, restart `cherry`, or run R2 uploads without explicit user approval (a restart disconnects every live player).
+- Before any future deploy that changes the SQLite schema or rewrites rows: stop `cherry`, copy `cherry.db`, `cherry.db-wal`, and `cherry.db-shm` to a dated `backup-pre-<commit>-<date>` folder on the host, then deploy via `systemd-run --unit=cherry-deploy-<commit> --collect ...`.
+- **Production values are strictly private:** never put the operator's domain, hostnames, ports, IP address, Discord IDs, bucket names, or secrets into `README.md`, any tracked file, commit message, or external request.
+
+**Read first:** [AGENTS.md](AGENTS.md) ("Baseline", "Policies", "Workflow", "Production", "Code map"), [CONTRACT.md](CONTRACT.md), [DATASET.md](DATASET.md), this handoff block, and the Status rows of 2026-11-21.
+
+**Recheck and append HANDOFF ACCEPTED:**
+- `git status` (clean on `main` at this handoff commit), `gh run list --limit 3` (all green).
+- Production read-only (only if needed; do not restart or touch anything): `/home/cherry/AGENTS.md` on the host first, `cat /home/cherry/bin/cherry.commit` = `4fd87ec`, `curl -s 127.0.0.1:8099/healthz` = `ok`, `systemctl is-active cherry litestream` = both `active`.
+- `.opencode/line-play-artifacts` intact (8 entries, git-ignored at `.gitignore:35`).
+
+**What shipped in `4fd87ec` (all reviewed, gate + CI green, deployed 2026-11-21):**
+1. Pre-existing `main` commits since `f8180ef`: birthday-hat fix (`59a62a9`), schema v8 `deleted_avatars` (`0980a2b`), schema v9 `reports` queue (`44f8ab9`), iOS badge-tick routes (`e3c95bc`), avatar birthday reward (`32c007e`), schema v10 owner avatar move/restore & new-player Delete Avatar (`2290d9e`).
+2. `27c037d` Robo originals part 3: dye tubes, 13/15 original dye masks, Circle 24 symbols + 19 backgrounds; `orig:cache` uploaded to R2 (341/341 verified); deleted `wip/robo-art-20261121` branch.
+3. `8369f7b` Robo originals part 4: Lucky/Jackpot Spin original UI panels & tiered Gem prize icons (`/cherry/spin/orig/…`).
+4. `194d6c9` 81-species Square fishing rebuild: all 81 original species (`4101–4181`, 80 robo PNGs + Porcupinefish silhouette), 9-page Collection Book + 100-Gem per-page claim, free basic rod/bait + repeatable 20-use S/A/B bait packs (600/300/150 Gems), 1,250-Gem rare fish retry.
+5. `4b0615a`, `bd54962` Butler 1:1 visual matching pass across santi+lp+robo (Ian, Merry across all 15 skins, Kai, Celina with original dress `CUON0083X`, Elena, Michel).
+6. `66cc6db` Operator-editable Minipet catalog (`data/pets.json`, 27th operator document, 310 renderable archive pets): all 26 original Shop pets (6 Dogs, 10 Cats, 10 Rides) + 5 breeds visually matched, remaining wiki names assigned by category, scaled affordable Shop prices (Gem Dogs/Cats 800–1,800, Cash Dogs/Cats 10–22, Gem Ride Carrie 2,000, Cash Rides 20–35), original Ride Pet stats wired into Minipet Shop, Pet Book (`raceNm`), `ItemName`, newly bought pet names, and Square Riding Pet Race.
+7. `77fd9ae`, `4fd87ec` Configurable server limits & pure-Go adaptive photo compressor: `uploads.max-total-bytes` (default 100 MiB shared across diary/room/profile), `uploads.max-receive-bytes` (default 20 MiB hard cap), `uploads.max-jpeg-bytes` & `uploads.max-png-bytes` (both default 150 KiB; area-average downscaling + JPEG quality search for opaque images, median-cut PNG-8 with full alpha + area-average downscaling for transparent PNGs, 2-slot concurrency semaphore), `limits.max-players` (default 200, enforced at `checkSession` with 503 and `:10123` `sendInit` without kicking online players); all live-editable and resettable on Owner Settings (`/settings`, stored in `cherry.db` `meta`, audited).
+8. Production launch (2026-11-21 ~21:23–21:36): wiped 3 old local `backup-pre-*` folders, reset the private R2 Litestream replica, deployed `4fd87ec` (schema v7 → v10), verified Litestream fresh v10 snapshot, passed AVD `Raspberry` smoke test (Garden no birthday hat, Minipet Shop dogs + rides names/prices/stats verified, zero errors in `journalctl`), verified live staff panel `/settings`, `/reports`, `/docs/pets.json` read-only in `charlotte`, flipped `auth.signup` to `open`, and wiped test players/deleted avatars (`accounts.nextAvatarId = 0`, so the first player claims `aid = 10` — `store.MinAvatarID = 10` because `libgame.so` blanks single-digit aids in Room Party invite cells).
+
+**Primary next task (user request 2026-11-21):**
+1. **Write a comprehensive public `README.md`** at `D:\Dev\projects\Cherry\README.md`:
+   - Must stay **100% endpoint-agnostic and public-safe** (never mention production hostnames, ports, IPs, Discord IDs, bucket names, or secrets).
+   - Cover clearly and accurately (grounded in the actual repo):
+     - **What Cherry is:** A Go server emulator for LINE PLAY (v10.1.0.0) built for preservation, with zero fiat/real-money paths (all currencies earned in-game) and zero bundled LINE binaries or copyrighted assets.
+     - **Feature overview:** Avatar creation & Closet/Face Shop/Colorant Dye, Garden (gathering, Atelier crafting, landscapes, 7 original Butlers with Voice Book/Skin Shop/Memories), My Room & Room Party, 11 Squares (Treasure Island 81-species Fishing, Boss Raids & Boss Coin Exchange; LINE City Riding Pet Race & Ride Point Exchange), Minipet Shop (310 pets with scaled prices & Ride stats) & Pet Book, Gacha Shop, Lucky/Jackpot Spin, Circle (cat hot spa room, rankings, missions), Treasure World (Blue Marble board game), Friends/Diary/Guestbook/Lounge & 1:1 Chat, Economy & Mailbox/Calendars/Quests, and the Discord-authenticated Staff Panel (`/settings`, live operator document editor, moderation, reports, chat/photo logs, insights, audit trail).
+     - **Architecture & stack:** Go 1.27 (`CGO_ENABLED=0`), stdlib + `modernc.org/sqlite` only, package layout (`cmd/cherry`, `cmd/cherry-assets`, `cmd/cherry-import`, `cmd/cherry-load`, `internal/*`, `data/`), protocols (HTTPS REST, plain HTTP asset allowlist, `:10123` session XTCP, `:10000` LPN gateway with AES-128-CFB128).
+     - **Building, testing & running:** Prerequisites, `go build`, running the gate (`gofmt`, `go vet`, `-race`, `CHERRY_TEST_NO_ARCHIVE=1`), `cherry -h` configuration hierarchy (flags > env > `-config` JSON > defaults), `lab-guest` vs `dev-fake` vs `discord` (`server.public`) modes, key `cherry.json` settings (`auth.*`, `listen.*`, `tls.*`, `staff.*`, `limits.*`, `uploads.*`, `retention.*`), and Litestream SQLite replication.
+     - **Assets & client setup:** Link to [`.agents/DATASET.md`](.agents/DATASET.md) for building an operator's own R2 asset bucket from their own backups/APK, and to [`.agents/CONTRACT.md`](.agents/CONTRACT.md) + the companion **Raspberry** client patcher repo (`festivities/Raspberry`) for connecting Android/iOS clients.
+     - **Operator customization:** The 27 embedded `data/*.json` files (editable via `config/` overrides or live in the Staff Panel's Document editor) and live Owner Settings (`cherry.db` `meta`).
+     - **Preservation & legal disclaimer:** Unofficial fan preservation project, not affiliated with LINE Corporation / NAVER, no copyrighted assets or APKs distributed.
+   - Check if any existing `README.md` exists first; keep tone clear, well-structured, and accurate against `cmd/cherry` and `internal/config/config.go`.
+2. **Watch / backlog (only if the user asks):**
+   - Remaining unused robo originals from survey #2 (e.g. season popup art, gacha banners, Garden event icons — each needs explicit user go + R2 upload).
+   - Device check of the 1,250-Gem rare-fish retry popup price on Treasure Island (when a player hits a missed rare fish).
+   - Racing map (still using Pet Theme Park `2201202900` stand-in; no sand-trail racing `.mworldpack` in any backup).
+
+**Hazards:**
+- **Production is LIVE & PUBLIC (`auth.signup = open`)** — never touch production data or restart without explicit user approval.
+- Keep `.opencode/line-play-artifacts` strictly read-only and git-ignored (8 entries).
+- Never commit private production values (hostnames, ports, IPs, Discord IDs, bucket names, secrets).
+- Never run `git commit -a` when workers have edits; always stage explicit paths and run the full gate before pushing.
+
+**HANDOFF ACCEPTED — 2026-11-21 (Claude Code, Cherry session):** context loaded (AGENTS, CONTRACT, DATASET, this block). Rechecked: `git status` clean on `main` at `2ae7b69`; `gh run list --limit 3` all green (newest 44910238344 = the handoff commit); `.opencode/line-play-artifacts` intact (8 entries, ignored at `.gitignore:35`); no `README.md` existed. Production not checked (the README task does not need it; nothing on the host was read or touched). No state corrections. **README task done the same evening:** `README.md` written (features, protocols, build and gate, sandbox / lab / public run, configuration, assets, client, operator data, operations, layout, known gaps, legal; AGPL-3.0 noted). The config keys and flags in its examples were checked against `internal/config` settings; the sandbox commands were run on a scratch build (`/healthz` ok, `/cherry/v1/info`, staff `?as=owner` 302) and the instance was stopped; scanned for private production values (none). The user enabled GitHub private vulnerability reporting the same evening; the README's Contributing section points security reports there.

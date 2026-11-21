@@ -253,7 +253,7 @@ func TestSquareBossBannerWithoutResetSaysRoomsFull(t *testing.T) {
 func TestSquareBossLeavingClearsTry(t *testing.T) {
 	c := fishingRoomAccount(t, "9827", 0)
 	bossStart(t, c)
-	c.send(2, pbVar(nil, 1, 1)) // Back to the Square: rc6 theme 6
+	c.send(2, pbVar(nil, 1, squareThemeID)) // Back to the Square: rc6 theme 6
 	if id, enter := c.read(); id != 6 || squareUint(t, enter, 4) != squareThemeID {
 		t.Fatalf("leave enter = %d/%x, want theme %d", id, enter, squareThemeID)
 	}

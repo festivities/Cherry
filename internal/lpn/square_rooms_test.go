@@ -24,7 +24,7 @@ func rosterAids(body []byte) []uint64 {
 // Each listed Square enters its own map with its own spawn (the iso conversion of data/squares.json).
 func TestSquareEnterEachThemeSpawnsOnItsMap(t *testing.T) {
 	testutil.InstallAccounts(t, withLoginAccounts(nil, 11))
-	spawn := map[uint64][2]uint64{36: {6920, 2920}, 6: {5400, 2960}, 32: {6480, 2940}, 33: {7360, 3860}, 34: {6080, 2660}}
+	spawn := map[uint64][2]uint64{squareCityThemeID: {6920, 2920}, 6: {5400, 2960}, 3: {6480, 2940}, 4: {7360, 3860}, 5: {6080, 2660}}
 	for theme, px := range spawn {
 		c := newSqClientIn(t, &squareRooms{}, 1)
 		roster := c.joinTheme(11, theme)
@@ -41,7 +41,7 @@ func TestSquareRoomsAreSeparate(t *testing.T) {
 	b := newSqClientIn(t, rooms, 2) // LINE Café
 	c := newSqClientIn(t, rooms, 3) // LINE City
 	a.join(11)
-	b.joinTheme(22, 32)
+	b.joinTheme(22, 3)
 	c.join(33)
 	a.read() // adduser 33: same Square
 	b.none() // the Café never hears of City players
@@ -62,7 +62,7 @@ func TestSquareRoomsAreSeparate(t *testing.T) {
 	for _, ti := range infos {
 		counts[ti.id] = ti.count
 	}
-	if counts[6] != 2 || counts[32] != 1 || counts[33] != 0 || counts[34] != 0 {
+	if counts[6] != 2 || counts[3] != 1 || counts[4] != 0 || counts[5] != 0 {
 		t.Fatalf("user counts = %v, want City 2, Café 1, others 0", counts)
 	}
 }
@@ -78,12 +78,12 @@ func TestSquareSwitchLeavesOldRoom(t *testing.T) {
 	b.join(22)
 	a.read() // adduser 22
 
-	a.send(2, pbVar(nil, 1, 32))
+	a.send(2, pbVar(nil, 1, 3))
 	id, enter := a.read()
 	if id != 6 {
 		t.Fatalf("switch enter msgid = %d", id)
 	}
-	a.checkEnter(enter, 32, squareTestMaps[32])
+	a.checkEnter(enter, 3, squareTestMaps[3])
 	b.expect(3, []byte{0x08, 11, 0x10, 0}) // deluser from City
 
 	a.send(5, nil)
@@ -101,7 +101,7 @@ func TestSquareSwitchLeavesOldRoom(t *testing.T) {
 // Themes that are not listed go to Treasure Island; the boss world (28) returns there and the race (31) to LINE City.
 func TestSquareUnlistedThemeFallsBack(t *testing.T) {
 	testutil.InstallAccounts(t, withLoginAccounts(nil, 11))
-	for _, tc := range []struct{ theme, want uint64 }{{0, 6}, {2, 6}, {28, 6}, {31, 36}, {99, 6}} {
+	for _, tc := range []struct{ theme, want uint64 }{{0, 6}, {2, 6}, {28, 6}, {31, squareCityThemeID}, {99, 6}} {
 		c := newSqClientIn(t, &squareRooms{}, 1)
 		c.send(0, loginBody(11))
 		c.read()
@@ -118,9 +118,9 @@ func TestSquareOperatorFileHidesSquare(t *testing.T) {
 	testutil.InstallAccounts(t, withLoginAccounts(nil, 11))
 	path := filepath.Join(t.TempDir(), "squares.json")
 	doc := `{"origin":"mixed","note":"test","squares":[
-	  {"theme":36,"name":"LINE City","list_name":"LINE City","map":"2401039000","map_size":160,"spawn":{"x":93,"y":80},"index":0,"visible":true},
+	  {"theme":1,"name":"LINE City","list_name":"LINE City","map":"2401039000","map_size":160,"spawn":{"x":93,"y":80},"index":0,"visible":true},
 	  {"theme":6,"name":"Treasure Island","list_name":"Treasure Island","map":"2108176000","map_size":160,"spawn":{"x":73,"y":98},"index":1,"visible":true},
-	  {"theme":33,"name":"Runway Square","list_name":"Runway Square","map":"2310272600","map_size":180,"spawn":{"x":85,"y":81},"index":2,"visible":false}
+	  {"theme":4,"name":"Runway Square","list_name":"Runway Square","map":"2310272600","map_size":180,"spawn":{"x":85,"y":81},"index":2,"visible":false}
 	]}`
 	if err := os.WriteFile(path, []byte(doc), 0o600); err != nil {
 		t.Fatal(err)
@@ -137,7 +137,7 @@ func TestSquareOperatorFileHidesSquare(t *testing.T) {
 	if infos, _ := themeList(t, body); len(infos) != 2 || infos[0].id != squareCityThemeID || infos[1].id != squareThemeID {
 		t.Fatalf("list = %+v, want LINE City then Treasure Island", infos)
 	}
-	c.send(2, pbVar(nil, 1, 33))
+	c.send(2, pbVar(nil, 1, 4))
 	id, enter := c.read()
 	if id != 6 || !c.checkEnter(enter, squareThemeID, squareTestMaps[squareThemeID]) {
 		t.Fatalf("hidden theme enter msgid=%d", id)

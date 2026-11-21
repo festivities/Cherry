@@ -4,7 +4,7 @@ import "cherry/internal/economy"
 
 // squareGatedTheme is the one Square type that may answer a request (user, 2026-11-17: fishing and Treasure World are
 // on Treasure Island only). Fishing, the boss try, lobby, battle and book, and the Boss Coin office belong to Treasure
-// Island (6); the Ride Point shop and the Riding Pet race to LINE City (36). The boss lobby entry (36) is not gated: an
+// Island (6); the Ride Point shop and the Riding Pet race to LINE City (1). The boss lobby entry (36) is not gated: an
 // invitee accepts from wherever the session is, and a lobby exists only in the Treasure Island room (its try, 45 and 54,
 // is gated there).
 func squareGatedTheme(msgid uint16) (uint64, bool) {

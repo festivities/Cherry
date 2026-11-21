@@ -679,7 +679,7 @@ func TestSquareBossLobbiesPerSquare(t *testing.T) {
 	})
 	testutil.UseDatabase(t)
 	a.joinTheme(9901, squareThemeID)
-	b.joinTheme(9902, 32)
+	b.joinTheme(9902, 3)
 	bossStart(t, a)
 	b.send(45, nil)
 	if id, _ := b.read(); id != 57 {

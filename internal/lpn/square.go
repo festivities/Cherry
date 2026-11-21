@@ -32,9 +32,9 @@ const (
 	// Map 2108176000 is the beach with the round fish markers (user decision, 2026-11-17).
 	squareThemeID     = 6
 	squareMapFileName = "2108176000"
-	// LINE City (theme 36, a Cherry-made id) is the Square with the race balloon and the Ride Point shop. Its map is the
-	// global one, which holds their stock hosts.
-	squareCityThemeID     = 36
+	// LINE City (theme 1, the original Square world type: the client builds its Square chat bar) is the Square with the
+	// race balloon and the Ride Point shop. Its map is the global one, which holds their stock hosts.
+	squareCityThemeID     = 1
 	squareCityMapFileName = "2401039000"
 	squareDefaultCountry  = "JP"
 )

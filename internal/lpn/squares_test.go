@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"cherry/data"
 	"cherry/internal/assets"
 	"cherry/internal/opdata"
 )
@@ -56,13 +57,13 @@ func TestSquaresListedEntries(t *testing.T) {
 }
 
 // The embedded default lists the eleven Squares in order, each on its own map. Treasure Island (theme 6) and LINE City
-// (theme 36) keep their list positions (5 and 0).
+// (theme 1) keep their list positions (5 and 0).
 func TestSquaresDefaultList(t *testing.T) {
 	list := squaresFile.Get().listed()
 	if len(list) != 11 {
 		t.Fatalf("listed = %d, want 11", len(list))
 	}
-	for i, theme := range []uint64{36, 32, 33, 34, 35, 6, 37, 10, 27, 38, 39} {
+	for i, theme := range []uint64{squareCityThemeID, 3, 4, 5, 16, squareThemeID, 8, 10, 27, 17, 15} {
 		if list[i].Theme != theme || list[i].Map != squareTestMaps[theme] {
 			t.Fatalf("entry %d = theme %d map %s", i, list[i].Theme, list[i].Map)
 		}
@@ -77,9 +78,9 @@ func TestSquaresDefaultList(t *testing.T) {
 }
 
 func TestSquaresCheckRejectsBadData(t *testing.T) {
-	city := `{"theme":36,"name":"LINE City","list_name":"LINE City","map":"2401039000","map_size":160,"spawn":{"x":93,"y":80},"index":0,"visible":true}`
+	city := `{"theme":1,"name":"LINE City","list_name":"LINE City","map":"2401039000","map_size":160,"spawn":{"x":93,"y":80},"index":0,"visible":true}`
 	island := `{"theme":6,"name":"Treasure Island","list_name":"Treasure Island","map":"2108176000","map_size":160,"spawn":{"x":73,"y":98},"index":5,"visible":true}`
-	cafe := `{"theme":32,"name":"LINE Café","list_name":"LINE Café","map":"2202250100","map_size":160,"spawn":{"x":87,"y":85},"index":1,"visible":true}`
+	cafe := `{"theme":3,"name":"LINE Café","list_name":"LINE Café","map":"2202250100","map_size":160,"spawn":{"x":87,"y":85},"index":1,"visible":true}`
 	doc := func(entries ...string) string {
 		return `{"origin":"mixed","note":"test","squares":[` + strings.Join(entries, ",") + `]}`
 	}
@@ -101,8 +102,12 @@ func TestSquaresCheckRejectsBadData(t *testing.T) {
 		"not an object list":      `{"name":"LINE City"}`,
 		"icon outside world_icon": doc(city, island, strings.Replace(cafe, `"visible":true`, `"visible":true,"icon":"UIResource/x.png"`, 1)),
 		"icon climbs out":         doc(city, island, strings.Replace(cafe, `"visible":true`, `"visible":true,"icon":"animation/world_icon/../x.png"`, 1)),
-		"boss world listed":       doc(city, island, strings.Replace(cafe, `"theme":32`, `"theme":28`, 1)),
-		"race world listed":       doc(city, island, strings.Replace(cafe, `"theme":32`, `"theme":31`, 1)),
+		"boss world listed":       doc(city, island, strings.Replace(cafe, `"theme":3,`, `"theme":28,`, 1)),
+		"race world listed":       doc(city, island, strings.Replace(cafe, `"theme":3,`, `"theme":31,`, 1)),
+		// The client builds no Square chat bar for these world types: the file must not name them.
+		"theme 0 listed":  doc(city, island, strings.Replace(cafe, `"theme":3,`, `"theme":0,`, 1)),
+		"theme 32 listed": doc(city, island, strings.Replace(cafe, `"theme":3,`, `"theme":32,`, 1)),
+		"theme 2 listed":  doc(city, island, strings.Replace(cafe, `"theme":3,`, `"theme":2,`, 1)),
 	} {
 		if _, err := opdata.Decode([]byte(bad), checkSquares); err == nil {
 			t.Fatalf("%s accepted: %s", name, bad)
@@ -110,5 +115,8 @@ func TestSquaresCheckRejectsBadData(t *testing.T) {
 	}
 	if _, err := opdata.Decode([]byte(doc(city, island, cafe)), checkSquares); err != nil {
 		t.Fatalf("valid document refused: %v", err)
+	}
+	if _, err := opdata.Decode(data.SquaresJSON, checkSquares); err != nil {
+		t.Fatalf("shipped squares.json refused: %v", err)
 	}
 }

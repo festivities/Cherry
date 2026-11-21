@@ -9,7 +9,7 @@ import (
 	"cherry/internal/testutil"
 )
 
-// TestSquareFishingRefusedElsewhere: a cast in LINE City (36) or LINE Park (35) gets the miss result, and no Gems are paid.
+// TestSquareFishingRefusedElsewhere: a cast in LINE City (theme 1) or LINE Park (theme 16) gets the miss result, and no Gems are paid.
 func TestSquareFishingRefusedElsewhere(t *testing.T) {
 	pinEventClock(t, time.Date(2026, time.October, 11, 12, 0, 0, 0, eventJST))
 	const aidText = "9803"
@@ -19,7 +19,7 @@ func TestSquareFishingRefusedElsewhere(t *testing.T) {
 	}
 	testutil.InstallAccounts(t, map[string]*store.Account{"fish-" + aidText: {AccessToken: "fish-" + aidText, SessionKey: "sk", Aid: aidText, Name: "Elsewhere"}})
 	testutil.UseDatabase(t)
-	for _, theme := range []uint64{squareCityThemeID, 35} {
+	for _, theme := range []uint64{squareCityThemeID, 16} {
 		c := newSqClient(t, &squareRoom{}, 1)
 		c.joinTheme(aid, theme)
 		base := fishingBalance(t, aidText)

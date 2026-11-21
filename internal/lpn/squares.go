@@ -47,9 +47,10 @@ var squaresFile = opdata.New("squares.json", data.SquaresJSON, checkSquares, nil
 func LoadOperatorData() error { return squaresFile.Load() }
 
 // checkSquares: unique themes, names and map folder set, spawn inside the map, and the two Squares that carry
-// NPCs listed on their own maps: Treasure Island (theme 6: fishing, Soff, Treasure World) and LINE City (theme 36: the
-// race and the Ride Point shop). Themes 28-31 (boss, race, pet park) are never listed: the client enters them from
-// the Square and entry() sends them back.
+// NPCs listed on their own maps: Treasure Island (theme 6: fishing, Soff, Treasure World) and LINE City (theme 1: the
+// race and the Ride Point shop). Themes are world types 1-31 except 2: the client builds the Square chat bar only for
+// those. Themes 28-31 (boss, race, pet park) are never listed: the client enters them from the Square and entry() sends
+// them back.
 func checkSquares(s *Squares) error {
 	if err := s.CheckOrigin("mixed"); err != nil {
 		return err
@@ -66,6 +67,8 @@ func checkSquares(s *Squares) error {
 			return fmt.Errorf("theme %d: map must be a map folder name", sq.Theme)
 		case sq.MapSize == 0 || sq.Spawn.X >= sq.MapSize || sq.Spawn.Y >= sq.MapSize:
 			return fmt.Errorf("theme %d: spawn %d,%d is outside the %d-tile map", sq.Theme, sq.Spawn.X, sq.Spawn.Y, sq.MapSize)
+		case sq.Theme < 1 || sq.Theme > 31 || sq.Theme == 2:
+			return fmt.Errorf("theme %d: theme ids must be 1-31 and not 2, the world types the client builds a Square chat bar for (any other type gets a chat bar whose keyboard button does nothing)", sq.Theme)
 		case sq.Theme >= 28 && sq.Theme <= 31:
 			return fmt.Errorf("theme %d is the boss or race/pet world: it is entered from the Square, not listed", sq.Theme)
 		case sq.Icon != "" && (!strings.HasPrefix(sq.Icon, "animation/world_icon/") || strings.Contains(sq.Icon, "..")):
@@ -89,7 +92,7 @@ func checkSquares(s *Squares) error {
 		return errors.New("theme 6 (Treasure Island) must be listed")
 	}
 	if !city {
-		return errors.New("theme 36 (LINE City) must be listed")
+		return fmt.Errorf("theme %d (LINE City) must be listed", squareCityThemeID)
 	}
 	return nil
 }

@@ -115,7 +115,7 @@ func TestSquareBossInviteWithoutSessionLogged(t *testing.T) {
 	}
 }
 
-// TestSquareBossAcceptFromAnotherSquare: the master's lobby is in LINE City (6). One invitee accepts from Square 32, and
+// TestSquareBossAcceptFromAnotherSquare: the master's lobby is in Treasure Island (6). One invitee accepts from Square 3, and
 // one from no Square at all (logged in only, as after a Garden entry). The lobby is found by the master's aid, and the
 // invitation by the invitee's aid, so both enter (rc6 theme 28).
 func TestSquareBossAcceptFromAnotherSquare(t *testing.T) {
@@ -127,7 +127,7 @@ func TestSquareBossAcceptFromAnotherSquare(t *testing.T) {
 	rooms := &squareRooms{}
 	master := newSqClientIn(t, rooms, 1)
 	inSquare := newSqClientIn(t, rooms, 2)
-	inSquare.joinTheme(9966, 32)
+	inSquare.joinTheme(9966, 3)
 	outside := newSqClientIn(t, rooms, 3)
 	outside.send(0, loginBody(9967))
 	outside.expect(0, []byte{0x08, 0x81, 0x80, 0x08}) // login result 131073
