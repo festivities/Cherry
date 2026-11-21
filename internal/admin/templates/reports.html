@@ -1,0 +1,12 @@
+{{define "page"}}<h1>Reports</h1>
+<p class="muted">Player reports, newest first. Each one names the reporter (the account that sent it), the target and the reason the reporter chose. Resolve or dismiss it with a note; the audit trail keeps the line. What was reported is kept as it was when the report came in, so a deleted post is still readable on its report.</p>
+<p class="actions-row">{{range .Reports.Filters}}<a href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}}</a> · {{end}}<span class="muted small">{{.Reports.Status}}</span></p>
+<div class="scroll"><table>
+<thead><tr><th>Filed (UTC)</th><th>Source</th><th>Reason</th><th>Reporter</th><th>Target</th><th>Message</th><th>Status</th></tr></thead>
+<tbody>
+{{range .Reports.Rows}}<tr><td><a href="{{.Href}}">{{.Created}}</a></td><td>{{.Source}}</td><td>{{.Reason}}</td><td>{{if .ReporterHref}}<a href="{{.ReporterHref}}">{{.Reporter}}</a>{{else}}<span class="mono">{{.Reporter}}</span>{{end}}</td><td>{{if .TargetHref}}<a href="{{.TargetHref}}">{{.Target}}</a>{{else}}<span class="mono">{{.Target}}</span>{{end}}</td><td>{{.Message}}</td><td>{{.Status}}</td></tr>
+{{else}}<tr class="empty"><td colspan="7">No report is in this list.</td></tr>{{end}}
+</tbody>
+</table></div>
+<p class="pager">{{with .Reports.OlderHref}}<a href="{{.}}">Older reports</a>{{end}}</p>
+{{end}}

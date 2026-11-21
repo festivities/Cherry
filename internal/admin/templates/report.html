@@ -1,0 +1,69 @@
+{{define "page"}}<h1>Report #{{.Report.ID}}</h1>
+<p class="actions-row">{{if .Report.Open}}<strong>Open</strong>{{else}}{{.Report.Status}}{{end}} · <a href="/reports">Back to the queue</a> · <a href="{{.Report.TargetSearchHref}}">Every report about this avatar</a></p>
+
+{{if .Report.Open}}<p class="flash warn" role="note">Nothing has changed for the player yet. Read the snapshot below, open the player's page for a ban or a removal, then resolve or dismiss this report with a note.</p>{{end}}
+
+<section class="page-section">
+<h2>The report</h2>
+<dl class="facts card">
+<dt>Filed (UTC)</dt><dd>{{.Report.Created}}</dd>
+<dt>Source</dt><dd>{{.Report.Source}}</dd>
+<dt>Reason</dt><dd>{{.Report.ReasonLabel}}</dd>
+<dt>Reporter</dt><dd>{{if .Report.ReporterHref}}<a href="{{.Report.ReporterHref}}">{{.Report.Reporter}}</a>{{else}}<span class="mono">{{.Report.Reporter}}</span> <span class="muted small">(no account or deleted avatar)</span>{{end}}</dd>
+<dt>Target</dt><dd>{{if .Report.TargetHref}}<a href="{{.Report.TargetHref}}">{{.Report.Target}}</a>{{else}}<span class="mono">{{.Report.Target}}</span> <span class="muted small">(no account or deleted avatar)</span>{{end}} · {{.Report.TargetReports}} {{if eq .Report.TargetReports 1}}report{{else}}reports{{end}} about this avatar, any status</dd>
+{{with .Report.Host}}<dt>Guestbook owner</dt><dd>{{if $.Report.HostHref}}<a href="{{$.Report.HostHref}}">{{.}}</a>{{else}}<span class="mono">{{.}}</span>{{end}}</dd>{{end}}
+<dt>Reporter's text</dt><dd>{{if .Report.Message}}{{.Report.Message}}{{else}}<span class="muted">(none)</span>{{end}}</dd>
+{{with .Report.RefID}}<dt>Reference</dt><dd class="mono">{{.}}</dd>{{end}}
+{{with .Report.RefDetail}}<dt>Reference detail</dt><dd class="mono">{{.}}</dd>{{end}}
+{{if not .Report.Open}}<dt>Handled by</dt><dd>{{.Report.HandledBy}} at {{.Report.HandledAt}} (UTC)</dd>
+<dt>Note</dt><dd>{{.Report.Note}}</dd>{{end}}
+</dl>
+</section>
+
+<section class="page-section">
+<h2>What was reported</h2>
+{{with .Report.Item}}
+{{if .Found}}<dl class="facts card">
+{{with .Post}}<dt>Parent number</dt><dd class="mono">{{.}}</dd>{{end}}
+<dt>Number</dt><dd class="mono">{{.No}}</dd>
+<dt>Author</dt><dd>{{if .AuthorHref}}<a href="{{.AuthorHref}}">{{.Author}}</a>{{else}}<span class="mono">{{.Author}}</span>{{end}}{{with .Nickname}} · {{.}}{{end}}</dd>
+<dt>Date (UTC)</dt><dd>{{.Date}}</dd>
+{{with .Title}}<dt>Title</dt><dd>{{.}}</dd>{{end}}
+<dt>Text as stored</dt><dd>{{if .Text}}{{.Text}}{{else}}<span class="muted">(empty)</span>{{end}}</dd>
+</dl>
+{{else}}<p class="flash warn">The item is gone: it was removed or swept after the report came in. Number {{.No}}.</p>{{end}}
+{{end}}
+
+{{with .Report.ChatKind}}<p class="muted small">Chat channel <span class="mono">{{.}}{{with $.Report.ChatChannel}} {{.}}{{end}}</span>{{with $.Report.ChatHref}} · <a href="{{.}}">Chat log around the time of the report</a>{{end}}</p>{{end}}
+{{with .Report.SnapshotNote}}<p class="muted small">{{.}}</p>{{end}}
+{{with .Report.Line}}<p><strong>Reported line (matched by serial):</strong></p>
+<div class="scroll"><table>
+<thead><tr><th>Time (UTC)</th><th>Sender</th><th>Text</th></tr></thead>
+<tbody><tr><td>{{.Time}}</td><td>{{if .SenderHref}}<a href="{{.SenderHref}}">{{.Sender}}</a>{{else}}<span class="mono">{{.Sender}}</span>{{end}}</td><td>{{.Text}}</td></tr></tbody>
+</table></div>{{end}}
+{{if .Report.Lines}}<p><strong>The target's newest lines in that channel, within the hour before the report:</strong></p>
+<div class="scroll"><table>
+<thead><tr><th>Time (UTC)</th><th>Sender</th><th>Text</th></tr></thead>
+<tbody>{{range .Report.Lines}}<tr><td>{{.Time}}</td><td>{{if .SenderHref}}<a href="{{.SenderHref}}">{{.Name}}</a>{{else}}{{.Name}}{{end}} <span class="muted small mono">{{.Sender}}</span></td><td>{{.Text}}</td></tr>{{end}}</tbody>
+</table></div>
+{{else}}{{if .Report.ChatKind}}<p class="empty-state">No line of the target was kept in that channel within the hour before the report. The chat log writes its lines a moment after they are sent, so a line sent just before the report can be missing.</p>{{end}}{{end}}
+{{if and (not .Report.Item) (not .Report.ChatKind)}}<p class="empty-state">This report carries no snapshot.</p>{{end}}
+</section>
+
+{{if .Report.Open}}<section class="page-section">
+<h2>Handle the report</h2>
+<form method="post" action="/reports/{{.Report.ID}}/resolve" class="stack">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<label><span class="label">Note for the audit trail (required, 200 characters at most)</span>
+<textarea name="note" required maxlength="200" rows="2"></textarea></label>
+<div class="actions"><button type="submit">Resolve</button></div>
+</form>
+<form method="post" action="/reports/{{.Report.ID}}/dismiss" class="stack">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<label><span class="label">Note for the audit trail (required, 200 characters at most)</span>
+<textarea name="note" required maxlength="200" rows="2"></textarea></label>
+<div class="actions"><button type="submit" class="ghost">Dismiss</button></div>
+</form>
+<p class="muted small">Resolve means action was taken; dismiss means the report is not a violation. The player's own page has the ban, the removals and the grants: <a href="{{with .Report.TargetHref}}{{.}}{{else}}/players{{end}}">open the target's page</a>.</p>
+</section>{{end}}
+{{end}}

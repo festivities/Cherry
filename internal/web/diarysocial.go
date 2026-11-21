@@ -2,7 +2,6 @@ package web
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 	"slices"
 	"strconv"
@@ -502,44 +501,41 @@ func handleDiaryLikeSearch(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, string(data))
 }
 
-// handleDiaryReport answers a report route (POST /v4/report/<kind>) with true and logs one line. Nothing is stored,
-// and the report text is player input, so it is never logged.
+// handleDiaryReport answers a diary report route (POST /v4/report/<kind>) and stores the report (report.go): the reporter
+// is the request's account, the target and the reference ids come from the body, and the guestbook routes name their host
+// and the reply's parent. The answer is {"result":true}, as before.
 func handleDiaryReport(kind string) http.HandlerFunc {
+	source := map[string]string{
+		"diary": store.ReportDiary, "diary/comment": store.ReportDiaryComment,
+		"guestbook": store.ReportGuestbook, "guestbookreply": store.ReportGuestbookReply,
+	}[kind]
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			httpx.ServeNotFound(w)
 			return
 		}
-		if _, ok := store.AccountForRequest(r); !ok {
+		acc, ok := store.AccountForRequest(r)
+		if !ok {
 			httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
 			return
 		}
-		raw, err := httpx.ReadNativeBody(r)
-		if err != nil {
-			httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		body, ok := reportBody(w, r)
+		if !ok {
 			return
 		}
-		var req map[string]any
-		if _, err := httpx.UnmarshalNativeJSON(raw, &req); err != nil {
-			httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
-			return
+		in := store.ReportIn{
+			Source: source, Reporter: acc.Aid, Target: reportText(body["targetAvatarId"]), Reason: reportText(body["reportType"]),
+			Message: reportText(body["reportMsg"]), RefID: reportText(body["refId"]),
 		}
-		log.Printf("cherry: diary report kind=%s target=%s ref=%s", kind, reportID(req["targetAvatarId"]), reportID(req["refId"]))
-		httpx.WriteJSON(w, http.StatusOK, `{"result":true}`)
+		switch source {
+		case store.ReportDiaryComment:
+			in.RefDetail = reportText(body["refDtl"])
+		case store.ReportGuestbook:
+			in.Host = reportText(body["hostAvatarId"])
+		case store.ReportGuestbookReply:
+			in.Host = reportText(body["hostAvatarId"])
+			in.RefDetail = reportText(body["parentHistNo"])
+		}
+		fileReport(w, in)
 	}
-}
-
-// reportID is an id from a report body for the log: digits only, anything else logs as "-".
-func reportID(v any) string {
-	var s string
-	switch x := v.(type) {
-	case string:
-		s = x
-	case float64:
-		s = strconv.FormatFloat(x, 'f', -1, 64)
-	}
-	if !httpx.IsAllDigits(s) || len(s) > 20 {
-		return "-"
-	}
-	return s
 }

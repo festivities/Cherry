@@ -23,6 +23,14 @@
 {{if .Search.DeletedMore}}<p class="flash warn">More deleted avatars match. Narrow the search.</p>{{end}}
 {{else}}<p class="empty-state">No deleted avatar matches.</p>{{end}}
 
+<h2>Reports ({{len .Search.Reports}}{{if .Search.ReportsMore}}+{{end}})</h2>
+{{if .Search.Reports}}<div class="scroll"><table>
+<thead><tr><th>Filed (UTC)</th><th>Source</th><th>Reason</th><th>Reporter</th><th>Target</th><th>Status</th></tr></thead>
+<tbody>{{range .Search.Reports}}<tr><td><a href="{{.Href}}">{{.Created}}</a></td><td>{{.Source}}</td><td>{{.Reason}}</td><td>{{if .ReporterHref}}<a href="{{.ReporterHref}}">{{.Reporter}}</a>{{else}}<span class="mono">{{.Reporter}}</span>{{end}}</td><td>{{if .TargetHref}}<a href="{{.TargetHref}}">{{.Target}}</a>{{else}}<span class="mono">{{.Target}}</span>{{end}}</td><td>{{.Status}}</td></tr>{{end}}</tbody>
+</table></div>
+{{if .Search.ReportsMore}}<p class="flash warn">More reports name this avatar. Open the report queue to read them.</p>{{end}}
+{{else}}<p class="empty-state">No report names this avatar id as reporter or target.</p>{{end}}
+
 <h2>Chat messages ({{len .Search.Chat}}{{if .Search.ChatMore}}+{{end}})</h2>
 {{if .Search.Chat}}<div class="scroll"><table>
 <thead><tr><th>Time (UTC)</th><th>Channel</th><th>Sender</th><th>Text</th><th>Context</th></tr></thead>

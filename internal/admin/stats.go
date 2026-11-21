@@ -247,6 +247,9 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request, sess se
 	v := s.base(r, sess, "Dashboard")
 	v.Stats, v.Recent, v.Signups = s.statsAt(s.now()), recent, signups
 	v.Summary = s.insightsSummary(s.now())
+	if n, err := store.CountOpenReports(); err == nil {
+		v.OpenReports = n
+	}
 	s.render(w, http.StatusOK, "dashboard", v)
 }
 

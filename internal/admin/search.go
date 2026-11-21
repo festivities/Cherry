@@ -39,6 +39,8 @@ type searchPage struct {
 	PlayersMore bool
 	Deleted     []deletedRow // deleted avatars by avatar id (exact) or name (deleted.go)
 	DeletedMore bool
+	Reports     []reportListRow // reports by the avatar id q names, as reporter or target (reports.go)
+	ReportsMore bool
 	Chat        []chatRow
 	ChatMore    bool
 	Audit       []searchAudit
@@ -82,6 +84,12 @@ func (s *Server) searchInto(page *searchPage, q string) error {
 		row.Identity = auth.MaskIdentity(row.Identity) // the search masks identities, as the player hits do
 		page.Deleted = append(page.Deleted, row)
 	}
+	reports, reportsMore, err := store.SearchReports(q, searchRows)
+	if err != nil {
+		return err
+	}
+	page.ReportsMore = reportsMore
+	page.Reports = s.reportListRows(reports)
 	msgs, err := store.ChatLogSearch(store.ChatFilter{Text: q}, 0, searchRows)
 	if err != nil {
 		return err

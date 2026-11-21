@@ -685,7 +685,7 @@ func TestCircleStubsAreSafe(t *testing.T) {
 	a.send(circleCsNoticeClose, pbVar(nil, 1, 3))
 	a.expect(circleRcNoticeClose, pbVar(nil, 1, 0))
 	for _, msgid := range []uint16{circleCsButtonUpdate, circleCsPlayerActorStatus, circleCsPlayerInteraction,
-		circleCsPlayerDoInter, circleCsPlayerBeginInter, circleCsPlayerEndInter, circleCsNoticeReq, circleCsReportChat,
+		circleCsPlayerDoInter, circleCsPlayerBeginInter, circleCsPlayerEndInter, circleCsNoticeReq,
 		circleCsPetAction, circleCsPetInteraction, circleCsPetMove, 99} {
 		a.send(msgid, nil)
 		a.none()

@@ -53,6 +53,12 @@ var NowFunc = time.Now
 // AttendDayKey numbers days that start at 06:00 JST.
 func AttendDayKey(t time.Time) int64 { return (t.Unix() + attendBoundaryShift) / 86400 }
 
+// GameDayStart is the first instant of the game day t falls in (06:00 JST, the start of AttendDayKey's day). The report
+// cap counts a player's reports from it (store.FileReport).
+func GameDayStart(t time.Time) time.Time {
+	return time.Unix(AttendDayKey(t)*86400-attendBoundaryShift, 0)
+}
+
 // AttendState derives the calendar view for an account at time t. A season has its own cycle:
 // when the last attend fell in another calendar, the count starts again at day 1.
 func AttendState(acc *store.Account, t time.Time) (todayCount int, attendable bool, hour, min int) {

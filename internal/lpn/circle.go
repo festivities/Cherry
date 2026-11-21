@@ -471,6 +471,8 @@ func (s *circleSession) handleData(frame []byte) error {
 		return s.questList(frame)
 	case circleCsQuestReward:
 		return s.questReward(frame)
+	case circleCsReportChat:
+		s.report(data) // no reply: the client shows its own confirmation (report.go)
 	default:
 		return s.stub(frame, msgid, data)
 	}
@@ -1060,7 +1062,7 @@ func (s *circleSession) stub(frame []byte, msgid uint16, data []byte) error {
 		return s.reply(frame, circleRcNoticeClose, pbVar(nil, 1, 0))
 	case circleCsButtonUpdate, circleCsPlayerActorStatus, circleCsPlayerInteraction,
 		circleCsPlayerDoInter, circleCsPlayerBeginInter, circleCsPlayerEndInter, circleCsNoticeReq,
-		circleCsReportChat, circleCsPetAction, circleCsPetInteraction, circleCsPetMove:
+		circleCsPetAction, circleCsPetInteraction, circleCsPetMove:
 		s.logger.Printf("CIRCLE msgid=%d not served (no reply in the client's table)", msgid)
 		return nil
 	}

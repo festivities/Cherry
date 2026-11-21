@@ -668,6 +668,9 @@ func (s *squareSession) handleData(frame []byte) error {
 		s.close()
 		s.entered = false
 		return err
+	case 12: // cr_report_chat: stored, no reply (report.go)
+		s.report(data)
+		return nil
 	}
 	switch msgid { // boss lobby and battle requests act on the session's boss seat, so they need no Square relay (an invitee who accepts from the Garden)
 	case 35, 36, 37, 46, 47, 48, 49, 50, 55, 58, 60:

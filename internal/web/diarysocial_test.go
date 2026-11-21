@@ -1,10 +1,8 @@
 package web
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -483,34 +481,6 @@ func TestDiaryCommentAndLikeWritesRollBackOnSaveFailure(t *testing.T) {
 	defer store.SocialMu.Unlock()
 	if store.NextCommentNo != 0 || len(store.DiaryComments) != 0 || store.NextLikeNo != 0 || len(store.DiaryLikes) != 0 {
 		t.Fatalf("failed writes left comments=%d (seq %d) likes=%d (seq %d)", len(store.DiaryComments), store.NextCommentNo, len(store.DiaryLikes), store.NextLikeNo)
-	}
-}
-
-func TestDiaryReportsAnswerTrueAndLogOnlyIDs(t *testing.T) {
-	diarySocialAccounts(t)
-	var buf bytes.Buffer
-	prev := log.Writer()
-	log.SetOutput(&buf)
-	t.Cleanup(func() { log.SetOutput(prev) })
-
-	body := `{"targetAvatarId":"3","reportType":"R1","reportMsg":"secret player words","refId":"77","refDtl":"detail"}`
-	routes := map[string]string{
-		"diary": "/v4/report/diary", "diary/comment": "/v4/report/diary/comment",
-		"guestbook": "/v4/report/guestbook", "guestbookreply": "/v4/report/guestbookreply",
-	}
-	for kind, path := range routes {
-		if rec := diaryCall(t, "friend-token", dsPost, path, body); rec.Code != http.StatusOK || rec.Body.String() != `{"result":true}` {
-			t.Fatalf("%s report = %d %s", kind, rec.Code, rec.Body.String())
-		}
-		if !strings.Contains(buf.String(), "cherry: diary report kind="+kind+" target=3 ref=77\n") {
-			t.Fatalf("no log line for %s: %q", kind, buf.String())
-		}
-	}
-	if strings.Contains(buf.String(), "secret player words") || strings.Contains(buf.String(), "detail") {
-		t.Fatalf("report text reached the log: %q", buf.String())
-	}
-	if rec := diaryCall(t, "", dsPost, "/v4/report/diary", body); rec.Code != http.StatusNotFound {
-		t.Fatalf("anonymous report = %d %s", rec.Code, rec.Body.String())
 	}
 }
 

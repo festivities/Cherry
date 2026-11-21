@@ -31,7 +31,7 @@ type navGroup struct {
 var navGroups = []navGroup{
 	{"Overview", []link{{Href: "/", Label: "Dashboard"}}},
 	{"Players", []link{{Href: "/players", Label: "Players"}, {Href: "/players/deleted", Label: "Deleted avatars"}, {Href: "/mail", Label: "Mail"}}},
-	{"Moderation", []link{{Href: "/chat", Label: "Chat log"}, {Href: "/photos", Label: "Photos"}}},
+	{"Moderation", []link{{Href: "/reports", Label: "Reports"}, {Href: "/chat", Label: "Chat log"}, {Href: "/photos", Label: "Photos"}}},
 	{"Insights", []link{{Href: "/online", Label: "Online now"}, {Href: "/economy", Label: "Economy"}, {Href: "/activity", Label: "Activity"}}},
 	{"Content", []link{{Href: "/docs", Label: "Documents"}}},
 	{"System", []link{{Href: "/audit", Label: "Audit log"}, {Href: "/settings", Label: "Settings"}}},
@@ -61,6 +61,8 @@ var notices = map[string]string{
 	"square-room-cap-reset":     "Square rooms hold the default number of players again. The next entry uses it.",
 	"staff-added":               "The staff member is added. They can sign in at this panel from now on.",
 	"staff-removed":             "The staff member is removed. Their open sessions end now.",
+	"report-resolved":           "The report is resolved. The audit trail has the line and your note.",
+	"report-dismissed":          "The report is dismissed. The audit trail has the line and your note.",
 }
 
 // check is a validation result shown on a version page, or next to the draft editor when a draft just saved was refused
@@ -143,6 +145,11 @@ type view struct {
 	// deleted avatars (deleted.go): the list rows and one record
 	DeletedRows   []deletedRow
 	DeletedAvatar deletedAvatarPage
+
+	// reports (reports.go): the queue, one report and the dashboard's open count
+	Reports     reportsPage
+	Report      reportDetail
+	OpenReports int
 }
 
 // base is the view of a signed-in page: the sidebar, the identity and role in the header, the session's CSRF token and the
@@ -152,9 +159,26 @@ func (s *Server) base(r *http.Request, sess session, title string) view {
 	if sess.identity == s.owner {
 		role = "Owner"
 	}
+	nav := navFor(r.URL.Path, s.isOwner(sess))
+	reportsBadge(nav)
 	return view{
 		Title: title, Server: s.cfg.ServerName, Who: whoOf(sess), Role: role, CSRF: sess.csrf, SessionLeft: sessionLeft(sess, s.now()),
-		Nav: true, NavGroups: navFor(r.URL.Path, s.isOwner(sess)), Notice: notices[r.URL.Query().Get("notice")],
+		Nav: true, NavGroups: nav, Notice: notices[r.URL.Query().Get("notice")],
+	}
+}
+
+// reportsBadge labels the Reports entry of the sidebar with the open count. A count that cannot be read leaves the label bare.
+func reportsBadge(groups []navGroup) {
+	n, err := store.CountOpenReports()
+	if err != nil || n == 0 {
+		return
+	}
+	for i := range groups {
+		for j := range groups[i].Links {
+			if groups[i].Links[j].Href == "/reports" {
+				groups[i].Links[j].Label = fmt.Sprintf("Reports (%d)", n)
+			}
+		}
 	}
 }
 
@@ -228,11 +252,12 @@ func (s *Server) storeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, store.ErrNoDatabase):
 		s.fail(w, http.StatusServiceUnavailable, "The database is not available.")
-	case errors.Is(err, store.ErrNotDocument), errors.Is(err, store.ErrNoVersion), errors.Is(err, store.ErrNoPlayer), errors.Is(err, store.ErrNoItem):
+	case errors.Is(err, store.ErrNotDocument), errors.Is(err, store.ErrNoVersion), errors.Is(err, store.ErrNoPlayer), errors.Is(err, store.ErrNoItem),
+		errors.Is(err, store.ErrNoReport):
 		s.fail(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, store.ErrNicknameCopies):
 		s.fail(w, http.StatusInternalServerError, err.Error())
-	case errors.Is(err, store.ErrAlreadyBanned), errors.Is(err, store.ErrNotBanned):
+	case errors.Is(err, store.ErrAlreadyBanned), errors.Is(err, store.ErrNotBanned), errors.Is(err, store.ErrReportClosed):
 		s.fail(w, http.StatusConflict, err.Error())
 	case errors.Is(err, store.ErrInvalidDocument):
 		s.fail(w, http.StatusUnprocessableEntity, err.Error())

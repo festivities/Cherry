@@ -120,7 +120,7 @@ type Querier interface {
 }
 
 // migrations[i] takes the database from schema version i to i+1. Append only: a shipped step is never edited.
-var migrations = []string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6, schemaV7, schemaV8}
+var migrations = []string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6, schemaV7, schemaV8, schemaV9}
 
 // migrate applies the missing steps, each in its own transaction together with its user_version bump.
 func migrate(db *sql.DB) error { return migrateTo(db, len(migrations)) }
@@ -415,6 +415,30 @@ CREATE TABLE deleted_avatars (
 ) STRICT;
 CREATE INDEX deleted_avatars_aid ON deleted_avatars(aid);
 CREATE INDEX deleted_avatars_identity ON deleted_avatars(identity, id);
+`
+
+// schemaV9 keeps every player report (reports.go): one row per report a player filed, with the reporter (always the
+// authenticated account), the target, the reason code as the client sent it, the reporter's own text, the reference ids,
+// a JSON snapshot of what was reported, and the staff handling (status, who, when, the note). Only new objects.
+const schemaV9 = `
+CREATE TABLE reports (
+	id           INTEGER PRIMARY KEY,
+	created      TEXT NOT NULL,
+	source       TEXT NOT NULL CHECK (source IN ('chat', 'chat_img', 'tchat', 'diary', 'diary_comment', 'guestbook', 'guestbook_reply', 'circle', 'square', 'roomparty')),
+	reporter_aid TEXT NOT NULL,
+	target_aid   TEXT NOT NULL,
+	reason       TEXT NOT NULL,
+	message      TEXT NOT NULL DEFAULT '',
+	ref_id       TEXT NOT NULL DEFAULT '',
+	ref_detail   TEXT NOT NULL DEFAULT '',
+	context      TEXT NOT NULL DEFAULT '',
+	status       TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved', 'dismissed')),
+	handled_by   TEXT NOT NULL DEFAULT '',
+	handled_at   TEXT NOT NULL DEFAULT '',
+	note         TEXT NOT NULL DEFAULT ''
+) STRICT;
+CREATE INDEX reports_status ON reports(status, id);
+CREATE INDEX reports_target ON reports(target_aid);
 `
 
 // Path is the file the database was opened from.

@@ -536,6 +536,9 @@ func (s *roomPartySession) handleData(frame []byte) error {
 		return s.inviteCancel(frame, data)
 	case 17: // cr_quest_archive_req (TargetAid#1) -> rc_quest_archive_all idx21 (bow)
 		return s.bow(frame, data)
+	case 13: // cr_report_chat: stored, no reply (report.go)
+		s.report(data)
+		return nil
 	}
 	return s.relay(msgid, data)
 }
