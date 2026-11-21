@@ -475,9 +475,10 @@ func DeleteAccountLocked(acc *Account, lines []LedgerLine) (undo func() error, e
 	return undo, nil
 }
 
-// ResetIdentityLocked is Delete Avatar in identity mode (discord, dev-fake). acc keeps its Identity, Welcomed and the
-// once-only grants (BossBook, the butler free hire) and loses every other field: aid becomes "0", the session key changes
-// and the stored codes go (the next avatar needs a new Discord sign-in). Every token of the account ends, its own and its
+// ResetIdentityLocked is Delete Avatar in identity mode (discord, dev-fake). acc keeps its Identity and its ban and loses every
+// other field: aid becomes "0", the session key changes and the stored codes go (the next avatar needs a new Discord sign-in).
+// The once-only grants (the welcome gift, BossBook, the butler free hire) go too: a recreated avatar is a new player, even on
+// a Discord identity that played before (user, 2026-11-21). Every token of the account ends, its own and its
 // aliases, in memory and in the database: the save deletes the account's token rows first (rowState.revoke) in the same
 // transaction, then writes the fresh own token that acc gets here. The same identity signs in again through exchange and guest/generate, which mints an alias. The undo puts
 // the account, its previous tokens and their rows back. On error acc is as it was. Caller holds AccountsMu.
@@ -496,12 +497,9 @@ func ResetIdentityLocked(acc *Account, lines []LedgerLine) (undo func() error, e
 	*acc = Account{
 		AccessToken: own, Mid: prev.Mid, AvatarUserID: prev.AvatarUserID, Aid: "0",
 		SessionSalt: prev.SessionSalt, SessionEpoch: prev.SessionEpoch,
-		Identity: prev.Identity, Welcomed: prev.Welcomed, BossBook: prev.BossBook, Ban: prev.Ban, // no CodeHashes: a new Discord sign-in
+		Identity: prev.Identity, Ban: prev.Ban, // no CodeHashes: a new Discord sign-in; no once-only grants: a new player
 	}
 	rotateSessionKey(acc)
-	if b := prev.Butlers; b != nil && (b.FreeUsed || len(b.Free) > 0) {
-		acc.Butlers = &ButlerBook{FreeUsed: true}
-	}
 	addTokenLocked(acc, own, true)
 	rs.revoke = true
 	if err := SaveLocked(lines, acc); err != nil {

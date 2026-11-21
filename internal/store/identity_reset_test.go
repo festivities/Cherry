@@ -89,10 +89,10 @@ func resolves(token string) *Account {
 	return AccountByTokenLocked(token)
 }
 
-// TestResetIdentityRevokesEveryToken: Delete Avatar in identity mode keeps the identity, its codes, Welcomed and the
-// boss book and butler free hire, drops the game data, and ends every token of the account (own and aliases) in memory
-// and in the database, in one save. The undo restores the tokens and the avatar. The same identity signs in again through
-// a newly minted code, to the same record, before and after a reload.
+// TestResetIdentityRevokesEveryToken: Delete Avatar in identity mode keeps the identity and the ban, drops the game data, the
+// once-only grants (welcome gift, boss book, butler free hire: a new avatar is a new player) and the codes, and ends every token
+// of the account (own and aliases) in memory and in the database, in one save. The undo restores the tokens and the avatar. The
+// same identity signs in again through a newly minted code, to the same record, before and after a reload.
 func TestResetIdentityRevokesEveryToken(t *testing.T) {
 	d := attachTestDB(t)
 	activeMode(t, config.AuthDevFake)
@@ -135,8 +135,8 @@ func TestResetIdentityRevokesEveryToken(t *testing.T) {
 		if got == nil || got.Aid != "0" || got.Gems != 0 || len(got.InventoryCodes) != 0 || got.Name != "" {
 			t.Fatalf("%s: the reset identity holds game data: %+v", when, got)
 		}
-		if !got.Welcomed || !got.BossBook[4901] || got.Butlers == nil || !got.Butlers.FreeUsed || got.Butlers.Leader != 0 {
-			t.Fatalf("%s: once-only grants lost: welcomed=%v boss=%v butlers=%+v", when, got.Welcomed, got.BossBook, got.Butlers)
+		if got.Welcomed || len(got.BossBook) != 0 || got.Butlers != nil {
+			t.Fatalf("%s: once-only grants carried over: welcomed=%v boss=%v butlers=%+v", when, got.Welcomed, got.BossBook, got.Butlers)
 		}
 		if len(got.CodeHashes) != 0 || got.SessionKey == session { // Delete Avatar drops the codes: a new Discord sign-in
 			t.Fatalf("%s: identity or session wrong (codes %d, session rotated %v)", when, len(got.CodeHashes), got.SessionKey != session)

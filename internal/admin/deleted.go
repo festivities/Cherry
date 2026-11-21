@@ -10,7 +10,7 @@ import (
 )
 
 // The deleted avatars (2026-11-21, user: avatar ids are never reused, so every avatar Delete Avatar removed stays viewable): the
-// list, newest first, and one avatar's record in sections. Both are read-only (no restore, no edit). The record is the one the
+// list, newest first, and one avatar's record in sections. Both are read-only; the owner's restore is in avatarmove.go. The record is the one the
 // delete kept (store.AvatarRecord); the ledger is read from the live table by avatar id, as the player page reads it.
 
 const (
@@ -25,11 +25,16 @@ const (
 type deletedRow struct {
 	ID                              int64
 	Href, Aid, Name, Identity, Date string
+	Restored                        string // the restore time (rfcDate) when the avatar was restored; "" = not restored
 }
 
 // deletedRowOf is the row of one deleted avatar.
 func deletedRowOf(d store.DeletedAvatar) deletedRow {
-	return deletedRow{ID: d.ID, Href: deletedPath(d.ID), Aid: d.Aid, Name: d.Name, Identity: d.Identity, Date: rfcDate(d.DeletedAt)}
+	row := deletedRow{ID: d.ID, Href: deletedPath(d.ID), Aid: d.Aid, Name: d.Name, Identity: d.Identity, Date: rfcDate(d.DeletedAt)}
+	if d.RestoredAt != "" {
+		row.Restored = rfcDate(d.RestoredAt)
+	}
+	return row
 }
 
 // deletedPath is the page of one deleted avatar.
@@ -76,6 +81,8 @@ type deletedRoomMsg struct {
 type deletedAvatarPage struct {
 	ID                                    int64
 	Aid, Name, Identity, Deleted, Created string
+	RestoredAt, RestoredHref              string // the restore time and the player page it went to (restored records only)
+	CanRestore                            bool   // the owner may restore this record now
 	Ban                                   *store.Ban
 	Gems, Cash                            int64
 	Book                                  economy.PlayerBook
@@ -161,6 +168,7 @@ func (s *Server) handleDeletedAvatar(w http.ResponseWriter, r *http.Request, ses
 	}
 	v := s.base(r, sess, "Deleted avatar #"+det.Aid)
 	v.Crumbs = []link{{Href: "/players", Label: "Players"}, {Href: "/players/deleted", Label: "Deleted avatars"}, {Label: "#" + strconv.FormatInt(id, 10)}}
+	page.CanRestore = s.isOwner(sess) && det.RestoredAt == ""
 	v.DeletedAvatar = page
 	s.render(w, http.StatusOK, "deletedavatar", v)
 }
@@ -215,6 +223,9 @@ func deletedAvatarPageOf(det store.DeletedAvatarDetail, now time.Time) (deletedA
 		page.Friends = append(page.Friends, deletedFriend{Aid: other, State: f.State})
 	}
 	page.Pictures = mediaRows(rec.Media)
+	if det.RestoredAt != "" {
+		page.RestoredAt, page.RestoredHref = rfcDate(det.RestoredAt), playerPath(det.RestoredAccount)
+	}
 	for i := len(rec.ChatLog) - 1; i >= 0 && len(page.Lines) < deletedChatMax; i-- {
 		l := rec.ChatLog[i]
 		page.Lines = append(page.Lines, deletedLine{Date: unixMsDate(l.Time), Kind: l.Kind, Channel: l.Channel, Sender: l.Sender, Name: l.SenderName, Text: l.Text})

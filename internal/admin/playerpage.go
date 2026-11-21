@@ -77,6 +77,7 @@ type playerPage struct {
 	Grants        []grantKind
 	Materials     []economy.GatherDrop
 	Past          []deletedRow // the deleted avatars of this identity (deleted.go), newest first
+	CanMove       bool         // the owner may move this avatar to another identity (avatarmove.go)
 }
 
 // ledgerWindowOf reads the ledger window query value. An absent value is the default; an unknown value is refused.
@@ -187,6 +188,7 @@ func (s *Server) handlePlayer(w http.ResponseWriter, r *http.Request, sess sessi
 	v.Player, v.Ledger = p, lines
 	v.Posts, v.Entries, v.Comments = writingRows(writing)
 	v.Media = mediaRows(pictures)
+	page.CanMove = s.isOwner(sess) && p.Aid != "0"
 	v.Page = page
 	s.render(w, http.StatusOK, "player", v)
 }

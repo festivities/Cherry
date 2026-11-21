@@ -2,7 +2,7 @@
 <p class="muted">Every avatar that Delete Avatar removed, newest first. Avatar ids are never reused, so each record is kept: the account, posts, guestbook, comments, friendships, chat, Treasure World board, circle, pictures and the ledger lines. The records are read-only here. A deleted avatar's pictures stay on the <a href="/photos">Photos</a> page.</p>
 {{if .DeletedRows}}<div class="scroll"><table>
 <thead><tr><th>Record</th><th>Avatar id</th><th>Name</th><th>Identity</th><th>Deleted (UTC)</th></tr></thead>
-<tbody>{{range .DeletedRows}}<tr><td><a href="{{.Href}}">#{{.ID}}</a></td><td>{{.Aid}}</td><td>{{.Name}}</td><td>{{.Identity}}</td><td>{{.Date}}</td></tr>{{end}}</tbody>
+<tbody>{{range .DeletedRows}}<tr><td><a href="{{.Href}}">#{{.ID}}</a></td><td>{{.Aid}}</td><td>{{.Name}}</td><td>{{.Identity}}</td><td>{{.Date}}{{with .Restored}} <span class="muted">· restored {{.}}</span>{{end}}</td></tr>{{end}}</tbody>
 </table></div>
 {{else}}<p class="empty-state">No avatar has been deleted yet.</p>{{end}}
 <p class="pager">{{with .OlderHref}}<a href="{{.}}">Older records</a>{{end}}</p>

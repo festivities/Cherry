@@ -41,6 +41,8 @@ var navGroups = []navGroup{
 // map shows nothing, so no text from the query ever reaches a page.
 var notices = map[string]string{
 	"draft-saved":       "The draft is saved as a new version. Validate it, then publish it.",
+	"avatar-moved":      "The avatar is moved to the identity. The account it left has no avatar now; every login of the moved avatar has ended, so the device that had it is signed out.",
+	"avatar-restored":   "The avatar is restored to the identity. Its posts, guestbook entries, comments, likes and friendships are back where their numbers were free; the audit row lists what was skipped.",
 	"granted":           "The change is saved. The audit trail has the line; a currency change has its ledger line too.",
 	"mail-sent":         "The mail is sent. The sent mail list has its recipients and the audit trail has the line.",
 	"mail-already-sent": "This mail was already sent. Nothing was sent again.",
@@ -145,6 +147,7 @@ type view struct {
 	// deleted avatars (deleted.go): the list rows and one record
 	DeletedRows   []deletedRow
 	DeletedAvatar deletedAvatarPage
+	Avatar        avatarPage
 
 	// reports (reports.go): the queue, one report and the dashboard's open count
 	Reports     reportsPage
@@ -252,11 +255,13 @@ func (s *Server) storeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, store.ErrNoDatabase):
 		s.fail(w, http.StatusServiceUnavailable, "The database is not available.")
-	case errors.Is(err, store.ErrNotDocument), errors.Is(err, store.ErrNoVersion), errors.Is(err, store.ErrNoPlayer), errors.Is(err, store.ErrNoItem),
+	case errors.Is(err, store.ErrNotDocument), errors.Is(err, store.ErrNoVersion), errors.Is(err, store.ErrNoPlayer), errors.Is(err, store.ErrNoItem), errors.Is(err, store.ErrNoRecord),
 		errors.Is(err, store.ErrNoReport):
 		s.fail(w, http.StatusNotFound, err.Error())
 	case errors.Is(err, store.ErrNicknameCopies):
 		s.fail(w, http.StatusInternalServerError, err.Error())
+	case store.IsRefused(err):
+		s.fail(w, http.StatusConflict, err.Error())
 	case errors.Is(err, store.ErrAlreadyBanned), errors.Is(err, store.ErrNotBanned), errors.Is(err, store.ErrReportClosed):
 		s.fail(w, http.StatusConflict, err.Error())
 	case errors.Is(err, store.ErrInvalidDocument):

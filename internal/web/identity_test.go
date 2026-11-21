@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"cherry/internal/auth"
 	"cherry/internal/config"
@@ -18,6 +19,9 @@ import (
 	"cherry/internal/store"
 	"cherry/internal/testutil"
 )
+
+// ophelia is the first butler of data/butlers.json (economy.ButlerByID); the free first hire is hers.
+const ophelia int64 = 1900000004
 
 // devSignUp runs the dev-fake sign-in through the game mux (start, callback, exchange) for the identity dev-<as> and returns
 // the uniqueCode the exchange minted.
@@ -159,11 +163,11 @@ func recycleCloset(t *testing.T, token, code string) (balance float64) {
 	return out.Result.Balance
 }
 
-// TestDeleteAvatarKeepsOnceGrantsForTheIdentity: the welcome gift and the once-only grants stay with the identity across
-// Delete Avatar; the creation items and the starter room are granted again on every creation, and they are gifts worth 0.
+// TestDeleteAvatarMakesANewPlayer: a recreated avatar on a Discord identity that played before is a new player (user, 2026-11-21):
+// the welcome gift (300 Gems) and the free butler hire come again, as the creation items and the starter room do (gifts worth 0).
 // The old tokens end with the delete (AV_AUTH, the own token and the sign-in alias); the same identity signs in again to a
 // fresh avatar, reaching the same identity record.
-func TestDeleteAvatarKeepsOnceGrantsForTheIdentity(t *testing.T) {
+func TestDeleteAvatarMakesANewPlayer(t *testing.T) {
 	cfg := devFakeConfig()
 	useConfig(t, cfg)
 	guestAccountTest(t)
@@ -183,6 +187,10 @@ func TestDeleteAvatarKeepsOnceGrantsForTheIdentity(t *testing.T) {
 	first := createAvatarID(t, av, `{"name":"Ida","avatarType":"FEMALE","nationCode":"JP","skinColor":"1","itemCodes":["CUON00164"]}`)
 	if rec := decorReq(t, av, http.MethodPost, "/v4/create/complete", "{}"); !strings.Contains(rec.Body.String(), `"rewardCoin":300`) {
 		t.Fatalf("first welcome gift = %d %s", rec.Code, rec.Body.String())
+	}
+	// Ophelia (data/butlers.json) is the first butler; her free hire is the account's first.
+	if got, err := economy.HireButler(first, ophelia, economy.ButlerCoinCash, economy.ActiveButlers().FreeDays, true, time.Now()); err != nil || !got.Free {
+		t.Fatalf("the first avatar's free butler hire: %+v, %v", got, err)
 	}
 	withAccount(t, tok, func(acc *store.Account) {
 		if err := room.EnsureRoomLocked(acc); err != nil || len(acc.RoomItems) == 0 {
@@ -232,8 +240,11 @@ func TestDeleteAvatarKeepsOnceGrantsForTheIdentity(t *testing.T) {
 		t.Fatalf("the fresh avatar's aid = %s (the deleted one was %s)", second, first)
 	}
 
-	if rec := decorReq(t, av2, http.MethodPost, "/v4/create/complete", "{}"); !strings.Contains(rec.Body.String(), `"rewardCoin":0`) || gemsOf(t, tok2) != 0 {
-		t.Fatalf("the welcome gift was paid again: %d %s, gems %d", rec.Code, rec.Body.String(), gemsOf(t, tok2))
+	if rec := decorReq(t, av2, http.MethodPost, "/v4/create/complete", "{}"); !strings.Contains(rec.Body.String(), `"rewardCoin":300`) || gemsOf(t, tok2) != 300 {
+		t.Fatalf("the recreated avatar got no welcome gift: %d %s, gems %d", rec.Code, rec.Body.String(), gemsOf(t, tok2))
+	}
+	if got, err := economy.HireButler(second, ophelia, economy.ButlerCoinCash, economy.ActiveButlers().FreeDays, true, time.Now()); err != nil || !got.Free {
+		t.Fatalf("the recreated avatar's free butler hire: %+v, %v", got, err)
 	}
 	withAccount(t, tok2, func(acc *store.Account) {
 		if err := room.EnsureRoomLocked(acc); err != nil || len(acc.RoomItems) == 0 {
@@ -241,8 +252,8 @@ func TestDeleteAvatarKeepsOnceGrantsForTheIdentity(t *testing.T) {
 		}
 	})
 	freshGiftsWorthNothing(t, tok2, "CUON001CH")
-	if balance := recycleCloset(t, tok2, "CUON001CH"); balance != 0 {
-		t.Fatalf("selling a re-granted creation item paid %v, want 0", balance)
+	if balance := recycleCloset(t, tok2, "CUON001CH"); balance != 300 { // the balance is the welcome gift alone: the item sells for nothing
+		t.Fatalf("selling a re-granted creation item left the balance at %v, want the welcome gift's 300", balance)
 	}
 	welcome := 0
 	for _, line := range readLedger(t) {
@@ -250,8 +261,8 @@ func TestDeleteAvatarKeepsOnceGrantsForTheIdentity(t *testing.T) {
 			welcome++
 		}
 	}
-	if welcome != 1 {
-		t.Fatalf("welcome gift ledger lines = %d, want one", welcome)
+	if welcome != 2 {
+		t.Fatalf("welcome gift ledger lines = %d, want one per avatar (2)", welcome)
 	}
 }
 

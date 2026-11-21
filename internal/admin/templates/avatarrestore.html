@@ -1,0 +1,29 @@
+{{define "page"}}<h1>Restore avatar #{{.Avatar.Restore.Record.Aid}}{{with .Avatar.Restore.Record.Name}} <span class="muted">{{.}}</span>{{end}}</h1>
+<p class="actions-row"><a href="/players/deleted/{{.Avatar.Restore.Record.ID}}">Back to the record</a></p>
+<p class="muted">The deleted avatar goes back to a Discord identity. Review first: nothing changes until you confirm.</p>
+{{with .Avatar.Refusal}}<p class="flash warn" role="alert">{{.}}</p>{{end}}
+<form method="get" action="{{.Avatar.Action}}" class="stack">
+<label><span class="label">Discord identity to restore the avatar to</span>
+<input type="text" name="to" value="{{.Avatar.To}}" maxlength="64" required>
+<small class="help">A Discord user id (digits), or discord:&lt;id&gt;. In dev-fake mode, dev-&lt;name&gt;.</small></label>
+<div class="actions"><button type="submit">Review the restore</button></div>
+</form>
+{{if .Avatar.Confirm}}<dl class="facts card">
+<dt>Avatar</dt><dd>{{.Avatar.Restore.Record.Aid}}{{with .Avatar.Restore.Record.Name}} {{.}}{{end}}, deleted {{.Avatar.Restore.Record.DeletedAt}}</dd>
+<dt>To</dt><dd>{{.Avatar.Restore.To}}: {{if .Avatar.Restore.TargetID}}its account row (no avatar yet) becomes the avatar's account{{else}}has no account yet, so one is made for it{{end}}</dd>
+<dt>Written</dt><dd>{{with .Avatar.Restore.Counts}}posts {{.Posts}}, guestbook entries {{.Entries}}, guestbook replies {{.Replies}}, comments {{.Comments}}, likes {{.Likes}}, friendships set back {{.Friendships}}, guestbook read marker {{if .ReadMarker}}yes{{else}}no{{end}}{{end}}</dd>
+<dt>Unchanged</dt><dd>Pictures, Treasure World, circle membership and 1:1 chat were never removed: they belong to the avatar id again. The identity's earlier logins end, and the restored avatar's own balances, items and once-only grants come from the record.</dd>
+</dl>
+{{with .Avatar.Skipped}}<h2>Left out ({{len .}}{{if $.Avatar.SkippedMore}}+{{$.Avatar.SkippedMore}}{{end}})</h2>
+<div class="scroll"><table>
+<thead><tr><th>Kind</th><th>Number</th><th>Why</th></tr></thead>
+<tbody>{{range .}}<tr><td>{{.Kind}}</td><td>{{.Ref}}</td><td>{{.Reason}}</td></tr>{{end}}</tbody>
+</table></div>{{end}}
+<form method="post" action="{{.Avatar.Action}}" class="stack" data-confirm="Restore this avatar to {{.Avatar.To}}?">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<input type="hidden" name="to" value="{{.Avatar.To}}">
+<label><span class="label">Type the avatar id {{.Avatar.Restore.Record.Aid}} to confirm</span>
+<input type="text" name="confirm" autocomplete="off" required></label>
+<div class="actions"><button type="submit" class="danger">Restore the avatar</button></div>
+</form>{{end}}
+{{end}}

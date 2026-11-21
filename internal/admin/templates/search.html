@@ -18,7 +18,7 @@
 <h2>Deleted avatars ({{len .Search.Deleted}}{{if .Search.DeletedMore}}+{{end}})</h2>
 {{if .Search.Deleted}}<div class="scroll"><table>
 <thead><tr><th>Record</th><th>Avatar id</th><th>Name</th><th>Identity</th><th>Deleted (UTC)</th></tr></thead>
-<tbody>{{range .Search.Deleted}}<tr><td><a href="{{.Href}}">#{{.ID}}</a></td><td>{{.Aid}}</td><td>{{.Name}}</td><td>{{.Identity}}</td><td>{{.Date}}</td></tr>{{end}}</tbody>
+<tbody>{{range .Search.Deleted}}<tr><td><a href="{{.Href}}">#{{.ID}}</a></td><td>{{.Aid}}</td><td>{{.Name}}</td><td>{{.Identity}}</td><td>{{.Date}}{{with .Restored}} <span class="muted">· restored {{.}}</span>{{end}}</td></tr>{{end}}</tbody>
 </table></div>
 {{if .Search.DeletedMore}}<p class="flash warn">More deleted avatars match. Narrow the search.</p>{{end}}
 {{else}}<p class="empty-state">No deleted avatar matches.</p>{{end}}

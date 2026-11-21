@@ -345,6 +345,11 @@ func commitLocked(lines []LedgerLine, named []*Account, removeID int64, site str
 	if database.Load() != nil {
 		var inserted []*rowState
 		err := database.Load().Update(func(tx *sql.Tx) error {
+			if removeID != 0 { // first: a moved avatar takes the identity of a removed row (accounts_identity is unique)
+				if err := deleteAccountRowTx(tx, removeID); err != nil {
+					return err
+				}
+			}
 			for i, acc := range rows {
 				rs := accountRows[acc]
 				var err error
@@ -369,11 +374,6 @@ func commitLocked(lines []LedgerLine, named []*Account, removeID int64, site str
 							return err
 						}
 					}
-				}
-			}
-			if removeID != 0 {
-				if err := deleteAccountRowTx(tx, removeID); err != nil {
-					return err
 				}
 			}
 			if err := AppendLedgerTx(tx, lines); err != nil {

@@ -53,8 +53,8 @@ func TestDeletedAvatarsMigrationAddsTheTable(t *testing.T) {
 		t.Fatal(err)
 	}
 	var version, n int
-	if err := raw.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != len(migrations) || version != 9 {
-		t.Fatalf("user_version = %d (err %v), want 9", version, err)
+	if err := raw.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != len(migrations) {
+		t.Fatalf("user_version = %d (err %v), want the newest schema %d", version, err, len(migrations))
 	}
 	if err := raw.QueryRow(`SELECT COUNT(*) FROM deleted_avatars`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("deleted_avatars rows = %d (err %v), want the empty table", n, err)

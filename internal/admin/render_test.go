@@ -83,7 +83,8 @@ func TestPagesHaveNoInlineMarkup(t *testing.T) {
 		"/online", "/online?notice=kicked", "/economy", "/economy?window=7d", "/activity",
 		"/mail", "/mail?player=" + strconv.FormatInt(id, 10), "/mail/sent", "/search?q=render", "/search",
 		"/settings", "/settings?notice=staff-added", "/settings?notice=chat-days-saved",
-		base + "?window=7d", base + "?window=all",
+		base + "?window=7d", base + "?window=all", base + "/avatar/move", base + "/avatar/move?to=dev-other",
+		"/players/deleted/999999/restore",
 	}
 	for _, target := range targets {
 		r := c.get(target)

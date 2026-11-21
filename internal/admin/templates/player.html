@@ -1,6 +1,7 @@
 {{define "page"}}<h1>Player #{{.Player.ID}}{{with .Player.Name}} <span class="muted">{{.}}</span>{{end}}</h1>
 <nav class="jump" aria-label="Sections">{{range .Page.Sections}}<a href="{{.Href}}">{{.Label}}</a>{{end}}</nav>
 <p class="actions-row"><a href="/mail?player={{.Player.ID}}">Send mail to this player</a> · <a href="/audit?target=player:{{.Player.ID}}">Audit rows for this player</a>{{if ne .Player.Aid "0"}} · <a href="/chat?player={{.Player.Aid}}">Chat by this player</a> · <a href="/photos?player={{.Player.Aid}}">Photos by this player</a>{{end}}</p>
+{{if .Page.CanMove}}<p class="actions-row"><a href="/players/{{.Player.ID}}/avatar/move">Move this avatar to another Discord account</a></p>{{end}}
 
 <section id="overview" class="page-section">
 <h2>Overview</h2>

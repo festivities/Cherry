@@ -120,7 +120,7 @@ type Querier interface {
 }
 
 // migrations[i] takes the database from schema version i to i+1. Append only: a shipped step is never edited.
-var migrations = []string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6, schemaV7, schemaV8, schemaV9}
+var migrations = []string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6, schemaV7, schemaV8, schemaV9, schemaV10}
 
 // migrate applies the missing steps, each in its own transaction together with its user_version bump.
 func migrate(db *sql.DB) error { return migrateTo(db, len(migrations)) }
@@ -439,6 +439,13 @@ CREATE TABLE reports (
 ) STRICT;
 CREATE INDEX reports_status ON reports(status, id);
 CREATE INDEX reports_target ON reports(target_aid);
+`
+
+// schemaV10 marks a restored deleted avatar (avatarrestore.go): restored_at is the time of the restore ("" = not restored) and
+// restored_account the accounts row it went to (NULL once that row is gone). The record itself is not changed. Only new columns.
+const schemaV10 = `
+ALTER TABLE deleted_avatars ADD COLUMN restored_at TEXT NOT NULL DEFAULT '';
+ALTER TABLE deleted_avatars ADD COLUMN restored_account INTEGER REFERENCES accounts(id) ON DELETE SET NULL;
 `
 
 // Path is the file the database was opened from.

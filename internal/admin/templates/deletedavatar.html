@@ -1,7 +1,8 @@
 {{define "page"}}{{with .DeletedAvatar}}<h1>Deleted avatar #{{.ID}}{{with .Name}} <span class="muted">{{.}}</span>{{end}}</h1>
 <nav class="jump" aria-label="Sections">{{range .Sections}}<a href="{{.Href}}">{{.Label}}</a>{{end}}</nav>
-<p class="muted">A read-only record of the avatar Delete Avatar removed. Nothing here changes it. Balances and the ledger are the values at the delete, except the ledger, which is the live table's lines for this avatar id.</p>
+<p class="muted">A record of the avatar Delete Avatar removed. Only the owner's restore changes it. Balances and the ledger are the values at the delete, except the ledger, which is the live table's lines for this avatar id.</p>
 <p class="actions-row"><a href="/players/deleted">All deleted avatars</a> · <a href="/photos?player={{.Aid}}">Its pictures on the Photos page</a> · <a href="/audit?target=avatar:{{.Aid}}">Audit rows for this avatar</a></p>
+{{if .RestoredAt}}<p class="flash" role="status">Restored on {{.RestoredAt}} UTC to <a href="{{.RestoredHref}}">the player page</a>.</p>{{else if .CanRestore}}<p class="actions-row"><a href="/players/deleted/{{.ID}}/restore">Restore this avatar to a Discord account</a></p>{{end}}
 
 <section id="overview" class="page-section">
 <h2>Overview</h2>

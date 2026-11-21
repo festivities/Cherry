@@ -202,6 +202,8 @@ func UndoAvatarRecord(id int64) error {
 type DeletedAvatar struct {
 	ID                             int64
 	Aid, Identity, Name, DeletedAt string
+	RestoredAt                     string // RFC 3339 UTC time of the restore; "" = not restored (avatarrestore.go)
+	RestoredAccount                int64  // the accounts row the restore went to; 0 = not restored
 }
 
 // DeletedAvatarDetail is one deleted avatar with its whole record.
@@ -216,7 +218,7 @@ func DeletedAvatarList(before int64, limit int) (rows []DeletedAvatar, more bool
 	if limit < 1 || limit > deletedListMax {
 		return nil, false, fmt.Errorf("%w: the list is 1 to %d rows", ErrBadInput, deletedListMax)
 	}
-	rows, err = deletedQuery(`SELECT id, aid, identity, name, deleted_at FROM deleted_avatars
+	rows, err = deletedQuery(`SELECT id, aid, identity, name, deleted_at, restored_at, COALESCE(restored_account, 0) FROM deleted_avatars
 		WHERE (? = 0 OR id < ?) ORDER BY id DESC LIMIT ?`, before, before, limit+1)
 	if err != nil {
 		return nil, false, err
@@ -235,8 +237,8 @@ func DeletedAvatarByID(id int64) (det DeletedAvatarDetail, found bool, err error
 	}
 	var data string
 	err = d.View(func(q Querier) error {
-		return q.QueryRow(`SELECT id, aid, identity, name, deleted_at, data FROM deleted_avatars WHERE id = ?`, id).
-			Scan(&det.ID, &det.Aid, &det.Identity, &det.Name, &det.DeletedAt, &data)
+		return q.QueryRow(`SELECT id, aid, identity, name, deleted_at, restored_at, COALESCE(restored_account, 0), data FROM deleted_avatars WHERE id = ?`, id).
+			Scan(&det.ID, &det.Aid, &det.Identity, &det.Name, &det.DeletedAt, &det.RestoredAt, &det.RestoredAccount, &data)
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return det, false, nil
@@ -256,7 +258,7 @@ func DeletedAvatarsOfIdentity(identity string, limit int) ([]DeletedAvatar, erro
 	if identity == "" || limit < 1 {
 		return nil, nil
 	}
-	return deletedQuery(`SELECT id, aid, identity, name, deleted_at FROM deleted_avatars
+	return deletedQuery(`SELECT id, aid, identity, name, deleted_at, restored_at, COALESCE(restored_account, 0) FROM deleted_avatars
 		WHERE identity = ? ORDER BY id DESC LIMIT ?`, identity, limit)
 }
 
@@ -268,7 +270,7 @@ func SearchDeletedAvatars(q string, limit int) (rows []DeletedAvatar, more bool,
 		return nil, false, nil
 	}
 	// ponytail: the name is a scan of the table; index a lowercased name column when the table grows past a few thousand rows.
-	rows, err = deletedQuery(`SELECT id, aid, identity, name, deleted_at FROM deleted_avatars
+	rows, err = deletedQuery(`SELECT id, aid, identity, name, deleted_at, restored_at, COALESCE(restored_account, 0) FROM deleted_avatars
 		WHERE aid = ? OR instr(lower(name), lower(?)) > 0 ORDER BY id DESC LIMIT ?`, q, q, limit+1)
 	if err != nil {
 		return nil, false, err
@@ -344,8 +346,9 @@ func RemoveDeletedAvatarMedia(mediaID int64, reason, actor string) error {
 	return removeMediaLocked(d, row, reason, actor, "avatar:"+row.Owner)
 }
 
-// PictureOfDeletedAvatar reports whether file is a picture whose uploader is a deleted avatar, or whose uploader cannot be read
-// (the game serves none of them; the staff panel keeps them). A file with no row is not one.
+// PictureOfDeletedAvatar reports whether file is a picture whose uploader is a deleted avatar that is not restored, or whose
+// uploader cannot be read (the game serves none of them; the staff panel keeps them). A file with no row is not one. An
+// unrestored record with no live account holding its aid is the test: a restored avatar's pictures are served again.
 // ponytail: one indexed read per picture download; an in-memory set of deleted aids is the upgrade if downloads show in profiles.
 func PictureOfDeletedAvatar(file string) bool {
 	d := attachedDB()
@@ -354,7 +357,9 @@ func PictureOfDeletedAvatar(file string) bool {
 	}
 	var n int
 	err := d.View(func(q Querier) error {
-		return q.QueryRow(`SELECT COUNT(*) FROM deleted_avatars WHERE aid = (SELECT owner FROM media_files WHERE file = ?)`, file).Scan(&n)
+		return q.QueryRow(`SELECT COUNT(*) FROM deleted_avatars d WHERE d.restored_at = ''
+			AND d.aid = (SELECT owner FROM media_files WHERE file = ?)
+			AND NOT EXISTS (SELECT 1 FROM accounts a WHERE a.aid = d.aid)`, file).Scan(&n)
 	})
 	return err != nil || n > 0
 }
@@ -374,7 +379,7 @@ func deletedQuery(query string, args ...any) ([]DeletedAvatar, error) {
 		defer rows.Close()
 		for rows.Next() {
 			var r DeletedAvatar
-			if err := rows.Scan(&r.ID, &r.Aid, &r.Identity, &r.Name, &r.DeletedAt); err != nil {
+			if err := rows.Scan(&r.ID, &r.Aid, &r.Identity, &r.Name, &r.DeletedAt, &r.RestoredAt, &r.RestoredAccount); err != nil {
 				return err
 			}
 			out = append(out, r)

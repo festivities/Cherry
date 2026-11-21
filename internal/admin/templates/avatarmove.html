@@ -1,0 +1,24 @@
+{{define "page"}}<h1>Move avatar #{{.Avatar.Player.Aid}}{{with .Avatar.Player.Name}} <span class="muted">{{.}}</span>{{end}}</h1>
+<p class="actions-row"><a href="/players/{{.Avatar.Player.ID}}">Back to the player</a></p>
+<p class="muted">A live avatar goes to another Discord identity. Review first: nothing changes until you confirm.</p>
+{{with .Avatar.Refusal}}<p class="flash warn" role="alert">{{.}}</p>{{end}}
+<form method="get" action="{{.Avatar.Action}}" class="stack">
+<label><span class="label">Discord identity to move the avatar to</span>
+<input type="text" name="to" value="{{.Avatar.To}}" maxlength="64" required>
+<small class="help">A Discord user id (digits), or discord:&lt;id&gt;. In dev-fake mode, dev-&lt;name&gt;.</small></label>
+<div class="actions"><button type="submit">Review the move</button></div>
+</form>
+{{if .Avatar.Confirm}}<dl class="facts card">
+<dt>Avatar</dt><dd>{{.Avatar.Move.Player.Aid}}{{with .Avatar.Move.Player.Name}} {{.}}{{end}}</dd>
+<dt>From</dt><dd>{{.Avatar.Move.Player.Identity}}</dd>
+<dt>To</dt><dd>{{.Avatar.Move.To}}: {{if .Avatar.Move.TargetRowID}}its account row {{if .Avatar.Move.TargetEmpty}}holds no avatar, so that empty row is removed{{end}}{{else}}has no account yet, so the avatar's row takes the identity{{end}}</dd>
+<dt>What happens</dt><dd>Every login of the avatar ends: the device signed in on it is signed out and its live connections close. The avatar keeps its balances, items, posts, friends and once-only grants (welcome gift, butler hire, boss book). The identity it leaves has no account afterwards; its next Discord sign-in starts a new one.</dd>
+</dl>
+<form method="post" action="{{.Avatar.Action}}" class="stack" data-confirm="Move this avatar to {{.Avatar.To}}? Every login of it ends.">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<input type="hidden" name="to" value="{{.Avatar.To}}">
+<label><span class="label">Type the avatar id {{.Avatar.Move.Player.Aid}} to confirm</span>
+<input type="text" name="confirm" autocomplete="off" required></label>
+<div class="actions"><button type="submit" class="danger">Move the avatar</button></div>
+</form>{{end}}
+{{end}}

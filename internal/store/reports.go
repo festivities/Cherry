@@ -506,7 +506,7 @@ func DeletedAvatarOfAid(aid string) (DeletedAvatar, bool, error) {
 	if !ValidAvatarID(aid) {
 		return DeletedAvatar{}, false, nil
 	}
-	rows, err := deletedQuery(`SELECT id, aid, identity, name, deleted_at FROM deleted_avatars
+	rows, err := deletedQuery(`SELECT id, aid, identity, name, deleted_at, restored_at, COALESCE(restored_account, 0) FROM deleted_avatars
 		WHERE aid = ? ORDER BY id DESC LIMIT 1`, aid)
 	if err != nil || len(rows) == 0 {
 		return DeletedAvatar{}, false, err
