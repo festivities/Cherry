@@ -56,7 +56,9 @@ type Config struct {
 	UploadQuotaBytes                          int64  // uploads.quota-bytes: per account and picture kind; 0 takes the default
 	UploadQuotaFiles                          int    // uploads.quota-files: per account and picture kind; 0 takes the default
 	UploadMaxTotalBytes                       int64  // uploads.max-total-bytes: total stored bytes across all photo kinds; 0 takes the default
-	UploadMaxFileBytes                        int64  // uploads.max-file-bytes: max bytes of one uploaded picture; 0 takes the default
+	UploadMaxReceiveBytes                     int64  // uploads.max-receive-bytes: hard max bytes accepted for one upload before compression; 0 takes the default
+	UploadMaxJPEGBytes                        int64  // uploads.max-jpeg-bytes: target max bytes of a stored JPEG picture; 0 takes the default
+	UploadMaxPNGBytes                         int64  // uploads.max-png-bytes: target max bytes of a stored transparent PNG picture; 0 takes the default
 	MaxPlayers                                int    // limits.max-players: concurrent logged-in players; 0 takes the default unless MaxPlayersUnlimited
 	MaxPlayersUnlimited                       bool   // true when limits.max-players was explicitly set to 0 (unlimited)
 	File                                      string // the JSON file read, "" when none
@@ -109,7 +111,9 @@ var settings = []setting{
 	{"uploads.quota-bytes", "209715200", "bytes of pictures each account may hold per kind (default 200 MiB; 1 MiB to 1 GiB)"},
 	{"uploads.quota-files", "2000", "pictures each account may hold per kind (default 2000; 1 to 100000)"},
 	{"uploads.max-total-bytes", "104857600", "bytes of pictures the server keeps across diary, room and profile (default 100 MiB; 1 MiB to 100 GiB)"},
-	{"uploads.max-file-bytes", "1048576", "bytes of one picture upload (default 1 MiB; 100 KiB to 100 MiB)"},
+	{"uploads.max-receive-bytes", "20971520", "max bytes accepted for one picture upload before compression (default 20 MiB; 1 MiB to 100 MiB)"},
+	{"uploads.max-jpeg-bytes", "153600", "target max bytes of a stored JPEG picture after compression (default 150 KiB; 16 KiB to 100 MiB)"},
+	{"uploads.max-png-bytes", "153600", "target max bytes of a stored transparent PNG picture after compression (default 150 KiB; 16 KiB to 100 MiB)"},
 	{"limits.max-players", "200", "concurrent logged-in players (default 200; 0 to 10000; 0 = unlimited)"},
 	{"limits.conns-per-address", "1024", "open connections from one address across the game listeners (identity modes: 64)"},
 	{"limits.conns-total", "4096", "open connections in all across the game listeners (identity modes: 1024)"},
@@ -218,13 +222,22 @@ func parse(args []string, lookup func(string) (string, bool)) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("config: uploads.max-total-bytes: %q is not a whole number", values["uploads.max-total-bytes"])
 	}
-	maxFileBytes, err := strconv.ParseInt(values["uploads.max-file-bytes"], 10, 64)
+	maxReceiveBytes, err := strconv.ParseInt(values["uploads.max-receive-bytes"], 10, 64)
 	if err != nil {
-		return Config{}, fmt.Errorf("config: uploads.max-file-bytes: %q is not a whole number", values["uploads.max-file-bytes"])
+		return Config{}, fmt.Errorf("config: uploads.max-receive-bytes: %q is not a whole number", values["uploads.max-receive-bytes"])
+	}
+	maxJPEGBytes, err := strconv.ParseInt(values["uploads.max-jpeg-bytes"], 10, 64)
+	if err != nil {
+		return Config{}, fmt.Errorf("config: uploads.max-jpeg-bytes: %q is not a whole number", values["uploads.max-jpeg-bytes"])
+	}
+	maxPNGBytes, err := strconv.ParseInt(values["uploads.max-png-bytes"], 10, 64)
+	if err != nil {
+		return Config{}, fmt.Errorf("config: uploads.max-png-bytes: %q is not a whole number", values["uploads.max-png-bytes"])
 	}
 	c := Config{
 		UploadsOff: !uploadsOn, UploadQuotaBytes: quotaBytes, UploadQuotaFiles: quotaFiles,
-		UploadMaxTotalBytes: maxTotalBytes, UploadMaxFileBytes: maxFileBytes,
+		UploadMaxTotalBytes: maxTotalBytes, UploadMaxReceiveBytes: maxReceiveBytes,
+		UploadMaxJPEGBytes: maxJPEGBytes, UploadMaxPNGBytes: maxPNGBytes,
 		HTTPS: values["listen.https"], HTTP: values["listen.http"], Session: values["listen.session"],
 		Gateway: values["listen.gateway"], DNS: values["listen.dns"], Admin: values["listen.admin"],
 		AuthMode: values["auth.mode"], File: file,
@@ -363,8 +376,14 @@ func (c Config) check() error {
 	if c.UploadMaxTotalBytes < 1<<20 || c.UploadMaxTotalBytes > 100<<30 {
 		return errors.New("config: uploads.max-total-bytes must be 1 MiB to 100 GiB")
 	}
-	if c.UploadMaxFileBytes < 100<<10 || c.UploadMaxFileBytes > 100<<20 {
-		return errors.New("config: uploads.max-file-bytes must be 100 KiB to 100 MiB")
+	if c.UploadMaxReceiveBytes < 1<<20 || c.UploadMaxReceiveBytes > 100<<20 {
+		return errors.New("config: uploads.max-receive-bytes must be 1 MiB to 100 MiB")
+	}
+	if c.UploadMaxJPEGBytes < 16<<10 || c.UploadMaxJPEGBytes > 100<<20 {
+		return errors.New("config: uploads.max-jpeg-bytes must be 16 KiB to 100 MiB")
+	}
+	if c.UploadMaxPNGBytes < 16<<10 || c.UploadMaxPNGBytes > 100<<20 {
+		return errors.New("config: uploads.max-png-bytes must be 16 KiB to 100 MiB")
 	}
 	if c.MaxPlayers < 0 || c.MaxPlayers > 10000 {
 		return errors.New("config: limits.max-players must be 0 to 10000")
@@ -648,11 +667,13 @@ func IdentityMode() bool { return IsIdentity(active.cfg.AuthMode) }
 
 // Default per-account picture quotas (uploads.quota-bytes, uploads.quota-files) and server-wide upload/player limits.
 const (
-	DefaultUploadQuotaBytes    int64 = 200 << 20
-	DefaultUploadQuotaFiles          = 2000
-	DefaultUploadMaxTotalBytes int64 = 100 << 20
-	DefaultUploadMaxFileBytes  int64 = 1 << 20
-	DefaultMaxPlayers                = 200
+	DefaultUploadQuotaBytes      int64 = 200 << 20
+	DefaultUploadQuotaFiles            = 2000
+	DefaultUploadMaxTotalBytes   int64 = 100 << 20
+	DefaultUploadMaxReceiveBytes int64 = 20 << 20
+	DefaultUploadMaxJPEGBytes    int64 = 150 << 10
+	DefaultUploadMaxPNGBytes     int64 = 150 << 10
+	DefaultMaxPlayers                  = 200
 )
 
 // UploadsOn is the uploads.enabled switch: false refuses new picture uploads (reads still serve).
@@ -679,12 +700,28 @@ func (c Config) EffectiveUploadMaxTotalBytes() int64 {
 	return c.UploadMaxTotalBytes
 }
 
-// EffectiveUploadMaxFileBytes returns c.UploadMaxFileBytes, or DefaultUploadMaxFileBytes when zero.
-func (c Config) EffectiveUploadMaxFileBytes() int64 {
-	if c.UploadMaxFileBytes == 0 {
-		return DefaultUploadMaxFileBytes
+// EffectiveUploadMaxReceiveBytes returns c.UploadMaxReceiveBytes, or DefaultUploadMaxReceiveBytes when zero.
+func (c Config) EffectiveUploadMaxReceiveBytes() int64 {
+	if c.UploadMaxReceiveBytes == 0 {
+		return DefaultUploadMaxReceiveBytes
 	}
-	return c.UploadMaxFileBytes
+	return c.UploadMaxReceiveBytes
+}
+
+// EffectiveUploadMaxJPEGBytes returns c.UploadMaxJPEGBytes, or DefaultUploadMaxJPEGBytes when zero.
+func (c Config) EffectiveUploadMaxJPEGBytes() int64 {
+	if c.UploadMaxJPEGBytes == 0 {
+		return DefaultUploadMaxJPEGBytes
+	}
+	return c.UploadMaxJPEGBytes
+}
+
+// EffectiveUploadMaxPNGBytes returns c.UploadMaxPNGBytes, or DefaultUploadMaxPNGBytes when zero.
+func (c Config) EffectiveUploadMaxPNGBytes() int64 {
+	if c.UploadMaxPNGBytes == 0 {
+		return DefaultUploadMaxPNGBytes
+	}
+	return c.UploadMaxPNGBytes
 }
 
 // EffectiveMaxPlayers returns c.MaxPlayers, 0 when c.MaxPlayersUnlimited is true, or DefaultMaxPlayers for a zero Config.
@@ -701,8 +738,14 @@ func (c Config) EffectiveMaxPlayers() int {
 // UploadMaxTotalBytes is the global photo storage cap in bytes across all kinds (uploads.max-total-bytes, default 100 MiB).
 func UploadMaxTotalBytes() int64 { return active.cfg.EffectiveUploadMaxTotalBytes() }
 
-// UploadMaxFileBytes is the max filesize in bytes per individual upload (uploads.max-file-bytes, default 1 MiB).
-func UploadMaxFileBytes() int64 { return active.cfg.EffectiveUploadMaxFileBytes() }
+// UploadMaxReceiveBytes is the hard max bytes accepted for one picture upload before compression (uploads.max-receive-bytes, default 20 MiB).
+func UploadMaxReceiveBytes() int64 { return active.cfg.EffectiveUploadMaxReceiveBytes() }
+
+// UploadMaxJPEGBytes is the target max bytes of a stored JPEG picture (uploads.max-jpeg-bytes, default 150 KiB).
+func UploadMaxJPEGBytes() int64 { return active.cfg.EffectiveUploadMaxJPEGBytes() }
+
+// UploadMaxPNGBytes is the target max bytes of a stored transparent PNG picture (uploads.max-png-bytes, default 150 KiB).
+func UploadMaxPNGBytes() int64 { return active.cfg.EffectiveUploadMaxPNGBytes() }
 
 // MaxPlayers is the concurrent player cap (limits.max-players, default 200; 0 means unlimited).
 func MaxPlayers() int { return active.cfg.EffectiveMaxPlayers() }

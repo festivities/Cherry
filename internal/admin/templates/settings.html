@@ -51,17 +51,43 @@
 <button type="submit" class="ghost">Use the server's configured value ({{.Settings.UploadTotalCapConfigMiB}} MiB)</button>
 </form>{{end}}
 
-<p>{{if .Settings.UploadFileCapFromPanel}}Set in this panel{{else}}From the server's configuration{{end}}: up to {{.Settings.UploadFileCapMiB}} MiB per uploaded photo.</p>
-<form method="post" action="/settings/upload-file-cap" data-confirm="Save this maximum upload filesize? New uploads check it from now on; existing pictures are kept.">
+<p>{{if .Settings.UploadReceiveCapFromPanel}}Set in this panel{{else}}From the server's configuration{{end}}: up to {{.Settings.UploadReceiveCapMiB}} MiB accepted per upload before compression.</p>
+<form method="post" action="/settings/upload-receive-cap" data-confirm="Save this maximum upload receive size? New uploads check it from now on; existing pictures are kept.">
 <input type="hidden" name="csrf" value="{{$.CSRF}}">
-<label><span class="label">Max filesize per upload (MiB)</span>
-<input type="text" name="mib" value="{{.Settings.UploadFileCapMiB}}" inputmode="decimal" required>
-<small class="help">Decimal MiB from 0.098 (100 KiB) to 100, e.g. 1 or 0.5. Larger images (up to 20 MiB, or this cap if higher) are automatically compressed to fit.</small></label>
-<div class="actions"><button type="submit">Save filesize cap</button></div>
+<label><span class="label">Max upload receive size (MiB)</span>
+<input type="text" name="mib" value="{{.Settings.UploadReceiveCapMiB}}" inputmode="decimal" required>
+<small class="help">Decimal MiB from 1 to 100, e.g. 20. Uploads larger than this (or the JPEG/PNG target if higher) are rejected immediately.</small></label>
+<div class="actions"><button type="submit">Save receive cap</button></div>
 </form>
-{{if .Settings.UploadFileCapFromPanel}}<form method="post" action="/settings/upload-file-cap/reset" data-confirm="Use the server's configured maximum upload filesize again?">
+{{if .Settings.UploadReceiveCapFromPanel}}<form method="post" action="/settings/upload-receive-cap/reset" data-confirm="Use the server's configured maximum upload receive size again?">
 <input type="hidden" name="csrf" value="{{$.CSRF}}">
-<button type="submit" class="ghost">Use the server's configured value ({{.Settings.UploadFileCapConfigMiB}} MiB)</button>
+<button type="submit" class="ghost">Use the server's configured value ({{.Settings.UploadReceiveCapConfigMiB}} MiB)</button>
+</form>{{end}}
+
+<p>{{if .Settings.UploadJPEGCapFromPanel}}Set in this panel{{else}}From the server's configuration{{end}}: up to {{.Settings.UploadJPEGCapKiB}} KiB per stored JPEG photo.</p>
+<form method="post" action="/settings/upload-jpeg-cap" data-confirm="Save this target JPEG filesize? New uploads check it from now on; existing pictures are kept.">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<label><span class="label">Target JPEG filesize (KiB)</span>
+<input type="text" name="kib" value="{{.Settings.UploadJPEGCapKiB}}" inputmode="decimal" required>
+<small class="help">KiB from 16 to 102400 (100 MiB), e.g. 150. Larger opaque images are automatically compressed to fit.</small></label>
+<div class="actions"><button type="submit">Save JPEG cap</button></div>
+</form>
+{{if .Settings.UploadJPEGCapFromPanel}}<form method="post" action="/settings/upload-jpeg-cap/reset" data-confirm="Use the server's configured target JPEG filesize again?">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<button type="submit" class="ghost">Use the server's configured value ({{.Settings.UploadJPEGCapConfigKiB}} KiB)</button>
+</form>{{end}}
+
+<p>{{if .Settings.UploadPNGCapFromPanel}}Set in this panel{{else}}From the server's configuration{{end}}: up to {{.Settings.UploadPNGCapKiB}} KiB per stored transparent PNG photo.</p>
+<form method="post" action="/settings/upload-png-cap" data-confirm="Save this target transparent PNG filesize? New uploads check it from now on; existing pictures are kept.">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<label><span class="label">Target transparent PNG filesize (KiB)</span>
+<input type="text" name="kib" value="{{.Settings.UploadPNGCapKiB}}" inputmode="decimal" required>
+<small class="help">KiB from 16 to 102400 (100 MiB), e.g. 150. Larger transparent PNGs are automatically compressed while preserving alpha.</small></label>
+<div class="actions"><button type="submit">Save PNG cap</button></div>
+</form>
+{{if .Settings.UploadPNGCapFromPanel}}<form method="post" action="/settings/upload-png-cap/reset" data-confirm="Use the server's configured target transparent PNG filesize again?">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<button type="submit" class="ghost">Use the server's configured value ({{.Settings.UploadPNGCapConfigKiB}} KiB)</button>
 </form>{{end}}
 </section>
 

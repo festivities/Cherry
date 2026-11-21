@@ -18,12 +18,14 @@ import (
 // that does not parse, gives the configured answer (retention), no member (staff) or the default room size.
 
 const (
-	chatDaysKey            = "retention.chat-days"
-	staffMembersKey        = "staff.members"
-	squareRoomCapKey       = "square.room-cap"
-	uploadMaxTotalBytesKey = "uploads.max-total-bytes"
-	uploadMaxFileBytesKey  = "uploads.max-file-bytes"
-	maxPlayersKey          = "limits.max-players"
+	chatDaysKey              = "retention.chat-days"
+	staffMembersKey          = "staff.members"
+	squareRoomCapKey         = "square.room-cap"
+	uploadMaxTotalBytesKey   = "uploads.max-total-bytes"
+	uploadMaxReceiveBytesKey = "uploads.max-receive-bytes"
+	uploadMaxJPEGBytesKey    = "uploads.max-jpeg-bytes"
+	uploadMaxPNGBytesKey     = "uploads.max-png-bytes"
+	maxPlayersKey            = "limits.max-players"
 	// ChatDaysMax is the longest retention the panel takes: ten years.
 	ChatDaysMax  = 3650
 	staffMax     = 50  // staff members the panel keeps
@@ -37,9 +39,15 @@ const (
 	// UploadMaxTotalBytesMin and UploadMaxTotalBytesMax bound the global photo storage cap (1 MiB to 100 GiB).
 	UploadMaxTotalBytesMin int64 = 1 << 20
 	UploadMaxTotalBytesMax int64 = 100 << 30
-	// UploadMaxFileBytesMin and UploadMaxFileBytesMax bound the max filesize per upload (100 KiB to 100 MiB).
-	UploadMaxFileBytesMin int64 = 100 << 10
-	UploadMaxFileBytesMax int64 = 100 << 20
+	// UploadMaxReceiveBytesMin and UploadMaxReceiveBytesMax bound the hard max receive size per upload (1 MiB to 100 MiB).
+	UploadMaxReceiveBytesMin int64 = 1 << 20
+	UploadMaxReceiveBytesMax int64 = 100 << 20
+	// UploadMaxJPEGBytesMin and UploadMaxJPEGBytesMax bound the target JPEG filesize (16 KiB to 100 MiB).
+	UploadMaxJPEGBytesMin int64 = 16 << 10
+	UploadMaxJPEGBytesMax int64 = 100 << 20
+	// UploadMaxPNGBytesMin and UploadMaxPNGBytesMax bound the target transparent PNG filesize (16 KiB to 100 MiB).
+	UploadMaxPNGBytesMin int64 = 16 << 10
+	UploadMaxPNGBytesMax int64 = 100 << 20
 	// MaxPlayersMax is the highest concurrent player cap (0 means unlimited).
 	MaxPlayersMax = 10000
 )
@@ -502,25 +510,67 @@ func ClearUploadMaxTotalBytes(actor string) error {
 	return clearMetaSetting(uploadMaxTotalBytesKey, actor)
 }
 
-// UploadMaxFileBytes returns the max filesize per individual upload: the panel's value when stored, else fallback.
-func UploadMaxFileBytes(fallback int64) int64 {
-	return int64MetaEffective(uploadMaxFileBytesKey, UploadMaxFileBytesMin, UploadMaxFileBytesMax, fallback)
+// UploadMaxReceiveBytes returns the hard max receive size per individual upload: the panel's value when stored, else fallback.
+func UploadMaxReceiveBytes(fallback int64) int64 {
+	return int64MetaEffective(uploadMaxReceiveBytesKey, UploadMaxReceiveBytesMin, UploadMaxReceiveBytesMax, fallback)
 }
 
-// UploadMaxFileBytesSetting returns the panel's stored max upload filesize and whether one is stored.
-func UploadMaxFileBytesSetting() (int64, bool, error) {
-	return int64MetaSetting(uploadMaxFileBytesKey, UploadMaxFileBytesMin, UploadMaxFileBytesMax)
+// UploadMaxReceiveBytesSetting returns the panel's stored max upload receive size and whether one is stored.
+func UploadMaxReceiveBytesSetting() (int64, bool, error) {
+	return int64MetaSetting(uploadMaxReceiveBytesKey, UploadMaxReceiveBytesMin, UploadMaxReceiveBytesMax)
 }
 
-// SetUploadMaxFileBytes stores the max upload filesize and writes an audit row in one transaction.
-func SetUploadMaxFileBytes(n int64, actor string) error {
-	return setInt64Meta(uploadMaxFileBytesKey, n, UploadMaxFileBytesMin, UploadMaxFileBytesMax,
-		"the max upload filesize must be 100 KiB to 100 MiB", actor)
+// SetUploadMaxReceiveBytes stores the max upload receive size and writes an audit row in one transaction.
+func SetUploadMaxReceiveBytes(n int64, actor string) error {
+	return setInt64Meta(uploadMaxReceiveBytesKey, n, UploadMaxReceiveBytesMin, UploadMaxReceiveBytesMax,
+		"the max upload receive size must be 1 MiB to 100 MiB", actor)
 }
 
-// ClearUploadMaxFileBytes clears the panel override for the max upload filesize and writes an audit row.
-func ClearUploadMaxFileBytes(actor string) error {
-	return clearMetaSetting(uploadMaxFileBytesKey, actor)
+// ClearUploadMaxReceiveBytes clears the panel override for the max upload receive size and writes an audit row.
+func ClearUploadMaxReceiveBytes(actor string) error {
+	return clearMetaSetting(uploadMaxReceiveBytesKey, actor)
+}
+
+// UploadMaxJPEGBytes returns the target JPEG filesize per individual upload: the panel's value when stored, else fallback.
+func UploadMaxJPEGBytes(fallback int64) int64 {
+	return int64MetaEffective(uploadMaxJPEGBytesKey, UploadMaxJPEGBytesMin, UploadMaxJPEGBytesMax, fallback)
+}
+
+// UploadMaxJPEGBytesSetting returns the panel's stored target JPEG filesize and whether one is stored.
+func UploadMaxJPEGBytesSetting() (int64, bool, error) {
+	return int64MetaSetting(uploadMaxJPEGBytesKey, UploadMaxJPEGBytesMin, UploadMaxJPEGBytesMax)
+}
+
+// SetUploadMaxJPEGBytes stores the target JPEG filesize and writes an audit row in one transaction.
+func SetUploadMaxJPEGBytes(n int64, actor string) error {
+	return setInt64Meta(uploadMaxJPEGBytesKey, n, UploadMaxJPEGBytesMin, UploadMaxJPEGBytesMax,
+		"the target JPEG filesize must be 16 KiB to 100 MiB", actor)
+}
+
+// ClearUploadMaxJPEGBytes clears the panel override for the target JPEG filesize and writes an audit row.
+func ClearUploadMaxJPEGBytes(actor string) error {
+	return clearMetaSetting(uploadMaxJPEGBytesKey, actor)
+}
+
+// UploadMaxPNGBytes returns the target transparent PNG filesize per individual upload: the panel's value when stored, else fallback.
+func UploadMaxPNGBytes(fallback int64) int64 {
+	return int64MetaEffective(uploadMaxPNGBytesKey, UploadMaxPNGBytesMin, UploadMaxPNGBytesMax, fallback)
+}
+
+// UploadMaxPNGBytesSetting returns the panel's stored target transparent PNG filesize and whether one is stored.
+func UploadMaxPNGBytesSetting() (int64, bool, error) {
+	return int64MetaSetting(uploadMaxPNGBytesKey, UploadMaxPNGBytesMin, UploadMaxPNGBytesMax)
+}
+
+// SetUploadMaxPNGBytes stores the target transparent PNG filesize and writes an audit row in one transaction.
+func SetUploadMaxPNGBytes(n int64, actor string) error {
+	return setInt64Meta(uploadMaxPNGBytesKey, n, UploadMaxPNGBytesMin, UploadMaxPNGBytesMax,
+		"the target transparent PNG filesize must be 16 KiB to 100 MiB", actor)
+}
+
+// ClearUploadMaxPNGBytes clears the panel override for the target transparent PNG filesize and writes an audit row.
+func ClearUploadMaxPNGBytes(actor string) error {
+	return clearMetaSetting(uploadMaxPNGBytesKey, actor)
 }
 
 // MaxPlayers returns the concurrent player cap: the panel's value when stored (0 means unlimited), else fallback.

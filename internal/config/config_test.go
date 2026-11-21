@@ -353,8 +353,14 @@ func TestServerLimitsConfig(t *testing.T) {
 	if c.UploadMaxTotalBytes != DefaultUploadMaxTotalBytes || DefaultUploadMaxTotalBytes != 100<<20 {
 		t.Fatalf("UploadMaxTotalBytes = %d, want %d", c.UploadMaxTotalBytes, 100<<20)
 	}
-	if c.UploadMaxFileBytes != DefaultUploadMaxFileBytes || DefaultUploadMaxFileBytes != 1048576 {
-		t.Fatalf("UploadMaxFileBytes = %d, want 1048576", c.UploadMaxFileBytes)
+	if c.UploadMaxReceiveBytes != DefaultUploadMaxReceiveBytes || DefaultUploadMaxReceiveBytes != 20<<20 {
+		t.Fatalf("UploadMaxReceiveBytes = %d, want %d", c.UploadMaxReceiveBytes, 20<<20)
+	}
+	if c.UploadMaxJPEGBytes != DefaultUploadMaxJPEGBytes || DefaultUploadMaxJPEGBytes != 150<<10 {
+		t.Fatalf("UploadMaxJPEGBytes = %d, want %d", c.UploadMaxJPEGBytes, 150<<10)
+	}
+	if c.UploadMaxPNGBytes != DefaultUploadMaxPNGBytes || DefaultUploadMaxPNGBytes != 150<<10 {
+		t.Fatalf("UploadMaxPNGBytes = %d, want %d", c.UploadMaxPNGBytes, 150<<10)
 	}
 	if c.MaxPlayers != DefaultMaxPlayers || DefaultMaxPlayers != 200 || c.MaxPlayersUnlimited {
 		t.Fatalf("MaxPlayers = %d unlimited=%t, want 200 false", c.MaxPlayers, c.MaxPlayersUnlimited)
@@ -362,37 +368,48 @@ func TestServerLimitsConfig(t *testing.T) {
 
 	Activate(Config{})
 	t.Cleanup(func() { Activate(Config{}) })
-	if UploadMaxTotalBytes() != DefaultUploadMaxTotalBytes || UploadMaxFileBytes() != DefaultUploadMaxFileBytes || MaxPlayers() != DefaultMaxPlayers {
-		t.Fatalf("zero config accessors = (%d, %d, %d)", UploadMaxTotalBytes(), UploadMaxFileBytes(), MaxPlayers())
+	if UploadMaxTotalBytes() != DefaultUploadMaxTotalBytes ||
+		UploadMaxReceiveBytes() != DefaultUploadMaxReceiveBytes ||
+		UploadMaxJPEGBytes() != DefaultUploadMaxJPEGBytes ||
+		UploadMaxPNGBytes() != DefaultUploadMaxPNGBytes ||
+		MaxPlayers() != DefaultMaxPlayers {
+		t.Fatalf("zero config accessors = (%d, %d, %d, %d, %d)",
+			UploadMaxTotalBytes(), UploadMaxReceiveBytes(), UploadMaxJPEGBytes(), UploadMaxPNGBytes(), MaxPlayers())
 	}
 
 	c, err = Load([]string{
 		"-uploads-max-total-bytes=1048576",
-		"-uploads-max-file-bytes=102400",
+		"-uploads-max-receive-bytes=1048576",
+		"-uploads-max-jpeg-bytes=16384",
+		"-uploads-max-png-bytes=16384",
 		"-limits-max-players=0",
 	}, none)
 	if err != nil {
 		t.Fatalf("Load min/unlimited: %v", err)
 	}
-	if c.UploadMaxTotalBytes != 1<<20 || c.UploadMaxFileBytes != 100<<10 || c.MaxPlayers != 0 || !c.MaxPlayersUnlimited {
+	if c.UploadMaxTotalBytes != 1<<20 || c.UploadMaxReceiveBytes != 1<<20 || c.UploadMaxJPEGBytes != 16<<10 || c.UploadMaxPNGBytes != 16<<10 || c.MaxPlayers != 0 || !c.MaxPlayersUnlimited {
 		t.Fatalf("min/unlimited = %+v", c)
 	}
 	Activate(c)
-	if UploadMaxTotalBytes() != 1<<20 || UploadMaxFileBytes() != 100<<10 || MaxPlayers() != 0 {
-		t.Fatalf("activated min/unlimited = (%d, %d, %d)", UploadMaxTotalBytes(), UploadMaxFileBytes(), MaxPlayers())
+	if UploadMaxTotalBytes() != 1<<20 || UploadMaxReceiveBytes() != 1<<20 || UploadMaxJPEGBytes() != 16<<10 || UploadMaxPNGBytes() != 16<<10 || MaxPlayers() != 0 {
+		t.Fatalf("activated min/unlimited = (%d, %d, %d, %d, %d)",
+			UploadMaxTotalBytes(), UploadMaxReceiveBytes(), UploadMaxJPEGBytes(), UploadMaxPNGBytes(), MaxPlayers())
 	}
 
 	c, err = Load([]string{
 		"-uploads-max-total-bytes=107374182400",
-		"-uploads-max-file-bytes=104857600",
+		"-uploads-max-receive-bytes=104857600",
+		"-uploads-max-jpeg-bytes=104857600",
+		"-uploads-max-png-bytes=104857600",
 		"-limits-max-players=10000",
 	}, none)
 	if err != nil {
 		t.Fatalf("Load max: %v", err)
 	}
 	Activate(c)
-	if UploadMaxTotalBytes() != 100<<30 || UploadMaxFileBytes() != 100<<20 || MaxPlayers() != 10000 {
-		t.Fatalf("activated max = (%d, %d, %d)", UploadMaxTotalBytes(), UploadMaxFileBytes(), MaxPlayers())
+	if UploadMaxTotalBytes() != 100<<30 || UploadMaxReceiveBytes() != 100<<20 || UploadMaxJPEGBytes() != 100<<20 || UploadMaxPNGBytes() != 100<<20 || MaxPlayers() != 10000 {
+		t.Fatalf("activated max = (%d, %d, %d, %d, %d)",
+			UploadMaxTotalBytes(), UploadMaxReceiveBytes(), UploadMaxJPEGBytes(), UploadMaxPNGBytes(), MaxPlayers())
 	}
 
 	for _, tc := range []struct {
@@ -402,9 +419,15 @@ func TestServerLimitsConfig(t *testing.T) {
 		{[]string{"-uploads-max-total-bytes=nope"}, "uploads.max-total-bytes"},
 		{[]string{"-uploads-max-total-bytes=1048575"}, "uploads.max-total-bytes must be"},
 		{[]string{"-uploads-max-total-bytes=107374182401"}, "uploads.max-total-bytes must be"},
-		{[]string{"-uploads-max-file-bytes=nope"}, "uploads.max-file-bytes"},
-		{[]string{"-uploads-max-file-bytes=102399"}, "uploads.max-file-bytes must be"},
-		{[]string{"-uploads-max-file-bytes=104857601"}, "uploads.max-file-bytes must be"},
+		{[]string{"-uploads-max-receive-bytes=nope"}, "uploads.max-receive-bytes"},
+		{[]string{"-uploads-max-receive-bytes=1048575"}, "uploads.max-receive-bytes must be"},
+		{[]string{"-uploads-max-receive-bytes=104857601"}, "uploads.max-receive-bytes must be"},
+		{[]string{"-uploads-max-jpeg-bytes=nope"}, "uploads.max-jpeg-bytes"},
+		{[]string{"-uploads-max-jpeg-bytes=16383"}, "uploads.max-jpeg-bytes must be"},
+		{[]string{"-uploads-max-jpeg-bytes=104857601"}, "uploads.max-jpeg-bytes must be"},
+		{[]string{"-uploads-max-png-bytes=nope"}, "uploads.max-png-bytes"},
+		{[]string{"-uploads-max-png-bytes=16383"}, "uploads.max-png-bytes must be"},
+		{[]string{"-uploads-max-png-bytes=104857601"}, "uploads.max-png-bytes must be"},
 		{[]string{"-limits-max-players=nope"}, "limits.max-players"},
 		{[]string{"-limits-max-players=-1"}, "limits.max-players"},
 		{[]string{"-limits-max-players=10001"}, "limits.max-players must be"},

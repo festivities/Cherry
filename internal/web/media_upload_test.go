@@ -252,6 +252,17 @@ func noisyPNG(t *testing.T, w, h int, transparent bool) []byte {
 			})
 		}
 	}
+	if transparent && w >= 64 && h >= 32 {
+		// Solid anchor patches so transparent (alpha=0) and opaque (alpha=255) survival can be verified even after downscaling.
+		for y := 0; y < 32; y++ {
+			for x := 0; x < 32; x++ {
+				img.SetNRGBA(x, y, color.NRGBA{R: 0, G: 0, B: 0, A: 0})
+			}
+			for x := 32; x < 64; x++ {
+				img.SetNRGBA(x, y, color.NRGBA{R: 220, G: 40, B: 60, A: 255})
+			}
+		}
+	}
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
 		t.Fatal(err)
@@ -259,26 +270,26 @@ func noisyPNG(t *testing.T, w, h int, transparent bool) []byte {
 	return buf.Bytes()
 }
 
-func TestUploadMaxFileBytesConfigurable(t *testing.T) {
+func TestUploadCompressionAndCaps(t *testing.T) {
 	twoAccounts(t)
-	uploadConfig(t, config.Config{AuthMode: config.AuthDevFake, UploadMaxFileBytes: 100 << 10})
+	uploadConfig(t, config.Config{AuthMode: config.AuthDevFake})
 	dir := filepath.Join(t.TempDir(), "diary-media")
 
-	// 1. Opaque image larger than maxFile (100 KiB) is compressed to fit and saved as <= maxFile.
-	opaque := noisyPNG(t, 260, 260, false)
-	if int64(len(opaque)) <= 100<<10 {
-		t.Fatalf("test setup: opaque PNG len = %d, want > 100 KiB", len(opaque))
+	// 1. Default JPEG cap (150 KiB): large noisy opaque image (> 150 KiB) compresses to <= 150 KiB as valid JPEG.
+	opaque := noisyPNG(t, 360, 360, false)
+	if int64(len(opaque)) <= config.DefaultUploadMaxJPEGBytes {
+		t.Fatalf("test setup: opaque PNG len = %d, want > %d", len(opaque), config.DefaultUploadMaxJPEGBytes)
 	}
 	if rec := uploadAs(t, dir, "tok1", "1001", "1760000700", opaque); rec.Code != http.StatusOK {
-		t.Fatalf("opaque upload > maxFile = %d %s, want 200", rec.Code, rec.Body.String())
+		t.Fatalf("opaque upload > 150 KiB = %d %s, want 200", rec.Code, rec.Body.String())
 	}
 	savedOpaque := filepath.Join(dir, store.MediaFileName("1001", "1760000700", "1001_1760000700"))
 	info, err := os.Stat(savedOpaque)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Size() > 100<<10 {
-		t.Fatalf("compressed opaque size = %d, want <= %d", info.Size(), 100<<10)
+	if info.Size() > config.DefaultUploadMaxJPEGBytes {
+		t.Fatalf("compressed opaque size = %d, want <= %d", info.Size(), config.DefaultUploadMaxJPEGBytes)
 	}
 	f, err := os.Open(savedOpaque)
 	if err != nil {
@@ -290,21 +301,21 @@ func TestUploadMaxFileBytesConfigurable(t *testing.T) {
 		t.Fatalf("saved opaque decode = (%q, %v), want jpeg", format, err)
 	}
 
-	// 2. Transparent PNG larger than maxFile is compressed while preserving PNG format and alpha.
-	trans := noisyPNG(t, 240, 240, true)
-	if int64(len(trans)) <= 100<<10 {
-		t.Fatalf("test setup: transparent PNG len = %d, want > 100 KiB", len(trans))
+	// 2. Default PNG cap (150 KiB): large transparent PNG (> 150 KiB) compresses to <= 150 KiB as valid PNG preserving alpha and opaque pixels.
+	trans := noisyPNG(t, 520, 520, true)
+	if int64(len(trans)) <= config.DefaultUploadMaxPNGBytes {
+		t.Fatalf("test setup: transparent PNG len = %d, want > %d", len(trans), config.DefaultUploadMaxPNGBytes)
 	}
 	if rec := uploadAs(t, dir, "tok1", "1001", "1760000701", trans); rec.Code != http.StatusOK {
-		t.Fatalf("transparent PNG > maxFile = %d %s, want 200", rec.Code, rec.Body.String())
+		t.Fatalf("transparent PNG > 150 KiB = %d %s, want 200", rec.Code, rec.Body.String())
 	}
 	savedTrans := filepath.Join(dir, store.MediaFileName("1001", "1760000701", "1001_1760000701"))
 	info, err = os.Stat(savedTrans)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Size() > 100<<10 {
-		t.Fatalf("compressed transparent PNG size = %d, want <= %d", info.Size(), 100<<10)
+	if info.Size() > config.DefaultUploadMaxPNGBytes {
+		t.Fatalf("compressed transparent PNG size = %d, want <= %d", info.Size(), config.DefaultUploadMaxPNGBytes)
 	}
 	f, err = os.Open(savedTrans)
 	if err != nil {
@@ -318,16 +329,86 @@ func TestUploadMaxFileBytesConfigurable(t *testing.T) {
 	if !hasTransparency(decoded) {
 		t.Fatal("compressed transparent PNG lost alpha transparency")
 	}
+	b := decoded.Bounds()
+	// Sample inside the top-left 32x32 transparent patch and the adjacent 32x32 opaque patch (scaled proportionately).
+	scaleX := float64(b.Dx()) / 520.0
+	scaleY := float64(b.Dy()) / 520.0
+	tx := b.Min.X + int(8*scaleX)
+	ty := b.Min.Y + int(8*scaleY)
+	ox := b.Min.X + int(48*scaleX)
+	oy := b.Min.Y + int(8*scaleY)
+	if _, _, _, a := decoded.At(tx, ty).RGBA(); a != 0 {
+		t.Fatalf("transparent patch pixel alpha = %d, want 0", a)
+	}
+	if _, _, _, a := decoded.At(ox, oy).RGBA(); a != 0xffff {
+		t.Fatalf("opaque patch pixel alpha = %d, want 0xffff", a)
+	}
 
-	// 3. Upload larger than hard receive ceiling (> 20 MiB) still returns 413.
-	overReceive := bytes.Repeat([]byte{'x'}, int(maxDiaryImageSize+1))
-	req := diaryUploadRequest(t, diaryParamsJSON(t, "1001", "1760000702", "1001_1760000702"), overReceive, "image/png")
+	// 3. Separate JPEG vs PNG targets are respected independently (JPEG 80 KiB, PNG 250 KiB).
+	uploadConfig(t, config.Config{
+		AuthMode:              config.AuthDevFake,
+		UploadMaxReceiveBytes: 2 << 20,
+		UploadMaxJPEGBytes:    80 << 10,
+		UploadMaxPNGBytes:     250 << 10,
+	})
+	mediumTrans := noisyPNG(t, 240, 240, true)
+	if int64(len(mediumTrans)) <= 80<<10 || int64(len(mediumTrans)) > 250<<10 {
+		t.Fatalf("test setup: medium transparent PNG len = %d, want in (80 KiB, 250 KiB]", len(mediumTrans))
+	}
+	if rec := uploadAs(t, dir, "tok1", "1001", "1760000702", mediumTrans); rec.Code != http.StatusOK {
+		t.Fatalf("transparent PNG under 250 KiB PNG cap = %d %s, want 200", rec.Code, rec.Body.String())
+	}
+	savedFastPNG, err := os.ReadFile(filepath.Join(dir, store.MediaFileName("1001", "1760000702", "1001_1760000702")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(savedFastPNG, mediumTrans) {
+		t.Fatal("transparent PNG <= maxPNG did not take the untouched fast path")
+	}
+
+	mediumOpaque := noisyPNG(t, 260, 260, false)
+	if int64(len(mediumOpaque)) <= 80<<10 || int64(len(mediumOpaque)) > 250<<10 {
+		t.Fatalf("test setup: medium opaque PNG len = %d, want in (80 KiB, 250 KiB]", len(mediumOpaque))
+	}
+	if rec := uploadAs(t, dir, "tok1", "1001", "1760000703", mediumOpaque); rec.Code != http.StatusOK {
+		t.Fatalf("opaque upload > 80 KiB JPEG cap = %d %s, want 200", rec.Code, rec.Body.String())
+	}
+	savedJPEG := filepath.Join(dir, store.MediaFileName("1001", "1760000703", "1001_1760000703"))
+	info, err = os.Stat(savedJPEG)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() > 80<<10 {
+		t.Fatalf("compressed JPEG size = %d, want <= %d", info.Size(), 80<<10)
+	}
+	f, err = os.Open(savedJPEG)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, format, err = image.Decode(f)
+	_ = f.Close()
+	if err != nil || format != "jpeg" {
+		t.Fatalf("saved JPEG decode = (%q, %v), want jpeg", format, err)
+	}
+
+	// 4. Uploads exceeding uploads.max-receive-bytes return 413 before decoding/compression.
+	uploadConfig(t, config.Config{
+		AuthMode:              config.AuthDevFake,
+		UploadMaxReceiveBytes: 1 << 20,
+		UploadMaxJPEGBytes:    150 << 10,
+		UploadMaxPNGBytes:     150 << 10,
+	})
+	overReceive := bytes.Repeat([]byte{'x'}, (1<<20)+1)
+	req := diaryUploadRequest(t, diaryParamsJSON(t, "1001", "1760000704", "1001_1760000704"), overReceive, "image/png")
 	req.Header.Set("Cookie", `AV_AUTH="tok1"`)
 	req.ContentLength = -1
 	rec := httptest.NewRecorder()
 	handleDiaryImageUploadAt(rec, req, dir)
 	if rec.Code != http.StatusRequestEntityTooLarge || rec.Body.String() != diaryMediaTooLargeBody {
-		t.Fatalf("over hard ceiling = %d %s, want 413", rec.Code, rec.Body.String())
+		t.Fatalf("over max-receive-bytes = %d %s, want 413", rec.Code, rec.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, store.MediaFileName("1001", "1760000704", "1001_1760000704"))); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("rejected > max-receive-bytes upload created file: %v", err)
 	}
 }
 

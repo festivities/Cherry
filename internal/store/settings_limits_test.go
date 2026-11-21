@@ -61,38 +61,97 @@ func TestUploadMaxTotalBytesOverride(t *testing.T) {
 	}
 }
 
-func TestUploadMaxFileBytesOverride(t *testing.T) {
-	const fallback int64 = 20 << 20
-	if got := UploadMaxFileBytes(fallback); got != fallback {
-		t.Fatalf("without db = %d, want %d", got, fallback)
-	}
-	docStore(t)
-	if err := SetUploadMaxFileBytes(UploadMaxFileBytesMin, "dev-owner"); err != nil {
-		t.Fatal(err)
-	}
-	if got := UploadMaxFileBytes(fallback); got != UploadMaxFileBytesMin {
-		t.Fatalf("min = %d, want %d", got, UploadMaxFileBytesMin)
-	}
-	if err := SetUploadMaxFileBytes(UploadMaxFileBytesMax, "dev-owner"); err != nil {
-		t.Fatal(err)
-	}
-	if got := UploadMaxFileBytes(fallback); got != UploadMaxFileBytesMax {
-		t.Fatalf("max = %d, want %d", got, UploadMaxFileBytesMax)
-	}
-	for _, bad := range []int64{UploadMaxFileBytesMin - 1, UploadMaxFileBytesMax + 1} {
-		if err := SetUploadMaxFileBytes(bad, "dev-owner"); !errors.Is(err, ErrBadInput) {
-			t.Fatalf("SetUploadMaxFileBytes(%d) = %v, want ErrBadInput", bad, err)
-		}
-	}
-	if err := ClearUploadMaxFileBytes("dev-owner"); err != nil {
-		t.Fatal(err)
-	}
-	if _, set, _ := UploadMaxFileBytesSetting(); set {
-		t.Fatal("cleared still set")
-	}
-	row, ok := settingAudit(t, "setting", uploadMaxFileBytesKey)
-	if !ok || row.Actor != "dev-owner" || !strings.Contains(row.Detail, `"new":"default"`) {
-		t.Fatalf("audit row = %+v ok=%t", row, ok)
+func TestUploadCapsOverride(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		key       string
+		fallback  int64
+		min, max  int64
+		effective func(int64) int64
+		setting   func() (int64, bool, error)
+		set       func(int64, string) error
+		clear     func(string) error
+	}{
+		{
+			name:      "receive",
+			key:       uploadMaxReceiveBytesKey,
+			fallback:  20 << 20,
+			min:       UploadMaxReceiveBytesMin,
+			max:       UploadMaxReceiveBytesMax,
+			effective: UploadMaxReceiveBytes,
+			setting:   UploadMaxReceiveBytesSetting,
+			set:       SetUploadMaxReceiveBytes,
+			clear:     ClearUploadMaxReceiveBytes,
+		},
+		{
+			name:      "jpeg",
+			key:       uploadMaxJPEGBytesKey,
+			fallback:  150 << 10,
+			min:       UploadMaxJPEGBytesMin,
+			max:       UploadMaxJPEGBytesMax,
+			effective: UploadMaxJPEGBytes,
+			setting:   UploadMaxJPEGBytesSetting,
+			set:       SetUploadMaxJPEGBytes,
+			clear:     ClearUploadMaxJPEGBytes,
+		},
+		{
+			name:      "png",
+			key:       uploadMaxPNGBytesKey,
+			fallback:  150 << 10,
+			min:       UploadMaxPNGBytesMin,
+			max:       UploadMaxPNGBytesMax,
+			effective: UploadMaxPNGBytes,
+			setting:   UploadMaxPNGBytesSetting,
+			set:       SetUploadMaxPNGBytes,
+			clear:     ClearUploadMaxPNGBytes,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.effective(tc.fallback); got != tc.fallback {
+				t.Fatalf("without db = %d, want %d", got, tc.fallback)
+			}
+			if err := tc.set(tc.min, "dev-owner"); !errors.Is(err, ErrNoDatabase) {
+				t.Fatalf("without db Set = %v, want ErrNoDatabase", err)
+			}
+			docStore(t)
+			if n, set, err := tc.setting(); err != nil || set || n != 0 {
+				t.Fatalf("unset: %d %t %v", n, set, err)
+			}
+			if err := tc.set(tc.min, "dev-owner"); err != nil {
+				t.Fatal(err)
+			}
+			if got := tc.effective(tc.fallback); got != tc.min {
+				t.Fatalf("min = %d, want %d", got, tc.min)
+			}
+			if err := tc.set(tc.max, "dev-owner"); err != nil {
+				t.Fatal(err)
+			}
+			if got := tc.effective(tc.fallback); got != tc.max {
+				t.Fatalf("max = %d, want %d", got, tc.max)
+			}
+			for _, bad := range []int64{tc.min - 1, tc.max + 1} {
+				if err := tc.set(bad, "dev-owner"); !errors.Is(err, ErrBadInput) {
+					t.Fatalf("set(%d) = %v, want ErrBadInput", bad, err)
+				}
+			}
+			d := attachedDB()
+			if err := d.Update(func(tx *sql.Tx) error { return setMetaTx(tx, tc.key, "123") }); err != nil {
+				t.Fatal(err)
+			}
+			if got := tc.effective(tc.fallback); got != tc.fallback {
+				t.Fatalf("out-of-range stored = %d, want fallback", got)
+			}
+			if err := tc.clear("dev-owner"); err != nil {
+				t.Fatal(err)
+			}
+			if _, set, _ := tc.setting(); set {
+				t.Fatal("cleared still set")
+			}
+			row, ok := settingAudit(t, "setting", tc.key)
+			if !ok || row.Actor != "dev-owner" || !strings.Contains(row.Detail, `"new":"default"`) {
+				t.Fatalf("audit row = %+v ok=%t", row, ok)
+			}
+		})
 	}
 }
 
