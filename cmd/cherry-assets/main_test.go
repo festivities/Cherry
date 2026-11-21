@@ -285,11 +285,72 @@ func TestOriginsStayInArchive(t *testing.T) {
 		"original landscape item":      {&object{key: "static/item/garden/428400003/dp.png", path: filepath.Join(root, "item", "custom", "123", "dp.png"), size: 1}, true},
 		"-cherry probe in a backup":    {&object{key: "static/animation/-cherry/dir", path: filepath.Join(root, "animation", "a.png"), size: 1}, false},
 		"cherry_day tile in a backup":  {&object{key: "static/ui/UIImage_hd/cherry_day01.png", path: filepath.Join(root, "animation", "a.png"), size: 1}, false},
+		"excluded bulk object":         {&object{key: "static/animation/world_icon/ds_easter_w_exchange_i0.png", path: filepath.Join(root, "animation", "a.png"), size: 1, cat: "animation", rel: "world_icon/ds_easter_w_exchange_i0.png"}, false},
 	}
 	for name, c := range cases {
 		err := checkOrigins(append(objs[:len(objs):len(objs)], c.obj), roots)
 		if (err == nil) != c.ok {
 			t.Errorf("%s: err = %v, want ok=%v", name, err, c.ok)
 		}
+	}
+}
+
+func TestExcludedBulkSkippedAndRefused(t *testing.T) {
+	root := writeTree(t,
+		"animation/world_icon/ds_easter_w_exchange_i0.png",
+		"animation/world_icon/b.png",
+		"sound/BGM.ogg",
+		"UIResource/MarbleChallengePopup.plist",
+		"stringtable/arts_strings.ast",
+		"garden/README", "world/README",
+		"item/custom/README", "item/dress/README", "item/interior/README", "item/tile/README", "item/garden/README", "item/pet/README",
+		"cache/action/00005_chatting_deco_action_hello.png",
+	)
+	objs, err := buildObjects([]string{root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var keys []string
+	for _, o := range objs {
+		keys = append(keys, o.key)
+	}
+	if slices.Contains(keys, "static/animation/world_icon/ds_easter_w_exchange_i0.png") {
+		t.Fatal("excluded bulk key was planned by buildObjects")
+	}
+	if !slices.Contains(keys, "static/animation/world_icon/b.png") {
+		t.Fatal("non-excluded animation/world_icon/b.png was skipped")
+	}
+	excluded := &object{
+		key:  "static/animation/world_icon/ds_easter_w_exchange_i0.png",
+		path: filepath.Join(root, "animation", "world_icon", "ds_easter_w_exchange_i0.png"),
+		size: 1,
+		cat:  "animation",
+		rel:  "world_icon/ds_easter_w_exchange_i0.png",
+	}
+	if err := checkObject(excluded, []string{root}); err == nil {
+		t.Fatal("checkObject accepted excludedBulk key")
+	}
+}
+
+func TestOnlyCat(t *testing.T) {
+	objs := []*object{
+		{key: "static/animation/a.png", cat: "animation", rel: "a.png"},
+		{key: "static/animation/world_icon/b.png", cat: "animation", rel: "world_icon/b.png"},
+		{key: "static/sound/BGM.ogg", cat: "sound", rel: "BGM.ogg"},
+		{key: "static/ui/u.plist", cat: "ui", rel: "u.plist"},
+		{key: "static/garden/1908231803.mworldpack", pack: "garden", rel: "1908231803.mworldpack"},
+		{key: "static/item/custom/1/dp.png"},
+	}
+	got := onlyCat(objs, "animation")
+	var keys []string
+	for _, o := range got {
+		keys = append(keys, o.key)
+	}
+	want := []string{"static/animation/a.png", "static/animation/world_icon/b.png"}
+	if !slices.Equal(keys, want) {
+		t.Fatalf("onlyCat(animation) = %v, want %v", keys, want)
+	}
+	if len(objs) != 6 || objs[2].cat != "sound" || objs[3].cat != "ui" {
+		t.Fatalf("input slice mutated: %+v", objs)
 	}
 }

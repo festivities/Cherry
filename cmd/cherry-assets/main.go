@@ -10,7 +10,8 @@
 //	cherry-assets upload               upload what is missing (HEAD, then PUT), then the indexes
 //	cherry-assets upload -packs-only   upload only the map packs and cherry/manifest/packs.json (no bulk indexes)
 //	cherry-assets upload -only NAME    upload only one origin source (origSources: an APK folder or DailyBonus)
-//	cherry-assets prune [-yes]         delete cherry/item/ objects the plan no longer has: converted items a backup now holds
+//	cherry-assets upload -cat CAT      upload only one bulk category and cherry/manifest/<cat>.json
+//	cherry-assets prune [-yes]         delete cherry/item/ objects the plan no longer has and excluded bulk keys
 //	cherry-assets verify               list the bucket and compare it with the plan; fails while legacy manifest/ keys remain
 //	cherry-assets migrate-manifests    one-time: copy manifest/ to cherry/manifest/, then delete the legacy keys (no dataset)
 //	cherry-assets convert              local only: convert the 2014 iOS item.zip items no backup has into the generated tree
@@ -74,6 +75,14 @@ var archiveRoots = []string{defaultDataset, extraDataset, miawDataset, roboDatas
 // cache/action/00005_chatting_deco_action_<name>.png. The client reads them under checkresource2 ch 00005, and
 // Cherry serves them without the prefix.
 const chatActionPrefix = "00005_"
+
+// excludedBulk holds bulk keys skipped during planning and refused by checkObject.
+// static/animation/world_icon/ds_easter_w_exchange_i0.png is a 32x42 PNG in santi-backup-20260921 padded/corrupted
+// to 101,140,895 bytes (nearly 1/3 of a fresh install), which stalled slow-link players at 118 MB; excluded by user
+// decision (2026-11-22).
+var excludedBulk = map[string]bool{
+	"static/animation/world_icon/ds_easter_w_exchange_i0.png": true,
+}
 
 // bulkSource maps a bulk category to its dataset folder. only, when set, limits the category to those
 // files (paths relative to dir); subui is the one plist of UIResource, tx the string table. prefix is put in front
@@ -177,6 +186,9 @@ func checkOrigins(objs []*object, roots []string) error {
 }
 
 func checkObject(o *object, roots []string) error {
+	if excludedBulk[o.key] {
+		return errors.New("excluded corrupted bulk object")
+	}
 	if o.source != "" {
 		return checkOrig(o)
 	}
@@ -258,12 +270,16 @@ func listRoot(dataset string, first bool) ([]*object, error) {
 			if src.only != nil && !slices.Contains(src.only, rel) {
 				return nil
 			}
+			rel = src.prefix + rel
+			key := "static/" + src.cat + "/" + rel
+			if excludedBulk[key] {
+				return nil
+			}
 			info, err := d.Info()
 			if err != nil {
 				return err
 			}
-			rel = src.prefix + rel
-			objs = append(objs, &object{key: "static/" + src.cat + "/" + rel, path: p, size: info.Size(), cat: src.cat, rel: rel})
+			objs = append(objs, &object{key: key, path: p, size: info.Size(), cat: src.cat, rel: rel})
 			return nil
 		})
 		if err != nil {
@@ -435,6 +451,17 @@ func onlyPacks(objs []*object) []*object {
 	return out
 }
 
+// onlyCat keeps the bulk objects of one category.
+func onlyCat(objs []*object, cat string) []*object {
+	var out []*object
+	for _, o := range objs {
+		if o.cat == cat {
+			out = append(out, o)
+		}
+	}
+	return out
+}
+
 func mustRel(base, p string) string {
 	rel, err := filepath.Rel(base, p)
 	if err != nil {
@@ -550,10 +577,19 @@ func main() {
 	concurrency := flags.Int("concurrency", 8, "parallel R2 requests (upload)")
 	packsOnly := flags.Bool("packs-only", false, "upload only the map packs and cherry/manifest/packs.json (upload)")
 	only := flags.String("only", "", "upload only this origin source ("+strings.Join(originNames(), ", ")+") (upload)")
+	catFlag := flags.String("cat", "", "upload only this bulk category ("+strings.Join(assets.Categories, ", ")+") and its manifest (upload)")
 	zipFlag := flags.String("zip", itemZipPath, "the 2014 iOS item.zip to convert (convert)")
 	yes := flags.Bool("yes", false, "delete the stale objects (prune; without it prune only counts them)")
 	outFlag := flags.String("out", assets.GeneratedItemRoot, "the generated item tree: convert writes it, plan/upload read it")
 	_ = flags.Parse(args)
+	if cmd == "upload" {
+		if (*packsOnly && *only != "") || (*catFlag != "" && (*packsOnly || *only != "")) {
+			fail("upload: -packs-only, -only, and -cat are mutually exclusive")
+		}
+		if *catFlag != "" && !slices.Contains(assets.Categories, *catFlag) {
+			fail("upload: unknown category %q (one of %s)", *catFlag, strings.Join(assets.Categories, ", "))
+		}
+	}
 
 	if cmd == "migrate-manifests" { // R2 only: it moves the existing indexes and never reads the dataset
 		if err := runMigrate(context.Background()); err != nil {
@@ -587,6 +623,9 @@ func main() {
 	case "plan":
 		printPlan(objs)
 	case "upload":
+		if *catFlag != "" {
+			objs = onlyCat(objs, *catFlag)
+		}
 		if *packsOnly {
 			objs = onlyPacks(objs)
 		}
@@ -596,7 +635,7 @@ func main() {
 				fail("upload: no origin source %q (one of %s)", *only, strings.Join(originNames(), ", "))
 			}
 		}
-		if err := runUpload(context.Background(), objs, *concurrency, *packsOnly, *only != ""); err != nil {
+		if err := runUpload(context.Background(), objs, *concurrency, *packsOnly, *only != "", *catFlag); err != nil {
 			fail("upload: %v", err)
 		}
 	case "verify":

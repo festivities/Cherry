@@ -27,7 +27,8 @@ import (
 // lists a file R2 does not have. packsOnly skips the bulk indexes (objs must then be the map
 // packs only, since the bulk indexes list every bulk object given).
 // origOnly uploads one origin source only (-only): no index, no pack list.
-func runUpload(ctx context.Context, objs []*object, concurrency int, packsOnly, origOnly bool) error {
+// cat, when non-empty, uploads only that bulk category (-cat) and writes only cherry/manifest/<cat>.json.
+func runUpload(ctx context.Context, objs []*object, concurrency int, packsOnly, origOnly bool, cat string) error {
 	cfg, err := loadR2()
 	if err != nil {
 		return err
@@ -47,7 +48,10 @@ func runUpload(ctx context.Context, objs []*object, concurrency int, packsOnly, 
 	if _, err := client.Head(ctx, "probe/cherry-assets-check"); !errors.Is(err, assets.ErrNotFound) {
 		return fmt.Errorf("R2 probe: %v", err)
 	}
+	return uploadWithClient(ctx, client, logger, objs, concurrency, packsOnly, origOnly, cat)
+}
 
+func uploadWithClient(ctx context.Context, client *assets.Client, logger *log.Logger, objs []*object, concurrency int, packsOnly, origOnly bool, cat string) error {
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
 	r := &uploader{client: client, log: logger, total: int64(len(objs)), stop: stop}
@@ -82,9 +86,18 @@ func runUpload(ctx context.Context, objs []*object, concurrency int, packsOnly, 
 	if origOnly {
 		return nil
 	}
+	if cat != "" {
+		manifests, err := writeManifests(ctx, r.client, objs, cat)
+		if err != nil {
+			return err
+		}
+		logger.Printf("manifests written: %d categories", len(manifests))
+		fmt.Printf("manifests: %d categories written to R2\n", len(manifests))
+		return nil
+	}
 
 	if !packsOnly {
-		manifests, err := writeManifests(ctx, r.client, objs)
+		manifests, err := writeManifests(ctx, r.client, objs, "")
 		if err != nil {
 			return err
 		}
@@ -230,17 +243,21 @@ func retry(ctx context.Context, fn func() error) error {
 	return err
 }
 
-// writeManifests builds cherry/manifest/<cat>.json for each bulk category from the uploaded objects' MD5s and
-// PUTs it. It returns the entries per category (sorted by path).
-func writeManifests(ctx context.Context, client *assets.Client, objs []*object) (map[string][]assets.Entry, error) {
+// writeManifests builds cherry/manifest/<cat>.json for each bulk category (or only onlyCat when non-empty)
+// from the uploaded objects' MD5s and PUTs it. It returns the entries per written category (sorted by path).
+func writeManifests(ctx context.Context, client *assets.Client, objs []*object, onlyCat string) (map[string][]assets.Entry, error) {
+	cats := assets.Categories
+	if onlyCat != "" {
+		cats = []string{onlyCat}
+	}
 	byCat := map[string][]assets.Entry{}
 	for _, o := range objs {
-		if o.cat == "" {
+		if o.cat == "" || (onlyCat != "" && o.cat != onlyCat) {
 			continue
 		}
 		byCat[o.cat] = append(byCat[o.cat], assets.Entry{Path: o.rel, Size: o.size, MD5: o.md5})
 	}
-	for _, cat := range assets.Categories {
+	for _, cat := range cats {
 		entries := byCat[cat]
 		sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
 		m := assets.Manifest{Cat: cat, Version: assets.Version(entries), Entries: entries}
@@ -382,14 +399,18 @@ func verifyGroup(key string) string {
 }
 
 // runPrune deletes the converted-item objects (cherry/item/) that the plan no longer
-// has: items a newer device backup now holds as originals (convert skips those ids). It never touches static/
-// or the indexes. Without yes it only prints what it would delete.
+// has (items a newer device backup now holds as originals, which convert skips) and any excludedBulk keys
+// present in R2. It never lists or deletes any other static/ key or the indexes. Without yes it only lists
+// what it would delete.
 func runPrune(ctx context.Context, objs []*object, yes bool) error {
 	cfg, err := loadR2()
 	if err != nil {
 		return err
 	}
-	client := assets.NewClient(cfg)
+	return pruneClient(ctx, assets.NewClient(cfg), objs, yes)
+}
+
+func pruneClient(ctx context.Context, client *assets.Client, objs []*object, yes bool) error {
 	want := map[string]bool{}
 	for _, o := range objs {
 		want[o.key] = true
@@ -411,7 +432,23 @@ func runPrune(ctx context.Context, objs []*object, yes bool) error {
 		}
 		token = next
 	}
-	fmt.Printf("prune: %d stale objects under %s\n", len(stale), prefix)
+	for _, k := range slices.Sorted(maps.Keys(excludedBulk)) {
+		err := retry(ctx, func() error {
+			_, herr := client.Head(ctx, k)
+			return herr
+		})
+		if errors.Is(err, assets.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("head %s: %w", k, err)
+		}
+		stale = append(stale, k)
+	}
+	for _, k := range stale {
+		fmt.Printf("prune: stale %s\n", k)
+	}
+	fmt.Printf("prune: %d stale objects\n", len(stale))
 	if !yes || len(stale) == 0 {
 		return nil
 	}
