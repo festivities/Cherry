@@ -316,8 +316,8 @@
           "code": "cherry_celina",
           "name": "Celina",
           "skin_color": 1,
-          "outfit": ["CUHA006L6", "CUSH003KX", "CUON008J8", "CUEY002O2", "CUEB000D7", "CUMO0013O", "CUNO00016", "CUAH005L1"],
-          "lookalikes": ["CUON008J8", "CUEY002O2", "CUEB000D7", "CUMO0013O", "CUNO00016", "CUAH005L1"]
+          "outfit": ["CUHA006L6", "CUSH003KX", "CUON0083X", "CUEY002O2", "CUEB000D7", "CUMO0013O", "CUNO00016", "CUAH005L1"],
+          "lookalikes": ["CUEY002O2", "CUEB000D7", "CUMO0013O", "CUNO00016", "CUAH005L1"]
         }
       ],
       "abilities": ["essence", "ore"],
@@ -329,7 +329,7 @@
         "keywords": ["Love", "clingy", "darkness"],
         "quote": "May I be close to you forever...!"
       },
-      "note": "No original ON: the batch slots CUON009CY, CZ, D1, D5 and D8 are in neither archive. Look-alikes: ON CUON008U1 (225111449, outside the batch), the faces (EY, EB, MO, NO), and AH CUAH005L1 (black eyepatch) for the heart eyepatch, which is in no archive (CUAH0086L is a chest pendant and is not used). HA and SH are original. Ribbons: not found (225410605 is a different design). Cherry-picked look-alike: an original catalog item chosen by Cherry because the true item is not in any archive; user decision 2026-10-29."
+      "note": "Outfit: ON CUON0083X (user-confirmed original 2026-11-21), HA and SH are original. Look-alikes: the faces (EY, EB, MO, NO) and AH CUAH005L1 (black eyepatch) for the heart eyepatch. Cherry-picked look-alike: an original catalog item chosen by Cherry because the true item is not in any archive; user decision 2026-10-29."
     },
     {
       "id": 1900000009,
