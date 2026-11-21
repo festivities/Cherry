@@ -151,7 +151,7 @@ func TestGuestGenerateSkipsDeletedAccount(t *testing.T) {
 }
 
 // TestSessionOutAndAvatarBirthday: the profile carries the avatar's creation time as result.created (epoch ms, the
-// client's "Avatar Birthday") with birthday true; PUT sessionout (the settings Logout) answers 200 {"result":true}, the
+// client's "Avatar Birthday") and birthday false until its first anniversary; PUT sessionout (the settings Logout) answers 200 {"result":true}, the
 // only reply the client logs out on, and ends the login (checkSession 404 after); a repeat still answers true.
 func TestSessionOutAndAvatarBirthday(t *testing.T) {
 	guestAccountTest(t)
@@ -170,8 +170,25 @@ func TestSessionOutAndAvatarBirthday(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &profile); err != nil || rec.Code != http.StatusOK {
 		t.Fatalf("profile = %d %s", rec.Code, rec.Body.String())
 	}
-	if ms, err := strconv.ParseInt(profile.Result.Created, 10, 64); err != nil || ms < before || ms > time.Now().UnixMilli() || !profile.Result.Birthday {
-		t.Fatalf("profile created %q birthday %v, want the creation time in ms", profile.Result.Created, profile.Result.Birthday)
+	if ms, err := strconv.ParseInt(profile.Result.Created, 10, 64); err != nil || ms < before || ms > time.Now().UnixMilli() || profile.Result.Birthday {
+		t.Fatalf("profile created %q birthday %v, want the creation time in ms and no birthday on day one", profile.Result.Created, profile.Result.Birthday)
+	}
+	// birthday = an anniversary at GMT+9, a year or more on (the Garden hat and "Happy Birthday").
+	gmt9 := time.FixedZone("JST", 9*3600)
+	born := time.Date(2026, 11, 15, 23, 30, 0, 0, gmt9).UnixMilli()
+	for _, c := range []struct {
+		now  time.Time
+		want bool
+	}{
+		{time.Date(2026, 11, 15, 23, 45, 0, 0, gmt9), false}, // creation day
+		{time.Date(2026, 11, 20, 12, 0, 0, 0, gmt9), false},
+		{time.Date(2027, 11, 15, 0, 5, 0, 0, gmt9), true},
+		{time.Date(2027, 11, 15, 15, 5, 0, 0, time.UTC), false}, // already Nov 16 at GMT+9
+		{time.Date(2028, 11, 15, 12, 0, 0, 0, gmt9), true},
+	} {
+		if got := isAvatarBirthday(born, c.now); got != c.want || isAvatarBirthday(0, c.now) {
+			t.Fatalf("isAvatarBirthday(%v) = %v, want %v", c.now, got, c.want)
+		}
 	}
 
 	live := avAuthValue(t, checkSession(t, avAuth))

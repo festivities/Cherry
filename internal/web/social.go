@@ -174,12 +174,25 @@ func handleProfile(w http.ResponseWriter, r *http.Request) {
 		}
 		body["intro"] = profileIntro(acc) // ParseJson (0x1b6f000) reads result.intro as the Status Message
 		// "Avatar Birthday" (NaProfilePopup::SetBirthday 0x21de278): result.created read asString, epoch ms, shown at GMT+9;
-		// birthday (asBool) shows the row. duplogin-spec.md section 6.
-		body["created"], body["birthday"] = strconv.FormatInt(store.AvatarBirthday(aid), 10), true
+		// the row shows without birthday (Jan 1 1970 before f8180ef). birthday (asBool) = "today is the birthday": the
+		// profile's "Happy Birthday" and the Garden hat (NaGardenUILayer::SetAvatarBirthImage). duplogin-spec.md section 6.
+		created := store.AvatarBirthday(aid)
+		body["created"], body["birthday"] = strconv.FormatInt(created, 10), isAvatarBirthday(created, economy.NowFunc())
 		profileJSON(w, body)
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, profileBody)
+}
+
+// isAvatarBirthday: now (GMT+9, as the client shows the date) is an anniversary of the creation time createdMs, a year
+// or more after it. The creation day itself is not a birthday.
+func isAvatarBirthday(createdMs int64, now time.Time) bool {
+	if createdMs <= 0 {
+		return false
+	}
+	gmt9 := time.FixedZone("JST", 9*3600)
+	born, today := time.UnixMilli(createdMs).In(gmt9), now.In(gmt9)
+	return today.Year() > born.Year() && today.Month() == born.Month() && today.Day() == born.Day()
 }
 
 func profileBodyFor(aid, name string, hasGarden bool, viewer store.AccountSnapshot, viewerOK bool) map[string]any {
