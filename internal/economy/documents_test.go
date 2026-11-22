@@ -32,6 +32,7 @@ func docStore(t *testing.T) (configDir, dbPath string) {
 		opdata.ResetOffers()
 		cherryTipsFile.Reset()
 		calendarsFile.Reset()
+		popupsFile.Reset()
 	})
 	return configDir, dbPath
 }
@@ -42,6 +43,7 @@ func loadRestart() error {
 	opdata.ResetOffers()
 	cherryTipsFile.Reset()
 	calendarsFile.Reset()
+	popupsFile.Reset()
 	if err := store.OfferPublishedDocuments(); err != nil {
 		return err
 	}

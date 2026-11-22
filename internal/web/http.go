@@ -385,6 +385,7 @@ func newMux(svc *auth.Service) http.Handler {
 	mux.HandleFunc("/v4/popup/isExists", economy.HandlePopupIsExists)
 	mux.HandleFunc("/v4/popup/list", economy.HandlePopupList)
 	mux.HandleFunc("/cherry/event/", economy.HandleEventPopupImage)
+	mux.HandleFunc("/cherry/popup/", economy.HandlePopupImage)
 	mux.HandleFunc("/v4/home/integrated/info", economy.HandleHomeIntegratedInfo)
 	mux.HandleFunc("/v4/birthday/info/year", economy.HandleBirthdayInfoYear)
 	mux.HandleFunc("/v4/birthday/info/day", economy.HandleBirthdayInfoDay)

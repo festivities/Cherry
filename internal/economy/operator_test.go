@@ -24,6 +24,7 @@ func resetOperatorData() {
 	racingFile.Reset()
 	rideShopFile.Reset()
 	dyesFile.Reset()
+	popupsFile.Reset()
 }
 
 // operatorDir points the operator config directory at an empty temp dir (os.UserCacheDir reads

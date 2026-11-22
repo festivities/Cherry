@@ -182,3 +182,9 @@ var PetsJSON []byte
 //
 //go:embed styling.json
 var StylingJSON []byte
+
+// PopupsJSON is the operator login popup list: a banner, two text lines and a button each, shown once per game day in the
+// Garden (economy/popups.go). The embedded list is empty.
+//
+//go:embed popups.json
+var PopupsJSON []byte

@@ -21,8 +21,8 @@ func TestEveryDocumentLoadsAtStart(t *testing.T) {
 			t.Errorf("document %s is declared but no startup loader loads it", s.Name)
 		}
 	}
-	if got := len(opdata.Names()); got != 28 {
-		t.Errorf("%d documents declared, want 28: update this test and AGENTS when a document is added", got)
+	if got := len(opdata.Names()); got != 29 {
+		t.Errorf("%d documents declared, want 29: update this test and AGENTS when a document is added", got)
 	}
 	for _, sw := range []string{"streaming.json", "itemconv.json"} {
 		if opdata.Known(sw) {

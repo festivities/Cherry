@@ -54,7 +54,7 @@ func TestPopupRowShape(t *testing.T) {
 		}
 	}
 	want := map[string]any{
-		"popupNo": 9101.0, "cookieTime": 24.0, "linkType": "goSomewhere(gachaShop)", "linkData": "",
+		"popupNo": 9101.0, "cookieTime": 1.0, "linkType": "goSomewhere(gachaShop)", "linkData": "",
 		"imageUrl": "cherry/event/halloween.png", "startYmdt": "1792875600000", "endYmdt": "1794085199000",
 		"mainTitle": "Halloween is here!", "backgroundColorCode": "#3a1a08", "linkColorCode": 4.0,
 	}
@@ -136,8 +136,10 @@ func TestPopupRefusals(t *testing.T) {
 		{mutateDefault(t, raw, `"link": "goSomewhere(gachaShop)", "cookie_hours": 24, "background": "#1c3a5e"`,
 			`"link": "goSomewhere(square)", "cookie_hours": 24, "background": "#1c3a5e"`),
 			`season winter: popup link "goSomewhere(square)" is not a native scene`},
-		{mutateDefault(t, raw, `"no": 9201`, `"no": 9101`), "season halloween: popup no must be unique and inside the Cherry block 9101-9399"},
-		{mutateDefault(t, raw, `"no": 9201`, `"no": 500`), "season winter: popup no must be unique and inside the Cherry block 9101-9399"},
+		{mutateDefault(t, raw, `"no": 9201`, `"no": 9101`), "season halloween: popup no must be unique and inside the season block 9101-9349"},
+		{mutateDefault(t, raw, `"no": 9201`, `"no": 500`), "season winter: popup no must be unique and inside the season block 9101-9349"},
+		// The operator block 9350-9399 is not a season number: a season and an operator popup never share one.
+		{mutateDefault(t, raw, `"no": 9301`, `"no": 9350`), "season newyear: popup no must be unique and inside the season block 9101-9349"},
 		{mutateDefault(t, raw, `"cookie_hours": 24, "background": "#1c3a5e"`, `"cookie_hours": 0, "background": "#1c3a5e"`),
 			"season winter: popup cookie_hours must be 1 to 8760"},
 		{mutateDefault(t, raw, `"background": "#1c3a5e"`, `"background": "1c3a5e"`), `season winter: popup background: colour "1c3a5e" must be #rrggbb`},

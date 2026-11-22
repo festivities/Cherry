@@ -1,0 +1,5 @@
+{
+  "origin": "cherry",
+  "note": "Operator login popups (Cherry-made, AGENTS Operator-editable fabricated content). The embedded default is EMPTY: no popup is shown until an operator adds one (a published popups.json document on the Staff Panel, or <data.dir>/config/popups.json; picture files go in <data.dir>/config/popups/). Each popup is a banner picture (Cherry draws a placeholder when no image file is named), two text lines and a button that opens a native scene or an https link in the phone's browser. Numbers 9350-9399 (the season popups use 9101-9349). Shown once per game day (06:00 JST) when the player enters the Garden, in array order.",
+  "popups": []
+}

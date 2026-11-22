@@ -140,6 +140,7 @@ type Account struct {
 	Dyes            map[string]int        // dye items owned by item number (economy/dye.go); replaced, never edited in place
 	DyeColors       map[string][]DyeColor // colours of dyed garments by item code (economy/dye.go); replaced, never edited in place
 	LuckySpinDay    int64                 // game day (economy.AttendDayKey) of the last free Lucky Spin (economy/spin.go); 0 = none
+	PopupDay        int64                 // game day (economy.AttendDayKey) whose operator login popups were served (economy/popups.go); 0 = none
 	AvatarCreated   int64                 // create/avatar time in Unix ms: the profile's "Avatar Birthday" (result.created); 0 = unknown
 	BirthdayClaims  map[int]int64         // avatar birthday reward claims: turn -> claim time in Unix ms (economy/birthday.go); replaced, never edited in place
 	GuestCode       string                // device uniqueCode bound by the guest login (GuestLogin); "" = none

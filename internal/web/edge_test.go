@@ -42,10 +42,14 @@ func TestPlainListenerAnswersOnlyTheClientPaths(t *testing.T) {
 		"/img/read/v4/setInitConf":                                          false,
 		"/img/read/lineplay/d/upload.nhn":                                   false,
 		"/img/read/cherry/fish/4901.png":                                    false,
-		"/img/read/photozone/x.png":                                         false,
-		"/img/read/gardenx/a.mworldpack":                                    false,
-		"/lineplay/d/upload.nhn":                                            false,
-		"/cherry/fish/4901.png":                                             false,
+		// The popup pictures of the season and the operator popups (relative imageUrl paths under the static base).
+		"/img/read/cherry/event/halloween.png":      true,
+		"/img/read/cherry/popup/9350-0a1b2c3d.png":  true,
+		"/img/read/cherry/popupx/9350-0a1b2c3d.png": false,
+		"/img/read/photozone/x.png":                 false,
+		"/img/read/gardenx/a.mworldpack":            false,
+		"/lineplay/d/upload.nhn":                    false,
+		"/cherry/fish/4901.png":                     false,
 
 		// The profile pictures of the home menu and Lounge Chat rows (relative lineplay/pr/<oid>); the upload is not.
 		"/img/read/lineplay/pr/18_1795286862": true,
