@@ -75,27 +75,6 @@ func NewPlainMux() http.Handler {
 	})
 }
 
-// staticPrefixes are the GET paths that serve files: the asset store, the Cherry pictures, the butler voice packs and the
-// profile and diary pictures. Everything else is a game request.
-var staticPrefixes = []string{"/arts_", "/img/read/", "/notice/", "/cherry/", "/web/", "/lineplay/", "/r/lineplay/", "/v4/resource/splash/", "/butler_voice_master/"}
-
-// isStaticGET reports whether r is a file read the limits exempt: a GET or HEAD of a static prefix, or a map pack ("/../").
-func isStaticGET(r *http.Request) bool {
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		return false
-	}
-	p := r.URL.Path
-	if strings.Contains(p, "/../") {
-		return true
-	}
-	for _, pre := range staticPrefixes {
-		if strings.HasPrefix(p, pre) {
-			return true
-		}
-	}
-	return false
-}
-
 // requestBuckets are the game request buckets of one newLimited wrapper (see newLimited for what each one counts).
 type requestBuckets struct{ address, account, guest, static *httpx.Bucket }
 
@@ -145,7 +124,7 @@ func newLimited(next http.Handler, cfg config.Config) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now()
 		addr := httpx.RemoteHost(r.RemoteAddr)
-		if isStaticGET(r) || httpx.IsItemNameLookup(r) {
+		if httpx.IsStaticGET(r) || httpx.IsItemNameLookup(r) {
 			if !static.Allow(addr, now) {
 				refuseRateLimited(w)
 				return

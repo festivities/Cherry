@@ -118,9 +118,31 @@ func IsItemNameLookup(r *http.Request) bool {
 	return r.Method == http.MethodPost && (r.URL.Path == "/v4/items/dress/some" || r.URL.Path == "/v4/items/room/some")
 }
 
-// WithLogging counts and logs every request. A successful item-name lookup is counted (metrics.ItemLookups) but not logged:
-// the client sends them 10+ a second (client-inherent, REFERENCE "Known client-inherent limits"), and journald keeps only
-// 10k lines per 30 s, so they pushed the refusals out. Failures (4xx and 5xx, 429 included) are still logged.
+// staticPrefixes are the GET paths that serve files: the asset store, the Cherry pictures, the butler voice packs and the
+// profile and diary pictures. Everything else is a game request.
+var staticPrefixes = []string{"/arts_", "/img/read/", "/notice/", "/cherry/", "/web/", "/lineplay/", "/r/lineplay/", "/v4/resource/splash/", "/butler_voice_master/"}
+
+// IsStaticGET reports whether r is a file read the limits exempt: a GET or HEAD of a static prefix, or a map pack ("/../").
+func IsStaticGET(r *http.Request) bool {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+	p := r.URL.Path
+	if strings.Contains(p, "/../") {
+		return true
+	}
+	for _, pre := range staticPrefixes {
+		if strings.HasPrefix(p, pre) {
+			return true
+		}
+	}
+	return false
+}
+
+// WithLogging counts and logs every request. A successful one (below 400, 304 included) of an item-name lookup or a static
+// read is counted (metrics.ItemLookups, metrics.StaticReads) but not logged: the client sends them 10+ a second
+// (client-inherent, REFERENCE "Known client-inherent limits"), and journald keeps only 10k lines per 30 s, so they pushed
+// the refusals out. Failures (4xx and 5xx, 429 included) are still logged.
 func WithLogging(next http.Handler, logger *log.Logger) http.Handler {
 	var seq atomic.Uint64
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -129,6 +151,10 @@ func WithLogging(next http.Handler, logger *log.Logger) http.Handler {
 		if lookup {
 			metrics.ItemLookups.Add(1)
 		}
+		static := IsStaticGET(r)
+		if static {
+			metrics.StaticReads.Add(1)
+		}
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w}
 		next.ServeHTTP(rec, r)
@@ -136,7 +162,7 @@ func WithLogging(next http.Handler, logger *log.Logger) http.Handler {
 		if status == 0 {
 			status = http.StatusOK
 		}
-		if lookup && status < http.StatusBadRequest {
+		if (lookup || static) && status < http.StatusBadRequest {
 			return
 		}
 		sni := ""

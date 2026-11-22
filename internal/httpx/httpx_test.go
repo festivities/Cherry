@@ -38,7 +38,27 @@ func TestItemNameLookupLogging(t *testing.T) {
 	}
 }
 
-// TestAuthQueryIsRedacted: the request log keeps an /auth/ path but never its query or a referer, and keeps other queries.
+// TestStaticReadLogging: a successful static GET is counted (metrics.StaticReads) but not logged; a failed one is logged.
+func TestStaticReadLogging(t *testing.T) {
+	var buf bytes.Buffer
+	status := http.StatusOK
+	h := WithLogging(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(status) }), log.New(&buf, "", 0))
+	before := metrics.StaticReads.Load()
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/arts_item_custom_1/dp.png", nil))
+	if buf.Len() != 0 {
+		t.Fatalf("a 200 static read was logged: %s", buf.String())
+	}
+	if got := metrics.StaticReads.Load() - before; got != 1 {
+		t.Fatalf("static reads counted = %d, want 1", got)
+	}
+	status = http.StatusNotFound
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/arts_item_custom_1/dp.png", nil))
+	if !strings.Contains(buf.String(), "status=404") {
+		t.Fatalf("a 404 static read was not logged: %q", buf.String())
+	}
+}
+
+// TestAuthQueryIsRedacted:the request log keeps an /auth/ path but never its query or a referer, and keeps other queries.
 func TestAuthQueryIsRedacted(t *testing.T) {
 	var buf bytes.Buffer
 	h := WithLogging(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), log.New(&buf, "", 0))

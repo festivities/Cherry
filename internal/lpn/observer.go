@@ -236,7 +236,6 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 			continue
 		}
 		if frame[0] == 'M' && length == 2 {
-			logger.Printf("OBS %s ping remote=%s sub=%d", addr, remote, frame[1])
 			// The client drops a link after ~5 s without inbound frames; echo pings
 			// (sub 85 'U' is disconnect, never echoed).
 			if frame[1] != 'U' {

@@ -155,7 +155,6 @@ func serveSessionConn(conn net.Conn, logger *log.Logger) {
 
 func handleSessionFrame(conn *lockedConn, remote string, payload []byte, logger *log.Logger) bool {
 	if len(payload) == 2 && payload[0] == 'M' && (payload[1] == 'Q' || payload[1] == 'S') {
-		logger.Printf("SESSION ping remote=%s tag=%s", remote, string(payload))
 		frame := binary.BigEndian.AppendUint32(nil, 2)
 		frame = append(frame, payload...)
 		if _, err := conn.Write(frame); err != nil {
