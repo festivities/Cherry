@@ -30,7 +30,7 @@ type navGroup struct {
 
 var navGroups = []navGroup{
 	{"Overview", []link{{Href: "/", Label: "Dashboard"}}},
-	{"Players", []link{{Href: "/players", Label: "Players"}, {Href: "/players/deleted", Label: "Deleted avatars"}, {Href: "/mail", Label: "Mail"}}},
+	{"Players", []link{{Href: "/players", Label: "Players"}, {Href: "/players/deleted", Label: "Deleted avatars"}, {Href: "/mail", Label: "Mail"}, {Href: "/balances", Label: "All balances"}}},
 	{"Moderation", []link{{Href: "/reports", Label: "Reports"}, {Href: "/chat", Label: "Chat log"}, {Href: "/photos", Label: "Photos"}}},
 	{"Insights", []link{{Href: "/online", Label: "Online now"}, {Href: "/economy", Label: "Economy"}, {Href: "/activity", Label: "Activity"}}},
 	{"Content", []link{{Href: "/docs", Label: "Documents"}}},
@@ -75,6 +75,7 @@ var notices = map[string]string{
 	"staff-removed":             "The staff member is removed. Their open sessions end now.",
 	"report-resolved":           "The report is resolved. The audit trail has the line and your note.",
 	"report-dismissed":          "The report is dismissed. The audit trail has the line and your note.",
+	"balances-already-applied":  "This balance change was already made. Nothing changed again.",
 }
 
 // check is a validation result shown on a version page, or next to the draft editor when a draft just saved was refused
@@ -148,9 +149,10 @@ type view struct {
 	Activity activityPage
 	Summary  insightsSummary // the dashboard's row
 
-	// the player page (playerpage.go), mail (mail.go), search (search.go), settings (settings.go)
+	// the player page (playerpage.go), mail (mail.go), balances (balances.go), search (search.go), settings (settings.go)
 	Page     playerPage
 	Mail     mailPage
+	Balances balancesPage
 	Search   searchPage
 	Settings settingsPage
 
@@ -221,15 +223,18 @@ func whoOf(sess session) string {
 	return id
 }
 
-// navFor copies the sidebar and marks the entry of the area p is in ("/players/5" is in "/players"). The Settings entry is the
-// owner's only: the copy for anyone else leaves it out.
+// ownerLinks are the sidebar entries the owner alone sees (Settings, and the balances of every player).
+var ownerLinks = []string{"/settings", "/balances"}
+
+// navFor copies the sidebar and marks the entry of the area p is in ("/players/5" is in "/players"). The owner's entries are
+// left out of the copy for anyone else.
 func navFor(p string, owner bool) []navGroup {
 	area := "/" + strings.Split(strings.TrimPrefix(p, "/"), "/")[0]
 	out := make([]navGroup, len(navGroups))
 	for i, g := range navGroups {
 		out[i] = navGroup{Title: g.Title, Links: slices.Clone(g.Links)}
 		if !owner {
-			out[i].Links = slices.DeleteFunc(out[i].Links, func(l link) bool { return l.Href == "/settings" })
+			out[i].Links = slices.DeleteFunc(out[i].Links, func(l link) bool { return slices.Contains(ownerLinks, l.Href) })
 		}
 		for j := range out[i].Links {
 			out[i].Links[j].Current = out[i].Links[j].Href == area
