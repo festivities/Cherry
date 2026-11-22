@@ -45,7 +45,7 @@ Context loaded (AGENTS in full, this block, Status, CONTRACT §10 here and Raspb
 - **`ec9f9dc` at 18:51** (with `e31db58`): 2xx static GETs counted (`cherry.static_reads`) and not logged, ping lines dropped → ~2.8k lines/30 s, no suppression. MENU Profile cell picture (`profile` + `bg` in the own profile reply, fallback `profilebg/12.jpg`); the `1b7c547` picture on the Profile Edit row reverted at the user's word.
 
 **Open after these deploys:**
-1. **Profile cell: user-verified 2026-11-22 ~19:30** (the MENU Profile cell shows the own profile picture on `ec9f9dc`). Closed. The combined per-player picture limit `0644e5f` is pushed and CI-green, **not deployed** (waits for the user's go).
+1. **Profile cell: user-verified 2026-11-22 ~19:30** (the MENU Profile cell shows the own profile picture on `ec9f9dc`). Closed. The combined per-player picture limit `0644e5f` was **deployed 2026-11-22 19:53** on the user's go, after a backup the user asked for: `/var/lib/cherry/backup-pre-0644e5f-20261122/` on the host (online SQLite backup, integrity ok, + the three media folders, 51 MB). **The user deletes it once satisfied; do not delete it unasked.**
 2. **Server-wide upload cap:** set to 20,000 MiB on Owner Settings by the user (meta `uploads.max-total-bytes`, seen 2026-11-22 ~19:20). Closed.
 3. **Production ports in Git history:** `a30daef` (pushed 2026-11-22) wrote the two game ports into REFERENCE.md; removed from the tree in `fb4e200`. **The user decided 2026-11-22 to leave the history as is** (no rewrite, no port move). Closed.
 4. Issue A step 2 (pets in My Room) unchanged: Room Deco has the pet tab, no RUPI item is granted.
@@ -194,7 +194,7 @@ Only M0–M4 are numbered. Later work is tracked as features:
 | Dashboard online count = distinct players (2026-11-22) | Built, unit-tested, CI green | `e38d1b3` |
 | MENU Profile cell shows the own profile picture (`profile` + `bg` in the own profile reply); Profile Edit row icon restored | User-verified 2026-11-22; deployed `ec9f9dc` | `ec9f9dc` |
 | Log volume under journald's limit (2xx item lookups and static reads counted, not logged; refusal counters on `/debug/vars`) | Deployed `fb4e200`, `ec9f9dc`; ~2.8k lines/30 s, no suppression | `5d5eaf0`, `e31db58` |
-| Picture storage: Storage card, live per-player limit, cap from rows; one combined per-player limit, no count | `fb4e200` deployed; combined limit `0644e5f` pushed, NOT deployed | `fb4e200`, `0644e5f` |
+| Picture storage: Storage card, live per-player limit, cap from rows; one combined per-player limit, no count | Deployed `fb4e200` and `0644e5f` (2026-11-22 19:53) | `fb4e200`, `0644e5f` |
 
 Older commit-by-commit evidence (M3 entry errors, keepalives, preload fixtures) is summarized in AGENTS "Architecture" and detailed in HISTORY.md.
 
