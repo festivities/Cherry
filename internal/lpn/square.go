@@ -768,11 +768,20 @@ func (s *squareSession) handleData(frame []byte) error {
 		members := s.room.members(nil)
 		body = pbVar(pbVar(nil, 1, uint64(len(members))), 2, squareRoomCap())
 		for _, p := range members {
-			name := "cherry"
+			name, picture, bg := "cherry", "", ""
 			if acc, ok := store.AccountByAvatarID(strconv.FormatUint(p.aid, 10)); ok {
-				name = acc.Name
+				name, picture, bg = acc.Name, acc.ProfileImage.Image, acc.ProfileImage.Bg
 			}
-			body = pbLen(body, 3, pbLen(pbVar(nil, 1, p.aid), 2, []byte(name)))
+			entry := pbLen(pbVar(nil, 1, p.aid), 2, []byte(name))
+			if picture != "" { // profile (4) and obs (6) go together: a profile alone takes the client's direct-URL branch
+				if bg == "" {
+					bg = "profilebg/12.jpg" // the profile reply's fallback (internal/web/social.go)
+				}
+				entry = pbLen(entry, 4, []byte(picture))
+				entry = pbLen(entry, 5, []byte(bg))
+				entry = pbLen(entry, 6, []byte(picture))
+			}
+			body = pbLen(body, 3, entry)
 		}
 		s.logger.Printf("SQUARE playerlist aid=%d count=%d", s.aid, len(members))
 		return s.reply(frame, 24, body)
