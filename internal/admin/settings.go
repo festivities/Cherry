@@ -39,6 +39,12 @@ type settingsPage struct {
 	UploadTotalCapMiB         string        // total photo storage cap in effect, formatted in MiB
 	UploadTotalCapFromPanel   bool          // the total cap is the panel's value
 	UploadTotalCapConfigMiB   string        // server's configured total cap in MiB
+	UploadQuotaMiB            string        // one player's picture quota per kind in effect, formatted in MiB
+	UploadQuotaFromPanel      bool          // the quota is the panel's value
+	UploadQuotaConfigMiB      string        // server's configured quota in MiB
+	UploadQuotaFiles          int           // one player's pictures per kind in effect
+	UploadQuotaFilesFromPanel bool          // the file quota is the panel's value
+	UploadQuotaFilesConfig    int           // server's configured file quota
 	UploadReceiveCapMiB       string        // max upload receive size in effect, formatted in MiB
 	UploadReceiveCapFromPanel bool          // the receive cap is the panel's value
 	UploadReceiveCapConfigMiB string        // server's configured receive cap in MiB
@@ -105,6 +111,24 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, sess ses
 	if !totalSet {
 		totalBytes = totalConfig
 	}
+	quotaConfig := s.cfg.EffectiveUploadQuotaBytes()
+	quotaBytes, quotaSet, err := store.UploadQuotaBytesSetting()
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
+	if !quotaSet {
+		quotaBytes = quotaConfig
+	}
+	filesConfig := s.cfg.EffectiveUploadQuotaFiles()
+	quotaFiles, filesSet, err := store.UploadQuotaFilesSetting()
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
+	if !filesSet {
+		quotaFiles = filesConfig
+	}
 	receiveConfig := s.cfg.EffectiveUploadMaxReceiveBytes()
 	receiveBytes, receiveSet, err := store.UploadMaxReceiveBytesSetting()
 	if err != nil {
@@ -152,6 +176,8 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, sess ses
 		Allowlist: s.cfg.StaffAllowlistFile != "", DevNames: s.cfg.AuthMode == config.AuthDevFake,
 		RoomCap: roomCap, RoomCapFromPanel: roomSet, RoomCapDefault: store.SquareRoomCapDefault,
 		UploadTotalCapMiB: formatMiB(totalBytes), UploadTotalCapFromPanel: totalSet, UploadTotalCapConfigMiB: formatMiB(totalConfig),
+		UploadQuotaMiB: formatMiB(quotaBytes), UploadQuotaFromPanel: quotaSet, UploadQuotaConfigMiB: formatMiB(quotaConfig),
+		UploadQuotaFiles: quotaFiles, UploadQuotaFilesFromPanel: filesSet, UploadQuotaFilesConfig: filesConfig,
 		UploadReceiveCapMiB: formatMiB(receiveBytes), UploadReceiveCapFromPanel: receiveSet, UploadReceiveCapConfigMiB: formatMiB(receiveConfig),
 		UploadJPEGCapKiB: formatKiB(jpegBytes), UploadJPEGCapFromPanel: jpegSet, UploadJPEGCapConfigKiB: formatKiB(jpegConfig),
 		UploadPNGCapKiB: formatKiB(pngBytes), UploadPNGCapFromPanel: pngSet, UploadPNGCapConfigKiB: formatKiB(pngConfig),
@@ -263,6 +289,64 @@ func (s *Server) handleUploadTotalCapReset(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	redirect(w, http.StatusSeeOther, "/settings?notice=upload-total-cap-reset")
+}
+
+// handleUploadQuotaBytes: POST /settings/upload-quota-bytes (privileged, owner). Form field: mib, 1 MiB to 1 GiB.
+func (s *Server) handleUploadQuotaBytes(w http.ResponseWriter, r *http.Request, sess session) {
+	if !s.settingsOwner(w, sess) {
+		return
+	}
+	n, ok := parseMiBBytes(r.PostFormValue("mib"))
+	if !ok || n < store.UploadQuotaBytesMin || n > store.UploadQuotaBytesMax {
+		s.fail(w, http.StatusBadRequest, "The picture quota per player must be a number in MiB from 1 to 1024.")
+		return
+	}
+	if err := store.SetUploadQuotaBytes(n, sess.identity); err != nil {
+		s.storeError(w, err)
+		return
+	}
+	redirect(w, http.StatusSeeOther, "/settings?notice=upload-quota-bytes-saved")
+}
+
+// handleUploadQuotaBytesReset: POST /settings/upload-quota-bytes/reset (privileged, owner).
+func (s *Server) handleUploadQuotaBytesReset(w http.ResponseWriter, r *http.Request, sess session) {
+	if !s.settingsOwner(w, sess) {
+		return
+	}
+	if err := store.ClearUploadQuotaBytes(sess.identity); err != nil {
+		s.storeError(w, err)
+		return
+	}
+	redirect(w, http.StatusSeeOther, "/settings?notice=upload-quota-bytes-reset")
+}
+
+// handleUploadQuotaFiles: POST /settings/upload-quota-files (privileged, owner). Form field: files, 1 to 100000.
+func (s *Server) handleUploadQuotaFiles(w http.ResponseWriter, r *http.Request, sess session) {
+	if !s.settingsOwner(w, sess) {
+		return
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(r.PostFormValue("files")))
+	if err != nil || n < store.UploadQuotaFilesMin || n > store.UploadQuotaFilesMax {
+		s.fail(w, http.StatusBadRequest, "The pictures per player must be a whole number from 1 to 100000.")
+		return
+	}
+	if err := store.SetUploadQuotaFiles(n, sess.identity); err != nil {
+		s.storeError(w, err)
+		return
+	}
+	redirect(w, http.StatusSeeOther, "/settings?notice=upload-quota-files-saved")
+}
+
+// handleUploadQuotaFilesReset: POST /settings/upload-quota-files/reset (privileged, owner).
+func (s *Server) handleUploadQuotaFilesReset(w http.ResponseWriter, r *http.Request, sess session) {
+	if !s.settingsOwner(w, sess) {
+		return
+	}
+	if err := store.ClearUploadQuotaFiles(sess.identity); err != nil {
+		s.storeError(w, err)
+		return
+	}
+	redirect(w, http.StatusSeeOther, "/settings?notice=upload-quota-files-reset")
 }
 
 func formatKiB(b int64) string {

@@ -106,6 +106,31 @@ func TestMediaUsageCountsPerOwnerAndKind(t *testing.T) {
 	}
 }
 
+// TestMediaTotalsSumsEachKind: one query gives the count and the bytes of every kind that has rows; a kind with none is absent.
+func TestMediaTotalsSumsEachKind(t *testing.T) {
+	attachTestDB(t)
+	mediaDataDir(t)
+	if totals, err := MediaTotals(); err != nil || len(totals) != 0 {
+		t.Fatalf("totals of an empty database = %v, err %v", totals, err)
+	}
+	a := storeMediaFile(t, MediaDiary, "1001", "1001", "1", "1001_1")
+	b := storeMediaFile(t, MediaDiary, "1002", "1002", "2", "1002_2")
+	c := storeMediaFile(t, MediaRoom, "1002", "1002", "3", "o3")
+	totals, err := MediaTotals()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := totals[MediaDiary]; d.Files != 2 || d.Bytes != a.Size+b.Size {
+		t.Fatalf("diary totals = %+v, want 2 files and %d bytes", d, a.Size+b.Size)
+	}
+	if r := totals[MediaRoom]; r.Files != 1 || r.Bytes != c.Size {
+		t.Fatalf("room totals = %+v, want 1 file and %d bytes", r, c.Size)
+	}
+	if _, ok := totals[MediaProfile]; ok {
+		t.Fatal("a kind with no rows is in the totals")
+	}
+}
+
 // TestRemovePlayerMediaClearsEveryReference: one removal clears the picture from the post that holds it (the post stays with its
 // other picture), from the profile photos, the profile picture and a room preset; deletes its row and file; and writes one audit
 // row that names the number and the reason, never the picture. The other picture is untouched.

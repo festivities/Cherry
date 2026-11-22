@@ -135,6 +135,46 @@ func TestUploadQuotaBytes(t *testing.T) {
 	}
 }
 
+// TestUploadPlayerLimitFromPanel: the Owner Settings values of one player's quota (pictures and bytes per kind) replace the
+// configured ones at once; an upload past the panel's count or byte total is 507 with the quota text, and a reset restores the
+// configured values.
+func TestUploadPlayerLimitFromPanel(t *testing.T) {
+	twoAccounts(t)
+	uploadConfig(t, config.Config{AuthMode: config.AuthDevFake})
+	dir := filepath.Join(t.TempDir(), "diary-media")
+	data := diaryTestImage(t, "png", 3, 2, 15)
+
+	if err := store.SetUploadQuotaFiles(1, "dev-owner"); err != nil {
+		t.Fatal(err)
+	}
+	if rec := uploadAs(t, dir, "tok1", "1001", "1760000500", data); rec.Code != http.StatusOK {
+		t.Fatalf("first upload within the panel's count = %d", rec.Code)
+	}
+	if rec := uploadAs(t, dir, "tok1", "1001", "1760000501", data); rec.Code != http.StatusInsufficientStorage || rec.Body.String() != diaryMediaQuotaBody {
+		t.Fatalf("second upload past the panel's count = %d %s, want the quota text", rec.Code, rec.Body.String())
+	}
+	if err := store.ClearUploadQuotaFiles("dev-owner"); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1002 holds 1 MiB minus one byte of diary pictures: the small picture passes the count but not the panel's 1 MiB quota.
+	if err := store.AddMediaFile(store.MediaFile{Kind: store.MediaDiary, Owner: "1002", File: "seed-1002.img", Size: 1<<20 - 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetUploadQuotaBytes(1<<20, "dev-owner"); err != nil {
+		t.Fatal(err)
+	}
+	if rec := uploadAs(t, dir, "tok2", "1002", "1760000502", data); rec.Code != http.StatusInsufficientStorage || rec.Body.String() != diaryMediaQuotaBody {
+		t.Fatalf("upload past the panel's byte quota = %d %s, want the quota text", rec.Code, rec.Body.String())
+	}
+	if err := store.ClearUploadQuotaBytes("dev-owner"); err != nil {
+		t.Fatal(err)
+	}
+	if rec := uploadAs(t, dir, "tok2", "1002", "1760000503", data); rec.Code != http.StatusOK {
+		t.Fatalf("upload after the reset = %d %s, want 200", rec.Code, rec.Body.String())
+	}
+}
+
 // TestUploadsSwitchOff: with uploads.enabled false a new upload is 503 and stores nothing, while a picture stored before still
 // downloads.
 func TestUploadsSwitchOff(t *testing.T) {
@@ -432,22 +472,11 @@ func TestUploadMaxTotalBytesConfigurable(t *testing.T) {
 		t.Fatalf("initial diary upload = %d %s, want 200", diaryRec.Code, diaryRec.Body.String())
 	}
 
-	// Pre-fill diary (600 KiB) + room (424 KiB) so combined usage across dirs reaches the 1 MiB global cap.
-	diaryDir, err := store.MediaDir(store.MediaDiary)
-	if err != nil {
+	// Pre-fill diary (600 KiB) + room (424 KiB) rows, held by another player, so their bytes reach the 1 MiB global cap.
+	if err := store.AddMediaFile(store.MediaFile{Kind: store.MediaDiary, Owner: "1009", File: "seed_diary.img", Size: 600 << 10}); err != nil {
 		t.Fatal(err)
 	}
-	roomDir, err := store.MediaDir(store.MediaRoom)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(roomDir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(diaryDir, "seed_diary.img"), bytes.Repeat([]byte{0}, 600<<10), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(roomDir, "seed_room.img"), bytes.Repeat([]byte{0}, 424<<10), 0600); err != nil {
+	if err := store.AddMediaFile(store.MediaFile{Kind: store.MediaRoom, Owner: "1009", File: "seed_room.img", Size: 424 << 10}); err != nil {
 		t.Fatal(err)
 	}
 

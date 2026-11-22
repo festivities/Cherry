@@ -110,6 +110,39 @@ func MediaUsage(kind, owner string) (files int, bytes int64, err error) {
 	return files, bytes, err
 }
 
+// MediaTotals is the pictures the database holds per kind (one query over media_files; a kind with none is absent). The
+// server-wide cap sums their bytes and the dashboard shows them.
+func MediaTotals() (map[string]MediaKindTotal, error) {
+	d := attachedDB()
+	if d == nil {
+		return nil, ErrNoDatabase
+	}
+	out := map[string]MediaKindTotal{}
+	err := d.View(func(q Querier) error {
+		r, err := q.Query(`SELECT kind, COUNT(*), COALESCE(SUM(size), 0) FROM media_files GROUP BY kind`)
+		if err != nil {
+			return err
+		}
+		defer r.Close()
+		for r.Next() {
+			var t MediaKindTotal
+			if err := r.Scan(&t.Kind, &t.Files, &t.Bytes); err != nil {
+				return err
+			}
+			out[t.Kind] = t
+		}
+		return r.Err()
+	})
+	return out, err
+}
+
+// MediaKindTotal is the pictures of one kind that the database holds: their count and their bytes.
+type MediaKindTotal struct {
+	Kind  string
+	Files int64
+	Bytes int64
+}
+
 // mediaRow reads the row where column = arg; found is false when there is none.
 func mediaRow(q Querier, column string, arg any) (f MediaFile, found bool, err error) {
 	err = q.QueryRow(`SELECT id, kind, owner, file, size, created FROM media_files WHERE `+column+` = ?`, arg).

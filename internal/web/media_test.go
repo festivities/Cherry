@@ -121,6 +121,10 @@ func TestDiaryMediaStorageQuota(t *testing.T) {
 	if err := os.WriteFile(existingPath, existing, 0600); err != nil {
 		t.Fatal(err)
 	}
+	// The stored picture is a row: the server-wide cap counts the rows, so the cap is exactly this picture's size.
+	if err := store.AddMediaFile(store.MediaFile{Kind: store.MediaDiary, Owner: userID, File: store.MediaFileName(userID, ctime, oid), Size: int64(len(existing))}); err != nil {
+		t.Fatal(err)
+	}
 	limit := int64(len(existing))
 	changed := diaryTestImage(t, "png", 2, 2, 200)
 	upload := func(userID, ctime, oid string, data []byte) *httptest.ResponseRecorder {

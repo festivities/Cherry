@@ -62,6 +62,89 @@ func TestUploadTotalCapFromSettings(t *testing.T) {
 	}
 }
 
+// TestUploadQuotaFromSettings: the per-player picture quota (MiB) and pictures-per-player limit set, refused, reset, each with its
+// audit row.
+func TestUploadQuotaFromSettings(t *testing.T) {
+	fx := newFixture(t, settingsConfig(t))
+	c := fx.client()
+	c.signInDev("owner")
+
+	page := c.get("/settings").body
+	for _, want := range []string{
+		"From the server's configuration: each player may keep up to 25 MiB of pictures per kind",
+		`action="/settings/upload-quota-bytes"`,
+		"From the server's configuration: each player may keep up to 500 pictures per kind.",
+		`action="/settings/upload-quota-files"`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("Settings page lacks %q", want)
+		}
+	}
+	if strings.Contains(page, `action="/settings/upload-quota-bytes/reset"`) || strings.Contains(page, `action="/settings/upload-quota-files/reset"`) {
+		t.Fatal("reset offered with no panel value")
+	}
+
+	set := c.post("/settings/upload-quota-bytes", url.Values{"csrf": {c.csrf()}, "mib": {"40"}})
+	expect(t, set, http.StatusSeeOther)
+	if loc := set.Header.Get("Location"); loc != "/settings?notice=upload-quota-bytes-saved" {
+		t.Fatalf("redirect to %q", loc)
+	}
+	after := c.follow(set)
+	if !strings.Contains(after.body, "Set in this panel: each player may keep up to 40 MiB of pictures per kind") ||
+		!strings.Contains(after.body, "Use the server's configured value (25 MiB)") {
+		t.Fatalf("Settings page after the quota save lacks 40 MiB or the reset")
+	}
+	for _, bad := range []string{"0", "0.5", "1025", "NaN", "Inf", "-5", "abc", ""} {
+		expect(t, c.post("/settings/upload-quota-bytes", url.Values{"csrf": {c.csrf()}, "mib": {bad}}), http.StatusBadRequest)
+	}
+	if got := store.UploadQuotaBytes(0); got != 40<<20 {
+		t.Fatalf("refused value changed the quota to %d", got)
+	}
+	expect(t, c.post("/settings/upload-quota-bytes/reset", url.Values{"csrf": {c.csrf()}}), http.StatusSeeOther)
+	if _, set, _ := store.UploadQuotaBytesSetting(); set {
+		t.Fatal("reset left the panel's byte quota")
+	}
+
+	set = c.post("/settings/upload-quota-files", url.Values{"csrf": {c.csrf()}, "files": {"120"}})
+	expect(t, set, http.StatusSeeOther)
+	if loc := set.Header.Get("Location"); loc != "/settings?notice=upload-quota-files-saved" {
+		t.Fatalf("redirect to %q", loc)
+	}
+	after = c.follow(set)
+	if !strings.Contains(after.body, "Set in this panel: each player may keep up to 120 pictures per kind.") ||
+		!strings.Contains(after.body, "Use the server's configured value (500 pictures)") {
+		t.Fatalf("Settings page after the file limit save lacks 120 or the reset")
+	}
+	for _, bad := range []string{"0", "100001", "1.5", "abc", ""} {
+		expect(t, c.post("/settings/upload-quota-files", url.Values{"csrf": {c.csrf()}, "files": {bad}}), http.StatusBadRequest)
+	}
+	if got := store.UploadQuotaFiles(0); got != 120 {
+		t.Fatalf("refused value changed the file limit to %d", got)
+	}
+	reset := c.post("/settings/upload-quota-files/reset", url.Values{"csrf": {c.csrf()}})
+	expect(t, reset, http.StatusSeeOther)
+	if loc := reset.Header.Get("Location"); loc != "/settings?notice=upload-quota-files-reset" {
+		t.Fatalf("reset redirect to %q", loc)
+	}
+	if _, set, _ := store.UploadQuotaFilesSetting(); set {
+		t.Fatal("reset left the panel's file limit")
+	}
+
+	rows := auditRows(t)
+	if !hasAudit(rows, "dev-owner", "setting", `"new":"41943040"`) || !hasAudit(rows, "dev-owner", "setting", `"new":"120"`) || !hasAudit(rows, "dev-owner", "setting", `"new":"default"`) {
+		t.Error("the quota changes lack owner audit rows")
+	}
+	targets := map[string]int{}
+	for _, r := range rows {
+		if r.Action == "setting" {
+			targets[r.Target]++
+		}
+	}
+	if targets["uploads.quota-bytes"] != 2 || targets["uploads.quota-files"] != 2 {
+		t.Errorf("audit rows per quota key = %v, want a set and a reset of each", targets)
+	}
+}
+
 func TestUploadReceiveCapFromSettings(t *testing.T) {
 	fx := newFixture(t, settingsConfig(t))
 	c := fx.client()

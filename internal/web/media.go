@@ -79,12 +79,7 @@ func handleDiaryImageUpload(w http.ResponseWriter, r *http.Request) {
 		writeDiaryMediaJSON(w, http.StatusInternalServerError, diaryMediaSaveFailedBody)
 		return
 	}
-	dirs, err := allMediaDirs()
-	if err != nil {
-		writeDiaryMediaJSON(w, http.StatusInternalServerError, diaryMediaSaveFailedBody)
-		return
-	}
-	handleMediaUploadIn(w, r, dir, dirs, store.UploadMaxTotalBytes(config.UploadMaxTotalBytes()), mediaDiary)
+	handleMediaUploadIn(w, r, dir, store.UploadMaxTotalBytes(config.UploadMaxTotalBytes()), mediaDiary)
 }
 
 func handleDiaryImageDownload(w http.ResponseWriter, r *http.Request) {
@@ -110,12 +105,7 @@ func handleRoomImageUpload(w http.ResponseWriter, r *http.Request) {
 		writeDiaryMediaJSON(w, http.StatusInternalServerError, diaryMediaSaveFailedBody)
 		return
 	}
-	dirs, err := allMediaDirs()
-	if err != nil {
-		writeDiaryMediaJSON(w, http.StatusInternalServerError, diaryMediaSaveFailedBody)
-		return
-	}
-	handleMediaUploadIn(w, r, dir, dirs, store.UploadMaxTotalBytes(config.UploadMaxTotalBytes()), mediaRoom)
+	handleMediaUploadIn(w, r, dir, store.UploadMaxTotalBytes(config.UploadMaxTotalBytes()), mediaRoom)
 }
 
 func handleRoomImageDownload(w http.ResponseWriter, r *http.Request) {
@@ -140,12 +130,7 @@ func handleProfileImageUpload(w http.ResponseWriter, r *http.Request) {
 		writeDiaryMediaJSON(w, http.StatusInternalServerError, diaryMediaSaveFailedBody)
 		return
 	}
-	dirs, err := allMediaDirs()
-	if err != nil {
-		writeDiaryMediaJSON(w, http.StatusInternalServerError, diaryMediaSaveFailedBody)
-		return
-	}
-	handleMediaUploadIn(w, r, dir, dirs, store.UploadMaxTotalBytes(config.UploadMaxTotalBytes()), mediaProfile)
+	handleMediaUploadIn(w, r, dir, store.UploadMaxTotalBytes(config.UploadMaxTotalBytes()), mediaProfile)
 }
 
 // handleProfileImageDownload serves GET <obs>/lineplay/pr/<oid> and <obs-cdn>/r/lineplay/pr/<oid>
@@ -180,22 +165,6 @@ func defaultRoomMediaDir() (string, error) { return store.MediaDir(store.MediaRo
 
 func defaultDiaryMediaDir() (string, error) { return store.MediaDir(store.MediaDiary) }
 
-func allMediaDirs() ([]string, error) {
-	diary, err := defaultDiaryMediaDir()
-	if err != nil {
-		return nil, err
-	}
-	room, err := defaultRoomMediaDir()
-	if err != nil {
-		return nil, err
-	}
-	profile, err := defaultProfileMediaDir()
-	if err != nil {
-		return nil, err
-	}
-	return []string{diary, room, profile}, nil
-}
-
 // The At handlers take an explicit directory so tests can use disposable storage.
 func handleDiaryImageUploadAt(w http.ResponseWriter, r *http.Request, dir string) {
 	handleDiaryImageUploadAtWithLimit(w, r, dir, store.UploadMaxTotalBytes(config.UploadMaxTotalBytes()))
@@ -206,17 +175,17 @@ func handleDiaryImageUploadAtWithLimit(w http.ResponseWriter, r *http.Request, d
 }
 
 func handleMediaUpload(w http.ResponseWriter, r *http.Request, dir string, storageLimit int64, kind mediaKind) {
-	handleMediaUploadIn(w, r, dir, []string{dir}, storageLimit, kind)
+	handleMediaUploadIn(w, r, dir, storageLimit, kind)
 }
 
 // handleMediaUploadIn serves the OBS upload for diary photos, My Room preset thumbnails (mediaRoom) and profile pictures
-// (mediaProfile, diary naming, re-uploadable), checking storageLimit across storageDirs. The owner is the account of the AV_AUTH credential (the AV_AUTH header or
+// (mediaProfile, diary naming, re-uploadable), checking storageLimit against the bytes of every stored picture. The owner is the account of the AV_AUTH credential (the AV_AUTH header or
 // cookie), never the form's userid: an upload without one is refused in identity modes, and lab-guest keeps the form's
 // userid as the owner when no credential is sent. A signed diary or profile upload must name its own aid as userid
 // (anti-squatting of keys); the room client's userid is not checked (its form is unverified).
 // ponytail: the room client's oid format is unverified, so room mode accepts any printable oid equal to the form name
 // instead of requiring userid_ctime.
-func handleMediaUploadIn(w http.ResponseWriter, r *http.Request, dir string, storageDirs []string, storageLimit int64, kind mediaKind) {
+func handleMediaUploadIn(w http.ResponseWriter, r *http.Request, dir string, storageLimit int64, kind mediaKind) {
 	room := kind == mediaRoom
 	if r.Method != http.MethodPost {
 		writeDiaryMediaJSON(w, http.StatusNotFound, diaryMediaNotFoundBody)
@@ -402,7 +371,7 @@ func handleMediaUploadIn(w http.ResponseWriter, r *http.Request, dir string, sto
 		}
 	}
 	row := store.MediaFile{Kind: kindName(kind), Owner: owner, File: file, Size: written}
-	if err := storeDiaryMedia(path, tmpPath, row, contentHash, storageDirs, storageLimit); err != nil {
+	if err := storeDiaryMedia(path, tmpPath, row, contentHash, storageLimit); err != nil {
 		var conflict diaryMediaConflictError
 		var quota diaryMediaQuotaError
 		switch {
@@ -603,13 +572,14 @@ func diaryMediaTooLarge(err error) bool {
 	return errors.As(err, &maxErr) || errors.Is(err, multipart.ErrMessageTooLarge)
 }
 
-// diaryMediaDiskFull is the server's global photo storage cap across all kinds (or a single directory in tests); an owner's quota is diaryMediaQuotaError.
-var diaryMediaDiskFull = errors.New("media folder full")
+// diaryMediaDiskFull is the server's global photo storage cap across all kinds; an owner's quota is diaryMediaQuotaError.
+var diaryMediaDiskFull = errors.New("media storage full")
 
 // storeDiaryMedia moves the uploaded file to path and records it under its owner. Writes are serialised. A same-content repeat
 // of a stored key is acknowledged (a file with no row is adopted by this owner); different content is a conflict, and so is a
-// key stored under another owner. A new file must fit the owner's quota (files and bytes of its kind) and the storage cap across storageDirs.
-func storeDiaryMedia(path, tmpPath string, row store.MediaFile, contentHash [sha256.Size]byte, storageDirs []string, storageLimit int64) error {
+// key stored under another owner. A new file must fit the owner's quota (files and bytes of its kind: the panel's value when
+// set, else the configuration) and the server-wide cap, which counts the bytes of every stored row.
+func storeDiaryMedia(path, tmpPath string, row store.MediaFile, contentHash [sha256.Size]byte, storageLimit int64) error {
 	diaryMediaSaveMu.Lock()
 	defer diaryMediaSaveMu.Unlock()
 	info, err := os.Lstat(path)
@@ -643,14 +613,19 @@ func storeDiaryMedia(path, tmpPath string, row store.MediaFile, contentHash [sha
 		return err
 	}
 	maxBytes, maxFiles := config.UploadLimits()
+	maxBytes, maxFiles = store.UploadQuotaBytes(maxBytes), store.UploadQuotaFiles(maxFiles)
 	if files+1 > maxFiles || bytes+row.Size > maxBytes {
 		return diaryMediaQuotaError{}
 	}
-	tooLarge, err := diaryMediaStorageWouldExceed(storageDirs, row.Size, storageLimit)
+	totals, err := store.MediaTotals()
 	if err != nil {
 		return err
 	}
-	if tooLarge {
+	var used int64
+	for _, t := range totals {
+		used += t.Bytes
+	}
+	if used+row.Size > storageLimit {
 		return diaryMediaDiskFull
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
@@ -673,58 +648,6 @@ func (diaryMediaConflictError) Error() string {
 type diaryMediaQuotaError struct{}
 
 func (diaryMediaQuotaError) Error() string { return "picture upload quota reached" }
-
-// ponytail: quota accounting scans O(file count); add indexed accounting if uploads make the scan slow.
-func diaryMediaStorageWouldExceed(dirs []string, incoming, limit int64) (bool, error) {
-	if incoming < 0 || limit < 0 || incoming > limit {
-		return true, nil
-	}
-	remaining := limit - incoming
-	for _, dir := range dirs {
-		next, exceed, err := scanMediaDirRemaining(dir, remaining)
-		if err != nil || exceed {
-			return exceed, err
-		}
-		remaining = next
-	}
-	return false, nil
-}
-
-func scanMediaDirRemaining(dir string, remaining int64) (int64, bool, error) {
-	dirFile, err := os.Open(dir)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return remaining, false, nil
-		}
-		return 0, false, err
-	}
-	defer dirFile.Close()
-	for {
-		entries, readErr := dirFile.ReadDir(256)
-		for _, entry := range entries {
-			if filepath.Ext(entry.Name()) != ".img" {
-				continue
-			}
-			info, err := entry.Info()
-			if err != nil {
-				return 0, false, err
-			}
-			if !info.Mode().IsRegular() {
-				continue
-			}
-			if info.Size() > remaining {
-				return 0, true, nil
-			}
-			remaining -= info.Size()
-		}
-		if errors.Is(readErr, io.EOF) {
-			return remaining, false, nil
-		}
-		if readErr != nil {
-			return 0, false, readErr
-		}
-	}
-}
 
 func diaryMediaFilesEqual(path string, size int64, want [sha256.Size]byte) (bool, error) {
 	file, err := os.Open(path)

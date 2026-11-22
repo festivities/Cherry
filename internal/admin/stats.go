@@ -58,6 +58,18 @@ type stats struct {
 	DBSize         string    `json:"db_size"`
 	WALBytes       int64     `json:"wal_bytes"`
 	WALSize        string    `json:"wal_size"`
+	DiaryFiles     int64     `json:"diary_files"`
+	DiarySize      string    `json:"diary_size"`
+	RoomFiles      int64     `json:"room_files"`
+	RoomSize       string    `json:"room_size"`
+	ProfileFiles   int64     `json:"profile_files"`
+	ProfileSize    string    `json:"profile_size"`
+	PicturesFiles  int64     `json:"pictures_files"`
+	PicturesSize   string    `json:"pictures_size"`
+	PicturesCap    string    `json:"pictures_cap"`
+	PicturesPct    string    `json:"pictures_percent"`
+	PerPlayerSize  string    `json:"per_player_size"`
+	PerPlayerFiles int64     `json:"per_player_files"`
 	Goroutines     int       `json:"goroutines"`
 	HeapBytes      uint64    `json:"heap_inuse_bytes"`
 	HeapInUse      string    `json:"heap_inuse"`
@@ -146,8 +158,9 @@ var buildInfo = sync.OnceValues(func() (rev, when string) {
 	return rev, when
 })
 
-// statsAt reads the numbers at now.
-func (s *Server) statsAt(now time.Time) stats {
+// statsAt reads the numbers at now. The pictures are the rows of the database (every kind), against the server-wide cap and the
+// per-player limits in effect: the Owner Settings values, the panel's when one is set, else the configuration.
+func (s *Server) statsAt(now time.Time) (stats, error) {
 	rev, when := buildInfo()
 	started := metrics.Started()
 	uptime := time.Since(started).Truncate(time.Second)
@@ -155,8 +168,19 @@ func (s *Server) statsAt(now time.Time) stats {
 	sessions, gateways := metrics.SessionConns.Load(), metrics.GatewayConns.Load()
 	saves, held, longest := metrics.SaveStats()
 	db, wal := store.DBBytes()
+	totals, err := store.MediaTotals()
+	if err != nil {
+		return stats{}, err
+	}
+	var pictureFiles, pictureBytes int64
+	for _, t := range totals {
+		pictureFiles += t.Files
+		pictureBytes += t.Bytes
+	}
+	capBytes := store.UploadMaxTotalBytes(s.cfg.EffectiveUploadMaxTotalBytes())
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
+	diary, room, profile := totals[store.MediaDiary], totals[store.MediaRoom], totals[store.MediaProfile]
 	st := stats{
 		Time: now.UTC().Format(timeFormat), Started: started.UTC().Format(timeFormat),
 		UptimeSeconds: int64(uptime.Seconds()), Uptime: humanDuration(uptime),
@@ -165,14 +189,21 @@ func (s *Server) statsAt(now time.Time) stats {
 		Requests: requests, RequestsPerMin: math.Round(s.rate.perMinute(now, requests)*10) / 10,
 		Saves: saves, SaveAvg: "none yet", SaveMax: "none yet", SaveHist: saveBars(),
 		DBBytes: db, DBSize: humanBytes(db), WALBytes: wal, WALSize: humanBytes(wal),
-		Goroutines: runtime.NumGoroutine(), HeapBytes: mem.HeapInuse, HeapInUse: humanBytes(int64(mem.HeapInuse)),
+		DiaryFiles: diary.Files, DiarySize: humanBytes(diary.Bytes),
+		RoomFiles: room.Files, RoomSize: humanBytes(room.Bytes),
+		ProfileFiles: profile.Files, ProfileSize: humanBytes(profile.Bytes),
+		PicturesFiles: pictureFiles, PicturesSize: humanBytes(pictureBytes),
+		PicturesCap: humanBytes(capBytes), PicturesPct: fmt.Sprintf("%.1f %%", float64(pictureBytes)*100/float64(capBytes)),
+		PerPlayerSize:  humanBytes(store.UploadQuotaBytes(s.cfg.EffectiveUploadQuotaBytes())),
+		PerPlayerFiles: int64(store.UploadQuotaFiles(s.cfg.EffectiveUploadQuotaFiles())),
+		Goroutines:     runtime.NumGoroutine(), HeapBytes: mem.HeapInuse, HeapInUse: humanBytes(int64(mem.HeapInuse)),
 		GCCount: mem.NumGC, GOMAXPROCS: runtime.GOMAXPROCS(0), MemoryLimit: memoryLimit(),
 	}
 	if saves > 0 {
 		st.SaveAvg = (held / time.Duration(saves)).Round(time.Microsecond).String()
 		st.SaveMax = longest.Round(time.Microsecond).String()
 	}
-	return st
+	return st, nil
 }
 
 // saveBars is the save-time histogram with each bucket's share of all saves as a width class.
@@ -244,8 +275,13 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request, sess se
 		s.storeError(w, err)
 		return
 	}
+	st, err := s.statsAt(s.now())
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
 	v := s.base(r, sess, "Dashboard")
-	v.Stats, v.Recent, v.Signups = s.statsAt(s.now()), recent, signups
+	v.Stats, v.Recent, v.Signups = st, recent, signups
 	v.Summary = s.insightsSummary(s.now())
 	if n, err := store.CountOpenReports(); err == nil {
 		v.OpenReports = n
@@ -255,8 +291,13 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request, sess se
 
 // handleStats: GET /stats.json, the same numbers as JSON. The session guard is jsonPage.
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request, _ session) {
+	st, err := s.statsAt(s.now())
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_ = json.NewEncoder(w).Encode(s.statsAt(s.now()))
+	_ = json.NewEncoder(w).Encode(st)
 }
 
 // onlinePlayers is the number of distinct players with a login on a live connection, as the Online now page counts them: a

@@ -29,9 +29,12 @@
 <p class="muted small">Average hold <span data-k="save_avg">{{.Stats.SaveAvg}}</span>, longest <span data-k="save_max">{{.Stats.SaveMax}}</span>.</p>
 </div>
 <div class="card">
-<h2>Database</h2>
-<p class="big" data-k="db_size">{{.Stats.DBSize}}</p>
-<p class="muted small">Write-ahead log <span data-k="wal_size">{{.Stats.WALSize}}</span>.</p>
+<h2>Storage</h2>
+<p class="big" data-k="pictures_size">{{.Stats.PicturesSize}}</p>
+<p class="muted small">Pictures, <span data-k="pictures_files">{{.Stats.PicturesFiles}}</span> in all, of the server cap <span data-k="pictures_cap">{{.Stats.PicturesCap}}</span> (<span data-k="pictures_percent">{{.Stats.PicturesPct}}</span> used).</p>
+<p class="muted small">Diary <span data-k="diary_files">{{.Stats.DiaryFiles}}</span> (<span data-k="diary_size">{{.Stats.DiarySize}}</span>), room <span data-k="room_files">{{.Stats.RoomFiles}}</span> (<span data-k="room_size">{{.Stats.RoomSize}}</span>), profile <span data-k="profile_files">{{.Stats.ProfileFiles}}</span> (<span data-k="profile_size">{{.Stats.ProfileSize}}</span>).</p>
+<p class="muted small">Per player: <span data-k="per_player_size">{{.Stats.PerPlayerSize}}</span> and <span data-k="per_player_files">{{.Stats.PerPlayerFiles}}</span> pictures per kind.</p>
+<p class="muted small">Database <span class="strong" data-k="db_size">{{.Stats.DBSize}}</span>, write-ahead log <span class="strong" data-k="wal_size">{{.Stats.WALSize}}</span>.</p>
 </div>
 <div class="card">
 <h2>Build</h2>

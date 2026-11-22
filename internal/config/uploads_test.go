@@ -5,10 +5,10 @@ import (
 	"testing"
 )
 
-// TestUploadSettings: the three upload settings default to on and 200 MiB / 2,000 files, and a bad value names its setting.
+// TestUploadSettings: the three upload settings default to on and 25 MiB / 500 files, and a bad value names its setting.
 func TestUploadSettings(t *testing.T) {
 	c, err := Load(nil, none)
-	if err != nil || c.UploadsOff || c.UploadQuotaBytes != 200<<20 || c.UploadQuotaFiles != 2000 {
+	if err != nil || c.UploadsOff || c.UploadQuotaBytes != 25<<20 || c.UploadQuotaFiles != 500 {
 		t.Fatalf("defaults: off=%t bytes=%d files=%d err=%v", c.UploadsOff, c.UploadQuotaBytes, c.UploadQuotaFiles, err)
 	}
 	c, err = Load([]string{"-uploads-enabled=false", "-uploads-quota-bytes=1048576", "-uploads-quota-files=5"}, none)

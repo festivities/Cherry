@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"cherry/internal/metrics"
+	"cherry/internal/store"
 )
 
 var dataKeyRe = regexp.MustCompile(`data-k="([a-z_]+)"`)
@@ -129,6 +130,45 @@ func TestStatsJSONNeedsASession(t *testing.T) {
 	for _, leak := range []string{"cherry.db", "dev-owner", "__Host", "Cookie", "\\"} {
 		if strings.Contains(r.body, leak) {
 			t.Errorf("/stats.json holds %q", leak)
+		}
+	}
+}
+
+// TestStorageCardCountsPictureRows: the Storage card and /stats.json count the pictures the database holds per kind, against the
+// server-wide cap and the per-player limits in effect (the configured values here).
+func TestStorageCardCountsPictureRows(t *testing.T) {
+	fx := newFixture(t, devConfig())
+	c := fx.client()
+	c.signInDev("owner")
+	for _, m := range []store.MediaFile{
+		{Kind: store.MediaDiary, Owner: "1001", File: "stats-diary-1.img", Size: 1 << 20},
+		{Kind: store.MediaDiary, Owner: "1002", File: "stats-diary-2.img", Size: 512 << 10},
+		{Kind: store.MediaProfile, Owner: "1001", File: "stats-profile-1.img", Size: 2 << 10},
+	} {
+		if err := store.AddMediaFile(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var js map[string]any
+	if err := json.Unmarshal([]byte(c.get("/stats.json").body), &js); err != nil {
+		t.Fatal(err)
+	}
+	for k, want := range map[string]any{
+		"diary_files": float64(2), "diary_size": "1.5 MiB",
+		"room_files": float64(0), "room_size": "0 B",
+		"profile_files": float64(1), "profile_size": "2.0 KiB",
+		"pictures_files": float64(3), "pictures_size": "1.5 MiB",
+		"pictures_cap": "100.0 MiB", "pictures_percent": "1.5 %",
+		"per_player_size": "25.0 MiB", "per_player_files": float64(500),
+	} {
+		if js[k] != want {
+			t.Errorf("/stats.json %s = %v, want %v", k, js[k], want)
+		}
+	}
+	page := c.get("/").body
+	for _, want := range []string{"<h2>Storage</h2>", "of the server cap", "pictures per kind.", "write-ahead log"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the Storage card lacks %q", want)
 		}
 	}
 }
