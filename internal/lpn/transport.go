@@ -233,8 +233,13 @@ func bindSession(aid uint64, c *lockedConn) {
 // distinct players with a live session or a verified gateway login, as the staff dashboard counts them.
 // ponytail: copies both registries per call (cold start only); keep a counter if the cap grows far past thousands.
 func ServerFull() bool {
-	cap := store.MaxPlayers(config.MaxPlayers())
-	return cap > 0 && len(onlinePlayers()) >= cap
+	online, cap := Players()
+	return cap > 0 && online >= cap
+}
+
+// Players returns the distinct players online (ServerFull's count) and the cap in force (0 = unlimited).
+func Players() (online, cap int) {
+	return len(onlinePlayers()), store.MaxPlayers(config.MaxPlayers())
 }
 
 // onlinePlayers is the set of aids with a live session or a verified gateway login.

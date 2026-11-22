@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -130,6 +131,9 @@ func TestServerFullRefusesAtAppStartWithNotice(t *testing.T) {
 	if n.Seq != 1 || n.Type != "maint" || !(start < now && now < end) || n.Message["en"] == "" || n.Message["ko"] == "" || n.Message["ja"] == "" {
 		t.Fatalf("notice = %s", rec.Body)
 	}
+	if !strings.Contains(n.Message["en"], "/ 1 max players)") || !strings.Contains(n.Message["ko"], "최대 1명") || !strings.Contains(n.Message["ja"], "最大 1人") || strings.Contains(rec.Body.String(), "%!") {
+		t.Fatalf("notice text lacks the counts: %s", rec.Body)
+	}
 	if rec := get(plain, "/img/read/notice/notice.json2", refusedAddr); rec.Code != http.StatusNotFound {
 		t.Fatalf("second notice fetch = %d, want 404 (once)", rec.Code)
 	}
@@ -148,6 +152,25 @@ func TestServerFullRefusesAtAppStartWithNotice(t *testing.T) {
 	}
 	if rec := get(mux, "/v4/setInitConf?nationCode=JP", otherAddr); rec.Code != http.StatusOK || rec.Body.String() != setInitConfBody {
 		t.Fatalf("setInitConf with the unlimited override = %d %s", rec.Code, rec.Body)
+	}
+}
+
+// Thai and Traditional Chinese travel in the en key (the client shows en for every game language but ko and ja).
+func TestFullNoticeLanguage(t *testing.T) {
+	for _, c := range []struct{ header, want string }{
+		{"th, en-US, th", "th"}, {"th-TH", "th"}, {"zh-Hant, en-US, zh-Hant", "zh-Hant"}, {"zh-Hant-TW", "zh-Hant"},
+		{"zh-TW", "zh-Hant"}, {"en, en-US, en", "en"}, {"en-PH, en-PH", "en"}, {"zh-Hans", "en"}, {"", "en"},
+	} {
+		if got := fullNoticeLang(c.header); got != c.want {
+			t.Errorf("fullNoticeLang(%q) = %q, want %q", c.header, got, c.want)
+		}
+	}
+	var n struct{ Message map[string]string }
+	if err := json.Unmarshal([]byte(fullNoticeBody(time.Now(), 501, 500, "th, en-US, th")), &n); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(n.Message["en"], "ผู้เล่น 501 คน / สูงสุด 500 คน") || len(n.Message) != 3 || strings.Contains(n.Message["ko"], "%!") {
+		t.Fatalf("Thai notice = %v", n.Message)
 	}
 }
 

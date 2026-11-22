@@ -2,9 +2,11 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -36,11 +38,29 @@ const (
 	fullNoticeAfter  = 5 * time.Minute
 )
 
-// fullNoticeText is the popup's reason line per client language key (Cherry-made text).
+// fullNoticeText is the popup's reason line per language (Cherry-made text); the two %d are the players online and the cap,
+// read when the notice is served (a soft cap: online can be above it). The client reads only message.ko, .ja and .en
+// (InitUI 0x200dda0: game language 7 → ko, 8 → ja, any other → en), so th and zh-Hant travel in the en key (fullNoticeLang).
 var fullNoticeText = map[string]string{
-	"en": "The server is full right now. Please try again in a few minutes.",
-	"ko": "서버가 지금 가득 찼습니다. 잠시 후 다시 시도해 주세요.",
-	"ja": "ただいまサーバーが満員です。しばらく経ってから、もう一度お試しください。",
+	"en":      "The server is full right now (%d players / %d max players). Please try again in a few minutes.",
+	"ko":      "서버가 지금 가득 찼습니다 (접속 %d명 / 최대 %d명). 잠시 후 다시 시도해 주세요.",
+	"ja":      "ただいまサーバーが満員です（接続 %d人 / 最大 %d人）。しばらく経ってから、もう一度お試しください。",
+	"th":      "เซิร์ฟเวอร์เต็มในขณะนี้ (ผู้เล่น %d คน / สูงสุด %d คน) กรุณาลองใหม่อีกครั้งในอีกสักครู่",
+	"zh-Hant": "伺服器目前已滿（%d 位玩家 / 上限 %d 位）。請稍候幾分鐘再試一次。",
+}
+
+// fullNoticeLang picks the text of the popup's en key from the request's Accept-Language: the Android client sends its game
+// language there ("th, en-US, th"; production 2026-11-22: en, th, ko, zh-Hant, ja), the iOS client the phone's ("en-PH, …").
+func fullNoticeLang(acceptLanguage string) string {
+	first, _, _ := strings.Cut(acceptLanguage, ",")
+	first = strings.ToLower(strings.TrimSpace(first))
+	switch {
+	case strings.HasPrefix(first, "th"):
+		return "th"
+	case strings.HasPrefix(first, "zh-hant"), first == "zh-tw", first == "zh-hk", first == "zh-mo":
+		return "zh-Hant"
+	}
+	return "en"
 }
 
 // fullNotices holds the addresses refused at setInitConf until they fetch the notice or fullNoticeTTL passes.
@@ -71,12 +91,14 @@ func takeFullNotice(addr string, now time.Time) bool {
 
 // fullNoticeBody is the notice.json2 reply (ResMaintenanceWithCachePolicy 0x1aa2b10: root keys, no result wrapper; seq
 // asInt, the rest asString; start and end are epoch milliseconds, which the client divides by 1000).
-func fullNoticeBody(now time.Time) string {
+func fullNoticeBody(now time.Time, online, cap int, acceptLanguage string) string {
 	ms := func(t time.Time) string { return strconv.FormatInt(t.UnixMilli(), 10) }
+	text := func(lang string) string { return fmt.Sprintf(fullNoticeText[lang], online, cap) }
+	message := map[string]string{"en": text(fullNoticeLang(acceptLanguage)), "ko": text("ko"), "ja": text("ja")}
 	b, _ := json.Marshal(map[string]any{
 		"seq": 1, "target": "all", "type": "maint", "displayType": "popup",
 		"start": ms(now.Add(-fullNoticeBefore)), "end": ms(now.Add(fullNoticeAfter)),
-		"message": fullNoticeText,
+		"message": message,
 	})
 	return string(b)
 }
@@ -106,7 +128,8 @@ func handleMaintenanceNotice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("cherry: server-full notice served")
-	httpx.WriteJSON(w, http.StatusOK, fullNoticeBody(now))
+	online, cap := lpn.Players()
+	httpx.WriteJSON(w, http.StatusOK, fullNoticeBody(now, online, cap, r.Header.Get("Accept-Language")))
 }
 
 // handleMaintenanceWhitelist serves GET /v4/maintenance/whitelist/lineplay (ReqWhiteListInLinePlay 0x1b90058, sent when the

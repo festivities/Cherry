@@ -181,7 +181,7 @@ Only M0–M4 are numbered. Later work is tracked as features:
 | MENU Profile cell shows the own profile picture (`profile` + `bg` in the own profile reply); Profile Edit row icon restored | User-verified 2026-11-22; deployed `ec9f9dc` | `ec9f9dc` |
 | Log volume under journald's limit (2xx item lookups and static reads counted, not logged; refusal counters on `/debug/vars`) | Deployed `fb4e200`, `ec9f9dc`; ~2.8k lines/30 s, no suppression | `5d5eaf0`, `e31db58` |
 | Picture storage: Storage card, live per-player limit, cap from rows; one combined per-player limit, no count | Deployed `fb4e200` and `0644e5f` (2026-11-22 19:53) | `fb4e200`, `0644e5f` |
-| Server full: cap over both sockets, refused only at app start with the client's maintenance popup and Cherry's text (login kept); `checkSession`/`sendInit` never refuse; whitelist route (REFERENCE "Server full") | Built by the main agent 2026-11-22 (user allowed it for that prompt), unit-tested; device test (popup, button, 10130 overlap) and deploy pending | this commit |
+| Server full: cap over both sockets, refused only at app start with the client's maintenance popup and Cherry's text (login kept); `checkSession`/`sendInit` never refuse; whitelist route (REFERENCE "Server full") | Built by the main agent 2026-11-22 (user allowed it for that prompt); deployed `af0f7e5` 22:05; user-verified on iOS 22:08 (popup + "Close App", login kept). Live counts in the reason line added after | `af0f7e5` |
 
 Older commit-by-commit evidence (M3 entry errors, keepalives, preload fixtures) is summarized in AGENTS "Architecture" and detailed in HISTORY.md.
 
