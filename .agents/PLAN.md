@@ -47,7 +47,7 @@ Context loaded (AGENTS in full, this block, Status, CONTRACT §10 here and Raspb
 **Open after these deploys:**
 1. **Device check of the Profile cell** (MENU → Profile cell shows the picture; Profile Edit shows its icon; log: `GET /v4/profile/10` then the `lineplay/pr/<oid>` download). **The user said on 2026-11-22 ~18:55: do not touch AVD Raspberry until they say so.**
 2. **Server-wide upload cap:** the Owner Settings value is 50 MiB (24.4 MiB used at ~17:50); the user is to set 20 GiB on the panel (agents cannot sign in).
-3. **Production ports in Git history:** `a30daef` (pushed 2026-11-22) wrote the two game ports into REFERENCE.md; removed from the tree in `fb4e200`, still in history. User to choose: leave, rewrite history, or move ports.
+3. **Production ports in Git history:** `a30daef` (pushed 2026-11-22) wrote the two game ports into REFERENCE.md; removed from the tree in `fb4e200`. **The user decided 2026-11-22 to leave the history as is** (no rewrite, no port move). Closed.
 4. Issue A step 2 (pets in My Room) unchanged: Room Deco has the pet tab, no RUPI item is granted.
 
 ## Status (2026-11-22)
