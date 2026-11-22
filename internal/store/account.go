@@ -596,7 +596,7 @@ func accountForToken(token string) (AccountSnapshot, bool) {
 		Aid: acc.Aid, Name: acc.Name, Gender: acc.Gender, Skin: acc.Skin,
 		Country: acc.Country, ItemCodes: append([]string(nil), acc.ItemCodes...),
 		InventoryCodes: append([]string(nil), AccountInventoryCodes(acc)...),
-		BirthdayClaims: acc.BirthdayClaims,
+		BirthdayClaims: acc.BirthdayClaims, ProfileImage: acc.ProfileImage,
 	}
 	AccountsMu.Unlock()
 	return snapshot, true

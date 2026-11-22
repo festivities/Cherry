@@ -92,10 +92,12 @@ func handleFriendSync(w http.ResponseWriter, r *http.Request) {
 		if acc, ok := store.AccountByAvatarID(rel.aid); ok {
 			name, obs = acc.Name, acc.ProfileImage.Image
 		}
+		// NaBaseFriendCell::SetAvatarImage (0x1c4431c) draws a picture only when profileImageUrl is non-empty, then fetches
+		// obsProfileImagePath; both carry the same path (a URL alone in profileImageUrl would be fetched as a URL).
 		buddies = append(buddies, buddyRow{
 			AvatarNo: rel.aid, AvatarName: name, BuddyAvatarNo: rel.aid,
 			Status: rel.status, FriendStatus: rel.status, LineBuddyYn: "N", Mid: rel.aid,
-			ObsProfileImagePath: obs,
+			ProfileImageURL: obs, ObsProfileImagePath: obs,
 		})
 	}
 	friends := 0
@@ -107,12 +109,19 @@ func handleFriendSync(w http.ResponseWriter, r *http.Request) {
 	if marked && !removed {
 		bookmarks = []string{store.FriendAID}
 	}
+	// The Friends screen's own "Profile" row (NaFriendProfileCell, from the sync reply's top level) has the same gate:
+	// myProfileImageUrl non-empty, then obsProfileImagePath (friendlist-picture-spec 2026-11-22).
+	own, ownName, ownAid := "", "", ""
+	if actorOK {
+		own, ownName, ownAid = actor.ProfileImage.Image, actor.Name, actor.Aid
+	}
 	body, err := json.Marshal(map[string]any{
 		"result": map[string]any{
 			"existProfile": false, "nextCursor": 0, "timestamp": "0",
 			"friendsCount": friends, "buddyList": buddies,
 			"newbieRecommendList": []any{}, "nearbyRecommendList": []any{},
-			"bookmarks": bookmarks,
+			"bookmarks": bookmarks, "mid": ownAid, "myAvatarName": ownName,
+			"myProfileImageUrl": own, "obsProfileImagePath": own,
 		},
 	})
 	if err != nil {

@@ -106,6 +106,37 @@ func TestProfilePictureFlow(t *testing.T) {
 	if !strings.Contains(sync.Body.String(), `"obsProfileImagePath":"`+path+`"`) {
 		t.Fatalf("friend sync lacks the picture: %s", sync.Body.String())
 	}
+	// The friend cell draws only with a non-empty profileImageUrl (NaBaseFriendCell::SetAvatarImage 0x1c4431c); the own
+	// "Profile" row reads the top-level myProfileImageUrl + obsProfileImagePath.
+	var fs struct {
+		Result struct {
+			MyProfileImageURL   string `json:"myProfileImageUrl"`
+			ObsProfileImagePath string `json:"obsProfileImagePath"`
+			MyAvatarName        string `json:"myAvatarName"`
+			Mid                 string `json:"mid"`
+			BuddyList           []struct {
+				AvatarNo, ProfileImageURL, ObsProfileImagePath string
+			} `json:"buddyList"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(sync.Body.Bytes(), &fs); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, b := range fs.Result.BuddyList {
+		if b.AvatarNo == "9601" {
+			found = b.ProfileImageURL == path && b.ObsProfileImagePath == path
+		}
+	}
+	if !found || fs.Result.MyProfileImageURL != "" || fs.Result.ObsProfileImagePath != "" || fs.Result.Mid != "9602" {
+		t.Fatalf("friend's sync rows/own keys wrong: %s", sync.Body.String())
+	}
+	own := decorReq(t, "ptok", http.MethodGet, "/v4/sync/friends/0", "")
+	fs.Result.MyProfileImageURL, fs.Result.ObsProfileImagePath = "", ""
+	if err := json.Unmarshal(own.Body.Bytes(), &fs); err != nil || fs.Result.MyProfileImageURL != path ||
+		fs.Result.ObsProfileImagePath != path || fs.Result.Mid != "9601" || fs.Result.MyAvatarName == "" {
+		t.Fatalf("own sync lacks the own picture: %s", own.Body.String())
+	}
 }
 
 func TestProfileImagePersists(t *testing.T) {
