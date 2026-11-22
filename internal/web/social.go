@@ -180,7 +180,16 @@ func handleProfile(w http.ResponseWriter, r *http.Request) {
 	if acc, ok := store.AccountByAvatarID(aid); ok {
 		body := profileBodyFor(aid, acc.Name, true, viewer, viewerOK)
 		if pi := acc.ProfileImage; pi.Image != "" {
-			body["obsProfileImagePath"], body["obsWholeBodyProfileImagePath"], body["bg"] = pi.Image, pi.WholeBody, pi.Bg
+			// Home MENU "Profile" cell (profilecell-spec.md, 2026-11-22): NaHomeMoreViewCell::SetProfileImage 0x16a2114
+			// draws the photo only with result.profile and a non-empty result.bg (sDataProfileWithAvatarID::ParseJson
+			// 0x1b6f000 keys). profilebg/12.jpg is a Cherry-chosen fallback for a picture without its own background;
+			// the client draws a background texture only when it has the file.
+			bg := pi.Bg
+			if bg == "" {
+				bg = "profilebg/12.jpg"
+			}
+			body["obsProfileImagePath"], body["obsWholeBodyProfileImagePath"], body["bg"] = pi.Image, pi.WholeBody, bg
+			body["profile"] = pi.Image
 		}
 		body["intro"] = profileIntro(acc) // ParseJson (0x1b6f000) reads result.intro as the Status Message
 		// "Avatar Birthday" (NaProfilePopup::SetBirthday 0x21de278): result.created read asString, epoch ms, shown at GMT+9;

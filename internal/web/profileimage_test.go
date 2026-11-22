@@ -139,6 +139,38 @@ func TestProfilePictureFlow(t *testing.T) {
 	}
 }
 
+// TestProfileCellPicture: the home MENU "Profile" cell draws the photo only with result.profile and a non-empty result.bg
+// (profilecell-spec.md, 2026-11-22). A picture without a background gets the Cherry fallback profilebg/12.jpg, a stored
+// background is sent as it is, and an account without a picture has no profile key.
+func TestProfileCellPicture(t *testing.T) {
+	testutil.UseDatabase(t)
+	installSocialTestAccounts(t, map[string]*store.Account{
+		"pc-nobg":  {Aid: "9701", Name: "NoBg", ProfileImage: store.ProfileImage{Image: "/lineplay/pr/9701_1"}},
+		"pc-bg":    {Aid: "9702", Name: "Bg", ProfileImage: store.ProfileImage{Image: "/lineplay/pr/9702_1", Bg: "profilebg/3.jpg"}},
+		"pc-plain": {Aid: "9703", Name: "Plain"},
+	})
+	profile := func(aid string) map[string]any {
+		t.Helper()
+		rec := decorReq(t, "", http.MethodGet, "/v4/profile/"+aid+"?deviceType=Android", "")
+		var doc struct {
+			Result map[string]any `json:"result"`
+		}
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &doc) != nil {
+			t.Fatalf("profile %s = %d %s", aid, rec.Code, rec.Body.String())
+		}
+		return doc.Result
+	}
+	if got := profile("9701"); got["profile"] != "/lineplay/pr/9701_1" || got["bg"] != "profilebg/12.jpg" {
+		t.Fatalf("picture without a background: profile=%v bg=%v", got["profile"], got["bg"])
+	}
+	if got := profile("9702"); got["profile"] != "/lineplay/pr/9702_1" || got["bg"] != "profilebg/3.jpg" {
+		t.Fatalf("picture with a background: profile=%v bg=%v", got["profile"], got["bg"])
+	}
+	if got := profile("9703"); got["profile"] != nil {
+		t.Fatalf("account without a picture has profile=%v", got["profile"])
+	}
+}
+
 func TestProfileImagePersists(t *testing.T) {
 	st := store.StoredFrom(&store.Account{Aid: "1", ProfileImage: store.ProfileImage{Image: "/lineplay/pr/a_1"}})
 	if st.ProfileImage == nil || st.ProfileImage.Image != "/lineplay/pr/a_1" {
