@@ -113,7 +113,8 @@ func serveSessionConn(conn net.Conn, logger *log.Logger) {
 	authed := false // the connection has an account bound; until then only sendInit-sized frames are read
 	// The stock 1:1 chat sends AVCHAT 3003 range requests at ~250/s in bursts (lab 2026-11-11): the session socket gets 4x
 	// the gateway allowance so a dropped request cannot stall the chat.
-	meter := newFrameMeter("SESSION", remote, logger, 4*config.Current().FrameRate, 4*config.Current().FrameBurst)
+	fl := store.EffectiveLimits(config.Current()) // as of this connection (the panel may have changed it)
+	meter := newFrameMeter("SESSION", remote, logger, 4*fl.FrameRate, 4*fl.FrameBurst)
 	for {
 		var prefix [4]byte
 		if _, err := io.ReadFull(conn, prefix[:]); err != nil {

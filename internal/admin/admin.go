@@ -266,6 +266,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /settings/upload-png-cap/reset", s.action(true, maxBodySmall, s.handleUploadPNGCapReset))
 	mux.HandleFunc("POST /settings/max-players", s.action(true, maxBodySmall, s.handleMaxPlayers))
 	mux.HandleFunc("POST /settings/max-players/reset", s.action(true, maxBodySmall, s.handleMaxPlayersReset))
+	mux.HandleFunc("POST /settings/limit", s.action(true, maxBodySmall, s.handleLimit))
+	mux.HandleFunc("POST /settings/limit/reset", s.action(true, maxBodySmall, s.handleLimitReset))
 	mux.HandleFunc("POST /settings/staff/add", s.action(true, maxBodySmall, s.handleStaffAdd))
 	mux.HandleFunc("POST /settings/staff/remove", s.action(true, maxBodySmall, s.handleStaffRemove))
 	// A state change reached by GET gets 405: a literal path beats the {version} wildcard of the GET page.

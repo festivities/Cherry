@@ -31,7 +31,29 @@ func NewBucket(rate float64, burst int) *Bucket {
 }
 
 // On reports whether the bucket limits anything (a nil bucket and a zero rate do not).
-func (b *Bucket) On() bool { return b != nil && b.rate > 0 }
+func (b *Bucket) On() bool {
+	if b == nil {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.rate > 0
+}
+
+// Set changes the rate and burst while the bucket serves requests. Tokens a key holds above the new burst are cut to it;
+// the others keep theirs. A rate of zero turns the limit off and forgets the keys, so turning it back on starts full.
+func (b *Bucket) Set(rate float64, burst int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.rate, b.burst = rate, float64(burst)
+	if rate <= 0 {
+		b.keys = map[string]*bucketState{}
+		return
+	}
+	for _, st := range b.keys {
+		st.tokens = min(st.tokens, b.burst)
+	}
+}
 
 // Allow spends one token of key's bucket at now and reports whether one was there.
 func (b *Bucket) Allow(key string, now time.Time) bool {
@@ -93,6 +115,20 @@ func (l *ConnLimits) Set(perHost, total int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.perHost, l.total = perHost, total
+}
+
+// Caps returns the caps in effect.
+func (l *ConnLimits) Caps() (perHost, total int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.perHost, l.total
+}
+
+// Counts returns the connections open now and the addresses holding them.
+func (l *ConnLimits) Counts() (open, hosts int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.open, len(l.byHost)
 }
 
 // Admit counts one more open connection from remote's host and reports false, counting nothing, at a cap. Every true

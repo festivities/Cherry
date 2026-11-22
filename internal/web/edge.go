@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"cherry/internal/assets"
@@ -103,10 +104,34 @@ func isItemNameLookup(r *http.Request) bool {
 	return r.Method == http.MethodPost && (r.URL.Path == "/v4/items/dress/some" || r.URL.Path == "/v4/items/room/some")
 }
 
-// newLimited wraps next with the request limits of cfg: a token bucket per remote address (config limits.api-*), one per
-// account that the AV_AUTH token names (limits.account-*), guest/generate per address a minute (limits.guest-per-minute),
-// and static GETs per address (limits.static-*). A rate of zero is off, which is the lab's setting. Over a limit the answer
-// is 429 with a body the client reads as an error.
+// requestBuckets are the game request buckets of one newLimited wrapper (see newLimited for what each one counts).
+type requestBuckets struct{ address, account, guest, static *httpx.Bucket }
+
+// limitSets records the buckets of every wrapper newLimited built: ApplyLimits changes them all while Cherry runs. A wrapper
+// keeps its own buckets, so the two listeners and the tests do not share counts.
+var limitSets struct {
+	sync.Mutex
+	list []requestBuckets
+}
+
+// ApplyLimits makes l live: the connection caps (httpx.Conns, checked at accept and at each admit) and the request buckets
+// of every listener. Connections already open keep their counts; the new rates and bursts apply to the next request.
+func ApplyLimits(l store.Limits) {
+	httpx.Conns.Set(l.ConnsPerAddress, l.ConnsTotal)
+	limitSets.Lock()
+	defer limitSets.Unlock()
+	for _, b := range limitSets.list {
+		b.address.Set(float64(l.APIRate), l.APIBurst)
+		b.account.Set(float64(l.AccountRate), l.AccountBurst)
+		b.guest.Set(float64(l.GuestPerMinute)/60, l.GuestPerMinute)
+		b.static.Set(float64(l.StaticRate), l.StaticBurst)
+	}
+}
+
+// newLimited wraps next with the request limits in effect for cfg (store.EffectiveLimits: the panel's value or the configured
+// one): a token bucket per remote address (limits.api-*), one per account that the AV_AUTH token names (limits.account-*),
+// guest/generate per address a minute (limits.guest-per-minute), and static GETs per address (limits.static-*). A rate of
+// zero is off, which is the lab's setting. Over a limit the answer is 429 with a body the client reads as an error.
 //
 // Static sizing (PLAN 8.6b part 5, measured on the lab's request logs, 2026-11-16): a fresh install made 13,255 static GETs
 // in one log, with peaks of 195 in a second, 1,791 in ten seconds and 8,761 in a minute; 150 a second with a burst of 836
@@ -114,10 +139,17 @@ func isItemNameLookup(r *http.Request) bool {
 // the ten-second peak with room. The bucket is per address, so a carrier NAT shares one bucket among its users; watch the
 // 429 counts before tightening it.
 func newLimited(next http.Handler, cfg config.Config) http.Handler {
-	address := httpx.NewBucket(float64(cfg.APIRate), cfg.APIBurst)
-	account := httpx.NewBucket(float64(cfg.AccountRate), cfg.AccountBurst)
-	guest := httpx.NewBucket(float64(cfg.GuestPerMinute)/60, cfg.GuestPerMinute)
-	static := httpx.NewBucket(float64(cfg.StaticRate), cfg.StaticBurst)
+	l := store.EffectiveLimits(cfg)
+	b := requestBuckets{
+		address: httpx.NewBucket(float64(l.APIRate), l.APIBurst),
+		account: httpx.NewBucket(float64(l.AccountRate), l.AccountBurst),
+		guest:   httpx.NewBucket(float64(l.GuestPerMinute)/60, l.GuestPerMinute),
+		static:  httpx.NewBucket(float64(l.StaticRate), l.StaticBurst),
+	}
+	limitSets.Lock()
+	limitSets.list = append(limitSets.list, b)
+	limitSets.Unlock()
+	address, account, guest, static := b.address, b.account, b.guest, b.static
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now()
 		addr := httpx.RemoteHost(r.RemoteAddr)

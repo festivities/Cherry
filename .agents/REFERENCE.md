@@ -284,6 +284,23 @@ Kept (54 since Circle, 2026-11-01: colorantBaseShop "Dye Base Shop" and circle "
 
 Entry10077 is handled by inven/counts object success; entry10130 by a nonempty `lp_rmchat` gameInfo (`24afd0d`; `executable:true` since `52520eb`). TLUP packetNo0, quest response21 and post-relay deadline clearing remain verified. Session MQ/MS echo (`5951d13`) prevents the40s recycle; on the :10000 gateway Cherry now echoes `M` pings too (`52520eb`) because the client drops a gateway link after ~5 s without inbound frames. Agent 4 RoomParty is answered (type-1 control + login result 0) and no longer retries; the old "subtype-1 control causes storms" conclusion was wrong — the storm was that idle timeout.
 
+### Server limits cheat sheet (2026-11-22)
+
+Every limit is an operator config key (`cherry.json`, flag or env; table in `internal/config/config.go`). Identity modes (discord, dev-fake) use the defaults below; lab-guest leaves the rate limits off. Production on 2026-11-22: all defaults (no `limits.*` keys in `cherry.json`), about 300 accounts, ~400 requests/s, ~950 open game connections at the 15:00 peak, process file limit 16,384. Since the owner panel feature (2026-11-22, see PLAN), each limit can also be overridden live on **Owner Settings → Server limits** (stored in the meta table, survives restarts; "reset" returns to the config value).
+
+| Key | Default | What it limits | When it is hit, players see / the log says | Sizing guidance |
+| --- | --- | --- | --- | --- |
+| `limits.max-players` | 200 | logged-in players at once (0 = unlimited); already on Owner Settings | new logins refused | players expected at peak + margin |
+| `limits.conns-total` | 1024 | open game connections in all (HTTPS + HTTP + gateway :10000 + session :10123) | "Network Error", "Failed to get friend information"; log `https/http refused … connection cap` | ~3–4 connections per online player; keep under ~12,000 (16,384 files). 2026-11-22: 1,024 was hit at ~300 players; 4,096 recommended |
+| `limits.conns-per-address` | 64 | open connections from one IP | same as above, and `OBS :10000 refused too many connections from this address` / `SESSION refused …` | mobile carriers (CGNAT) put many players on one IP: 256 recommended |
+| `limits.api-rate` / `limits.api-burst` | 30/s, 400 | game requests per IP (token bucket; static GETs and item-name lookups exempt) | "Network Error"; log `status=429` | raise if 429s cluster on a few carrier IPs |
+| `limits.account-rate` / `limits.account-burst` | 10/s, 200 | game requests per account | "Network Error"; `status=429` | one client's normal burst; 429s per account mean a client loop |
+| `limits.static-rate` / `limits.static-burst` | 200/s, 5000 | file reads (assets, pictures) and since `aaba67f` `POST items/dress/some` / `items/room/some`, per IP | missing art, spinners, "Network Error" on shops/Closet; `status=429` | fresh installs peak at ~195/s per device |
+| `limits.guest-per-minute` | 20 | `guest/generate` per IP a minute | guest login fails | leave unless sign-ups from one NAT fail |
+| `limits.frame-rate` / `limits.frame-burst` | 100/s, 400 (session ×4) | frames per gateway/session connection; ten times both closes a flood | movement/chat dropped | raise only with evidence of drops in busy rooms |
+
+Watching: `journalctl -u cherry --since "-1 h" | grep -c 'connection cap'` (connection caps), `grep -c 'status=429'` (rate buckets), `grep -c 'too many connections from this address'` (per-address on gateway/session). Live counts: staff dashboard (players, session/gateway connections) and `ss -Htn state established '( sport = :22716 or sport = :28075 or sport = :10000 or sport = :10123 )' | wc -l` on the host.
+
 ## Known client-inherent limits (do not re-investigate without new evidence)
 
 - **Garden position resets** on Profile → Friends → back: room-enter 197377 reloads the map and `InitHero`/`SetAvatarDefaultSpawn` overwrites the hero position; this client has no ordinary-walk position report. User-approved disposition 2026-10-04 (evidence in HISTORY). The user remembers the official game keeping position; production behavior is unverified.

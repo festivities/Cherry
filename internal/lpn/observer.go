@@ -14,6 +14,7 @@ import (
 	"cherry/internal/config"
 	"cherry/internal/economy"
 	"cherry/internal/metrics"
+	"cherry/internal/store"
 )
 
 // GatewayAddr is the gateway's listen address. main sets it from config (listen.gateway) before ListenObserver:
@@ -129,7 +130,8 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 	gather := &gardenGather{}       // this connection's touch state (garden_gather.go)
 	landscape := &gardenLandscape{} // this connection's editor preview (garden_landscape.go)
 	defer func() { gardenLeave(gardenLoginAid, logger) }()
-	meter := newFrameMeter("GATEWAY", remote, logger, config.Current().FrameRate, config.Current().FrameBurst)
+	fl := store.EffectiveLimits(config.Current()) // the panel's frame limits as of this connection; open ones keep theirs
+	meter := newFrameMeter("GATEWAY", remote, logger, fl.FrameRate, fl.FrameBurst)
 	var prefix [4]byte
 	for {
 		if err := conn.SetDeadline(hard); err != nil {

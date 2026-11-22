@@ -107,6 +107,37 @@
 </form>{{end}}
 </section>
 
+<section class="card stack">
+<h2>Server limits</h2>
+<p>These take effect while Cherry runs; nothing restarts. Each row shows the value in the server's configuration, the value set in this panel if there is one, and the value in effect now. A new connection cap applies to the next connection; a new request or frame rate applies to the next request or frame, for every player at once. Frame limits reach only connections opened after the change: a connection that is already open keeps the frame limits it started with.</p>
+<p class="small">Open game connections now: <strong>{{.Settings.OpenConns}}</strong> from <strong>{{.Settings.OpenAddrs}}</strong> addresses (every game port together).</p>
+<div class="scroll"><table>
+<thead><tr><th>Limit</th><th>Configured</th><th>Set in this panel</th><th>In effect</th><th>Change</th></tr></thead>
+<tbody>
+{{range .Settings.Limits}}<tr>
+<td><strong>{{.Label}}</strong><br><small class="muted">{{.Help}}</small></td>
+<td class="mono">{{.Configured}}</td>
+<td class="mono">{{if .FromPanel}}{{.Panel}}{{else}}<span class="muted">none</span>{{end}}</td>
+<td class="mono">{{.Effective}}</td>
+<td>
+<form method="post" action="/settings/limit" class="row-form" data-confirm="Save this server limit? It takes effect now for new requests and connections; frame limits reach only connections opened from now on.">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<input type="hidden" name="key" value="{{.Key}}">
+<input type="text" name="value" value="{{.Effective}}" inputmode="numeric" maxlength="7" required aria-label="{{.Label}}">
+<small class="help">{{.Min}} to {{.Max}}</small>
+<button type="submit">Save</button>
+</form>
+{{if .FromPanel}}<form method="post" action="/settings/limit/reset" class="row-form" data-confirm="Use the server's configured value for this limit again?">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<input type="hidden" name="key" value="{{.Key}}">
+<button type="submit" class="ghost">Use the server's configured value ({{.Configured}})</button>
+</form>{{end}}
+</td>
+</tr>
+{{end}}</tbody>
+</table></div>
+</section>
+
 <h2>Staff members</h2>
 <p class="muted">Staff sign in at this panel with Discord. Their account needs two-factor authentication turned on in Discord, or the sign-in is refused. A staff member gets every staff action except mail to every account and this page. Removing one ends their open sessions at once.</p>
 {{if .Settings.Allowlist}}<p class="small">A staff allowlist file is also configured: the people listed in it can sign in too. Its contents are not shown here.</p>{{else}}<p class="small muted">No staff allowlist file is configured. Only the owner and the members below can sign in.</p>{{end}}

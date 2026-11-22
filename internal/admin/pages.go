@@ -71,6 +71,8 @@ var notices = map[string]string{
 	"upload-png-cap-reset":      "The target transparent PNG filesize uses the server's configured value again.",
 	"max-players-saved":         "The concurrent player cap is saved. New logins check it from now on; anyone already online stays connected.",
 	"max-players-reset":         "The concurrent player cap uses the server's configured value again.",
+	"limit-saved":               "The server limit is saved and applies now. Frame limits reach only connections opened from now on; open connections keep the values they had.",
+	"limit-reset":               "The server limit uses the server's configured value again. Frame limits reach only connections opened from now on.",
 	"staff-added":               "The staff member is added. They can sign in at this panel from now on.",
 	"staff-removed":             "The staff member is removed. Their open sessions end now.",
 	"report-resolved":           "The report is resolved. The audit trail has the line and your note.",

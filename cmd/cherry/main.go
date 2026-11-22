@@ -34,7 +34,6 @@ import (
 // init, and the gateway address decides how its observer frames, so they are assigned here.
 func activate(c config.Config) {
 	config.Activate(c)
-	httpx.Conns.Set(c.ConnsPerAddress, c.ConnsTotal)
 	thumbs.DpCacheDir = filepath.Join(c.CacheDir, "dp-cache")
 	assets.GeneratedItemRoot = filepath.Join(c.DataDir, "generated", "item")
 	lpn.GatewayAddr = c.Gateway
@@ -102,6 +101,9 @@ func main() {
 	if err := openAccounts(cfg.DataDir); err != nil {
 		logger.Fatalf("cherry: load accounts: %v", err)
 	}
+	// The limits in effect: the panel's stored values over the configured ones (store.EffectiveLimits). The connection caps
+	// and the request buckets take them here, before any listener starts; the staff panel calls the same function on a save.
+	web.ApplyLimits(store.EffectiveLimits(cfg))
 	// The chat log's writer runs from here to the shutdown; the game handlers only enqueue (store/chatlog.go).
 	store.StartChatLog()
 	// openAccounts loaded the social, circle and Treasure World rows; the chat registry is lpn's and loads here.

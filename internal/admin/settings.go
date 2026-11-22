@@ -9,6 +9,7 @@ import (
 
 	"cherry/internal/auth"
 	"cherry/internal/config"
+	"cherry/internal/httpx"
 	"cherry/internal/store"
 )
 
@@ -50,6 +51,8 @@ type settingsPage struct {
 	MaxPlayers                int           // concurrent player cap in effect (0 = unlimited)
 	MaxPlayersFromPanel       bool          // the concurrent player cap is the panel's value
 	MaxPlayersConfig          int           // server's configured concurrent player cap (0 = unlimited)
+	Limits                    []limitRow    // the Server limits table, in store.LimitKeys order
+	OpenConns, OpenAddrs      int           // the game connections open now and the addresses holding them
 }
 
 // settingsOwner answers the refusal for anyone but the owner and reports whether the request may go on. The log line names
@@ -138,6 +141,12 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, sess ses
 	if !playersSet {
 		players = playersConfig
 	}
+	limits, err := s.limitRows()
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
+	open, hosts := httpx.Conns.Counts()
 	v := s.base(r, sess, "Settings")
 	v.Settings = settingsPage{ChatDays: days, FromPanel: set, ConfigDays: s.cfg.ChatDays, Owner: s.owner, Members: rows,
 		Allowlist: s.cfg.StaffAllowlistFile != "", DevNames: s.cfg.AuthMode == config.AuthDevFake,
@@ -146,7 +155,8 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, sess ses
 		UploadReceiveCapMiB: formatMiB(receiveBytes), UploadReceiveCapFromPanel: receiveSet, UploadReceiveCapConfigMiB: formatMiB(receiveConfig),
 		UploadJPEGCapKiB: formatKiB(jpegBytes), UploadJPEGCapFromPanel: jpegSet, UploadJPEGCapConfigKiB: formatKiB(jpegConfig),
 		UploadPNGCapKiB: formatKiB(pngBytes), UploadPNGCapFromPanel: pngSet, UploadPNGCapConfigKiB: formatKiB(pngConfig),
-		MaxPlayers: players, MaxPlayersFromPanel: playersSet, MaxPlayersConfig: playersConfig}
+		MaxPlayers: players, MaxPlayersFromPanel: playersSet, MaxPlayersConfig: playersConfig,
+		Limits: limits, OpenConns: open, OpenAddrs: hosts}
 	s.render(w, http.StatusOK, "settings", v)
 }
 
