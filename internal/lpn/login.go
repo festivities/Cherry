@@ -93,8 +93,8 @@ const kickPayload = `{"message":"","penaltyCode":"","penaltyStartDate":"0","pena
 // KickAid tells the account's older device that it signed in elsewhere, then ends its live connections (CloseAid). The
 // 0x1F push makes the stock client drop its session socket and queue error 2002, whose popup is string 10066 ("The same
 // account has been used on another device"). It is the store's OnTakeover hook (cmd/cherry).
-// ponytail: statically the 10066 popup also needs a maintenance-type push to become visible (duplogin-spec.md section 1);
-// add that only after a device run shows 0x1F alone draws nothing.
+// The static reading said 10066 also needed a maintenance-type push to become visible (duplogin-spec.md section 1); the
+// owner saw the popup on both Android and iOS with 0x1F alone (2026-11-22), so none is sent.
 func KickAid(aid string) {
 	if n, err := strconv.ParseUint(aid, 10, 64); err == nil && n != 0 {
 		_, _ = sessionPush(n, loOpKick, []byte(kickPayload))
