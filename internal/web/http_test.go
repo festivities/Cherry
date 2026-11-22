@@ -1121,7 +1121,6 @@ func TestClosetStaticRoutes(t *testing.T) {
 		path, body, wrongMethod string
 	}{
 		{"/v4/storage/display", storageDisplayBody, http.MethodPost},
-		{"/v4/style/slot/list", styleSlotListBody, http.MethodPut},
 	} {
 		if rec := serve(t, http.MethodGet, route.path); rec.Code != http.StatusOK || rec.Body.String() != route.body {
 			t.Errorf("GET %s: status = %d, body = %q", route.path, rec.Code, rec.Body.String())

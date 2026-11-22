@@ -287,10 +287,9 @@ func buildHomeListExtBody() string {
 
 const storageDisplayBody = `{"result":false}`
 
-const styleSlotListBody = `{"result":{"styleSlotResponses":[]}}`
-
 // styleMagazineListBody is the empty magazine (spec topic 3): editableYn false and no slots, so the client closes the
-// page with its own toast instead of a Network Error. Cherry does not build styling slots.
+// page with its own toast instead of a Network Error. Style Magazine keeps this empty fixture; the owner's own slots are
+// served by economy.HandleStyleSlot under /v4/style/slot/.
 const styleMagazineListBody = `{"result":{"editableYn":false,"wearItemViewableYn":false,"magazineAvatarGender":"FEMALE","magazineAvatarSkin":"1","basicFaceList":[],"styleSlotResponses":[]}}`
 
 // Empty questProgress maps to enum 0 (no active quest), avoiding the client's per-frame status retry.
@@ -465,7 +464,7 @@ func newMux(svc *auth.Service) http.Handler {
 	mux.HandleFunc("/v4/home/list/ext/", handleHomeListExt)
 	mux.HandleFunc("/v4/inven/closet/items/all", handleClosetItemsAll)
 	mux.HandleFunc("/v4/storage/display", httpx.HandleJSONBody(storageDisplayBody))
-	mux.HandleFunc("/v4/style/slot/list", httpx.HandleJSONBody(styleSlotListBody))
+	mux.HandleFunc("/v4/style/slot/", economy.HandleStyleSlot)
 	mux.HandleFunc("/v4/style/magazine/list/", httpx.HandleJSONBody(styleMagazineListBody))
 	mux.HandleFunc("/v4/avatar/save/v2", handleAvatarSaveV2)
 	mux.HandleFunc("/v4/photozone/shop/info/", economy.HandlePhotoZoneShopInfo)

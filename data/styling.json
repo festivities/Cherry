@@ -1,0 +1,8 @@
+{
+  "origin": "cherry",
+  "note": "Cherry-made: the Closet styling slots (saved outfits). free_slots is what every account starts with; max_slots is the most an account can hold; slot_price and coin_unit are what one extra slot costs. The client has no slot counts of its own (its numbers come from the server), so all four values are Cherry's choice.",
+  "free_slots": 3,
+  "max_slots": 20,
+  "slot_price": 300,
+  "coin_unit": "GEM"
+}

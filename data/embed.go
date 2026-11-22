@@ -176,3 +176,9 @@ var TreasureJSON []byte
 //
 //go:embed pets.json
 var PetsJSON []byte
+
+// StylingJSON is the Closet styling slots: the free slots, the most an account can hold and the price of one extra slot
+// (economy/styling.go).
+//
+//go:embed styling.json
+var StylingJSON []byte

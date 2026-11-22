@@ -147,6 +147,9 @@ type Account struct {
 	CodeHashes      []string              // SHA-256 hex of the uniqueCodes minted for Identity, oldest first, at most maxCodeHashes (identity.go)
 	GuestCodeHash   string                // SHA-256 hex of the guest uniqueCode (bindGuest); the lookups use it, GuestCode is "" after a reload
 	Ban             *Ban                  // staff ban (staff.go); nil = not banned. A banned account resolves to no token and mints none
+	StyleSlots      []StyleSlot           // Closet styling slots (economy/styling.go); replaced, never edited in place
+	StyleBought     int64                 // extra styling slots bought (economy/styling.go)
+	StyleNextID     int64                 // last styling slot id handed out; ids are never reused
 }
 
 // FishingGear is the Square fishing gear an account bought (economy/fishing_shop.go): the item IDs

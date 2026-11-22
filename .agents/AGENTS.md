@@ -49,7 +49,7 @@ Rule (user, 2026-10-28): everything Cherry invents must be distinguishable from 
 
 | Content | Marker |
 | --- | --- |
-| Data files: `fishboss`, `gacha`, `racing`, `rewards`, `modelhouse`, `remodel`, `cherrytips`, `lounge` | `origin: "cherry"` (the on/off switches `streaming.json` / `itemconv.json` are configuration, not content, and stay unmarked: requiring origin there broke the live private `config\streaming.json` override at the 2026-10-28 20:13 deploy — Cherry refused to start for ~1 min; any operator override of a CONTENT file now needs `origin` + `note`) |
+| Data files: `fishboss`, `gacha`, `racing`, `rewards`, `modelhouse`, `remodel`, `cherrytips`, `lounge`, `styling` (Closet styling slots: free 3, max 20, 300 Gems per extra slot; 2026-11-22) | `origin: "cherry"` (the on/off switches `streaming.json` / `itemconv.json` are configuration, not content, and stay unmarked: requiring origin there broke the live private `config\streaming.json` override at the 2026-10-28 20:13 deploy — Cherry refused to start for ~1 min; any operator override of a CONTENT file now needs `origin` + `note`) |
 | Data files: `atelier`, `gathering` (material/goods ids, themes 1012/1013 + `craft01/`/`garden01/` art original; names, recipes, weights, amounts Cherry-made), `butlers`, `calendars`, `dressup`, `dyes`, `exchange`, `fishing`, `gardens`, `menu`, `pets`, `prices`, `profiles`, `racing_exchange`, `spin`, `squares`, `starter` | `origin: "mixed"` + per-field note |
 | Fish + boss fish ids | block 4101–4999 (`CherryFishFirst/Last`) |
 | Fish shop gear | 9001–9199 (`CherryFishShopFirst/Last`) |
