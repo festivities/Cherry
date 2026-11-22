@@ -22,6 +22,7 @@ import (
 	"cherry/internal/economy"
 	"cherry/internal/httpx"
 	"cherry/internal/lpn"
+	"cherry/internal/metrics"
 	"cherry/internal/netsvc"
 	"cherry/internal/room"
 	"cherry/internal/store"
@@ -42,6 +43,7 @@ func activate(c config.Config) {
 // refusedLogger logs the connections a listener's cap turned away (httpx.ConnLimits).
 func refusedLogger(logger *log.Logger, listener string) func(string) {
 	return func(remote string) {
+		metrics.ConnRefused.Add(1)
 		logger.Printf("cherry: %s refused remote=%s: connection cap (limits.conns-per-address / limits.conns-total)", listener, remote)
 	}
 }

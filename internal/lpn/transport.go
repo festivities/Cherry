@@ -62,6 +62,7 @@ func ServeSession(ln net.Listener, logger *log.Logger) {
 		}
 		remote := conn.RemoteAddr().String()
 		if !admitRemote(remote) {
+			metrics.ConnRefused.Add(1)
 			logger.Printf("SESSION refused remote=%s: too many connections from this address", remote)
 			conn.Close()
 			continue

@@ -51,6 +51,7 @@ func ListenObserver(addr string, logger *log.Logger) (net.Listener, error) {
 			}
 			remote := conn.RemoteAddr().String()
 			if !admitRemote(remote) {
+				metrics.ConnRefused.Add(1)
 				logger.Printf("OBS %s refused remote=%s: too many connections from this address", addr, remote)
 				conn.Close()
 				continue

@@ -25,6 +25,7 @@ import (
 
 	"cherry/internal/config"
 	"cherry/internal/httpx"
+	"cherry/internal/metrics"
 	"cherry/internal/store"
 )
 
@@ -257,6 +258,7 @@ func (s *Service) handleStart(w http.ResponseWriter, r *http.Request) {
 	now := s.Now()
 	if !s.startMinute.Allow(ip, now) || !s.startHour.Allow(ip, now) {
 		s.logger.Printf("cherry: auth start rate limited")
+		metrics.RateLimited.Add(1)
 		page(w, http.StatusTooManyRequests, textRateLimited)
 		return
 	}
@@ -351,6 +353,7 @@ func (s *Service) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	if !s.callbackMinute.Allow(clientIP(r), s.Now()) {
 		s.logger.Printf("cherry: auth callback rate limited")
+		metrics.RateLimited.Add(1)
 		page(w, http.StatusTooManyRequests, textRateLimited)
 		return
 	}
@@ -466,6 +469,7 @@ func (s *Service) handleExchange(w http.ResponseWriter, r *http.Request) {
 	now := s.Now()
 	if !s.exchangeMinute.Allow(clientIP(r), now) {
 		s.logger.Printf("cherry: auth exchange refused reason=rate_limited")
+		metrics.RateLimited.Add(1)
 		httpx.WriteJSON(w, http.StatusTooManyRequests, `{"error":"rate_limited"}`)
 		return
 	}
@@ -531,6 +535,7 @@ func (s *Service) handleInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.infoMinute.Allow(clientIP(r), s.Now()) {
+		metrics.RateLimited.Add(1)
 		httpx.WriteJSON(w, http.StatusTooManyRequests, `{"error":"rate_limited"}`)
 		return
 	}

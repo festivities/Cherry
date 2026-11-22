@@ -10,6 +10,7 @@ import (
 	"cherry/internal/assets"
 	"cherry/internal/config"
 	"cherry/internal/httpx"
+	"cherry/internal/metrics"
 	"cherry/internal/store"
 )
 
@@ -95,15 +96,6 @@ func isStaticGET(r *http.Request) bool {
 	return false
 }
 
-// isItemNameLookup reports whether r is an item-name lookup (POST /v4/items/dress/some or /v4/items/room/some,
-// economy.HandleItemsSome): read-only catalog lookups of at most 100 codes, no account lock. Some clients send them 10+ times
-// a second (2026-11-22: ~38,700 refused in one hour by the address/account buckets, shown to players as "Network Error"), so
-// they share the per-address static bucket instead, which still caps a flood.
-// ponytail: why the client re-asks for the same names is not known yet (PLAN handoff); tighten this once it is.
-func isItemNameLookup(r *http.Request) bool {
-	return r.Method == http.MethodPost && (r.URL.Path == "/v4/items/dress/some" || r.URL.Path == "/v4/items/room/some")
-}
-
 // requestBuckets are the game request buckets of one newLimited wrapper (see newLimited for what each one counts).
 type requestBuckets struct{ address, account, guest, static *httpx.Bucket }
 
@@ -153,7 +145,7 @@ func newLimited(next http.Handler, cfg config.Config) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now()
 		addr := httpx.RemoteHost(r.RemoteAddr)
-		if isStaticGET(r) || isItemNameLookup(r) {
+		if isStaticGET(r) || httpx.IsItemNameLookup(r) {
 			if !static.Allow(addr, now) {
 				refuseRateLimited(w)
 				return
@@ -183,6 +175,7 @@ func newLimited(next http.Handler, cfg config.Config) http.Handler {
 // callbacks; not checked in the native code, and not device-tested). A burst past the limit is not expected in play: the
 // sizing is in the slice 8.6b part 4 report, measured on the lab logs.
 func refuseRateLimited(w http.ResponseWriter) {
+	metrics.RateLimited.Add(1)
 	w.Header().Set("Retry-After", "1")
 	httpx.WriteJSON(w, http.StatusTooManyRequests, httpx.RateLimitedBody)
 }

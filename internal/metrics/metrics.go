@@ -18,6 +18,11 @@ var SessionConns, GatewayConns atomic.Int64
 // ChatLogDropped counts the player messages the chat log could not keep: a full queue or a failed write (store/chatlog.go).
 var ChatLogDropped atomic.Int64
 
+// ItemLookups counts the item-name lookups (httpx.IsItemNameLookup), logged or not. ConnRefused counts the connections a
+// cap turned away; RateLimited the 429 answers of the rate limits; FramesDropped the frames over limits.frame-rate and
+// FrameFloods the connections closed for a flood (lpn framelimit.go).
+var ItemLookups, ConnRefused, RateLimited, FramesDropped, FrameFloods atomic.Int64
+
 var (
 	saves      atomic.Int64 // every store save (accounts, social, circles, Treasure World, chat)
 	saveNs     atomic.Int64 // total time the saves held their lock
@@ -69,6 +74,11 @@ func init() {
 	publish("session_conns", &SessionConns)
 	publish("gateway_conns", &GatewayConns)
 	publish("chat_log_dropped", &ChatLogDropped)
+	publish("item_lookups", &ItemLookups)
+	publish("conn_refused", &ConnRefused)
+	publish("rate_limited", &RateLimited)
+	publish("frames_dropped", &FramesDropped)
+	publish("frame_floods", &FrameFloods)
 	publish("saves", &saves)
 	publish("save_ns_total", &saveNs)
 	publish("save_ns_max", &saveMaxNs)

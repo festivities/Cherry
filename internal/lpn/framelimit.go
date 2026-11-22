@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"cherry/internal/httpx"
+	"cherry/internal/metrics"
 )
 
 // Frame and relay limits (PLAN 8.6b part 5). A gateway (:10000) or session (:10123) connection earns limits.frame-rate
@@ -53,6 +54,7 @@ func (m *frameMeter) admit(now time.Time) (dispatch, closeConn bool) {
 		return true, false
 	}
 	if !m.hard.Allow("", now) {
+		metrics.FrameFloods.Add(1)
 		m.logger.Printf("%s frame-flood remote=%s: over ten times limits.frame-rate, connection closed", m.label, m.remote)
 		return false, true
 	}
@@ -60,6 +62,7 @@ func (m *frameMeter) admit(now time.Time) (dispatch, closeConn bool) {
 		return true, false
 	}
 	m.dropped++
+	metrics.FramesDropped.Add(1)
 	if now.Sub(m.logged) >= frameLogEvery {
 		m.logger.Printf("%s frame-limit remote=%s dropped=%d (over limits.frame-rate)", m.label, m.remote, m.dropped)
 		m.dropped, m.logged = 0, now

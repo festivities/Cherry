@@ -11,6 +11,7 @@ import (
 	"cherry/internal/auth"
 	"cherry/internal/config"
 	"cherry/internal/httpx"
+	"cherry/internal/metrics"
 	"cherry/internal/store"
 	"cherry/internal/testutil"
 )
@@ -386,8 +387,12 @@ func TestItemNameLookupsUseTheStaticBucket(t *testing.T) {
 			t.Fatalf("lookup %d (%s) = %d, want 200 from the static burst", i+1, p, c)
 		}
 	}
+	refusedBefore := metrics.RateLimited.Load()
 	if c := do(http.MethodPost, "/v4/items/dress/some"); c != http.StatusTooManyRequests {
 		t.Fatalf("lookup past the static burst = %d, want 429 (still capped)", c)
+	}
+	if got := metrics.RateLimited.Load() - refusedBefore; got != 1 {
+		t.Fatalf("the refused lookup moved cherry.rate_limited by %d, want 1", got)
 	}
 	if c := do(http.MethodPost, "/v4/purchase/dress/buy"); c != http.StatusOK {
 		t.Fatalf("the game bucket was spent by the lookups: %d", c)

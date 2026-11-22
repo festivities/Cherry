@@ -109,16 +109,35 @@ func (rec *statusRecorder) Write(b []byte) (int, error) {
 	return rec.ResponseWriter.Write(b)
 }
 
+// IsItemNameLookup reports whether r is an item-name lookup (POST /v4/items/dress/some or /v4/items/room/some,
+// economy.HandleItemsSome): read-only catalog lookups of at most 100 codes, no account lock. Some clients send them 10+ times
+// a second (2026-11-22: ~38,700 refused in one hour by the address/account buckets, shown to players as "Network Error"), so
+// they share the per-address static bucket instead, which still caps a flood.
+// ponytail: why the client re-asks for the same names is not known yet (PLAN handoff); tighten this once it is.
+func IsItemNameLookup(r *http.Request) bool {
+	return r.Method == http.MethodPost && (r.URL.Path == "/v4/items/dress/some" || r.URL.Path == "/v4/items/room/some")
+}
+
+// WithLogging counts and logs every request. A successful item-name lookup is counted (metrics.ItemLookups) but not logged:
+// the client sends them 10+ a second (client-inherent, REFERENCE "Known client-inherent limits"), and journald keeps only
+// 10k lines per 30 s, so they pushed the refusals out. Failures (4xx and 5xx, 429 included) are still logged.
 func WithLogging(next http.Handler, logger *log.Logger) http.Handler {
 	var seq atomic.Uint64
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		metrics.Requests.Add(1)
+		lookup := IsItemNameLookup(r)
+		if lookup {
+			metrics.ItemLookups.Add(1)
+		}
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w}
 		next.ServeHTTP(rec, r)
 		status := rec.status
 		if status == 0 {
 			status = http.StatusOK
+		}
+		if lookup && status < http.StatusBadRequest {
+			return
 		}
 		sni := ""
 		if r.TLS != nil {

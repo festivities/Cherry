@@ -12,6 +12,7 @@ import (
 	"cherry/internal/auth"
 	"cherry/internal/config"
 	"cherry/internal/httpx"
+	"cherry/internal/metrics"
 	"cherry/internal/store"
 )
 
@@ -61,6 +62,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if !s.limits.loginMinute.Allow(ip, now) || !s.limits.loginHour.Allow(ip, now) {
 		s.logger.Printf("cherry: staff sign-in rate limited addr=%s", ip)
+		metrics.RateLimited.Add(1)
 		s.fail(w, http.StatusTooManyRequests, textBlocked)
 		return
 	}
@@ -123,6 +125,7 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	if !s.limits.callbackMinute.Allow(ip, now) {
 		s.logger.Printf("cherry: staff callback rate limited addr=%s", ip)
+		metrics.RateLimited.Add(1)
 		s.fail(w, http.StatusTooManyRequests, textBlocked)
 		return
 	}

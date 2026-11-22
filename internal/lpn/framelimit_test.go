@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"cherry/internal/config"
+	"cherry/internal/metrics"
 )
 
 // PLAN 8.6b part 5: the frame budget of a gateway or session connection. The meter is tested on its own (fixed clock), then
@@ -19,6 +20,7 @@ func TestFrameMeterDropsOverRateAndClosesAFlood(t *testing.T) {
 	var logs bytes.Buffer
 	m := newFrameMeter("TEST", "192.0.2.1:1", log.New(&logs, "", 0), 10, 20) // soft 10 a second, burst 20; hard 100, 200
 	now := time.Unix(1_700_000_000, 0)
+	droppedBefore := metrics.FramesDropped.Load()
 	for i := range 20 {
 		if d, c := m.admit(now); !d || c {
 			t.Fatalf("frame %d of the burst: dispatch=%v close=%v", i+1, d, c)
@@ -29,6 +31,9 @@ func TestFrameMeterDropsOverRateAndClosesAFlood(t *testing.T) {
 	}
 	if d, c := m.admit(now); d || c {
 		t.Fatalf("second frame over the burst: dispatch=%v close=%v", d, c)
+	}
+	if got := metrics.FramesDropped.Load() - droppedBefore; got != 2 {
+		t.Fatalf("two dropped frames moved cherry.frames_dropped by %d", got)
 	}
 	if n := strings.Count(logs.String(), "frame-limit"); n != 1 {
 		t.Fatalf("drops in one window logged %d times, want once:\n%s", n, logs.String())

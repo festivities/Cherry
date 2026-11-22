@@ -7,7 +7,36 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"cherry/internal/metrics"
 )
+
+// TestItemNameLookupLogging: a successful item-name lookup is counted but not logged; a refused one (429) and any other
+// request are logged.
+func TestItemNameLookupLogging(t *testing.T) {
+	var buf bytes.Buffer
+	status := http.StatusOK
+	h := WithLogging(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(status) }), log.New(&buf, "", 0))
+	before := metrics.ItemLookups.Load()
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v4/items/dress/some", nil))
+	if buf.Len() != 0 {
+		t.Fatalf("a 200 item-name lookup was logged: %s", buf.String())
+	}
+	if got := metrics.ItemLookups.Load() - before; got != 1 {
+		t.Fatalf("item-name lookups counted = %d, want 1", got)
+	}
+	status = http.StatusTooManyRequests
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v4/items/room/some", nil))
+	if !strings.Contains(buf.String(), "status=429") {
+		t.Fatalf("a 429 item-name lookup was not logged: %q", buf.String())
+	}
+	buf.Reset()
+	status = http.StatusOK
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/v4/other", nil))
+	if !strings.Contains(buf.String(), `url="/v4/other"`) {
+		t.Fatalf("a 200 GET was not logged: %q", buf.String())
+	}
+}
 
 // TestAuthQueryIsRedacted: the request log keeps an /auth/ path but never its query or a referer, and keeps other queries.
 func TestAuthQueryIsRedacted(t *testing.T) {
