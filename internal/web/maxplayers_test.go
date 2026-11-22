@@ -1,13 +1,14 @@
 package web
 
 import (
-	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -63,7 +64,9 @@ func bindLPNSession(t *testing.T, addr, sessionKey string) net.Conn {
 	return conn
 }
 
-func TestCheckSessionMaxPlayersRefusal(t *testing.T) {
+// A full server refuses at app start: setInitConf 503, then the refused address (and only it, once) gets the maintenance
+// notice with the server-full text on the plain port; checkSession never refuses (its error deletes the client's login).
+func TestServerFullRefusesAtAppStartWithNotice(t *testing.T) {
 	testutil.UseDatabase(t)
 	installSocialTestAccounts(t, map[string]*store.Account{
 		"tok1": {AccessToken: "tok1", SessionKey: "skey1", Aid: "1001", Name: "One"},
@@ -78,7 +81,6 @@ func TestCheckSessionMaxPlayersRefusal(t *testing.T) {
 	}
 	go lpn.ServeSession(ln, log.New(io.Discard, "", 0))
 	t.Cleanup(func() { _ = ln.Close() })
-
 	conn := bindLPNSession(t, ln.Addr().String(), "skey1")
 	t.Cleanup(func() {
 		_ = conn.Close()
@@ -88,28 +90,71 @@ func TestCheckSessionMaxPlayersRefusal(t *testing.T) {
 		}
 	})
 
-	// Offline player 1002 is refused with 503 (never 404), keeping its token usable.
-	refused := checkSession(t, "tok2")
-	if refused.Code != http.StatusServiceUnavailable {
-		t.Fatalf("checkSession when full = %d %s, want 503", refused.Code, refused.Body.String())
+	mux, plain := NewMux(), NewPlainMux()
+	get := func(h http.Handler, path, remote string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.RemoteAddr = remote
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
 	}
-	wantBody := `{"errorCode":"503","errorMessage":"cherry: server full"}`
-	if !bytes.Equal(refused.Body.Bytes(), []byte(wantBody)) {
-		t.Fatalf("body = %q, want %q", refused.Body.String(), wantBody)
+	const refusedAddr, otherAddr = "198.51.100.7:4100", "198.51.100.8:4100"
+
+	// An in-game client's notice fetch before any refusal: 404, as before.
+	if rec := get(plain, "/img/read/notice/notice.json2", refusedAddr); rec.Code != http.StatusNotFound {
+		t.Fatalf("notice before refusal = %d", rec.Code)
+	}
+	init := get(mux, "/v4/setInitConf?nationCode=JP", refusedAddr)
+	if init.Code != http.StatusServiceUnavailable || init.Body.String() != `{"errorCode":"503","errorMessage":"cherry: server full"}` {
+		t.Fatalf("setInitConf when full = %d %s", init.Code, init.Body)
+	}
+	// Another address gets no notice; the refused one gets it once, from another port of the same host.
+	if rec := get(plain, "/img/read/notice/notice.json2", otherAddr); rec.Code != http.StatusNotFound {
+		t.Fatalf("notice for another address = %d", rec.Code)
+	}
+	rec := get(plain, "/img/read/notice/notice.json2", "198.51.100.7:4999")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("notice for the refused address = %d %s", rec.Code, rec.Body)
+	}
+	var n struct {
+		Seq                                   int
+		Target, Type, Start, End, DisplayType string
+		Message                               map[string]string
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &n); err != nil {
+		t.Fatal(err)
+	}
+	start, _ := strconv.ParseInt(n.Start, 10, 64)
+	end, _ := strconv.ParseInt(n.End, 10, 64)
+	now := time.Now().UnixMilli()
+	if n.Seq != 1 || n.Type != "maint" || !(start < now && now < end) || n.Message["en"] == "" || n.Message["ko"] == "" || n.Message["ja"] == "" {
+		t.Fatalf("notice = %s", rec.Body)
+	}
+	if rec := get(plain, "/img/read/notice/notice.json2", refusedAddr); rec.Code != http.StatusNotFound {
+		t.Fatalf("second notice fetch = %d, want 404 (once)", rec.Code)
+	}
+	if rec := get(mux, "/v4/maintenance/whitelist/lineplay", refusedAddr); rec.Code != http.StatusOK || rec.Body.String() != `{"result":[]}` {
+		t.Fatalf("whitelist = %d %s", rec.Code, rec.Body)
 	}
 
-	// Already-online player 1001 is still admitted at cap.
-	online := checkSession(t, "tok1")
-	if online.Code != http.StatusOK {
-		t.Fatalf("already-online checkSession = %d %s, want 200", online.Code, online.Body.String())
+	// checkSession never refuses: an offline player's saved login goes through even when full.
+	if rec := checkSession(t, "tok2"); rec.Code != http.StatusOK {
+		t.Fatalf("checkSession when full = %d %s, want 200", rec.Code, rec.Body)
 	}
 
-	// Live DB override to 0 (unlimited) allows 1002's saved token to succeed.
+	// The live override 0 (unlimited) opens setInitConf again.
 	if err := store.SetMaxPlayers(0, "dev-owner"); err != nil {
 		t.Fatal(err)
 	}
-	admitted := checkSession(t, "tok2")
-	if admitted.Code != http.StatusOK {
-		t.Fatalf("checkSession after unlimited override = %d %s, want 200", admitted.Code, admitted.Body.String())
+	if rec := get(mux, "/v4/setInitConf?nationCode=JP", otherAddr); rec.Code != http.StatusOK || rec.Body.String() != setInitConfBody {
+		t.Fatalf("setInitConf with the unlimited override = %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestFullNoticeExpires(t *testing.T) {
+	now := time.Now()
+	rememberFullNotice("203.0.113.9", now)
+	if takeFullNotice("203.0.113.9", now.Add(fullNoticeTTL+time.Second)) {
+		t.Fatal("a notice older than fullNoticeTTL was served")
 	}
 }

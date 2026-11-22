@@ -183,10 +183,7 @@ func handleSessionFrame(conn *lockedConn, remote string, payload []byte, logger 
 			if bound, ok := sessionAidOf(conn); ok && bound != aid {
 				themeChatUnbound(unbindSession(conn), logger)
 			}
-			if !bindSession(aid, conn) {
-				logger.Printf("SESSION refused remote=%s aid=%d reason=max-players", remote, aid)
-				return false
-			}
+			bindSession(aid, conn)
 			logger.Printf("SESSION bind remote=%s aid=%d", remote, aid)
 		}
 		frame := buildLOFrame(loOpConfigure, 0, configurePayload)
@@ -223,24 +220,39 @@ func sessionAccount(body []byte) uint64 {
 	return 0
 }
 
-// bindSession makes c the live session of aid (a newer session of the same account replaces it).
-// It refuses without binding when the concurrent player cap is reached and aid is not already online.
-func bindSession(aid uint64, c *lockedConn) bool {
+// bindSession makes c the live session of aid (a newer session of the same account replaces it). It never refuses: the
+// concurrent player cap is checked once, at app start (ServerFull, web setInitConf). A sendInit refusal left the player in
+// the game on the gateway with no session (no chat, no pushes; production 2026-11-22: 240 of 271 refused players).
+func bindSession(aid uint64, c *lockedConn) {
 	sessionConnsMu.Lock()
 	defer sessionConnsMu.Unlock()
-	if cap := store.MaxPlayers(config.MaxPlayers()); cap > 0 && sessionConns[aid] == nil && len(sessionConns) >= cap {
-		return false
-	}
 	sessionConns[aid] = c
-	return true
 }
 
-// ServerFullFor reports whether the concurrent player cap is reached and aid is not already online.
-func ServerFullFor(aid uint64) bool {
-	sessionConnsMu.Lock()
-	defer sessionConnsMu.Unlock()
+// ServerFull reports whether the concurrent player cap (limits.max-players, live on Owner Settings) is reached: the
+// distinct players with a live session or a verified gateway login, as the staff dashboard counts them.
+// ponytail: copies both registries per call (cold start only); keep a counter if the cap grows far past thousands.
+func ServerFull() bool {
 	cap := store.MaxPlayers(config.MaxPlayers())
-	return cap > 0 && sessionConns[aid] == nil && len(sessionConns) >= cap
+	return cap > 0 && len(onlinePlayers()) >= cap
+}
+
+// onlinePlayers is the set of aids with a live session or a verified gateway login.
+func onlinePlayers() map[uint64]bool {
+	online := map[uint64]bool{}
+	sessionConnsMu.Lock()
+	for aid := range sessionConns {
+		online[aid] = true
+	}
+	sessionConnsMu.Unlock()
+	gatewayLoginsMu.Lock()
+	for _, aids := range gatewayLogins {
+		for _, aid := range aids {
+			online[aid] = true
+		}
+	}
+	gatewayLoginsMu.Unlock()
+	return online
 }
 
 // SessionOnline reports whether aid has a live :10123 session (friends' online markers, web session/status).

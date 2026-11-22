@@ -377,7 +377,9 @@ func newMux(svc *auth.Service) http.Handler {
 	mux.HandleFunc("/cherry/dye/", economy.HandleDyeImage)
 	mux.HandleFunc("/cherry/menu/", handleMenuIcon)
 	mux.HandleFunc("/cherry/garden/items/", economy.HandleGatherImage)
-	mux.HandleFunc("/v4/setInitConf", handleSetInitConf)
+	mux.HandleFunc("/v4/setInitConf", handleSetInitConf) // serverfull.go
+	mux.HandleFunc("/notice/notice.json2", handleMaintenanceNotice)
+	mux.HandleFunc("/v4/maintenance/whitelist/lineplay", handleMaintenanceWhitelist)
 	mux.HandleFunc("/v4/resource/splash/", handleSplash)
 	mux.HandleFunc("/notice/adr/checkresource2.json", handleCheckResource2)
 	mux.HandleFunc("/notice/ios/checkresource2.json", handleCheckResource2) // iOS: plain /img/read/notice/ios/…, NewPlainMux strips /img/read
@@ -690,14 +692,6 @@ func handleArtsStrings(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(ast)
 }
 
-func handleSetInitConf(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		httpx.ServeNotFound(w)
-		return
-	}
-	httpx.WriteJSON(w, http.StatusOK, setInitConfBody)
-}
-
 func handleCheckResource2(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		httpx.ServeNotFound(w)
@@ -800,13 +794,6 @@ func handleCheckSession(w http.ResponseWriter, r *http.Request) {
 	if acc == nil {
 		store.AccountsMu.Unlock()
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
-		return
-	}
-	if aid, err := strconv.ParseUint(acc.Aid, 10, 64); err == nil && aid != 0 && lpn.ServerFullFor(aid) {
-		aidStr := acc.Aid
-		store.AccountsMu.Unlock()
-		log.Printf("cherry: checkSession refused aid=%s: server full", aidStr)
-		httpx.WriteJSON(w, http.StatusServiceUnavailable, `{"errorCode":"503","errorMessage":"cherry: server full"}`)
 		return
 	}
 	token, err := store.MintAliasLocked(acc)

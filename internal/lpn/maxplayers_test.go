@@ -69,15 +69,16 @@ func dialSessionAndSendInit(t *testing.T, addr, sessionKey string) (net.Conn, bo
 	return conn, true
 }
 
-func TestSessionMaxPlayers(t *testing.T) {
+// The cap counts distinct players over both sockets (a gateway-only login counts, a player on both counts once), a full
+// server never refuses a sendInit (no player is left on the gateway without a session), and the live override applies.
+// Other tests of the package may leave players online, so this checks membership and caps whose answer cannot depend on them.
+func TestServerFullCountsBothSocketsAndNeverRefusesSendInit(t *testing.T) {
 	testutil.UseDatabase(t)
 	testutil.InstallAccounts(t, map[string]*store.Account{
 		"tok-101": {AccessToken: "tok-101", SessionKey: "key-101", Aid: "101", Name: "One"},
 		"tok-102": {AccessToken: "tok-102", SessionKey: "key-102", Aid: "102", Name: "Two"},
-		"tok-103": {AccessToken: "tok-103", SessionKey: "key-103", Aid: "103", Name: "Three"},
-		"tok-104": {AccessToken: "tok-104", SessionKey: "key-104", Aid: "104", Name: "Four"},
 	})
-	config.Activate(config.Config{MaxPlayers: 2})
+	config.Activate(config.Config{MaxPlayers: 1})
 	t.Cleanup(func() { config.Activate(config.Config{}) })
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -93,63 +94,40 @@ func TestSessionMaxPlayers(t *testing.T) {
 		t.Fatal("player 101 refused")
 	}
 	t.Cleanup(func() { _ = c1.Close(); waitOffline(t, 101) })
+	if !ServerFull() {
+		t.Fatal("ServerFull = false at cap 1 with 101 online")
+	}
 
+	// A full server still binds a sendInit.
 	c2, ok := dialSessionAndSendInit(t, ln.Addr().String(), "key-102")
-	if !ok {
-		t.Fatal("player 102 refused")
+	if !ok || !SessionOnline(102) {
+		t.Fatal("full server refused the sendInit of 102")
 	}
 	t.Cleanup(func() { _ = c2.Close(); waitOffline(t, 102) })
-
-	if !ServerFullFor(103) {
-		t.Fatal("ServerFullFor(103) = false, want true at cap 2")
-	}
-	if ServerFullFor(101) {
-		t.Fatal("ServerFullFor(101) = true for already-online player, want false")
+	if strings.Contains(logs.String(), "refused") {
+		t.Fatalf("session refused a player: %s", logs.String())
 	}
 
-	// Third player is refused and disconnected without binding.
-	if _, ok := dialSessionAndSendInit(t, ln.Addr().String(), "key-103"); ok {
-		t.Fatal("player 103 was admitted over cap 2")
-	}
-	if SessionOnline(103) {
-		t.Fatal("refused player 103 is marked online")
-	}
-	if !strings.Contains(logs.String(), "aid=103 reason=max-players") {
-		t.Fatalf("logs missing max-players refusal: %s", logs.String())
-	}
-
-	// Already-online player can replace its own session even while full, and the other online player stays bound.
-	c1New, ok := dialSessionAndSendInit(t, ln.Addr().String(), "key-101")
-	if !ok {
-		t.Fatal("already-online player 101 reconnect refused while full")
-	}
-	t.Cleanup(func() { _ = c1New.Close() })
-	_ = c1.Close()
-	if !SessionOnline(101) || !SessionOnline(102) {
-		t.Fatalf("online status after reconnect: 101=%t 102=%t", SessionOnline(101), SessionOnline(102))
+	// A gateway-only login counts (onlinePlayers is a set, so 101 on both sockets is one player).
+	gw101, gw103 := &lockedConn{}, &lockedConn{}
+	t.Cleanup(func() { unbindGatewayLogins(gw101); unbindGatewayLogins(gw103) })
+	bindGatewayLogin(gw101, 101)
+	bindGatewayLogin(gw103, 103)
+	online := onlinePlayers()
+	if !online[101] || !online[102] || !online[103] {
+		t.Fatalf("online set misses a player: %v", online)
 	}
 
-	// Live DB override to 0 (unlimited) allows 103 in.
-	if err := store.SetMaxPlayers(0, "dev-owner"); err != nil {
-		t.Fatal(err)
-	}
-	if ServerFullFor(103) {
-		t.Fatal("ServerFullFor(103) = true with unlimited override")
-	}
-	c3, ok := dialSessionAndSendInit(t, ln.Addr().String(), "key-103")
-	if !ok {
-		t.Fatal("player 103 refused with unlimited override")
-	}
-	t.Cleanup(func() { _ = c3.Close(); waitOffline(t, 103) })
-
-	// Lowering cap live to 1 never kicks already-online 101/102/103, and still refuses new player 104.
-	if err := store.SetMaxPlayers(1, "dev-owner"); err != nil {
-		t.Fatal(err)
-	}
-	if !SessionOnline(101) || !SessionOnline(102) || !SessionOnline(103) {
-		t.Fatal("lowering cap disconnected already-online players")
-	}
-	if _, ok := dialSessionAndSendInit(t, ln.Addr().String(), "key-104"); ok {
-		t.Fatal("player 104 admitted over lowered cap")
+	// The live override wins: 0 = unlimited, 10000 = far from full, 1 = full again.
+	for _, c := range []struct {
+		cap  int
+		full bool
+	}{{0, false}, {10000, false}, {1, true}} {
+		if err := store.SetMaxPlayers(c.cap, "dev-owner"); err != nil {
+			t.Fatal(err)
+		}
+		if ServerFull() != c.full {
+			t.Fatalf("ServerFull at override %d = %t, want %t", c.cap, !c.full, c.full)
+		}
 	}
 }
