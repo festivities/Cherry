@@ -148,6 +148,7 @@ Every feature below is implemented on the server, and nearly all of them have be
 
 - **Currencies:** Gems, Cash, Boss Coins, Ride Points, Smiles and Face Shop tickets. Every one is earned in game, and every change is written to a ledger in the same database transaction as the new balance.
 - **Daily rewards:** the daily login calendar, plus seasonal calendars, season popups and event quests for New Year, Winter and Halloween.
+- **Login popups:** operator banners (for example your community's Discord invite) shown once per game day, with a button that opens a link in the phone's browser or an in-game screen.
 - **Mailbox:** item gifts and staff mail.
 - **Quests:** daily, hearts and event quests.
 
@@ -418,7 +419,7 @@ Raspberry's README has the build and patch steps. The interface between the two 
 
 ### Operator documents
 
-Everything Cherry had to invent lives in **28 JSON documents** under `data/`, so operators can change it without touching Go code. That covers prices, gacha pools and rates, drop tables, fish tables, recipes, rewards, quests, calendars, Square and Garden lists, butlers, pets, spins, styling slots, Circle and Treasure World rules, and the menu. The documents are embedded in the binary. Two more files, `streaming.json` and `itemconv.json`, are plain on/off switches.
+Everything Cherry had to invent lives in **29 JSON documents** under `data/`, so operators can change it without touching Go code. That covers prices, gacha pools and rates, drop tables, fish tables, recipes, rewards, quests, calendars, Square and Garden lists, butlers, pets, spins, styling slots, login popups, Circle and Treasure World rules, and the menu. The documents are embedded in the binary. Two more files, `streaming.json` and `itemconv.json`, are plain on/off switches.
 
 Each document loads from the first of these that exists:
 
