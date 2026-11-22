@@ -94,6 +94,15 @@ func isStaticGET(r *http.Request) bool {
 	return false
 }
 
+// isItemNameLookup reports whether r is an item-name lookup (POST /v4/items/dress/some or /v4/items/room/some,
+// economy.HandleItemsSome): read-only catalog lookups of at most 100 codes, no account lock. Some clients send them 10+ times
+// a second (2026-11-22: ~38,700 refused in one hour by the address/account buckets, shown to players as "Network Error"), so
+// they share the per-address static bucket instead, which still caps a flood.
+// ponytail: why the client re-asks for the same names is not known yet (PLAN handoff); tighten this once it is.
+func isItemNameLookup(r *http.Request) bool {
+	return r.Method == http.MethodPost && (r.URL.Path == "/v4/items/dress/some" || r.URL.Path == "/v4/items/room/some")
+}
+
 // newLimited wraps next with the request limits of cfg: a token bucket per remote address (config limits.api-*), one per
 // account that the AV_AUTH token names (limits.account-*), guest/generate per address a minute (limits.guest-per-minute),
 // and static GETs per address (limits.static-*). A rate of zero is off, which is the lab's setting. Over a limit the answer
@@ -112,7 +121,7 @@ func newLimited(next http.Handler, cfg config.Config) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		now := time.Now()
 		addr := httpx.RemoteHost(r.RemoteAddr)
-		if isStaticGET(r) {
+		if isStaticGET(r) || isItemNameLookup(r) {
 			if !static.Allow(addr, now) {
 				refuseRateLimited(w)
 				return

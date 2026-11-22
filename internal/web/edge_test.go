@@ -368,3 +368,31 @@ func TestStaticGETsHaveTheirOwnBucket(t *testing.T) {
 		t.Fatalf("another address shares the static bucket: %d", c)
 	}
 }
+
+// TestItemNameLookupsUseTheStaticBucket: POST items/dress/some and items/room/some spend the per-address static bucket (still
+// capped), not the game bucket; a GET of the same path and other POSTs stay on the game bucket.
+func TestItemNameLookupsUseTheStaticBucket(t *testing.T) {
+	cfg := config.Config{StaticRate: 1, StaticBurst: 3, APIRate: 1, APIBurst: 1}
+	h := newLimited(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }), cfg)
+	do := func(method, path string) int {
+		req := httptest.NewRequest(method, path, strings.NewReader(`["CUON001CH"]`))
+		req.RemoteAddr = "192.0.2.50:1"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	for i, p := range []string{"/v4/items/dress/some", "/v4/items/room/some", "/v4/items/dress/some"} {
+		if c := do(http.MethodPost, p); c != http.StatusOK {
+			t.Fatalf("lookup %d (%s) = %d, want 200 from the static burst", i+1, p, c)
+		}
+	}
+	if c := do(http.MethodPost, "/v4/items/dress/some"); c != http.StatusTooManyRequests {
+		t.Fatalf("lookup past the static burst = %d, want 429 (still capped)", c)
+	}
+	if c := do(http.MethodPost, "/v4/purchase/dress/buy"); c != http.StatusOK {
+		t.Fatalf("the game bucket was spent by the lookups: %d", c)
+	}
+	if c := do(http.MethodGet, "/v4/items/dress/some"); c != http.StatusTooManyRequests {
+		t.Fatalf("a GET of the lookup path = %d, want 429 from the game bucket", c)
+	}
+}
