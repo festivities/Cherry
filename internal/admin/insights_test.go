@@ -3,6 +3,7 @@ package admin
 import (
 	"bytes"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -485,5 +486,27 @@ func TestDashboardShowsTheInsightsRow(t *testing.T) {
 	}
 	if !strings.Contains(body, `<p class="big">75</p>`) {
 		t.Error("the Gems card does not show the 75 Gems the account holds")
+	}
+}
+
+// TestDashboardOnlineCountsPlayersOnce: the dashboard's "Players online now" counts distinct players, so a player on both the
+// session and the gateway connection counts once (it used to add the two connection counts).
+func TestDashboardOnlineCountsPlayersOnce(t *testing.T) {
+	fx := newFixture(t, devConfig())
+	c := fx.client()
+	c.signInDev("owner")
+	since := fx.clk.t.Add(-time.Minute)
+	fakeOnline(fx,
+		lpn.Connection{Aid: 2001, Listener: "session", Since: since},
+		lpn.Connection{Aid: 2001, Listener: "gateway", Since: since},
+		lpn.Connection{Aid: 3001, Listener: "gateway", Since: since})
+	r := c.get("/stats.json")
+	expect(t, r, http.StatusOK)
+	var js map[string]any
+	if err := json.Unmarshal([]byte(r.body), &js); err != nil {
+		t.Fatalf("not JSON: %v", err)
+	}
+	if n, _ := js["online"].(float64); n != 2 {
+		t.Errorf("online = %v, want 2 (two players, three connections)", js["online"])
 	}
 }

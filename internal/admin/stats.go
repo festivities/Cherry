@@ -161,7 +161,7 @@ func (s *Server) statsAt(now time.Time) stats {
 		Time: now.UTC().Format(timeFormat), Started: started.UTC().Format(timeFormat),
 		UptimeSeconds: int64(uptime.Seconds()), Uptime: humanDuration(uptime),
 		Build: rev, BuildTime: when, GoVersion: runtime.Version(),
-		Accounts: store.AccountCount(), SessionConns: sessions, GatewayConns: gateways, Online: sessions + gateways,
+		Accounts: store.AccountCount(), SessionConns: sessions, GatewayConns: gateways, Online: s.onlinePlayers(),
 		Requests: requests, RequestsPerMin: math.Round(s.rate.perMinute(now, requests)*10) / 10,
 		Saves: saves, SaveAvg: "none yet", SaveMax: "none yet", SaveHist: saveBars(),
 		DBBytes: db, DBSize: humanBytes(db), WALBytes: wal, WALSize: humanBytes(wal),
@@ -257,4 +257,14 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request, sess se
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request, _ session) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(s.statsAt(s.now()))
+}
+
+// onlinePlayers is the number of distinct players with a login on a live connection, as the Online now page counts them: a
+// player on both the session and the gateway connection is one player (the connection counts stay separate in the stats).
+func (s *Server) onlinePlayers() int64 {
+	seen := map[uint64]bool{}
+	for _, c := range s.online() {
+		seen[c.Aid] = true
+	}
+	return int64(len(seen))
 }
