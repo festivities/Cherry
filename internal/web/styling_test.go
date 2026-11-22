@@ -89,6 +89,11 @@ type stylingSlot struct {
 	ItemDeleteYn   bool          `json:"itemDeleteYn"`
 }
 
+// stylingDetail is the detail reply's result: the slot under styleSlotDetailResponse.
+type stylingDetail struct {
+	Detail stylingSlot `json:"styleSlotDetailResponse"`
+}
+
 // stylingState reads the account's purchase count, saved slots and Gems under the lock.
 func stylingState(acc *store.Account) (bought int64, slots []store.StyleSlot, gems int64) {
 	store.AccountsMu.Lock()
@@ -144,10 +149,25 @@ func TestStylingLifecycle(t *testing.T) {
 		t.Fatalf("list after save = %+v", list)
 	}
 
-	var detail stylingSlot
-	stylingResult(t, stylingCall(t, http.MethodGet, "/v4/style/slot/detail/1", ""), &detail)
-	if detail.SlotID != 1 || detail.StyleName != "Summer" || len(detail.StyleSlotItems) != 2 {
-		t.Fatalf("detail = %+v", detail)
+	rec = stylingCall(t, http.MethodGet, "/v4/style/slot/detail/1", "")
+	var detail stylingDetail
+	stylingResult(t, rec, &detail)
+	if detail.Detail.SlotID != 1 || detail.Detail.StyleName != "Summer" || len(detail.Detail.StyleSlotItems) != 2 {
+		t.Fatalf("detail = %+v", detail.Detail)
+	}
+	// The client reads styleSlotDetailResponse first (NaClosetLayer MsgProc case 11080): that key is the only one in result.
+	var reply struct {
+		Result json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &reply); err != nil {
+		t.Fatal(err)
+	}
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(reply.Result, &keys); err != nil {
+		t.Fatal(err)
+	}
+	if _, wrapped := keys["styleSlotDetailResponse"]; !wrapped || len(keys) != 1 {
+		t.Fatalf("detail result keys = %v, want only styleSlotDetailResponse: %s", keys, rec.Body.String())
 	}
 	if rec := stylingCall(t, http.MethodGet, "/v4/style/slot/detail/99", ""); rec.Code != http.StatusBadRequest {
 		t.Fatalf("detail of no slot = %d %s", rec.Code, rec.Body.String())
@@ -175,10 +195,10 @@ func TestStylingLifecycle(t *testing.T) {
 		if bm.OldSlotID != 1 {
 			t.Fatalf("bookmark reply = %+v", bm)
 		}
-		var got stylingSlot
+		var got stylingDetail
 		stylingResult(t, stylingCall(t, http.MethodGet, "/v4/style/slot/detail/1", ""), &got)
-		if got.BookmarkYn != want {
-			t.Fatalf("bookmarkYn = %v, want %v", got.BookmarkYn, want)
+		if got.Detail.BookmarkYn != want {
+			t.Fatalf("bookmarkYn = %v, want %v", got.Detail.BookmarkYn, want)
 		}
 	}
 
@@ -344,10 +364,10 @@ func TestStylingDyeFollowsTheGarment(t *testing.T) {
 	store.AccountsMu.Lock()
 	delete(acc.DyeColors, "CUPA0001A")
 	store.AccountsMu.Unlock()
-	var got stylingSlot
+	var got stylingDetail
 	stylingResult(t, stylingCall(t, http.MethodGet, "/v4/style/slot/detail/1", ""), &got)
-	if got.StyleSlotItems[0].DyeType != 0 || len(got.StyleSlotItems[0].ColorAndTransparencies) != 0 {
-		t.Fatalf("bleached item = %+v", got.StyleSlotItems[0])
+	if got.Detail.StyleSlotItems[0].DyeType != 0 || len(got.Detail.StyleSlotItems[0].ColorAndTransparencies) != 0 {
+		t.Fatalf("bleached item = %+v", got.Detail.StyleSlotItems[0])
 	}
 }
 

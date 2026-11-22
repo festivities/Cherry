@@ -165,6 +165,12 @@ type styleModifyReply struct {
 	Detail    styleSlotOut `json:"styleSlotDetailResponse"`
 }
 
+// styleDetailReply is the detail reply: the slot under styleSlotDetailResponse, the key the client reads first (NaClosetLayer
+// MsgProc case 11080, IDA). It carries no base keys.
+type styleDetailReply struct {
+	Detail styleSlotOut `json:"styleSlotDetailResponse"`
+}
+
 type styleOldReply struct { // delete and bookmark
 	styleBase
 	OldSlotID int64 `json:"oldSlotId"`
@@ -338,7 +344,7 @@ func styleDetail(w http.ResponseWriter, r *http.Request, id int64) {
 		stylingError(w, r, errUnknown, "no such slot")
 		return
 	}
-	writeStyleResult(w, newStyleView(acc).slot(s))
+	writeStyleResult(w, styleDetailReply{Detail: newStyleView(acc).slot(s)})
 }
 
 func styleSave(w http.ResponseWriter, r *http.Request) {
