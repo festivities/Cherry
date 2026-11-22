@@ -69,7 +69,6 @@ type stats struct {
 	PicturesCap    string    `json:"pictures_cap"`
 	PicturesPct    string    `json:"pictures_percent"`
 	PerPlayerSize  string    `json:"per_player_size"`
-	PerPlayerFiles int64     `json:"per_player_files"`
 	Goroutines     int       `json:"goroutines"`
 	HeapBytes      uint64    `json:"heap_inuse_bytes"`
 	HeapInUse      string    `json:"heap_inuse"`
@@ -194,9 +193,8 @@ func (s *Server) statsAt(now time.Time) (stats, error) {
 		ProfileFiles: profile.Files, ProfileSize: humanBytes(profile.Bytes),
 		PicturesFiles: pictureFiles, PicturesSize: humanBytes(pictureBytes),
 		PicturesCap: humanBytes(capBytes), PicturesPct: fmt.Sprintf("%.1f %%", float64(pictureBytes)*100/float64(capBytes)),
-		PerPlayerSize:  humanBytes(store.UploadQuotaBytes(s.cfg.EffectiveUploadQuotaBytes())),
-		PerPlayerFiles: int64(store.UploadQuotaFiles(s.cfg.EffectiveUploadQuotaFiles())),
-		Goroutines:     runtime.NumGoroutine(), HeapBytes: mem.HeapInuse, HeapInUse: humanBytes(int64(mem.HeapInuse)),
+		PerPlayerSize: humanBytes(store.UploadQuotaBytes(s.cfg.EffectiveUploadQuotaBytes())),
+		Goroutines:    runtime.NumGoroutine(), HeapBytes: mem.HeapInuse, HeapInUse: humanBytes(int64(mem.HeapInuse)),
 		GCCount: mem.NumGC, GOMAXPROCS: runtime.GOMAXPROCS(0), MemoryLimit: memoryLimit(),
 	}
 	if saves > 0 {

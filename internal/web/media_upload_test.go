@@ -32,13 +32,19 @@ func uploadConfig(t *testing.T, c config.Config) {
 // uploadAs is one diary upload of data under the key tuple (userID, ctime), with token as the AV_AUTH cookie (empty: none).
 func uploadAs(t *testing.T, dir, token, userID, ctime string, data []byte) *httptest.ResponseRecorder {
 	t.Helper()
+	return uploadKindAs(t, dir, mediaDiary, token, userID, ctime, data)
+}
+
+// uploadKindAs is uploadAs for any picture kind (diary, room or profile) stored in dir.
+func uploadKindAs(t *testing.T, dir string, kind mediaKind, token, userID, ctime string, data []byte) *httptest.ResponseRecorder {
+	t.Helper()
 	oid := userID + "_" + ctime
 	req := diaryUploadRequest(t, diaryParamsJSON(t, userID, ctime, oid), data, "image/png")
 	if token != "" {
 		req.Header.Set("Cookie", `AV_AUTH="`+token+`"`)
 	}
 	rec := httptest.NewRecorder()
-	handleDiaryImageUploadAt(rec, req, dir)
+	handleMediaUploadIn(rec, req, dir, store.UploadMaxTotalBytes(config.UploadMaxTotalBytes()), kind)
 	return rec
 }
 
@@ -99,30 +105,57 @@ func TestUploadCredentialRules(t *testing.T) {
 	}
 }
 
-// TestUploadQuotaPerAccount: an account holds at most its file quota of a kind; the next upload of that account is 507 with the
-// quota text, and another account's uploads are not affected.
-func TestUploadQuotaPerAccount(t *testing.T) {
+// TestUploadQuotaHasNoCountLimit: the quota is bytes only, so an account may keep many small pictures while they stay under it;
+// another account's uploads are not affected by them.
+func TestUploadQuotaHasNoCountLimit(t *testing.T) {
 	twoAccounts(t)
-	uploadConfig(t, config.Config{AuthMode: config.AuthDevFake, UploadQuotaFiles: 2})
+	uploadConfig(t, config.Config{AuthMode: config.AuthDevFake, UploadQuotaBytes: 1 << 20})
 	dir := filepath.Join(t.TempDir(), "diary-media")
 	data := diaryTestImage(t, "png", 3, 2, 12)
-	for _, ctime := range []string{"1760000300", "1760000301"} {
-		if rec := uploadAs(t, dir, "tok1", "1001", ctime, data); rec.Code != http.StatusOK {
-			t.Fatalf("upload %s within the quota = %d", ctime, rec.Code)
+	for i := range 60 {
+		if rec := uploadAs(t, dir, "tok1", "1001", fmt.Sprint(1760000300+i), data); rec.Code != http.StatusOK {
+			t.Fatalf("upload %d under the byte quota = %d %s", i, rec.Code, rec.Body.String())
 		}
 	}
-	if rec := uploadAs(t, dir, "tok1", "1001", "1760000302", data); rec.Code != http.StatusInsufficientStorage || rec.Body.String() != diaryMediaQuotaBody {
-		t.Fatalf("third upload = %d %s, want the account quota", rec.Code, rec.Body.String())
-	}
-	if rec := uploadAs(t, dir, "tok2", "1002", "1760000303", data); rec.Code != http.StatusOK {
+	if rec := uploadAs(t, dir, "tok2", "1002", "1760000400", data); rec.Code != http.StatusOK {
 		t.Fatalf("another account's upload = %d, want 200", rec.Code)
 	}
-	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 3 {
-		t.Fatalf("stored files = %d (err %v), want 3", len(entries), err)
+	if entries, err := os.ReadDir(dir); err != nil || len(entries) != 61 {
+		t.Fatalf("stored files = %d (err %v), want 61", len(entries), err)
 	}
 }
 
-// TestUploadQuotaBytes: an account's bytes of a kind are capped as well; a picture that would pass the cap is refused whole.
+// TestUploadQuotaCombinesKinds: one byte total covers diary, room and profile pictures. With a quota of 2.5 pictures, an account
+// holding a diary and a profile picture is refused a room picture (the sum would pass the quota) while another account's room
+// picture is accepted, and the refused upload leaves nothing.
+func TestUploadQuotaCombinesKinds(t *testing.T) {
+	twoAccounts(t)
+	uploadConfig(t, config.Config{AuthMode: config.AuthDevFake})
+	base := t.TempDir()
+	data := diaryTestImage(t, "png", 3, 2, 16)
+	if rec := uploadKindAs(t, filepath.Join(base, "diary"), mediaDiary, "tok1", "1001", "1760000600", data); rec.Code != http.StatusOK {
+		t.Fatalf("diary upload = %d", rec.Code)
+	}
+	one, err := store.MediaUsage("1001")
+	if err != nil || one <= 0 {
+		t.Fatalf("one picture holds %d bytes (err %v)", one, err)
+	}
+	config.Activate(config.Config{AuthMode: config.AuthDevFake, UploadQuotaBytes: one * 5 / 2})
+	if rec := uploadKindAs(t, filepath.Join(base, "profile"), mediaProfile, "tok1", "1001", "1760000601", data); rec.Code != http.StatusOK {
+		t.Fatalf("profile upload within the quota = %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := uploadKindAs(t, filepath.Join(base, "room"), mediaRoom, "tok1", "1001", "1760000602", data); rec.Code != http.StatusInsufficientStorage || rec.Body.String() != diaryMediaQuotaBody {
+		t.Fatalf("room upload past the combined quota = %d %s, want the quota text", rec.Code, rec.Body.String())
+	}
+	if rec := uploadKindAs(t, filepath.Join(base, "room"), mediaRoom, "tok2", "1002", "1760000603", data); rec.Code != http.StatusOK {
+		t.Fatalf("another account's room upload = %d, want 200", rec.Code)
+	}
+	if got, _ := store.MediaUsage("1001"); got != 2*one {
+		t.Fatalf("account 1001 holds %d bytes after a refused upload, want %d", got, 2*one)
+	}
+}
+
+// TestUploadQuotaBytes: an account's bytes are capped as well; a picture that would pass the cap is refused whole.
 func TestUploadQuotaBytes(t *testing.T) {
 	twoAccounts(t)
 	uploadConfig(t, config.Config{AuthMode: config.AuthDevFake, UploadQuotaBytes: 1})
@@ -130,34 +163,20 @@ func TestUploadQuotaBytes(t *testing.T) {
 	if rec := uploadAs(t, dir, "tok1", "1001", "1760000310", diaryTestImage(t, "png", 3, 2, 13)); rec.Code != http.StatusInsufficientStorage || rec.Body.String() != diaryMediaQuotaBody {
 		t.Fatalf("upload over the byte quota = %d %s", rec.Code, rec.Body.String())
 	}
-	if files, _, _ := store.MediaUsage(store.MediaDiary, "1001"); files != 0 {
-		t.Fatalf("a refused upload left %d rows", files)
+	if got, _ := store.MediaUsage("1001"); got != 0 {
+		t.Fatalf("a refused upload left %d bytes", got)
 	}
 }
 
-// TestUploadPlayerLimitFromPanel: the Owner Settings values of one player's quota (pictures and bytes per kind) replace the
-// configured ones at once; an upload past the panel's count or byte total is 507 with the quota text, and a reset restores the
-// configured values.
+// TestUploadPlayerLimitFromPanel: the Owner Settings byte quota of one player replaces the configured one at once; an upload past
+// the panel's total is 507 with the quota text, and a reset restores the configured value.
 func TestUploadPlayerLimitFromPanel(t *testing.T) {
 	twoAccounts(t)
 	uploadConfig(t, config.Config{AuthMode: config.AuthDevFake})
 	dir := filepath.Join(t.TempDir(), "diary-media")
 	data := diaryTestImage(t, "png", 3, 2, 15)
 
-	if err := store.SetUploadQuotaFiles(1, "dev-owner"); err != nil {
-		t.Fatal(err)
-	}
-	if rec := uploadAs(t, dir, "tok1", "1001", "1760000500", data); rec.Code != http.StatusOK {
-		t.Fatalf("first upload within the panel's count = %d", rec.Code)
-	}
-	if rec := uploadAs(t, dir, "tok1", "1001", "1760000501", data); rec.Code != http.StatusInsufficientStorage || rec.Body.String() != diaryMediaQuotaBody {
-		t.Fatalf("second upload past the panel's count = %d %s, want the quota text", rec.Code, rec.Body.String())
-	}
-	if err := store.ClearUploadQuotaFiles("dev-owner"); err != nil {
-		t.Fatal(err)
-	}
-
-	// 1002 holds 1 MiB minus one byte of diary pictures: the small picture passes the count but not the panel's 1 MiB quota.
+	// 1002 holds 1 MiB minus one byte of diary pictures: the small picture fits the configured 50 MiB but not the panel's 1 MiB.
 	if err := store.AddMediaFile(store.MediaFile{Kind: store.MediaDiary, Owner: "1002", File: "seed-1002.img", Size: 1<<20 - 1}); err != nil {
 		t.Fatal(err)
 	}
@@ -185,12 +204,13 @@ func TestUploadsSwitchOff(t *testing.T) {
 	if rec := uploadAs(t, dir, "tok1", "1001", "1760000400", data); rec.Code != http.StatusOK {
 		t.Fatalf("upload with the switch on = %d", rec.Code)
 	}
+	stored, _ := store.MediaUsage("1001")
 	config.Activate(config.Config{AuthMode: config.AuthDevFake, UploadsOff: true})
 	if rec := uploadAs(t, dir, "tok1", "1001", "1760000401", data); rec.Code != http.StatusServiceUnavailable || rec.Body.String() != diaryMediaOffBody {
 		t.Fatalf("upload with the switch off = %d %s", rec.Code, rec.Body.String())
 	}
-	if files, _, _ := store.MediaUsage(store.MediaDiary, "1001"); files != 1 {
-		t.Fatalf("switched-off upload changed the rows: %d files, want 1", files)
+	if got, _ := store.MediaUsage("1001"); got != stored {
+		t.Fatalf("switched-off upload changed the rows: %d bytes, want %d", got, stored)
 	}
 	get := httptest.NewRequest(http.MethodGet, diaryDownloadTarget(store.DiaryDownloadPath, "1001", "1760000400", "1001_1760000400", ""), nil)
 	got := httptest.NewRecorder()

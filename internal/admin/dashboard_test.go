@@ -159,14 +159,14 @@ func TestStorageCardCountsPictureRows(t *testing.T) {
 		"profile_files": float64(1), "profile_size": "2.0 KiB",
 		"pictures_files": float64(3), "pictures_size": "1.5 MiB",
 		"pictures_cap": "100.0 MiB", "pictures_percent": "1.5 %",
-		"per_player_size": "25.0 MiB", "per_player_files": float64(500),
+		"per_player_size": "50.0 MiB",
 	} {
 		if js[k] != want {
 			t.Errorf("/stats.json %s = %v, want %v", k, js[k], want)
 		}
 	}
 	page := c.get("/").body
-	for _, want := range []string{"<h2>Storage</h2>", "of the server cap", "pictures per kind.", "write-ahead log"} {
+	for _, want := range []string{"<h2>Storage</h2>", "of the server cap", "Per player: ", "50.0 MiB</span> of pictures in all.", "write-ahead log"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the Storage card lacks %q", want)
 		}

@@ -577,8 +577,8 @@ var diaryMediaDiskFull = errors.New("media storage full")
 
 // storeDiaryMedia moves the uploaded file to path and records it under its owner. Writes are serialised. A same-content repeat
 // of a stored key is acknowledged (a file with no row is adopted by this owner); different content is a conflict, and so is a
-// key stored under another owner. A new file must fit the owner's quota (files and bytes of its kind: the panel's value when
-// set, else the configuration) and the server-wide cap, which counts the bytes of every stored row.
+// key stored under another owner. A new file must fit the owner's quota (the bytes of all its pictures together: the panel's
+// value when set, else the configuration) and the server-wide cap, which counts the bytes of every stored row.
 func storeDiaryMedia(path, tmpPath string, row store.MediaFile, contentHash [sha256.Size]byte, storageLimit int64) error {
 	diaryMediaSaveMu.Lock()
 	defer diaryMediaSaveMu.Unlock()
@@ -608,13 +608,11 @@ func storeDiaryMedia(path, tmpPath string, row store.MediaFile, contentHash [sha
 	if !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	files, bytes, err := store.MediaUsage(row.Kind, row.Owner)
+	owned, err := store.MediaUsage(row.Owner)
 	if err != nil {
 		return err
 	}
-	maxBytes, maxFiles := config.UploadLimits()
-	maxBytes, maxFiles = store.UploadQuotaBytes(maxBytes), store.UploadQuotaFiles(maxFiles)
-	if files+1 > maxFiles || bytes+row.Size > maxBytes {
+	if owned+row.Size > store.UploadQuotaBytes(config.UploadQuotaBytes()) {
 		return diaryMediaQuotaError{}
 	}
 	totals, err := store.MediaTotals()
@@ -644,7 +642,7 @@ func (diaryMediaConflictError) Error() string {
 	return "diary media already exists with different content"
 }
 
-// diaryMediaQuotaError is an owner's quota: its files or its bytes of the kind; diaryMediaFullBody is the folder's disk cap.
+// diaryMediaQuotaError is an owner's quota: the bytes of all its pictures together; diaryMediaDiskFull is the server's cap.
 type diaryMediaQuotaError struct{}
 
 func (diaryMediaQuotaError) Error() string { return "picture upload quota reached" }

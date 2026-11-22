@@ -260,8 +260,6 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /settings/upload-total-cap/reset", s.action(true, maxBodySmall, s.handleUploadTotalCapReset))
 	mux.HandleFunc("POST /settings/upload-quota-bytes", s.action(true, maxBodySmall, s.handleUploadQuotaBytes))
 	mux.HandleFunc("POST /settings/upload-quota-bytes/reset", s.action(true, maxBodySmall, s.handleUploadQuotaBytesReset))
-	mux.HandleFunc("POST /settings/upload-quota-files", s.action(true, maxBodySmall, s.handleUploadQuotaFiles))
-	mux.HandleFunc("POST /settings/upload-quota-files/reset", s.action(true, maxBodySmall, s.handleUploadQuotaFilesReset))
 	mux.HandleFunc("POST /settings/upload-receive-cap", s.action(true, maxBodySmall, s.handleUploadReceiveCap))
 	mux.HandleFunc("POST /settings/upload-receive-cap/reset", s.action(true, maxBodySmall, s.handleUploadReceiveCapReset))
 	mux.HandleFunc("POST /settings/upload-jpeg-cap", s.action(true, maxBodySmall, s.handleUploadJPEGCap))

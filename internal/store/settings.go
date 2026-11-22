@@ -23,7 +23,6 @@ const (
 	squareRoomCapKey         = "square.room-cap"
 	uploadMaxTotalBytesKey   = "uploads.max-total-bytes"
 	uploadQuotaBytesKey      = "uploads.quota-bytes"
-	uploadQuotaFilesKey      = "uploads.quota-files"
 	uploadMaxReceiveBytesKey = "uploads.max-receive-bytes"
 	uploadMaxJPEGBytesKey    = "uploads.max-jpeg-bytes"
 	uploadMaxPNGBytesKey     = "uploads.max-png-bytes"
@@ -41,12 +40,9 @@ const (
 	// UploadMaxTotalBytesMin and UploadMaxTotalBytesMax bound the global photo storage cap (1 MiB to 100 GiB).
 	UploadMaxTotalBytesMin int64 = 1 << 20
 	UploadMaxTotalBytesMax int64 = 100 << 30
-	// UploadQuotaBytesMin and UploadQuotaBytesMax bound the bytes of one player's pictures of a kind (1 MiB to 1 GiB);
-	// UploadQuotaFilesMin and UploadQuotaFilesMax bound the pictures of one kind (1 to 100000).
+	// UploadQuotaBytesMin and UploadQuotaBytesMax bound the bytes of one player's pictures, all kinds together (1 MiB to 10 GiB).
 	UploadQuotaBytesMin int64 = 1 << 20
-	UploadQuotaBytesMax int64 = 1 << 30
-	UploadQuotaFilesMin       = 1
-	UploadQuotaFilesMax       = 100000
+	UploadQuotaBytesMax int64 = 10 << 30
 	// UploadMaxReceiveBytesMin and UploadMaxReceiveBytesMax bound the hard max receive size per upload (1 MiB to 100 MiB).
 	UploadMaxReceiveBytesMin int64 = 1 << 20
 	UploadMaxReceiveBytesMax int64 = 100 << 20
@@ -518,7 +514,7 @@ func ClearUploadMaxTotalBytes(actor string) error {
 	return clearMetaSetting(uploadMaxTotalBytesKey, actor)
 }
 
-// UploadQuotaBytes returns one player's byte quota per picture kind: the panel's value when stored, else fallback.
+// UploadQuotaBytes returns one player's byte quota (all picture kinds together): the panel's value when stored, else fallback.
 func UploadQuotaBytes(fallback int64) int64 {
 	return int64MetaEffective(uploadQuotaBytesKey, UploadQuotaBytesMin, UploadQuotaBytesMax, fallback)
 }
@@ -528,37 +524,15 @@ func UploadQuotaBytesSetting() (int64, bool, error) {
 	return int64MetaSetting(uploadQuotaBytesKey, UploadQuotaBytesMin, UploadQuotaBytesMax)
 }
 
-// SetUploadQuotaBytes stores the per-player byte quota per picture kind and writes an audit row in one transaction.
+// SetUploadQuotaBytes stores the per-player byte quota and writes an audit row in one transaction.
 func SetUploadQuotaBytes(n int64, actor string) error {
 	return setInt64Meta(uploadQuotaBytesKey, n, UploadQuotaBytesMin, UploadQuotaBytesMax,
-		"the per-player picture quota must be 1 MiB to 1 GiB", actor)
+		"the per-player picture quota must be 1 MiB to 10 GiB", actor)
 }
 
 // ClearUploadQuotaBytes clears the panel override for the per-player byte quota and writes an audit row.
 func ClearUploadQuotaBytes(actor string) error {
 	return clearMetaSetting(uploadQuotaBytesKey, actor)
-}
-
-// UploadQuotaFiles returns one player's file quota per picture kind: the panel's value when stored, else fallback.
-func UploadQuotaFiles(fallback int) int {
-	return int(int64MetaEffective(uploadQuotaFilesKey, UploadQuotaFilesMin, UploadQuotaFilesMax, int64(fallback)))
-}
-
-// UploadQuotaFilesSetting returns the panel's stored per-player file quota and whether one is stored.
-func UploadQuotaFilesSetting() (int, bool, error) {
-	n, set, err := int64MetaSetting(uploadQuotaFilesKey, UploadQuotaFilesMin, UploadQuotaFilesMax)
-	return int(n), set, err
-}
-
-// SetUploadQuotaFiles stores the per-player file quota per picture kind and writes an audit row in one transaction.
-func SetUploadQuotaFiles(n int, actor string) error {
-	return setInt64Meta(uploadQuotaFilesKey, int64(n), UploadQuotaFilesMin, UploadQuotaFilesMax,
-		"the pictures per player must be 1 to 100000", actor)
-}
-
-// ClearUploadQuotaFiles clears the panel override for the per-player file quota and writes an audit row.
-func ClearUploadQuotaFiles(actor string) error {
-	return clearMetaSetting(uploadQuotaFilesKey, actor)
 }
 
 // UploadMaxReceiveBytes returns the hard max receive size per individual upload: the panel's value when stored, else fallback.

@@ -51,30 +51,17 @@
 <button type="submit" class="ghost">Use the server's configured value ({{.Settings.UploadTotalCapConfigMiB}} MiB)</button>
 </form>{{end}}
 
-<p>{{if .Settings.UploadQuotaFromPanel}}Set in this panel{{else}}From the server's configuration{{end}}: each player may keep up to {{.Settings.UploadQuotaMiB}} MiB of pictures per kind (diary, room and profile).</p>
-<form method="post" action="/settings/upload-quota-bytes" data-confirm="Save this picture quota per player? New uploads check it from now on; existing pictures are kept.">
+<p>{{if .Settings.UploadQuotaFromPanel}}Set in this panel{{else}}From the server's configuration{{end}}: each player may keep up to {{.Settings.UploadQuotaMiB}} MiB of pictures in all (diary, room and profile together).</p>
+<form method="post" action="/settings/upload-quota-bytes" data-confirm="Save this picture storage per player? New uploads check it from now on; existing pictures are kept.">
 <input type="hidden" name="csrf" value="{{$.CSRF}}">
-<label><span class="label">Picture quota per player and kind (MiB)</span>
+<label><span class="label">Picture storage per player (MiB)</span>
 <input type="text" name="mib" value="{{.Settings.UploadQuotaMiB}}" inputmode="decimal" required>
-<small class="help">Decimal MiB from 1 to 1024 (1 GiB), e.g. 25. Counted separately for diary, room and profile pictures.</small></label>
-<div class="actions"><button type="submit">Save player quota</button></div>
+<small class="help">Decimal MiB from 1 to 10240 (10 GiB), e.g. 50. One total for all of a player's pictures; no limit on their number.</small></label>
+<div class="actions"><button type="submit">Save player storage</button></div>
 </form>
-{{if .Settings.UploadQuotaFromPanel}}<form method="post" action="/settings/upload-quota-bytes/reset" data-confirm="Use the server's configured picture quota per player again?">
+{{if .Settings.UploadQuotaFromPanel}}<form method="post" action="/settings/upload-quota-bytes/reset" data-confirm="Use the server's configured picture storage per player again?">
 <input type="hidden" name="csrf" value="{{$.CSRF}}">
 <button type="submit" class="ghost">Use the server's configured value ({{.Settings.UploadQuotaConfigMiB}} MiB)</button>
-</form>{{end}}
-
-<p>{{if .Settings.UploadQuotaFilesFromPanel}}Set in this panel{{else}}From the server's configuration{{end}}: each player may keep up to {{.Settings.UploadQuotaFiles}} pictures per kind.</p>
-<form method="post" action="/settings/upload-quota-files" data-confirm="Save this pictures-per-player limit? New uploads check it from now on; existing pictures are kept.">
-<input type="hidden" name="csrf" value="{{$.CSRF}}">
-<label><span class="label">Pictures per player and kind</span>
-<input type="number" name="files" value="{{.Settings.UploadQuotaFiles}}" min="1" max="100000" step="1" required>
-<small class="help">From 1 to 100000.</small></label>
-<div class="actions"><button type="submit">Save pictures-per-player limit</button></div>
-</form>
-{{if .Settings.UploadQuotaFilesFromPanel}}<form method="post" action="/settings/upload-quota-files/reset" data-confirm="Use the server's configured pictures-per-player limit again?">
-<input type="hidden" name="csrf" value="{{$.CSRF}}">
-<button type="submit" class="ghost">Use the server's configured value ({{.Settings.UploadQuotaFilesConfig}} pictures)</button>
 </form>{{end}}
 
 <p>{{if .Settings.UploadReceiveCapFromPanel}}Set in this panel{{else}}From the server's configuration{{end}}: up to {{.Settings.UploadReceiveCapMiB}} MiB accepted per upload before compression.</p>

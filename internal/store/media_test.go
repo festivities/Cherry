@@ -87,22 +87,22 @@ func TestMediaRefFileForms(t *testing.T) {
 	}
 }
 
-// TestMediaUsageCountsPerOwnerAndKind: a quota counts one owner's pictures of one kind; another owner's or another kind's do not count.
-func TestMediaUsageCountsPerOwnerAndKind(t *testing.T) {
+// TestMediaUsageSumsOwnerAllKinds: a quota counts the bytes of one owner's pictures of every kind together; another owner's do not count.
+func TestMediaUsageSumsOwnerAllKinds(t *testing.T) {
 	attachTestDB(t)
 	mediaDataDir(t)
-	storeMediaFile(t, MediaDiary, "1001", "1001", "1", "1001_1")
-	storeMediaFile(t, MediaDiary, "1001", "1001", "2", "1001_2")
-	storeMediaFile(t, MediaDiary, "1002", "1002", "1", "1002_1")
-	storeMediaFile(t, MediaRoom, "1001", "1001", "3", "o3")
-	if files, bytes, err := MediaUsage(MediaDiary, "1001"); err != nil || files != 2 || bytes <= 0 {
-		t.Fatalf("diary usage of 1001 = %d files, %d bytes, err %v; want 2 files", files, bytes, err)
+	diary1 := storeMediaFile(t, MediaDiary, "1001", "1001", "1", "1001_1")
+	diary2 := storeMediaFile(t, MediaDiary, "1001", "1001", "2", "1001_2")
+	room := storeMediaFile(t, MediaRoom, "1001", "1001", "3", "o3")
+	other := storeMediaFile(t, MediaDiary, "1002", "1002", "1", "1002_1")
+	if got, err := MediaUsage("1001"); err != nil || got != diary1.Size+diary2.Size+room.Size {
+		t.Fatalf("usage of 1001 = %d bytes, err %v; want %d (every kind)", got, err, diary1.Size+diary2.Size+room.Size)
 	}
-	if files, _, _ := MediaUsage(MediaDiary, "1002"); files != 1 {
-		t.Fatalf("diary usage of 1002 = %d files, want 1", files)
+	if got, _ := MediaUsage("1002"); got != other.Size {
+		t.Fatalf("usage of 1002 = %d bytes, want %d", got, other.Size)
 	}
-	if files, _, _ := MediaUsage(MediaRoom, "1002"); files != 0 {
-		t.Fatalf("room usage of 1002 = %d files, want 0", files)
+	if got, _ := MediaUsage("1003"); got != 0 {
+		t.Fatalf("usage of an account with no pictures = %d bytes, want 0", got)
 	}
 }
 

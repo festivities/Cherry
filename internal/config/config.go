@@ -53,8 +53,7 @@ type Config struct {
 	SessionSecretFile                         string // auth.session-secret-file: derives the session keys (store.LoadSessionSecret)
 	ServerName                                string
 	UploadsOff                                bool   // uploads.enabled = false; the zero value is on (tests, an unactivated config)
-	UploadQuotaBytes                          int64  // uploads.quota-bytes: per account and picture kind; 0 takes the default
-	UploadQuotaFiles                          int    // uploads.quota-files: per account and picture kind; 0 takes the default
+	UploadQuotaBytes                          int64  // uploads.quota-bytes: per account, all picture kinds together; 0 takes the default
 	UploadMaxTotalBytes                       int64  // uploads.max-total-bytes: total stored bytes across all photo kinds; 0 takes the default
 	UploadMaxReceiveBytes                     int64  // uploads.max-receive-bytes: hard max bytes accepted for one upload before compression; 0 takes the default
 	UploadMaxJPEGBytes                        int64  // uploads.max-jpeg-bytes: target max bytes of a stored JPEG picture; 0 takes the default
@@ -108,8 +107,7 @@ var settings = []setting{
 	{"staff.allowlist-file", "", "text file of other staff: Discord ids, one per line, same format as auth.allowlist-file (dev-<name> in dev-fake); re-read on change, fail closed"},
 	{"staff.discord.redirect", "", "the exact staff OAuth callback registered with Discord: https://<staff.hostname>[:port]/auth/callback (the client id and secret are auth.discord.*)"},
 	{"uploads.enabled", "true", "picture uploads (diary photos, My Room thumbnails, profile pictures); false refuses new uploads with 503, reads still serve"},
-	{"uploads.quota-bytes", "26214400", "bytes of pictures each account may hold per kind (default 25 MiB; 1 MiB to 1 GiB)"},
-	{"uploads.quota-files", "500", "pictures each account may hold per kind (default 500; 1 to 100000)"},
+	{"uploads.quota-bytes", "52428800", "bytes of pictures each account may hold, diary, room and profile together (default 50 MiB; 1 MiB to 10 GiB)"},
 	{"uploads.max-total-bytes", "104857600", "bytes of pictures the server keeps across diary, room and profile (default 100 MiB; 1 MiB to 100 GiB)"},
 	{"uploads.max-receive-bytes", "20971520", "max bytes accepted for one picture upload before compression (default 20 MiB; 1 MiB to 100 MiB)"},
 	{"uploads.max-jpeg-bytes", "153600", "target max bytes of a stored JPEG picture after compression (default 150 KiB; 16 KiB to 100 MiB)"},
@@ -214,10 +212,6 @@ func parse(args []string, lookup func(string) (string, bool)) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("config: uploads.quota-bytes: %q is not a whole number", values["uploads.quota-bytes"])
 	}
-	quotaFiles, err := strconv.Atoi(values["uploads.quota-files"])
-	if err != nil {
-		return Config{}, fmt.Errorf("config: uploads.quota-files: %q is not a whole number", values["uploads.quota-files"])
-	}
 	maxTotalBytes, err := strconv.ParseInt(values["uploads.max-total-bytes"], 10, 64)
 	if err != nil {
 		return Config{}, fmt.Errorf("config: uploads.max-total-bytes: %q is not a whole number", values["uploads.max-total-bytes"])
@@ -235,7 +229,7 @@ func parse(args []string, lookup func(string) (string, bool)) (Config, error) {
 		return Config{}, fmt.Errorf("config: uploads.max-png-bytes: %q is not a whole number", values["uploads.max-png-bytes"])
 	}
 	c := Config{
-		UploadsOff: !uploadsOn, UploadQuotaBytes: quotaBytes, UploadQuotaFiles: quotaFiles,
+		UploadsOff: !uploadsOn, UploadQuotaBytes: quotaBytes,
 		UploadMaxTotalBytes: maxTotalBytes, UploadMaxReceiveBytes: maxReceiveBytes,
 		UploadMaxJPEGBytes: maxJPEGBytes, UploadMaxPNGBytes: maxPNGBytes,
 		HTTPS: values["listen.https"], HTTP: values["listen.http"], Session: values["listen.session"],
@@ -367,11 +361,8 @@ func (c Config) check() error {
 	if err := c.checkStaff(); err != nil {
 		return err
 	}
-	if c.UploadQuotaBytes < 1<<20 || c.UploadQuotaBytes > 1<<30 {
-		return errors.New("config: uploads.quota-bytes must be 1 MiB to 1 GiB")
-	}
-	if c.UploadQuotaFiles < 1 || c.UploadQuotaFiles > 100000 {
-		return errors.New("config: uploads.quota-files must be 1 to 100000")
+	if c.UploadQuotaBytes < 1<<20 || c.UploadQuotaBytes > 10<<30 {
+		return errors.New("config: uploads.quota-bytes must be 1 MiB to 10 GiB")
 	}
 	if c.UploadMaxTotalBytes < 1<<20 || c.UploadMaxTotalBytes > 100<<30 {
 		return errors.New("config: uploads.max-total-bytes must be 1 MiB to 100 GiB")
@@ -585,6 +576,9 @@ func readFile(path string) (map[string]string, error) {
 	}
 	out := map[string]string{}
 	for k, v := range doc {
+		if k == "uploads.quota-files" { // retired 2026-11-22 (one combined byte quota): accepted and ignored
+			continue
+		}
 		if !isKnown(k) {
 			return nil, fmt.Errorf("config: %s: unknown key %q", path, k)
 		}
@@ -665,10 +659,9 @@ func IsIdentity(mode string) bool { return mode == AuthDiscord || mode == AuthDe
 // IdentityMode is IsIdentity for the activated configuration; false before Activate (tests run lab-guest).
 func IdentityMode() bool { return IsIdentity(active.cfg.AuthMode) }
 
-// Default per-account picture quotas (uploads.quota-bytes, uploads.quota-files) and server-wide upload/player limits.
+// Default per-account picture quota (uploads.quota-bytes, all kinds together) and server-wide upload/player limits.
 const (
-	DefaultUploadQuotaBytes      int64 = 25 << 20
-	DefaultUploadQuotaFiles            = 500
+	DefaultUploadQuotaBytes      int64 = 50 << 20
 	DefaultUploadMaxTotalBytes   int64 = 100 << 20
 	DefaultUploadMaxReceiveBytes int64 = 20 << 20
 	DefaultUploadMaxJPEGBytes    int64 = 150 << 10
@@ -679,11 +672,9 @@ const (
 // UploadsOn is the uploads.enabled switch: false refuses new picture uploads (reads still serve).
 func UploadsOn() bool { return !active.cfg.UploadsOff }
 
-// UploadLimits are the bytes and the files one account may hold of each picture kind. A zero setting (an unactivated
-// configuration) takes the default.
-func UploadLimits() (int64, int) {
-	return active.cfg.EffectiveUploadQuotaBytes(), active.cfg.EffectiveUploadQuotaFiles()
-}
+// UploadQuotaBytes is the bytes one account may hold of all picture kinds together, before the panel's value (an unactivated
+// configuration takes the default).
+func UploadQuotaBytes() int64 { return active.cfg.EffectiveUploadQuotaBytes() }
 
 // EffectiveUploadQuotaBytes returns c.UploadQuotaBytes, or DefaultUploadQuotaBytes when zero.
 func (c Config) EffectiveUploadQuotaBytes() int64 {
@@ -691,14 +682,6 @@ func (c Config) EffectiveUploadQuotaBytes() int64 {
 		return DefaultUploadQuotaBytes
 	}
 	return c.UploadQuotaBytes
-}
-
-// EffectiveUploadQuotaFiles returns c.UploadQuotaFiles, or DefaultUploadQuotaFiles when zero.
-func (c Config) EffectiveUploadQuotaFiles() int {
-	if c.UploadQuotaFiles == 0 {
-		return DefaultUploadQuotaFiles
-	}
-	return c.UploadQuotaFiles
 }
 
 // EffectiveUploadMaxTotalBytes returns c.UploadMaxTotalBytes, or DefaultUploadMaxTotalBytes when zero.

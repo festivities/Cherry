@@ -97,17 +97,16 @@ func AddMediaFile(f MediaFile) error {
 	})
 }
 
-// MediaUsage is the number of pictures of one kind that owner holds, and their bytes.
-func MediaUsage(kind, owner string) (files int, bytes int64, err error) {
+// MediaUsage is the bytes of every picture (all kinds together) that owner holds: the player's quota counts these.
+func MediaUsage(owner string) (bytes int64, err error) {
 	d := attachedDB()
 	if d == nil {
-		return 0, 0, ErrNoDatabase
+		return 0, ErrNoDatabase
 	}
 	err = d.View(func(q Querier) error {
-		return q.QueryRow(`SELECT COUNT(*), COALESCE(SUM(size), 0) FROM media_files WHERE kind = ? AND owner = ?`,
-			kind, owner).Scan(&files, &bytes)
+		return q.QueryRow(`SELECT COALESCE(SUM(size), 0) FROM media_files WHERE owner = ?`, owner).Scan(&bytes)
 	})
-	return files, bytes, err
+	return bytes, err
 }
 
 // MediaTotals is the pictures the database holds per kind (one query over media_files; a kind with none is absent). The
