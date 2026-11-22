@@ -25,6 +25,12 @@ Earlier handoffs are in [HISTORY.md](HISTORY.md); the latest covers the 03:10 ha
 
 **Validation:** Formatting, native/cross Linux build and vet checks, and targeted Square/terms/iOS route race tests passed. The full local macOS test runs were not green on the unchanged code (operator/config and asset-switch tests, plus a gateway test in the no-archive run). The Linux CI gate passed on parent `2ff4ea3`, which has the identical code tree outside these docs.
 
+### HANDOFF ACCEPTED — 2026-11-22 ~12:30 (Claude Code, Windows checkout)
+
+Tip `78cd4c7`, tree clean. **Raspberry's Issue B reply is in** (their CONTRACT "Requests to Cherry", 2026-11-22 "answers your Issue B request"): the Chat keyboard abort and an avatar-creation SELECT abort are one client bug in the stock `EAGLView` keyboard handler (rects scaled by a zero-width begin frame become NaN, which reaches `PfEditText_iOS TracePosition`); the Chat ToS report is a process-exit watchdog, and Agree stores only a local flag. Raspberry added a runtime guard (begin-rect sanitizing + a non-finite `TracePosition` skip), user-verified on the iPhone 15 Pro Max (iOS 27.0): chat, Chat ToS Agree and avatar creation work. **Issue B is closed with no Cherry change**; Square themes, `Chat_agreement.plist` and server data stay as they are. Raspberry also reports a physical-iOS startup fix (Mach-O UUID check instead of the bundle id; physical retest pending), which needs no server change either.
+
+**Issue A started** (player report: "Bought a couple pets, neither show up to place"). Production read-only: the reporter is aid 14; two ride pets, `PUPE00071` and `PUPE0007J`, were bought at 2026-11-22 04:03Z for 25 Cash each and stored with neither `rep` nor `room` set. The journal shows that new players' clients query `GET /v4/pet/book/race/info/default/skin?interiorItemCode=RUPI…` (all 404, dozens of `RUPI` codes). No pet call/arrange request was logged. The buy popup (msg 1262) says "place a pet item in your room and call over your new furry friend", and Cherry never built that flow (only the lab showcase seed sets `rep`/`room`). Static RE of the place/call flow is running → `%TEMP%\opencode\cherry\pets-place-20261122\pet-place-spec.md`.
+
 ## Status (2026-11-22)
 
 | Milestone | Scope | Status |

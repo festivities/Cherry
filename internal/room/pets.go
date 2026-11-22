@@ -15,9 +15,11 @@ import (
 
 // Minipet display/arrangement subset (libgame.so 10.1.0.0): NaDispatcherPet
 // represent/arrange parsers (ResRepresentPetInfo @0x1b64e78, ResPetArrangeList
-// @0x1bfb678, ResPetRoomList @0x1bfc2c4, ResPetLimitInfo @0x1a7e040). Growth,
-// feeding, calls and shop are not implemented; the Pet Book list is HandlePetBook (pet/book/race/list/*),
-// the Pet Book detail pages (pet/book/race/detail, pet/book/race/info) are not.
+// @0x1bfb678, ResPetRoomList @0x1bfc2c4, ResPetLimitInfo @0x1a7e040). HandlePet also serves the free call
+// (ResPetFreeCall @0x1b63100, room/call), the Pet Book Follow toggle (ResRepresentPetSetting @0x1a83074,
+// inven/status/represent) and an empty DP skin reply (ResAdditionalDPInfo @0x1b5ced8, book/race/info/default/skin).
+// Growth, feeding, paid calls and shop are not implemented; the Pet Book list is HandlePetBook (pet/book/race/list/*),
+// the Pet Book detail pages (pet/book/race/detail) are not.
 
 const PetMaxArrange = 8
 
@@ -61,13 +63,7 @@ func EnsurePetsLocked(acc *store.Account) error {
 		}
 		pets = append(pets, p)
 	}
-	prev := acc.Pets
-	acc.Pets = pets
-	if err := store.SaveLocked(nil, acc); err != nil {
-		acc.Pets = prev
-		return err
-	}
-	return nil
+	return petSaveLocked(acc, pets)
 }
 
 // NewPetLocked builds a pet of item code cd for acc (not appended): the id is the
@@ -154,12 +150,24 @@ func arrangedRows(aid string, pets []store.PetItem, level string) []map[string]a
 }
 
 // HandlePet serves /v4/pet/...: inven/represent, inven/{change,remove}/represent,
-// room/arrange/{maxcount,list/<aid>/LEVEL_n,represent/list/<aid>/LEVEL_n}.
+// room/arrange/{maxcount,list/<aid>/LEVEL_n,represent/list/<aid>/LEVEL_n}, room/call/<petId> (free call),
+// inven/status/represent/<petId> (Follow) and book/race/info/default/skin (empty reply).
 func HandlePet(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/v4/pet/")
 	parts := strings.Split(path, "/")
 	get := r.Method == http.MethodGet
 	switch {
+	case get && len(parts) == 3 && parts[0] == "room" && parts[1] == "call":
+		petCall(w, r, parts[2])
+	case get && len(parts) == 4 && parts[0] == "inven" && parts[1] == "status" && parts[2] == "represent":
+		petFollow(w, r, parts[3])
+	case get && path == "book/race/info/default/skin":
+		// ponytail: empty object is ResAdditionalDPInfo's silent no-op; no RUPI pet sprite is placed yet.
+		if petAccount(w, r) == nil {
+			return
+		}
+		store.AccountsMu.Unlock()
+		petJSON(w, map[string]any{})
 	case get && path == "inven/represent":
 		if petAccount(w, r) == nil {
 			return
@@ -227,10 +235,82 @@ func petSetRepresent(w http.ResponseWriter, r *http.Request, change bool) {
 		httpx.WriteJSON(w, http.StatusBadRequest, `{"errorCode":"400"}`)
 		return
 	}
+	if err := petSaveLocked(acc, pets); err != nil {
+		httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
+		return
+	}
+	petJSON(w, map[string]any{})
+}
+
+// petSaveLocked stores pets as the account's list and restores the old one if the save fails. Caller holds accountsMu.
+func petSaveLocked(acc *store.Account, pets []store.PetItem) error {
 	prev := acc.Pets
 	acc.Pets = pets
 	if err := store.SaveLocked(nil, acc); err != nil {
 		acc.Pets = prev
+		return err
+	}
+	return nil
+}
+
+// petIndex is the position of the account's pet with that petId, or -1. Caller holds accountsMu.
+func petIndex(acc *store.Account, id string) int {
+	return slices.IndexFunc(acc.Pets, func(p store.PetItem) bool {
+		return strconv.FormatInt(p.ID, 10) == id
+	})
+}
+
+// petCall: GET room/call/<petId> (ResPetFreeCall @0x1b63100). A pet with no level is arranged on DefaultLevel,
+// which holds at most PetMaxArrange pets; an arranged pet keeps its level.
+func petCall(w http.ResponseWriter, r *http.Request, id string) {
+	acc := petAccount(w, r)
+	if acc == nil {
+		return
+	}
+	defer store.AccountsMu.Unlock()
+	i := petIndex(acc, id)
+	if i < 0 {
+		httpx.WriteJSON(w, http.StatusBadRequest, `{"errorCode":"400"}`)
+		return
+	}
+	pets := slices.Clone(acc.Pets)
+	if pets[i].Room == "" {
+		if len(arrangedRows(acc.Aid, pets, DefaultLevel)) >= PetMaxArrange {
+			httpx.WriteJSON(w, http.StatusBadRequest, `{"errorCode":"400"}`)
+			return
+		}
+		pets[i].Room = DefaultLevel
+		if err := petSaveLocked(acc, pets); err != nil {
+			httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
+			return
+		}
+	}
+	petJSON(w, map[string]any{
+		"resultCode": 0, "balance": acc.Gems, "balanceUnit": "GEM", "purchasedCallFlag": false,
+		"defaultCallRemainTimestamp": "0", "exposureYn": true, "firstVisitYn": false,
+		"callPayCode": "", "callPrice": 0, "groundLevel": pets[i].Room,
+	})
+}
+
+// petFollow: GET inven/status/represent/<petId> (Pet Book Follow; ResRepresentPetSetting @0x1a83074 ignores the
+// body). Toggle, our reading: a Rep pet is cleared, any other owned pet becomes the single Rep.
+func petFollow(w http.ResponseWriter, r *http.Request, id string) {
+	acc := petAccount(w, r)
+	if acc == nil {
+		return
+	}
+	defer store.AccountsMu.Unlock()
+	i := petIndex(acc, id)
+	if i < 0 {
+		httpx.WriteJSON(w, http.StatusBadRequest, `{"errorCode":"400"}`)
+		return
+	}
+	pets := slices.Clone(acc.Pets)
+	on := !pets[i].Rep
+	for j := range pets {
+		pets[j].Rep = on && j == i
+	}
+	if err := petSaveLocked(acc, pets); err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
 		return
 	}
@@ -302,7 +382,7 @@ type petBookRow struct {
 }
 
 // petBookOwned is an account's own pet (the MYPET tab): the same level and experience Cherry already serves
-// on the represent and arrange lists.
+// on the represent and arrange lists. DefaultCallYn marks the free call as available (spec 4c, Open Q3).
 func petBookOwned(aid string, p store.PetItem, catg, raceNm string) petBookRow {
 	if raceNm == "" {
 		raceNm = "Minipet"
@@ -310,7 +390,7 @@ func petBookOwned(aid string, p store.PetItem, catg, raceNm string) petBookRow {
 	return petBookRow{
 		RaceID: PetSkinID(p.Cd), CatgCd: catg, ItemCode: p.Cd, LocaleCd: "en", RaceNm: raceNm,
 		PetID: strconv.FormatInt(p.ID, 10), AvatarID: aid, PetName: p.Name,
-		ExposureYn: true, ArrangedYn: p.Room != "", RepresentYn: p.Rep, DefaultCallRemainTimestamp: "0",
+		ExposureYn: true, ArrangedYn: p.Room != "", RepresentYn: p.Rep, DefaultCallYn: true, DefaultCallRemainTimestamp: "0",
 		Exp: 0, MaxExp: 100, Level: 1, SkinSerial: strconv.FormatInt(p.ID, 10),
 		SkinID: PetSkinID(p.Cd), SkinCode: p.Cd, LinkScale: 100,
 	}
