@@ -29,6 +29,13 @@ Earlier handoffs are in [HISTORY.md](HISTORY.md); the latest covers the 2026-11-
 2. **Issue A step 2 (pets in My Room, deferred until the user asks):** Pet Book Follow works (`1fc1a1d`, verified on AVD Raspberry), but the Pet Book card's paw-medal icon sends no request; calling a pet into My Room needs the original flow (buy → `RUPI` pet item placed in My Room → `default/skin` → in-room call button; spec `%TEMP%\opencode\cherry\pets-place-20261122\pet-place-spec.md`, open questions 2–4).
 3. **Repo-root `cherry.exe`:** deleted by a worker in the previous session (idle Windows lab build); rebuild with `go build -o cherry.exe ./cmd/cherry` only if the Windows lab is used again. Known CI flake: `TestPartyStatusRefresh` (`internal/lpn`, 20 ms ticker race) — rerun if hit.
 
+### HANDOFF ACCEPTED — 2026-11-22 ~17:06 host time (Claude Code, Windows)
+
+Context loaded (AGENTS in full, this block, Status, CONTRACT §10 here and Raspberry's §4). No state corrections. Read-only checks:
+- **Production:** `cherry.commit` = `281c686`, `cherry` + `litestream` active, `NRestarts=0` since 16:47:48, `healthz ok`, 1,566 open FDs (past the old 1,024 cap). Journal 16:47:48 → 17:05 (~505k lines, 18 min): `connection cap` 0, `too many connections` 0, `status=429` 0, `status=5xx` 0, `frame limit` 0, panic 0; `refused` 2, both Treasure World `msgid=26 secret enable refused` (a game rule, not a limit). Against the pre-deploy ~26.7k + 2.8k cap refusals in ~56 min, Open item 1 looks resolved; a one-hour re-read is still due. Host notes' last line is the 16:47 deploy; nothing changed, so no line added.
+- **Issue B (iOS keyboard abort / Chat ToS Agree):** Raspberry answered on 2026-11-22 (their CONTRACT §4, `7b40f02`, `0b790bb`): a stock `EAGLView` keyboard handler scales by the begin-frame width, a zero width makes NaN frames that reach `PfEditText_iOS TracePosition`; the Agree report is an exit watchdog and Agree sends no HTTP. Fixed in the Raspberry runtime and user-verified on the iPhone 15 Pro Max (chat, Agree, avatar creation). **Closed; no Cherry change.**
+- No new Raspberry request to Cherry beyond those answered.
+
 ## Status (2026-11-22)
 
 | Milestone | Scope | Status |

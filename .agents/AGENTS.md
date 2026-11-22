@@ -274,7 +274,7 @@ Dependency order (no cycles; `go list` 2026-11-12): leaves `config`, `metrics`, 
 
 Moved to [REFERENCE.md](REFERENCE.md) "Known client-inherent limits (do not re-investigate without new evidence)" on 2026-11-10. The rule stays: before calling a client behavior a Cherry bug, or re-investigating one, read that section (one entry per feature, with the evidence path).
 
-- **Issue B (2026-11-22):** the physical iOS Square keyboard abort is in the stock `PfEditText_iOS` frame conversion. The production journal confirms normal LINE Café entry and relay start, then disconnect at the abort with no chat send or server refusal. The chat Agree report is a separate exit watchdog in stock thread-pool teardown and does not explain the tap. See [CONTRACT.md §10](CONTRACT.md#10-requests-to-raspberry-append-only-newest-last); no Cherry reply or asset change is justified yet. The user expects Raspberry's answer ready at the next session's start; read it first (PLAN).
+- **Issue B (2026-11-22):** the physical iOS Square keyboard abort is in the stock `PfEditText_iOS` frame conversion. The production journal confirms normal LINE Café entry and relay start, then disconnect at the abort with no chat send or server refusal. The chat Agree report is a separate exit watchdog in stock thread-pool teardown and does not explain the tap. See [CONTRACT.md §10](CONTRACT.md#10-requests-to-raspberry-append-only-newest-last); no Cherry reply or asset change is justified. **Closed 2026-11-22 by Raspberry** (their CONTRACT §4, `7b40f02`): the stock `EAGLView` keyboard handler divides by a zero begin-frame width (NaN editor frames); the runtime now sanitises it, user-verified on the iPhone 15 Pro Max. The Agree report is an exit watchdog; Agree sends no HTTP.
 
 ## Evidence levels
 
