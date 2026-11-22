@@ -32,6 +32,10 @@ Earlier handoffs are in [HISTORY.md](HISTORY.md); the latest covers 2026-11-22 ~
 4. **Loose ends:** staff warning popup `popup/warn` (client has one; not built; `moderation-20261121\moderation-spec.md`); duplicate-login popup 10066 never seen on a device; fishing retry price popup not device-checked; Litestream-free picture backup (deferred, above).
 5. Known CI flake `TestPartyStatusRefresh` (`internal/lpn`): rerun if hit. Repo-root `cherry.exe` absent (only for the idle Windows lab).
 
+### HANDOFF ACCEPTED — 2026-11-22 ~21:20 host time (Claude Code, Windows)
+
+Context loaded (AGENTS, this block and Status, Raspberry's CONTRACT §4: no new request to Cherry). **State corrections:** the user deleted `/var/lib/cherry/backup-pre-0644e5f-20261122/` (host listing confirms; only `backup-pre-mascot-20261121.db` remains) — the "Backup to keep" bullet above is void. **AVD Raspberry (`emulator-5559`) is available again for this session** (user, ~21:15); the "do not touch" bullet above is void. Production checked read-only at 21:17: `0644e5f`, `healthz ok`, `cherry` + `litestream` active, `NRestarts=0`, 767 accounts, 207 session / 235 gateway connections, `/debug/vars` `conn_refused`/`rate_limited`/`frames_dropped`/`frame_floods` all 0, no journald suppression in the last hour. **New finding: the server is full.** Since 20:04 the journal shows `SESSION refused … reason=max-players` (1,399 lines, 189 distinct aids in the 30 min to 21:17) and `checkSession refused … server full` (138): `limits.max-players` (default 200) is turning players away. Cherry at ~420 MB RSS and ~60 % of its one core; host load ~1.5. Raising it is the owner's call (Owner Settings → Server limits, live, no restart).
+
 ## Status (2026-11-22)
 
 | Milestone | Scope | Status |
