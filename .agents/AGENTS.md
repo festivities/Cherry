@@ -105,7 +105,7 @@ Not Cherry-made (do not block): tutorial clone avatar ids (the client requests t
 - **Client crash triage:** `adb -s <dev> logcat -d -b crash` gives the native crash line; on the translated-ARM64 emulator it usually has only the signal and fault address (e.g. `SIGSEGV … fault addr 0x8 … GLThread`), no backtrace (the emulator's `/data/tombstones` may hold only older crashes). A backtrace names the parser, not the route: correlate the crash time with the last requests in the Cherry log (`summarize-log.py`) before changing a reply — the gacha crash named `ResGachaCategroy` but the trigger was `home/sublist/gacha`, not `catg/all/0`.
 - Raw HTTP/session/protobuf/pcap data is credential-bearing; keep it in `%TEMP%`. `httpx.FormatHeaders` redacts Cookie/Auth/token values in Cherry's log.
 
-## Production (the user's Oracle host) — last documented deploy (2026-11-22 16:47 +08:00, **PUBLIC SIGN-UPS OPEN**, `281c686`)
+## Production (the user's Oracle host) — last documented deploy (2026-11-22 18:51 +08:00, **PUBLIC SIGN-UPS OPEN**, `ec9f9dc`; PLAN handoff block)
 
 Slice 8.8a put Cherry on the user's Oracle Cloud instance on 2026-11-15. **This repo is public: the domain, ports, address and every secret stay out of it.** They are in `/home/cherry/AGENTS.md` on the host (the host's own notes: rules, names and ports, what is installed, the deploy log) and in the private `%LOCALAPPDATA%\Cherry\deploy\oci.md` (memory `oci-deployment`).
 

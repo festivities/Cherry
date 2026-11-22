@@ -40,6 +40,16 @@ Context loaded (AGENTS in full, this block, Status, CONTRACT §10 here and Raspb
 
 **Found: journald drops most of Cherry's log.** `systemd-journald` "Suppressed N messages from cherry.service" every 30 s since at least the deploy (default 10,000 lines/30 s; Cherry writes ~20–40k; 104 events in 50 min). The Follow ON request is missing from the journal although the DB toggle proves it arrived. **Every journal count (refusals, 429, caps) is a lower bound**; the pre-deploy 26.7k cap figure was too. `/debug/vars` has no refusal counters. Sample 17:38:00–30: `url="/v4/items` 2,820 of ~3,100 logged request lines (`items/*/some`, client-inherent volume). Journal 4 GB, disk 39 %. Proposed fix (not started; needs the user's go and a deploy): stop logging 2xx `items/*/some` lines (keep failures), and optionally expvar counters for conn-cap / 429 / frame-limit refusals.
 
+**Deployed later the same evening (user's go each time):**
+- **`fb4e200` at 18:17** (with `5d5eaf0`): 2xx item-name lookups not logged; counters `cherry.conn_refused`, `rate_limited`, `frames_dropped`, `frame_floods`, `item_lookups` on `/debug/vars`. Per-player picture limits live on Owner Settings (defaults 25 MiB / 500 per kind); server-wide cap and quota from `media_files` rows; dashboard Storage card. journald still suppressed ~16–18k/30 s (the item lookups were ~28 % of requests, not 90 %: the journal sample was biased).
+- **`ec9f9dc` at 18:51** (with `e31db58`): 2xx static GETs counted (`cherry.static_reads`) and not logged, ping lines dropped → ~2.8k lines/30 s, no suppression. MENU Profile cell picture (`profile` + `bg` in the own profile reply, fallback `profilebg/12.jpg`); the `1b7c547` picture on the Profile Edit row reverted at the user's word.
+
+**Open after these deploys:**
+1. **Device check of the Profile cell** (MENU → Profile cell shows the picture; Profile Edit shows its icon; log: `GET /v4/profile/10` then the `lineplay/pr/<oid>` download). **The user said on 2026-11-22 ~18:55: do not touch AVD Raspberry until they say so.**
+2. **Server-wide upload cap:** the Owner Settings value is 50 MiB (24.4 MiB used at ~17:50); the user is to set 20 GiB on the panel (agents cannot sign in).
+3. **Production ports in Git history:** `a30daef` (pushed 2026-11-22) wrote the two game ports into REFERENCE.md; removed from the tree in `fb4e200`, still in history. User to choose: leave, rewrite history, or move ports.
+4. Issue A step 2 (pets in My Room) unchanged: Room Deco has the pet tab, no RUPI item is granted.
+
 ## Status (2026-11-22)
 
 | Milestone | Scope | Status |
