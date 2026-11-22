@@ -25,7 +25,10 @@ import (
 //
 // The iOS 10.1.0 client's static base is http://play-static.line-scdn.net/img/read/ (Raspberry CONTRACT §4, 2026-11-20,
 // static: InitFunc_634), so it asks for its manifest, update lists, category files, chat icons, diary skin, map packs and
-// craft art on the plain port under /img/read/: the /arts_ routes, the map pack folders and the craft folders.
+// craft art on the plain port under /img/read/: the /arts_ routes, the map pack folders and the craft folders. The
+// profile pictures (lineplay/pr/<oid>, the home menu's and the Lounge Chat rows' relative paths) are downloads too; the
+// upload (lineplay/pr/upload.nhn, the owner's POST) is not allowed here, and any other method on a picture path reaches
+// the download handler, which answers 404.
 func plainPathAllowed(path string) bool {
 	if path == "/v1/lineplay/android" || path == "/v1/lineplay/ios" {
 		return true
@@ -35,6 +38,9 @@ func plainPathAllowed(path string) bool {
 		return false
 	}
 	if strings.HasPrefix(rest, "arts_") || strings.HasPrefix(rest, "notice/") {
+		return true
+	}
+	if pic, ok := strings.CutPrefix(rest, "lineplay/pr/"); ok && pic != "upload.nhn" {
 		return true
 	}
 	for _, dir := range slices.Concat(assets.PackDirs, assets.CraftDirs) {

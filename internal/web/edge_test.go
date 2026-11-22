@@ -45,6 +45,11 @@ func TestPlainListenerAnswersOnlyTheClientPaths(t *testing.T) {
 		"/img/read/gardenx/a.mworldpack":                                    false,
 		"/lineplay/d/upload.nhn":                                            false,
 		"/cherry/fish/4901.png":                                             false,
+
+		// The profile pictures of the home menu and Lounge Chat rows (relative lineplay/pr/<oid>); the upload is not.
+		"/img/read/lineplay/pr/18_1795286862": true,
+		"/img/read/lineplay/pr/upload.nhn":    false,
+		"/lineplay/pr/18_1795286862":          false,
 	} {
 		if got := plainPathAllowed(path); got != want {
 			t.Errorf("plainPathAllowed(%q) = %v, want %v", path, got, want)
@@ -90,6 +95,48 @@ func TestPlainListenerServesTheIOSStaticBase(t *testing.T) {
 	plain.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/img/read/notice/notice.json2", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("notice.json2 = %d, want 404", rec.Code)
+	}
+}
+
+// The plain listener downloads a profile picture at its iOS path (/img/read/lineplay/pr/<oid>, the relative path the home
+// menu and Lounge Chat rows carry) and refuses the upload there: the owner's POST to upload.nhn stores nothing.
+func TestPlainListenerServesProfilePictures(t *testing.T) {
+	testutil.UseDatabase(t)
+	t.Setenv("LocalAppData", t.TempDir()) // UserCacheDir on Windows
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	installSocialTestAccounts(t, map[string]*store.Account{"ptok": {Aid: "9603", Name: "Plain"}})
+	const user = "9603"
+	upload := func(ctime string, target string) (*httptest.ResponseRecorder, []byte) {
+		oid := user + "_" + ctime
+		params, _ := json.Marshal(diaryImageUploadParams{Version: "1.0", Type: "image", Name: oid, UserID: user, OID: oid, CTime: ctime})
+		data := diaryTestImage(t, "png", 4, 3, 6)
+		req := diaryUploadRequest(t, params, data, "image/png")
+		req.URL.Path = target
+		req.Header.Set("Cookie", `AV_AUTH="ptok"`)
+		rec := httptest.NewRecorder()
+		if target == "/img/read/lineplay/pr/upload.nhn" {
+			NewPlainMux().ServeHTTP(rec, req)
+		} else {
+			NewMux().ServeHTTP(rec, req)
+		}
+		return rec, data
+	}
+	rec, data := upload("1760000000", "/lineplay/pr/upload.nhn")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("owner upload on the game port = %d %s", rec.Code, rec.Body.String())
+	}
+	oid := user + "_1760000000"
+	got := httptest.NewRecorder()
+	NewPlainMux().ServeHTTP(got, httptest.NewRequest(http.MethodGet, "/img/read/lineplay/pr/"+oid, nil))
+	if got.Code != http.StatusOK || got.Body.String() != string(data) || got.Header().Get("Content-Type") != "image/png" {
+		t.Fatalf("plain GET of the picture = %d ct=%s, want the stored image", got.Code, got.Header().Get("Content-Type"))
+	}
+	// The upload path is refused on the plain port (the picture is not stored either).
+	if rec, _ := upload("1760000001", "/img/read/lineplay/pr/upload.nhn"); rec.Code != http.StatusNotFound {
+		t.Fatalf("plain POST upload.nhn = %d, want 404", rec.Code)
+	}
+	if g := decorReq(t, "", http.MethodGet, "/lineplay/pr/"+user+"_1760000001", ""); g.Code != http.StatusNotFound {
+		t.Fatalf("a picture uploaded through the plain port exists: %d", g.Code)
 	}
 }
 

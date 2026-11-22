@@ -273,11 +273,19 @@ func gachaHomeLink(linkType string) string {
 	return ""
 }
 
-func buildHomeListExtBody() string {
+// homeProfileEditLink is the link type of the row that shows the requester's own picture.
+const homeProfileEditLink = "goSomewhere(profileedit)"
+
+// buildHomeListExtBody is the home menu body. profilePicture is the requester's picture path (homeProfilePicture); ""
+// keeps the Profile Edit row's icon. Nothing is cached, so the one row is patched per request.
+func buildHomeListExtBody(profilePicture string) string {
 	rows := homeIconRows()
 	icons := make([]homeIconEntry, len(rows))
 	for i, row := range rows {
 		icons[i] = homeIconEntry{ID: i + 1, Name: row.Name, Image: row.Image, LinkType: row.LinkType, Link: gachaHomeLink(row.LinkType)}
+		if row.LinkType == homeProfileEditLink && profilePicture != "" {
+			icons[i].Image = profilePicture
+		}
 	}
 	payload, _ := json.Marshal(struct {
 		Result homeListExtResult `json:"result"`
@@ -585,12 +593,25 @@ func handleMenuIcon(w http.ResponseWriter, r *http.Request) {
 	w.Write(b)
 }
 
+// homeProfilePicture is the picture path of the requester's Profile Edit row: the saved picture of the AV_AUTH account
+// with the leading slash trimmed, as loungeProfileURL does (relative on purpose, see homeMenuIconPrefix). "" when there is
+// no session or no picture, so the row keeps its icon.
+func homeProfilePicture(r *http.Request) string {
+	store.AccountsMu.Lock()
+	image := ""
+	if acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH")); acc != nil {
+		image = acc.ProfileImage.Image
+	}
+	store.AccountsMu.Unlock()
+	return strings.TrimPrefix(image, "/")
+}
+
 func handleHomeListExt(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		httpx.ServeNotFound(w)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, buildHomeListExtBody())
+	httpx.WriteJSON(w, http.StatusOK, buildHomeListExtBody(homeProfilePicture(r)))
 }
 
 type closetInventoryItem struct {

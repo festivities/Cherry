@@ -20,7 +20,7 @@ func TestGachaHomeRowLinks(t *testing.T) {
 			} `json:"homeIconList"`
 		} `json:"result"`
 	}
-	if err := json.Unmarshal([]byte(buildHomeListExtBody()), &body); err != nil {
+	if err := json.Unmarshal([]byte(buildHomeListExtBody("")), &body); err != nil {
 		t.Fatal(err)
 	}
 	want := map[string]string{
