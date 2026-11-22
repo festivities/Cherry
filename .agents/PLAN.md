@@ -35,6 +35,10 @@ Earlier handoffs are in [HISTORY.md](HISTORY.md); the latest covers the OpenCode
 - **Incident:** the limits worker ran `go build ./cmd/cherry` without `-o`, which overwrote and then deleted the repo-root `cherry.exe` (the idle Windows lab build). Rebuild with `go build -o cherry.exe ./cmd/cherry` when the lab is used again; workers should build to a scratch path.
 - **Next session's first investigation (user, 2026-11-22): RE why the client keeps re-asking `items/dress/some` for the same names** (one 15-byte code per request, 10+/s per client; Cherry answers every valid code with `names{en,ja}` + `isRare`; parser `ResItemInfoWithType` @0x1b7e48c). Find the caller, its cache and what makes it retry (missing language key? `isRare`? an error path?).
 
+### HANDOFF ACCEPTED — 2026-11-22 ~16:08 host time (Antigravity, Windows)
+
+Context loaded (`AGENTS.md`, `PLAN.md`, `CONTRACT.md`, `TESTING.md`, Raspberry `CONTRACT.md`). Live production verified read-only: `/home/cherry/bin/cherry.commit` = `9fb12fa` (code `aaba67f`), `cherry` + `litestream` active, `127.0.0.1:8099/healthz` = `ok`. Local `main` is clean and up to date with `origin/main` at `3ea0f44` (`a30daef` live server limits ready, not deployed; awaiting user approval to deploy and raise `limits.conns-total` / `limits.conns-per-address`). Proceeding with the user's first investigation: RE why the client keeps re-asking `POST /v4/items/dress/some` for the same item codes.
+
 ## Status (2026-11-22)
 
 | Milestone | Scope | Status |

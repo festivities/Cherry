@@ -26,7 +26,7 @@ func TestLimitDefaultsByMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	if idc.APIRate != 30 || idc.APIBurst != 400 || idc.AccountRate != 10 || idc.AccountBurst != 200 ||
-		idc.GuestPerMinute != 20 || idc.ConnsPerAddress != 64 || idc.ConnsTotal != 1024 ||
+		idc.GuestPerMinute != 20 || idc.ConnsPerAddress != 256 || idc.ConnsTotal != 4096 ||
 		idc.StaticRate != 200 || idc.StaticBurst != 5000 || idc.FrameRate != 100 || idc.FrameBurst != 400 {
 		t.Fatalf("identity limits = %+v, want the identityDefaults", idc)
 	}

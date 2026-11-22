@@ -115,8 +115,8 @@ var settings = []setting{
 	{"uploads.max-jpeg-bytes", "153600", "target max bytes of a stored JPEG picture after compression (default 150 KiB; 16 KiB to 100 MiB)"},
 	{"uploads.max-png-bytes", "153600", "target max bytes of a stored transparent PNG picture after compression (default 150 KiB; 16 KiB to 100 MiB)"},
 	{"limits.max-players", "200", "concurrent logged-in players (default 200; 0 to 10000; 0 = unlimited)"},
-	{"limits.conns-per-address", "1024", "open connections from one address across the game listeners (identity modes: 64)"},
-	{"limits.conns-total", "4096", "open connections in all across the game listeners (identity modes: 1024)"},
+	{"limits.conns-per-address", "1024", "open connections from one address across the game listeners (identity modes: 256)"},
+	{"limits.conns-total", "4096", "open connections in all across the game listeners (identity modes: 4096)"},
 	{"limits.api-rate", "0", "game requests a second an address earns, token bucket; static asset GETs are exempt (identity modes: 30; 0 = off)"},
 	{"limits.api-burst", "0", "game requests an address may send at once (identity modes: 400)"},
 	{"limits.account-rate", "0", "game requests a second an account earns, token bucket per AV_AUTH account (identity modes: 10; 0 = off)"},
@@ -134,7 +134,7 @@ var settings = []setting{
 // identityDefaults are the limit settings' defaults in identity modes (discord, dev-fake); lab-guest keeps the table's
 // values, which are off. A value the operator sets is kept in every mode.
 var identityDefaults = map[string]string{
-	"limits.conns-per-address": "64", "limits.conns-total": "1024",
+	"limits.conns-per-address": "256", "limits.conns-total": "4096",
 	"limits.api-rate": "30", "limits.api-burst": "400",
 	"limits.account-rate": "10", "limits.account-burst": "200",
 	"limits.guest-per-minute": "20",
