@@ -19,6 +19,13 @@
 <p class="muted small"><span data-k="requests_per_min">{{printf "%.1f" .Stats.RequestsPerMin}}</span> per minute over the last minute.</p>
 </div>
 <div class="card">
+<h2>Limits &amp; traffic</h2>
+<p class="big" data-k="refusals_total">{{.Stats.RefusalsTotal}}</p>
+<p class="muted small">Refusals since restart (<span data-k="refusals_hour">{{.Stats.RefusalsHour}}</span> in the last hour).</p>
+<p class="muted small">Connections <span class="strong" data-k="conn_refused">{{.Stats.ConnRefused}}</span> (<span data-k="conn_refused_hour">{{.Stats.ConnRefusedHour}}</span> 1h), rate limits <span class="strong" data-k="rate_limited">{{.Stats.RateLimited}}</span> (<span data-k="rate_limited_hour">{{.Stats.RateLimitedHour}}</span> 1h), frames dropped <span class="strong" data-k="frames_dropped">{{.Stats.FramesDropped}}</span> (<span data-k="frames_dropped_hour">{{.Stats.FramesDroppedHour}}</span> 1h), frame floods <span class="strong" data-k="frame_floods">{{.Stats.FrameFloods}}</span> (<span data-k="frame_floods_hour">{{.Stats.FrameFloodsHour}}</span> 1h).</p>
+<p class="muted small">Static redirects <span class="strong" data-k="static_redirects">{{.Stats.StaticRedirects}}</span> of <span class="strong" data-k="static_reads">{{.Stats.StaticReads}}</span> static reads, bytes served directly <span class="strong" data-k="static_served_size">{{.Stats.StaticServedSize}}</span>, item lookups <span class="strong" data-k="item_lookups">{{.Stats.ItemLookups}}</span>.</p>
+</div>
+<div class="card">
 <h2>Uptime</h2>
 <p class="big" data-k="uptime">{{.Stats.Uptime}}</p>
 <p class="muted small">Started <span data-k="started">{{.Stats.Started}}</span></p>

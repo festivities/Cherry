@@ -27,7 +27,7 @@ func TestDashboardRendersStats(t *testing.T) {
 	r := c.get("/")
 	expect(t, r, http.StatusOK)
 	for _, want := range []string{
-		"Players online now", "Uptime", "Started", "Saves", "Database", "Build", "Go runtime", "Save time",
+		"Players online now", "Limits &amp; traffic", "Uptime", "Started", "Saves", "Database", "Build", "Go runtime", "Save time",
 		"Newest audit rows", "Newest sign-ups", `data-stats`, `href="/players/` + strconv.FormatInt(id, 10) + `"`,
 		"Newcomer", `data-k="build">dev<`, "Dashboard", `aria-current="page"`,
 	} {
@@ -236,5 +236,142 @@ func TestBuildInfoIsNeverEmpty(t *testing.T) {
 	rev, _ := buildInfo()
 	if rev == "" {
 		t.Fatal("empty build revision")
+	}
+}
+
+// TestRefusalAndStaticCountersOnDashboard: the Limits & traffic card and /stats.json report refusal totals since restart,
+// last-hour deltas (aging older refusals out past 1 hour), static redirects, static reads, bytes served directly, and
+// item lookups; the hour ring stays bounded at hourSlots.
+func TestRefusalAndStaticCountersOnDashboard(t *testing.T) {
+	fx := newFixture(t, devConfig())
+	c := fx.client()
+	c.signInDev("owner")
+
+	baseConn := metrics.ConnRefused.Load()
+	baseRate := metrics.RateLimited.Load()
+	baseDrop := metrics.FramesDropped.Load()
+	baseFlood := metrics.FrameFloods.Load()
+	baseTotal := baseConn + baseRate + baseDrop + baseFlood
+	baseReads := metrics.StaticReads.Load()
+	baseRedirects, baseBytes := metrics.StaticTotals()
+	baseLookups := metrics.ItemLookups.Load()
+
+	// Baseline sample at t0.
+	fx.s.sample()
+
+	// Add refusals and static traffic at t0 + 5m.
+	fx.clk.advance(5 * time.Minute)
+	metrics.ConnRefused.Add(3)
+	metrics.RateLimited.Add(2)
+	metrics.FramesDropped.Add(5)
+	metrics.FrameFloods.Add(1)
+	fx.s.sample()
+
+	metrics.StaticReads.Add(12)
+	metrics.CountStaticRedirect(metrics.StaticItem)
+	metrics.CountStaticRedirect(metrics.StaticItem)
+	metrics.CountStaticRedirect(metrics.StaticPack)
+	metrics.CountStaticRedirect(metrics.StaticBulk)
+	metrics.CountStaticBytes(metrics.StaticItem, 1024)
+	metrics.CountStaticBytes(metrics.StaticBulk, 512)
+	metrics.ItemLookups.Add(9)
+
+	readStats := func() map[string]any {
+		t.Helper()
+		r := c.get("/stats.json")
+		expect(t, r, http.StatusOK)
+		var js map[string]any
+		if err := json.Unmarshal([]byte(r.body), &js); err != nil {
+			t.Fatal(err)
+		}
+		return js
+	}
+	checkNum := func(js map[string]any, key string, want int64) {
+		t.Helper()
+		if got, ok := js[key].(float64); !ok || int64(got) != want {
+			t.Errorf("/stats.json %s = %v, want %d", key, js[key], want)
+		}
+	}
+
+	js := readStats()
+	checkNum(js, "conn_refused", baseConn+3)
+	checkNum(js, "conn_refused_hour", 3)
+	checkNum(js, "rate_limited", baseRate+2)
+	checkNum(js, "rate_limited_hour", 2)
+	checkNum(js, "frames_dropped", baseDrop+5)
+	checkNum(js, "frames_dropped_hour", 5)
+	checkNum(js, "frame_floods", baseFlood+1)
+	checkNum(js, "frame_floods_hour", 1)
+	checkNum(js, "refusals_total", baseTotal+11)
+	checkNum(js, "refusals_hour", 11)
+	checkNum(js, "static_reads", baseReads+12)
+	checkNum(js, "static_redirects", baseRedirects+4)
+	checkNum(js, "item_lookups", baseLookups+9)
+	if wantSize := humanBytes(baseBytes + 1536); js["static_served_size"] != wantSize {
+		t.Errorf("/stats.json static_served_size = %v, want %q", js["static_served_size"], wantSize)
+	}
+
+	page := c.get("/")
+	expect(t, page, http.StatusOK)
+	for _, want := range []string{
+		"<h2>Limits &amp; traffic</h2>",
+		`data-k="refusals_total">` + strconv.FormatInt(baseTotal+11, 10) + `<`,
+		`data-k="refusals_hour">11<`,
+		`data-k="static_redirects">` + strconv.FormatInt(baseRedirects+4, 10) + `<`,
+		`data-k="static_served_size">` + humanBytes(baseBytes+1536) + `<`,
+	} {
+		if !strings.Contains(page.body, want) {
+			t.Errorf("dashboard lacks %q", want)
+		}
+	}
+
+	// Sample at t0 + 30m (keeping the session active) before adding a second wave at t0 + 31m.
+	fx.clk.advance(25 * time.Minute)
+	expect(t, c.get("/"), http.StatusOK)
+	fx.s.sample()
+	fx.clk.advance(time.Minute)
+	metrics.ConnRefused.Add(4)
+	metrics.RateLimited.Add(1)
+	fx.s.sample()
+
+	js = readStats()
+	checkNum(js, "conn_refused_hour", 7)
+	checkNum(js, "rate_limited_hour", 3)
+	checkNum(js, "frames_dropped_hour", 5)
+	checkNum(js, "frame_floods_hour", 1)
+	checkNum(js, "refusals_hour", 16)
+
+	// Advance to t0 + 66m (with a page touch at t0 + 55m so the session stays valid); t0 and t0 + 5m age past 1 hour,
+	// leaving t0 + 30m as the oldest in-window sample.
+	fx.clk.advance(24 * time.Minute)
+	expect(t, c.get("/"), http.StatusOK)
+	fx.clk.advance(11 * time.Minute)
+	metrics.FrameFloods.Add(2)
+
+	js = readStats()
+	checkNum(js, "conn_refused", baseConn+7)
+	checkNum(js, "conn_refused_hour", 4)
+	checkNum(js, "rate_limited", baseRate+3)
+	checkNum(js, "rate_limited_hour", 1)
+	checkNum(js, "frames_dropped", baseDrop+5)
+	checkNum(js, "frames_dropped_hour", 0)
+	checkNum(js, "frame_floods", baseFlood+3)
+	checkNum(js, "frame_floods_hour", 2)
+	checkNum(js, "refusals_total", baseTotal+18)
+	checkNum(js, "refusals_hour", 7)
+
+	page = c.get("/")
+	expect(t, page, http.StatusOK)
+	if want := `data-k="refusals_hour">7<`; !strings.Contains(page.body, want) {
+		t.Errorf("dashboard after 1h rollover lacks %q", want)
+	}
+
+	var ring rateRing
+	t0 := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
+	for i := range 1000 {
+		ring.addHour(t0.Add(time.Duration(i)*10*time.Second), refusalCounts{connRefused: int64(i)})
+	}
+	if ring.hourCount != hourSlots {
+		t.Errorf("hourRing holds %d readings, want %d", ring.hourCount, hourSlots)
 	}
 }

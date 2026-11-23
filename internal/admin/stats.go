@@ -22,7 +22,9 @@ const (
 	sampleEvery = 10 * time.Second
 	rateWindow  = time.Minute
 	rateSlots   = 13 // 120 seconds of samples; the rate reads the last minute of them
-	recentRows  = 10 // audit rows and sign-ups on the dashboard
+	hourWindow  = time.Hour
+	hourSlots   = 366 // 61 minutes of 10-second samples; lastHour reads the last hour of them
+	recentRows  = 10  // audit rows and sign-ups on the dashboard
 	timeFormat  = "2006-01-02 15:04:05 UTC"
 )
 
@@ -37,44 +39,58 @@ type histBar struct {
 // stats is what the dashboard and /stats.json show. The JSON keys are the data-k names staff.js updates, so a rename is a
 // change in both places.
 type stats struct {
-	Time           string    `json:"time"`
-	Started        string    `json:"started"`
-	UptimeSeconds  int64     `json:"uptime_seconds"`
-	Uptime         string    `json:"uptime"`
-	Build          string    `json:"build"`
-	BuildTime      string    `json:"build_time"`
-	GoVersion      string    `json:"go_version"`
-	Accounts       int       `json:"accounts"`
-	SessionConns   int64     `json:"session_conns"`
-	GatewayConns   int64     `json:"gateway_conns"`
-	Online         int64     `json:"online"`
-	Requests       int64     `json:"requests"`
-	RequestsPerMin float64   `json:"requests_per_min"`
-	Saves          int64     `json:"saves"`
-	SaveAvg        string    `json:"save_avg"`
-	SaveMax        string    `json:"save_max"`
-	SaveHist       []histBar `json:"save_hist"`
-	DBBytes        int64     `json:"db_bytes"`
-	DBSize         string    `json:"db_size"`
-	WALBytes       int64     `json:"wal_bytes"`
-	WALSize        string    `json:"wal_size"`
-	DiaryFiles     int64     `json:"diary_files"`
-	DiarySize      string    `json:"diary_size"`
-	RoomFiles      int64     `json:"room_files"`
-	RoomSize       string    `json:"room_size"`
-	ProfileFiles   int64     `json:"profile_files"`
-	ProfileSize    string    `json:"profile_size"`
-	PicturesFiles  int64     `json:"pictures_files"`
-	PicturesSize   string    `json:"pictures_size"`
-	PicturesCap    string    `json:"pictures_cap"`
-	PicturesPct    string    `json:"pictures_percent"`
-	PerPlayerSize  string    `json:"per_player_size"`
-	Goroutines     int       `json:"goroutines"`
-	HeapBytes      uint64    `json:"heap_inuse_bytes"`
-	HeapInUse      string    `json:"heap_inuse"`
-	GCCount        uint32    `json:"gc_count"`
-	GOMAXPROCS     int       `json:"gomaxprocs"`
-	MemoryLimit    string    `json:"memory_limit"`
+	Time              string    `json:"time"`
+	Started           string    `json:"started"`
+	UptimeSeconds     int64     `json:"uptime_seconds"`
+	Uptime            string    `json:"uptime"`
+	Build             string    `json:"build"`
+	BuildTime         string    `json:"build_time"`
+	GoVersion         string    `json:"go_version"`
+	Accounts          int       `json:"accounts"`
+	SessionConns      int64     `json:"session_conns"`
+	GatewayConns      int64     `json:"gateway_conns"`
+	Online            int64     `json:"online"`
+	Requests          int64     `json:"requests"`
+	RequestsPerMin    float64   `json:"requests_per_min"`
+	ConnRefused       int64     `json:"conn_refused"`
+	ConnRefusedHour   int64     `json:"conn_refused_hour"`
+	RateLimited       int64     `json:"rate_limited"`
+	RateLimitedHour   int64     `json:"rate_limited_hour"`
+	FramesDropped     int64     `json:"frames_dropped"`
+	FramesDroppedHour int64     `json:"frames_dropped_hour"`
+	FrameFloods       int64     `json:"frame_floods"`
+	FrameFloodsHour   int64     `json:"frame_floods_hour"`
+	RefusalsTotal     int64     `json:"refusals_total"`
+	RefusalsHour      int64     `json:"refusals_hour"`
+	StaticReads       int64     `json:"static_reads"`
+	StaticRedirects   int64     `json:"static_redirects"`
+	StaticServedSize  string    `json:"static_served_size"`
+	ItemLookups       int64     `json:"item_lookups"`
+	Saves             int64     `json:"saves"`
+	SaveAvg           string    `json:"save_avg"`
+	SaveMax           string    `json:"save_max"`
+	SaveHist          []histBar `json:"save_hist"`
+	DBBytes           int64     `json:"db_bytes"`
+	DBSize            string    `json:"db_size"`
+	WALBytes          int64     `json:"wal_bytes"`
+	WALSize           string    `json:"wal_size"`
+	DiaryFiles        int64     `json:"diary_files"`
+	DiarySize         string    `json:"diary_size"`
+	RoomFiles         int64     `json:"room_files"`
+	RoomSize          string    `json:"room_size"`
+	ProfileFiles      int64     `json:"profile_files"`
+	ProfileSize       string    `json:"profile_size"`
+	PicturesFiles     int64     `json:"pictures_files"`
+	PicturesSize      string    `json:"pictures_size"`
+	PicturesCap       string    `json:"pictures_cap"`
+	PicturesPct       string    `json:"pictures_percent"`
+	PerPlayerSize     string    `json:"per_player_size"`
+	Goroutines        int       `json:"goroutines"`
+	HeapBytes         uint64    `json:"heap_inuse_bytes"`
+	HeapInUse         string    `json:"heap_inuse"`
+	GCCount           uint32    `json:"gc_count"`
+	GOMAXPROCS        int       `json:"gomaxprocs"`
+	MemoryLimit       string    `json:"memory_limit"`
 }
 
 // sample is one reading of the request counter.
@@ -83,12 +99,43 @@ type sample struct {
 	total int64
 }
 
-// rateRing keeps the last rateSlots readings of the request counter. A fixed ring: the memory does not grow.
+// refusalCounts holds the four cumulative refusal counters from metrics.
+type refusalCounts struct {
+	connRefused   int64
+	rateLimited   int64
+	framesDropped int64
+	frameFloods   int64
+}
+
+func (c refusalCounts) total() int64 {
+	return c.connRefused + c.rateLimited + c.framesDropped + c.frameFloods
+}
+
+func readRefusals() refusalCounts {
+	return refusalCounts{
+		connRefused:   metrics.ConnRefused.Load(),
+		rateLimited:   metrics.RateLimited.Load(),
+		framesDropped: metrics.FramesDropped.Load(),
+		frameFloods:   metrics.FrameFloods.Load(),
+	}
+}
+
+// hourSample is one reading of the refusal counters.
+type hourSample struct {
+	at     time.Time
+	counts refusalCounts
+}
+
+// rateRing keeps the last rateSlots readings of the request counter and the last hourSlots readings of the refusal
+// counters. Fixed rings: the memory does not grow.
 type rateRing struct {
-	mu    sync.Mutex
-	ring  [rateSlots]sample
-	next  int // the slot the next reading takes
-	count int // readings held, up to rateSlots; slots 0 … count-1 are the ones in use
+	mu        sync.Mutex
+	ring      [rateSlots]sample
+	next      int // the slot the next reading takes
+	count     int // readings held, up to rateSlots; slots 0 … count-1 are the ones in use
+	hourRing  [hourSlots]hourSample
+	hourNext  int
+	hourCount int
 }
 
 func (r *rateRing) add(at time.Time, total int64) {
@@ -97,6 +144,14 @@ func (r *rateRing) add(at time.Time, total int64) {
 	r.ring[r.next] = sample{at, total}
 	r.next = (r.next + 1) % rateSlots
 	r.count = min(r.count+1, rateSlots)
+}
+
+func (r *rateRing) addHour(at time.Time, c refusalCounts) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.hourRing[r.hourNext] = hourSample{at: at, counts: c}
+	r.hourNext = (r.hourNext + 1) % hourSlots
+	r.hourCount = min(r.hourCount+1, hourSlots)
 }
 
 // perMinute is the requests per minute: from the oldest reading in the last minute to total now. Without a reading in that
@@ -116,14 +171,45 @@ func (r *rateRing) perMinute(now time.Time, total int64) float64 {
 	return float64(total-from.total) / now.Sub(from.at).Minutes()
 }
 
-// sampleLoop reads the request counter every sampleEvery until Shutdown.
+// lastHour returns the refusal deltas from the oldest reading within the last hour to cur. Without a reading in that
+// hour it returns zeroes.
+func (r *rateRing) lastHour(now time.Time, cur refusalCounts) refusalCounts {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var from *hourSample
+	for i := range r.hourCount {
+		s := &r.hourRing[i]
+		if d := now.Sub(s.at); d >= 0 && d <= hourWindow && (from == nil || s.at.Before(from.at)) {
+			from = s
+		}
+	}
+	if from == nil {
+		return refusalCounts{}
+	}
+	return refusalCounts{
+		connRefused:   max(0, cur.connRefused-from.counts.connRefused),
+		rateLimited:   max(0, cur.rateLimited-from.counts.rateLimited),
+		framesDropped: max(0, cur.framesDropped-from.counts.framesDropped),
+		frameFloods:   max(0, cur.frameFloods-from.counts.frameFloods),
+	}
+}
+
+// sample records one reading of the request and refusal counters at s.now().
+func (s *Server) sample() {
+	now := s.now()
+	s.rate.add(now, metrics.Requests.Load())
+	s.rate.addHour(now, readRefusals())
+}
+
+// sampleLoop reads the request and refusal counters on startup and every sampleEvery until Shutdown.
 func (s *Server) sampleLoop() {
+	s.sample()
 	t := time.NewTicker(sampleEvery)
 	defer t.Stop()
 	for {
 		select {
 		case <-t.C:
-			s.rate.add(s.now(), metrics.Requests.Load())
+			s.sample()
 		case <-s.stop:
 			return
 		}
@@ -164,6 +250,9 @@ func (s *Server) statsAt(now time.Time) (stats, error) {
 	started := metrics.Started()
 	uptime := time.Since(started).Truncate(time.Second)
 	requests := metrics.Requests.Load()
+	refusals := readRefusals()
+	refusalsHour := s.rate.lastHour(now, refusals)
+	staticRedirects, staticBytes := metrics.StaticTotals()
 	sessions, gateways := metrics.SessionConns.Load(), metrics.GatewayConns.Load()
 	saves, held, longest := metrics.SaveStats()
 	db, wal := store.DBBytes()
@@ -186,6 +275,13 @@ func (s *Server) statsAt(now time.Time) (stats, error) {
 		Build: rev, BuildTime: when, GoVersion: runtime.Version(),
 		Accounts: store.AccountCount(), SessionConns: sessions, GatewayConns: gateways, Online: s.onlinePlayers(),
 		Requests: requests, RequestsPerMin: math.Round(s.rate.perMinute(now, requests)*10) / 10,
+		ConnRefused: refusals.connRefused, ConnRefusedHour: refusalsHour.connRefused,
+		RateLimited: refusals.rateLimited, RateLimitedHour: refusalsHour.rateLimited,
+		FramesDropped: refusals.framesDropped, FramesDroppedHour: refusalsHour.framesDropped,
+		FrameFloods: refusals.frameFloods, FrameFloodsHour: refusalsHour.frameFloods,
+		RefusalsTotal: refusals.total(), RefusalsHour: refusalsHour.total(),
+		StaticReads: metrics.StaticReads.Load(), StaticRedirects: staticRedirects,
+		StaticServedSize: humanBytes(staticBytes), ItemLookups: metrics.ItemLookups.Load(),
 		Saves: saves, SaveAvg: "none yet", SaveMax: "none yet", SaveHist: saveBars(),
 		DBBytes: db, DBSize: humanBytes(db), WALBytes: wal, WALSize: humanBytes(wal),
 		DiaryFiles: diary.Files, DiarySize: humanBytes(diary.Bytes),

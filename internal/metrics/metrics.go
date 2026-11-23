@@ -137,15 +137,23 @@ func CountStaticRedirect(k StaticKind) { staticRedirects[k].Add(1) }
 // CountStaticBytes adds n bytes Cherry wrote for a streamed file of kind k.
 func CountStaticBytes(k StaticKind, n int64) { staticBytes[k].Add(n) }
 
+// StaticTotals returns the total streamed GETs answered with a redirect and total bytes Cherry wrote for streamed files
+// it served itself, across all static kinds.
+func StaticTotals() (redirects, bytesServed int64) {
+	return sumStatic(&staticRedirects), sumStatic(&staticBytes)
+}
+
+func sumStatic(c *[numStaticKinds]atomic.Int64) int64 {
+	var n int64
+	for i := range c {
+		n += c[i].Load()
+	}
+	return n
+}
+
 // publishStatic publishes cherry.<name> (the total over the kinds) and cherry.<name>_<kind> for each kind.
 func publishStatic(name string, c *[numStaticKinds]atomic.Int64) {
-	expvar.Publish("cherry."+name, expvar.Func(func() any {
-		var n int64
-		for i := range c {
-			n += c[i].Load()
-		}
-		return n
-	}))
+	expvar.Publish("cherry."+name, expvar.Func(func() any { return sumStatic(c) }))
 	for k := range numStaticKinds {
 		expvar.Publish("cherry."+name+"_"+staticKindNames[k], expvar.Func(func() any { return c[k].Load() }))
 	}
