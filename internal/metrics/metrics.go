@@ -113,3 +113,45 @@ func SaveHistogram() (labels []string, counts []int64) {
 	}
 	return labels, counts
 }
+
+// StaticKind splits the streamed original files (assets) for the counters: item files (static/item/ and the converted
+// cherry/item/), map packs, and every other bulk file.
+type StaticKind int
+
+const (
+	StaticItem StaticKind = iota
+	StaticPack
+	StaticBulk
+	numStaticKinds
+)
+
+var staticKindNames = [numStaticKinds]string{"item", "pack", "bulk"}
+
+// staticRedirects counts the streamed GETs answered with a redirect to the public copy (assets/egress.go); staticBytes
+// the bytes Cherry wrote for the streamed files it served itself.
+var staticRedirects, staticBytes [numStaticKinds]atomic.Int64
+
+// CountStaticRedirect counts one streamed GET answered with a redirect.
+func CountStaticRedirect(k StaticKind) { staticRedirects[k].Add(1) }
+
+// CountStaticBytes adds n bytes Cherry wrote for a streamed file of kind k.
+func CountStaticBytes(k StaticKind, n int64) { staticBytes[k].Add(n) }
+
+// publishStatic publishes cherry.<name> (the total over the kinds) and cherry.<name>_<kind> for each kind.
+func publishStatic(name string, c *[numStaticKinds]atomic.Int64) {
+	expvar.Publish("cherry."+name, expvar.Func(func() any {
+		var n int64
+		for i := range c {
+			n += c[i].Load()
+		}
+		return n
+	}))
+	for k := range numStaticKinds {
+		expvar.Publish("cherry."+name+"_"+staticKindNames[k], expvar.Func(func() any { return c[k].Load() }))
+	}
+}
+
+func init() {
+	publishStatic("static_redirects", &staticRedirects)
+	publishStatic("static_bytes_served", &staticBytes)
+}

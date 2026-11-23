@@ -22,6 +22,7 @@ import (
 
 	"cherry/data"
 	"cherry/internal/config"
+	"cherry/internal/metrics"
 	"cherry/internal/opdata"
 )
 
@@ -73,8 +74,9 @@ type Store struct {
 	missing      map[string]time.Time // R2 key -> until which the key counts as absent (missTTL; at most maxMissing)
 	legacyLogged sync.Map             // index file -> true once its legacy manifest/ fallback has been logged
 	itemsMu      sync.Mutex
-	items        *ItemIndex // the originals index (Items); nil until read
-	itemsFailed  time.Time  // when reading the index last failed; retried after missTTL
+	items        *ItemIndex                // the originals index (Items); nil until read
+	readyItems   atomic.Pointer[ItemIndex] // items once read: the redirect check (egress.go) reads it without waiting
+	itemsFailed  time.Time                 // when reading the index last failed; retried after missTTL
 }
 
 // Archive is the store the server reads original assets from (economy, thumbs, web). It is nil when
@@ -86,6 +88,9 @@ var Archive *Store
 // reading the originals index in the background. The startup checks that ask about item art wait for that read: on the
 // first start after a deploy it is one bucket listing (saved under the cache dir); later starts read the saved copy.
 func LoadArchive() error {
+	if err := LoadEgress(); err != nil {
+		return err
+	}
 	s, err := Open()
 	if err != nil {
 		return err
@@ -98,6 +103,9 @@ func LoadArchive() error {
 		log.Printf("cherry: converted items index: %v", err)
 	}
 	go s.Items()
+	if egress.Load() != nil {
+		go s.warm() // the redirect check reads only what is loaded; warm loads it
+	}
 	return nil
 }
 
@@ -117,6 +125,7 @@ type state struct {
 	check string
 	ini   map[string]string
 	packs map[string]string
+	keys  map[string]bool // every original key the lists name: bulk entries and the original map packs (egress.go)
 }
 
 // New returns a streaming store that reads cfg's bucket and keeps local copies under cacheDir.
@@ -175,7 +184,8 @@ func (s *Store) WriteCheckResource2(w http.ResponseWriter) {
 // /arts_chatting_<ch>/action_hd/<file>, and the /img/read dp.png form) and the
 // listed map packs (/<dir>/<name>, or /arts_animation_<lang>_<v>/../<dir>/<name>). It reports whether it wrote
 // the response. A file that R2 does not have returns false, so the caller's own handling (generated
-// thumbnails, the local string table, 404) still applies.
+// thumbnails, the local string table, 404) still applies. With egress.json on, a known original is a redirect to
+// its public copy instead of the bytes (streamFile).
 func (s *Store) ServeRoute(w http.ResponseWriter, r *http.Request) bool {
 	if !s.Streaming() || r.Method != http.MethodGet {
 		return false
@@ -201,13 +211,13 @@ func (s *Store) ServeRoute(w http.ResponseWriter, r *http.Request) bool {
 		return s.servePack(w, r, rel)
 	}
 	if rel, ok := CraftRel(r.URL.Path); ok {
-		return s.serve(w, r, "static/"+rel)
+		return s.streamFile(w, r, "static/"+rel)
 	}
 	if key, ok := generatedItemKey(r.URL.Path); ok { // a converted item is Cherry-made: cherry/item/, never static/
 		return s.serve(w, r, key)
 	}
 	if key, ok := fileKey(r.URL.Path); ok {
-		return s.serve(w, r, key)
+		return s.streamFile(w, r, key)
 	}
 	return false
 }
@@ -238,14 +248,18 @@ func (s *Store) load() (*state, error) {
 	if err != nil {
 		return nil, err
 	}
-	st := &state{ini: make(map[string]string, len(Categories)), packs: make(map[string]string, len(pm.Entries))}
+	st := &state{ini: make(map[string]string, len(Categories)), packs: make(map[string]string, len(pm.Entries)), keys: map[string]bool{}}
 	for _, p := range pm.Entries {
 		st.packs[p.Dir+"/"+p.Name] = p.Key()
+		st.keys[p.Key()] = true
 	}
 	versions := make(map[string]int, len(Categories))
 	for i, cat := range Categories {
 		if errs[i] != nil {
 			return nil, errs[i]
+		}
+		for _, e := range mans[i].Entries {
+			st.keys["static/"+cat+"/"+e.Path] = true
 		}
 		var packs []PackEntry
 		versions[cat] = mans[i].Version
@@ -293,7 +307,7 @@ func (s *Store) servePack(w http.ResponseWriter, r *http.Request, rel string) bo
 		return true
 	}
 	key, ok := st.packs[rel]
-	return ok && s.serve(w, r, key)
+	return ok && s.streamFile(w, r, key)
 }
 
 // getManifest opens the index file at its cherry/manifest/ key. While the migration has not moved it, the
@@ -344,6 +358,10 @@ func (s *Store) serve(w http.ResponseWriter, r *http.Request, key string) bool {
 	fi, err := f.Stat()
 	if err != nil {
 		return false
+	}
+	if r.Method == http.MethodGet {
+		// A Range request (the client sends none) is counted as the whole file.
+		metrics.CountStaticBytes(staticKind(key), fi.Size())
 	}
 	// The servers' 30 s WriteTimeout cut a 101 MB animation file off for a slow emulator (AVD Jerry, 2026-10-26:
 	// "Network Error" at 92 MB). An asset copy has no deadline; a stalled client still closes on its own.

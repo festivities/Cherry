@@ -393,6 +393,7 @@ func (s *Store) Items() *ItemIndex {
 				}
 			}
 			s.items = ix
+			s.readyItems.Store(ix)
 		}
 		return s.items
 	}
@@ -403,6 +404,7 @@ func (s *Store) Items() *ItemIndex {
 			s.itemsFailed = time.Now()
 		} else {
 			s.items = ix
+			s.readyItems.Store(ix)
 		}
 	}
 	return s.items
