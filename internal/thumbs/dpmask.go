@@ -15,11 +15,11 @@ import (
 	"cherry/internal/assets"
 )
 
-// Dye masks (dp_mask.png) of the dyeable garments. The dye cell draws dp.png and dp_mask.png together. The archive holds an
-// original mask for thirteen of the fifteen dyeable garments: the santi backup has four (custom 224102309, 224102579,
-// 224406975; dress 225001650) and the robo iOS donation adds nine. ServeDyeMask serves an original whenever the store
-// index lists it. Only custom 224102536 and dress 235411996 have none; their masks are composed here from the per-part
-// masks <part>_mask.png (Cherry-made, cached under dp-cache\).
+// Dye masks (dp_mask.png) of the dyeable garments. The dye cell draws dp.png and dp_mask.png together. The santi backup
+// and the robo iOS donation hold an original mask for most of the dyeable garments; ServeDyeMask serves an original
+// whenever the store index lists it. The rest (custom 224102536 and dress 235411996 of the first fifteen, and the robo
+// garments cached without one, 2026-11-23) get a mask composed here from the per-part masks <part>_mask.png (Cherry-made,
+// cached under dp-cache\).
 //
 // The convention, read off the original pairs: the mask is the same size as dp.png, its alpha is the garment's, and
 // each pixel's colour is a tone code, pure red (255,0,0) or pure blue (0,0,255) with blends at the edges of the parts.
@@ -31,6 +31,9 @@ import (
 // layers, canvas and frame box (the colour render's alpha box, so a part without a mask cannot move the frame), and no
 // shadow. Every mask-bearing part is placed on its sprite's top-left corner; for the two composed garments each part mask
 // is exactly its sprite's size (checked 2026-11-21), so no offset is needed.
+// ponytail: some robo part masks are 1 px taller, shorter or wider than their sprite (e.g. custom 224407742 0_1,
+// dress 235000996 0_2; 2026-11-23), so their composed preview mask is up to 1 px off at one edge; scale each mask to its
+// sprite's size if a seam ever shows.
 
 // dpMaskCacheVersion prefixes the cached masks (the dp.png composites carry dpCacheVersion).
 const dpMaskCacheVersion = "dm1_"

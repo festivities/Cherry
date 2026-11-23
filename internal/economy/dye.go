@@ -42,13 +42,21 @@ const (
 )
 
 // dyeFlagged are the garments whose artsitem carries the dye flag and <part>_mask.png (colorant-spec.md 16.B), so the
-// only garments that can be dyed. The value is the dye base-item list the garment is in: FACE for the custom kind,
-// DRESS for the dress kind.
+// only garments that can be dyed: the 15 of the santi backup plus 37 more from the robo iOS donation (2026-11-23 scan of
+// every backup: 66 flagged, 14 left out because their part sprites are missing, so they have no art). The value is the
+// dye base-item list the garment is in: FACE for the custom kind, DRESS for the dress kind.
 var dyeFlagged = map[int64]string{
-	224102309: "FACE", 224102378: "FACE", 224102536: "FACE", 224102579: "FACE", 224102653: "FACE",
-	224102775: "FACE", 224102816: "FACE", 224102858: "FACE", 224102932: "FACE", 224103060: "FACE",
-	224406975: "FACE", 224407224: "FACE",
-	225001650: "DRESS", 225409234: "DRESS", 235411996: "DRESS",
+	224102309: "FACE", 224102317: "FACE", 224102378: "FACE", 224102420: "FACE", 224102428: "FACE",
+	224102432: "FACE", 224102536: "FACE", 224102579: "FACE", 224102653: "FACE", 224102775: "FACE",
+	224102816: "FACE", 224102854: "FACE", 224102858: "FACE", 224102932: "FACE", 224103060: "FACE",
+	224103205: "FACE", 224103206: "FACE", 224103402: "FACE", 224406975: "FACE", 224406991: "FACE",
+	224407144: "FACE", 224407224: "FACE", 224407742: "FACE", 224407776: "FACE", 224407865: "FACE",
+	224408055: "FACE", 234101792: "FACE", 234101861: "FACE", 234102681: "FACE", 234102881: "FACE",
+	225001650: "DRESS", 225001651: "DRESS", 225110309: "DRESS", 225110386: "DRESS", 225110434: "DRESS",
+	225111190: "DRESS", 225111192: "DRESS", 225111193: "DRESS", 225111418: "DRESS", 225111626: "DRESS",
+	225111683: "DRESS", 225409149: "DRESS", 225409234: "DRESS", 225409271: "DRESS", 225409936: "DRESS",
+	225410202: "DRESS", 225512637: "DRESS", 225513753: "DRESS", 225513922: "DRESS", 225513923: "DRESS",
+	235000996: "DRESS", 235411996: "DRESS",
 }
 
 // dyeCoinUnit is the only currency of the dye shop: the client's GEM balance.
@@ -60,7 +68,7 @@ const dyeSaleEnd = "20991231235959"
 // DyeCatalog is data/dyes.json. Strict JSON: unknown keys are an error.
 //
 //	origin, note  mixed (opdata.Provenance): the tube pictures are original, the rest is Cherry-made; the note says which
-//	dyeable       numeric item ids of the garments that can be dyed; each must be one of the 15 flagged garments
+//	dyeable       numeric item ids of the garments that can be dyed; each must be one of the 52 flagged garments
 //	              (dyeFlagged), so an operator can only narrow the list (itemcode decodes each id to its item code)
 //	palette       "#RRGGBB" colours that shop/dye/preview serves and the CUSTOM dye picture is drawn in
 //	dyes          the catalog: item_no inside 9501-9599 and unique; name; kind SINGLE, RANDOM or CUSTOM; price in Gems

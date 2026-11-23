@@ -38,10 +38,10 @@ func TestDyeCatalogRefusesBadFiles(t *testing.T) {
 }
 
 // TestDyeableGarmentsDecode: every flagged garment decodes to an item code and back to the same numeric id, and the
-// client flags exactly the fifteen garments of the colorant spec (12 custom, 3 dress).
+// list holds the 52 flagged garments with art (30 custom, 22 dress).
 func TestDyeableGarmentsDecode(t *testing.T) {
-	if len(dyeFlagged) != 15 {
-		t.Fatalf("flagged garments = %d, want 15", len(dyeFlagged))
+	if len(dyeFlagged) != 52 {
+		t.Fatalf("flagged garments = %d, want 52", len(dyeFlagged))
 	}
 	for id := range dyeFlagged {
 		code, ok := itemcode.Code(id)
