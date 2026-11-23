@@ -1,8 +1,20 @@
 {
-  "origin": "cherry",
-  "note": "Cherry-made Remodeling Shop rows. Cherry gives the 1F and 2F rooms free (ownMaxGroundLevel LEVEL_2), so each owned floor is one row marked existInven and inUseYn: the client then disables BUY and refuses apply locally (IsApplyRemodelingCheck message 8164), and no purchase or apply request is sent. The row codes are real room item codes the client already knows (RUTI0005D the default floor, tile/121500193; RUWA0006D the default wall, interior/121400229); the client's own room-size item codes are not in the static data, so the thumbnail is a stand-in and the names are Cherry's. The 3F tab has no row (nothing owned, nothing for sale). Rows are always served as owned and in use, so only list floors the player owns.",
+  "origin": "mixed",
+  "note": "Remodeling Shop catalog (1F expansion URMEXT, 2F expansion URM2F, 3F unlock & expansion URM3F). Original art & 1F codes: RULA0001I..G (122300052..122300055, robo yellow isometric room grids). Cherry-made: 2F/3F codes in reserved block 122399201..122399304 (aliasing artFrom to the four original grids), names, tileSize (even; 36 = exact 2x2 sectors of 18x18), roomSize (Room Party visitor tiers 18/24/30/36 -> 5/7/10/20), and Gem prices. 1F and 2F 12x12 are free starters (price 0); buying any URM3F row unlocks 3F.",
   "rows": [
-    {"tab": "URMEXT", "code": "RUTI0005D", "name": "Cherry 1F room", "roomSize": 1},
-    {"tab": "URM2F", "code": "RUWA0006D", "name": "Cherry 2F room", "roomSize": 2}
+    {"tab": "URMEXT", "code": "RULA0001I", "name": "1F Room (12x12)", "tileSize": 12, "roomSize": 18, "price": 0, "currency": "GEM"},
+    {"tab": "URMEXT", "code": "RULA0001J", "name": "1F Room (18x18)", "tileSize": 18, "roomSize": 24, "price": 2000, "currency": "GEM"},
+    {"tab": "URMEXT", "code": "RULA0001H", "name": "1F Room (24x24)", "tileSize": 24, "roomSize": 30, "price": 4000, "currency": "GEM"},
+    {"tab": "URMEXT", "code": "RULA0001G", "name": "1F Room (36x36)", "tileSize": 36, "roomSize": 36, "price": 8000, "currency": "GEM"},
+
+    {"tab": "URM2F", "code": "RULA024JL", "name": "2F Room (12x12)", "tileSize": 12, "roomSize": 18, "price": 0, "currency": "GEM", "artFrom": "122300054"},
+    {"tab": "URM2F", "code": "RULA024JM", "name": "2F Room (18x18)", "tileSize": 18, "roomSize": 24, "price": 2000, "currency": "GEM", "artFrom": "122300055"},
+    {"tab": "URM2F", "code": "RULA024JN", "name": "2F Room (24x24)", "tileSize": 24, "roomSize": 30, "price": 4000, "currency": "GEM", "artFrom": "122300053"},
+    {"tab": "URM2F", "code": "RULA024JO", "name": "2F Room (36x36)", "tileSize": 36, "roomSize": 36, "price": 8000, "currency": "GEM", "artFrom": "122300052"},
+
+    {"tab": "URM3F", "code": "RULA024MD", "name": "3F Room (12x12)", "tileSize": 12, "roomSize": 18, "price": 3000, "currency": "GEM", "artFrom": "122300054"},
+    {"tab": "URM3F", "code": "RULA024ME", "name": "3F Room (18x18)", "tileSize": 18, "roomSize": 24, "price": 5000, "currency": "GEM", "artFrom": "122300055"},
+    {"tab": "URM3F", "code": "RULA024MF", "name": "3F Room (24x24)", "tileSize": 24, "roomSize": 30, "price": 7000, "currency": "GEM", "artFrom": "122300053"},
+    {"tab": "URM3F", "code": "RULA024MG", "name": "3F Room (36x36)", "tileSize": 36, "roomSize": 36, "price": 10000, "currency": "GEM", "artFrom": "122300052"}
   ]
 }

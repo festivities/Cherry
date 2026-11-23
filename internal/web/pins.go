@@ -181,6 +181,7 @@ func pinRowFor(aid string) (pinRow, bool) {
 	if !ok {
 		return pinRow{}, false
 	}
-	row.AvatarName, row.ObsProfileImageURL, row.ProfileBgURL = acc.Name, acc.ProfileImage.Image, acc.ProfileImage.Bg
+	img, _, bg := acc.ProfileImage.Fields()
+	row.AvatarName, row.ProfileImageURL, row.ObsProfileImageURL, row.ProfileBgURL = acc.Name, img, img, bg
 	return row, true
 }

@@ -47,4 +47,9 @@ func sweep(logger *log.Logger, c config.Config) {
 	} else if n > 0 {
 		logger.Printf("cherry: pruned %d idle alias tokens (unused for %d days)", n, c.IdleTokenDays)
 	}
+	if rows, freed, orphans, err := store.PruneStaleMedia(now, time.Hour); err != nil {
+		logger.Printf("cherry: prune stale media failed: %v", err)
+	} else if rows > 0 || orphans > 0 {
+		logger.Printf("cherry: pruned %d stale media rows (%d bytes) and %d orphan files", rows, freed, orphans)
+	}
 }

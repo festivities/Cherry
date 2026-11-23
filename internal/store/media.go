@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -599,4 +600,319 @@ func removeMediaLocked(d *DB, row MediaFile, reason, actor, target string) error
 	}
 	RemoveMediaFiles([]MediaFile{row})
 	return nil
+}
+
+// deleteMediaRowsTx deletes the rows of stale from media_files inside an existing transaction.
+func deleteMediaRowsTx(tx *sql.Tx, stale []MediaFile) error {
+	for _, m := range stale {
+		if _, err := tx.Exec(`DELETE FROM media_files WHERE id = ?`, m.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SaveProfileImageLocked updates acc.ProfileImage and removes every unreferenced MediaProfile row and file owned by
+// acc.Aid (both the superseded profile picture and any abandoned profile uploads) in one transaction. Caller holds
+// AccountsMu and does not hold SocialMu.
+func SaveProfileImageLocked(acc *Account, next ProfileImage) error {
+	SocialMu.Lock()
+	defer SocialMu.Unlock()
+	prev := acc.ProfileImage
+	acc.ProfileImage = next
+	var stale []MediaFile
+	if d := attachedDB(); d != nil {
+		refs := referencedFilesLocked()
+		err := d.View(func(q Querier) error {
+			r, err := q.Query(`SELECT id, kind, owner, file, size, created FROM media_files WHERE owner = ? AND kind = ?`, acc.Aid, MediaProfile)
+			if err != nil {
+				return err
+			}
+			defer r.Close()
+			for r.Next() {
+				var f MediaFile
+				if err := r.Scan(&f.ID, &f.Kind, &f.Owner, &f.File, &f.Size, &f.Created); err != nil {
+					return err
+				}
+				if !refs[f.File] {
+					stale = append(stale, f)
+				}
+			}
+			return r.Err()
+		})
+		if err != nil {
+			acc.ProfileImage = prev
+			return err
+		}
+	}
+	var extra func(*sql.Tx) error
+	if len(stale) > 0 {
+		extra = func(tx *sql.Tx) error { return deleteMediaRowsTx(tx, stale) }
+	}
+	if err := commitLocked(nil, []*Account{acc}, 0, callerSite(), nil, extra); err != nil {
+		acc.ProfileImage = prev
+		return err
+	}
+	RemoveMediaFiles(stale)
+	return nil
+}
+
+// unusedOwnerMediaByURLsLocked finds the media_files rows owned by owner (optionally filtered to kind when non-empty)
+// named by urls that are no longer in refs. Caller holds AccountsMu and SocialMu.
+func unusedOwnerMediaByURLsLocked(owner, kind string, urls []string, refs map[string]bool) ([]MediaFile, error) {
+	d := attachedDB()
+	if d == nil || len(urls) == 0 {
+		return nil, nil
+	}
+	var candidates []string
+	for _, raw := range urls {
+		if f, ok := MediaRefFile(raw); ok && !refs[f] && !slices.Contains(candidates, f) {
+			candidates = append(candidates, f)
+		}
+	}
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+	var out []MediaFile
+	err := d.View(func(q Querier) error {
+		for _, f := range candidates {
+			row, found, err := mediaRow(q, "file", f)
+			if err != nil {
+				return err
+			}
+			if found && row.Owner == owner && (kind == "" || row.Kind == kind) {
+				out = append(out, row)
+			}
+		}
+		return nil
+	})
+	return out, err
+}
+
+// SaveRoomPresetsLocked updates acc.Presets and deletes any superseded MediaRoom rows/files owned by acc.Aid that are
+// no longer referenced anywhere, in one transaction. Caller holds AccountsMu and does not hold SocialMu.
+func SaveRoomPresetsLocked(acc *Account, next map[string]RoomPreset, supersededURLs ...string) error {
+	SocialMu.Lock()
+	defer SocialMu.Unlock()
+	prev := acc.Presets
+	acc.Presets = next
+	var stale []MediaFile
+	if len(supersededURLs) > 0 && attachedDB() != nil {
+		var err error
+		stale, err = unusedOwnerMediaByURLsLocked(acc.Aid, MediaRoom, supersededURLs, referencedFilesLocked())
+		if err != nil {
+			acc.Presets = prev
+			return err
+		}
+	}
+	var extra func(*sql.Tx) error
+	if len(stale) > 0 {
+		extra = func(tx *sql.Tx) error { return deleteMediaRowsTx(tx, stale) }
+	}
+	if err := commitLocked(nil, []*Account{acc}, 0, callerSite(), nil, extra); err != nil {
+		acc.Presets = prev
+		return err
+	}
+	RemoveMediaFiles(stale)
+	return nil
+}
+
+// SaveProfilePhotosLocked updates acc.DiaryProfile and deletes any superseded profile-photo rows/files owned by acc.Aid
+// that are no longer referenced anywhere, in one transaction. Caller holds AccountsMu and does not hold SocialMu.
+func SaveProfilePhotosLocked(acc *Account, next *DiaryProfile, supersededURLs ...string) error {
+	SocialMu.Lock()
+	defer SocialMu.Unlock()
+	prev := acc.DiaryProfile
+	acc.DiaryProfile = next
+	var stale []MediaFile
+	if len(supersededURLs) > 0 && attachedDB() != nil {
+		var err error
+		stale, err = unusedOwnerMediaByURLsLocked(acc.Aid, "", supersededURLs, referencedFilesLocked())
+		if err != nil {
+			acc.DiaryProfile = prev
+			return err
+		}
+	}
+	var extra func(*sql.Tx) error
+	if len(stale) > 0 {
+		extra = func(tx *sql.Tx) error { return deleteMediaRowsTx(tx, stale) }
+	}
+	if err := commitLocked(nil, []*Account{acc}, 0, callerSite(), nil, extra); err != nil {
+		acc.DiaryProfile = prev
+		return err
+	}
+	RemoveMediaFiles(stale)
+	return nil
+}
+
+// ModifyDiaryPost applies edit to aid's diary post diaryNo and deletes any diary media rows/files that the old post
+// referenced and nothing references anymore, in one transaction. Returns the updated post and whether it was found.
+// Caller holds neither AccountsMu nor SocialMu.
+func ModifyDiaryPost(aid, diaryNo string, edit func(*DiaryPost)) (DiaryPost, bool, error) {
+	AccountsMu.Lock()
+	defer AccountsMu.Unlock()
+	SocialMu.Lock()
+	defer SocialMu.Unlock()
+	idx := slices.IndexFunc(DiaryPosts, func(p DiaryPost) bool { return p.AvatarID == aid && p.DiaryNo == diaryNo })
+	if idx < 0 {
+		return DiaryPost{}, false, nil
+	}
+	old := DiaryPosts[idx]
+	edit(&DiaryPosts[idx])
+	stale, err := unusedMediaLocked(aid, []DiaryPost{old})
+	if err != nil {
+		DiaryPosts[idx] = old
+		return DiaryPost{}, true, err
+	}
+	if err := saveSocialMediaLocked(SocialChange{Posts: []string{diaryNo}}, stale, nil); err != nil {
+		DiaryPosts[idx] = old
+		return DiaryPost{}, true, err
+	}
+	RemoveMediaFiles(stale)
+	return DiaryPosts[idx], true, nil
+}
+
+// deletedAvatarMediaLocked returns the unrestored deleted avatar ids and every media file their records reference, so
+// PruneStaleMedia never removes pictures preserved for a deleted avatar.
+func deletedAvatarMediaLocked(q Querier) (aids map[string]bool, files map[string]bool, err error) {
+	aids, files = map[string]bool{}, map[string]bool{}
+	rows, err := q.Query(`SELECT aid, data FROM deleted_avatars WHERE restored_at = ''`)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	addURL := func(raw string) {
+		if f, ok := MediaRefFile(raw); ok {
+			files[f] = true
+		}
+	}
+	for rows.Next() {
+		var aid, raw string
+		if err := rows.Scan(&aid, &raw); err != nil {
+			return nil, nil, err
+		}
+		if aid != "" {
+			aids[aid] = true
+		}
+		var rec AvatarRecord
+		if json.Unmarshal([]byte(raw), &rec) != nil {
+			continue
+		}
+		for _, m := range rec.Media {
+			if m.File != "" {
+				files[m.File] = true
+			}
+		}
+		if rec.Account.ProfileImage != nil {
+			addURL(rec.Account.ProfileImage.Image)
+			addURL(rec.Account.ProfileImage.WholeBody)
+		}
+		if rec.Account.DiaryProfile != nil {
+			for _, ph := range rec.Account.DiaryProfile.Photos {
+				addURL(ph.ImageURL)
+			}
+		}
+		for _, pr := range rec.Account.Presets {
+			addURL(pr.Image)
+		}
+		for _, p := range rec.Posts {
+			for _, img := range p.Images {
+				addURL(img.ImageURL)
+			}
+		}
+	}
+	return aids, files, rows.Err()
+}
+
+// PruneStaleMedia deletes media_files rows (and their .img files) that are neither referenced by live accounts/posts nor
+// preserved for an unrestored deleted avatar, provided they are at least minAge old (protecting in-flight uploads). It
+// also removes unreferenced orphan .img files on disk under {profile,room,diary}-media older than minAge.
+func PruneStaleMedia(now time.Time, minAge time.Duration) (rowsDeleted int, bytesFreed int64, orphanFiles int, err error) {
+	AccountsMu.Lock()
+	defer AccountsMu.Unlock()
+	SocialMu.Lock()
+	defer SocialMu.Unlock()
+	d := attachedDB()
+	if d == nil {
+		return 0, 0, 0, nil
+	}
+	refs := referencedFilesLocked()
+	var stale []MediaFile
+	keptFiles := map[string]bool{}
+	var deletedFiles map[string]bool
+	err = d.View(func(q Querier) error {
+		deletedAids, df, err := deletedAvatarMediaLocked(q)
+		if err != nil {
+			return err
+		}
+		deletedFiles = df
+		r, err := q.Query(`SELECT id, kind, owner, file, size, created FROM media_files`)
+		if err != nil {
+			return err
+		}
+		defer r.Close()
+		for r.Next() {
+			var f MediaFile
+			if err := r.Scan(&f.ID, &f.Kind, &f.Owner, &f.File, &f.Size, &f.Created); err != nil {
+				return err
+			}
+			protected := refs[f.File] || deletedFiles[f.File] || deletedAids[f.Owner]
+			if protected {
+				keptFiles[f.File] = true
+				continue
+			}
+			if minAge > 0 {
+				ts, perr := time.Parse(time.RFC3339, f.Created)
+				if perr != nil || now.Sub(ts) < minAge {
+					keptFiles[f.File] = true
+					continue
+				}
+			}
+			stale = append(stale, f)
+		}
+		return r.Err()
+	})
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	if len(stale) > 0 {
+		if err := d.Update(func(tx *sql.Tx) error { return deleteMediaRowsTx(tx, stale) }); err != nil {
+			return 0, 0, 0, err
+		}
+		for _, f := range stale {
+			bytesFreed += f.Size
+		}
+		rowsDeleted = len(stale)
+		RemoveMediaFiles(stale)
+	}
+	for _, kind := range []string{MediaProfile, MediaRoom, MediaDiary} {
+		dir, derr := MediaDir(kind)
+		if derr != nil {
+			continue
+		}
+		entries, rerr := os.ReadDir(dir)
+		if rerr != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || !mediaFileOK(entry.Name()) {
+				continue
+			}
+			name := entry.Name()
+			if keptFiles[name] || refs[name] || deletedFiles[name] {
+				continue
+			}
+			info, ierr := entry.Info()
+			if ierr != nil || !info.Mode().IsRegular() {
+				continue
+			}
+			if minAge > 0 && now.Sub(info.ModTime()) < minAge {
+				continue
+			}
+			if rmErr := os.Remove(filepath.Join(dir, name)); rmErr == nil {
+				orphanFiles++
+			}
+		}
+	}
+	return rowsDeleted, bytesFreed, orphanFiles, nil
 }

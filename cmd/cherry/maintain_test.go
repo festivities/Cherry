@@ -106,6 +106,47 @@ func TestSweepUsesThePanelRetention(t *testing.T) {
 	}
 }
 
+// TestSweepPrunesStaleMedia: the hourly sweep removes stale unreferenced media older than 1 hour and keeps fresh ones.
+func TestSweepPrunesStaleMedia(t *testing.T) {
+	base := t.TempDir()
+	config.Activate(config.Config{DataDir: base, CacheDir: base})
+	t.Cleanup(func() { config.Activate(config.Config{}) })
+	path := filepath.Join(base, store.DBFileName)
+	if err := store.OpenStore(path); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { store.CloseStore() })
+
+	oldFile := store.MediaFileName("9101", "1760000001", "9101_1760000001")
+	freshFile := store.MediaFileName("9101", "1760000002", "9101_1760000002")
+	if err := store.AddMediaFile(store.MediaFile{Kind: store.MediaProfile, Owner: "9101", File: oldFile, Size: 1234}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AddMediaFile(store.MediaFile{Kind: store.MediaProfile, Owner: "9101", File: freshFile, Size: 567}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	if _, err := raw.Exec(`UPDATE media_files SET created = ? WHERE file = ?`, time.Now().UTC().Add(-2*time.Hour).Format(time.RFC3339), oldFile); err != nil {
+		t.Fatal(err)
+	}
+
+	var logs bytes.Buffer
+	sweep(log.New(&logs, "", 0), config.Config{ChatDays: 30, IdleTokenDays: 30})
+	if _, found, _ := store.MediaRowByFile(oldFile); found {
+		t.Fatalf("stale media row older than 1h was not pruned")
+	}
+	if _, found, _ := store.MediaRowByFile(freshFile); !found {
+		t.Fatalf("fresh media row younger than 1h was pruned")
+	}
+	if !strings.Contains(logs.String(), "pruned 1 stale media rows (1234 bytes)") {
+		t.Fatalf("sweep did not log stale media prune: %q", logs.String())
+	}
+}
+
 // first is the text of the first row, for a failure message.
 func first(rows []store.ChatLogRow) string {
 	if len(rows) == 0 {

@@ -393,6 +393,10 @@ func (c *shopCatalog) add(sub string, n int64, original bool) {
 		}
 		return
 	}
+	if kind == kindInterior && code[2:4] == "LA" {
+		// Room remodeling layout items (RULA..., catIdx 23) are sold only in the Remodeling Shop (remodel.go).
+		return
+	}
 	if original && !thumbs.HasArt(sub, n) {
 		// No art: the client would show the grey placeholder, so it is not listed, pooled or granted.
 		return
@@ -670,6 +674,10 @@ func handleShopBuy(kind byte) http.HandlerFunc {
 		}
 		if _, paired := MiniPetOfItem(firstCode(req)); paired && kind == kindInterior {
 			miniPetBuy(w, r, raw, req, give)
+			return
+		}
+		if _, _, ok := remodelByCode(firstCode(req)); ok && kind == kindInterior {
+			remodelBuy(w, r, raw, req)
 			return
 		}
 		if len(req.Items) == 0 || len(req.Items) > maxShopBatch {
@@ -989,6 +997,9 @@ func ItemName(code string) string {
 	}
 	if pet, ok := MiniPetOfItem(code); ok {
 		return PetDisplayName(pet)
+	}
+	if name, ok := RemodelItemName(code); ok {
+		return name
 	}
 	label := "Item"
 	switch code[:2] {

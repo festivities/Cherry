@@ -531,6 +531,58 @@ func TestPartyFloors(t *testing.T) {
 	c.none() // c is on floor 1: no floor deluser
 }
 
+// TestPartyThirdFloor verifies that a host with 3F unlocked advertises ExtendFloors=3 on rc_room_enter_res and
+// permits floorEnter/floorRelayStart on floor 3 (while still rejecting floor 4).
+func TestPartyThirdFloor(t *testing.T) {
+	h := partySetup(t)
+	store.AccountsMu.Lock()
+	for _, a := range store.AllAccountsLocked() {
+		if a.Aid == "11" {
+			a.Remodel = &store.RoomRemodel{MaxFloor: 3}
+		}
+	}
+	store.AccountsMu.Unlock()
+	store.SocialMu.Lock()
+	store.Friendships = []store.Friendship{{A: "11", B: "12", State: "accepted"}}
+	store.SocialMu.Unlock()
+
+	a := partyLogin(t, h, 11, 1)
+	b := partyLogin(t, h, 12, 2)
+	a.enter(11)
+	a.expect(5, []byte{0x08, 0, 0x10, 11, 0x28, 3}) // ExtendFloors = 3
+	a.expect(23, statusBody)
+	a.start(nil)
+	a.read() // idx29 self
+
+	b.enter(11)
+	b.expect(5, []byte{0x08, 0, 0x10, 11, 0x28, 3})
+	b.start(nil)
+	for _, p := range []*pc{a, b} {
+		for p.drain() {
+		}
+	}
+
+	// Floor 4 is rejected; floor 3 succeeds and moves b onto floor 3.
+	b.send(24, pbVar(nil, 1, 4))
+	b.expect(28, []byte{0x08, 1, 0x10, 4})
+	b.send(24, pbVar(nil, 1, 3))
+	b.expect(28, []byte{0x08, 0, 0x10, 3})
+	b.send(25, pbLen(pbVar(nil, 1, 3), 2, pbVar(nil, 1, 1)))
+	w := spawnMove(8, 4)
+	b.expect(29, pbVar(partyFloorRes([]partySnap{{12, w}}, 11, 3), 4, 3))
+	a.expect(31, []byte{0x08, 12})
+	a.expect(33, append([]byte{0x08, 12, 0x10, 1, 0x1a, 2}, "Bo"...))
+	a.expect(32, append([]byte{0x08, 12, 0x10, 3, 0x1a, 2}, "Bo"...))
+
+	// allRosterLocked includes floor 3 members.
+	h.mu.Lock()
+	all := h.rooms[11].allRosterLocked()
+	h.mu.Unlock()
+	if len(all) != 2 {
+		t.Fatalf("allRosterLocked len = %d, want 2 (1F host + 3F guest)", len(all))
+	}
+}
+
 func TestPartyLoginStatus(t *testing.T) {
 	h := partySetup(t)
 	a := partyLogin(t, h, 11, 1)

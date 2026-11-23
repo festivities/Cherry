@@ -1182,6 +1182,10 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 	if economy.ServeLandscapeFile(w, r) {
 		return
 	}
+	// Cherry-made 2F/3F remodeling items alias the original yellow room-grid art (remodel.go).
+	if economy.ServeRemodelFile(w, r) {
+		return
+	}
 	// A streamed file (or dp.png) wins; a miss falls through to the generated thumbnail below.
 	if assets.Archive.ServeRoute(w, r) {
 		return

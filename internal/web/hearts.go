@@ -82,10 +82,11 @@ func handleHeartSenderList(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			continue
 		}
+		img, _, bg := acc.ProfileImage.Fields()
 		rows = append(rows, map[string]any{
-			"avatarId": sender, "name": acc.Name, "avatarProfile": "",
-			"obsProfileImagePath": acc.ProfileImage.Image, "regDate": "", "introduce": "",
-			"heartReceivable": true, "profileBackground": acc.ProfileImage.Bg,
+			"avatarId": sender, "name": acc.Name, "avatarProfile": img,
+			"obsProfileImagePath": img, "regDate": "", "introduce": "",
+			"heartReceivable": true, "profileBackground": bg,
 		})
 	}
 	body, _ := json.Marshal(map[string]any{"result": rows})

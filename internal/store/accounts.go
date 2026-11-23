@@ -83,6 +83,7 @@ type StoredAccount struct {
 	StyleSlots      []StyleSlot           `json:"styleSlots,omitempty"`
 	StyleBought     int64                 `json:"styleBought,omitempty"`
 	StyleNextID     int64                 `json:"styleNextId,omitempty"`
+	Remodel         *RoomRemodel          `json:"remodel,omitempty"`
 }
 
 // accountFile is the account part of a legacy accounts.json, parsed without touching the store. Only cmd/cherry-import
@@ -485,7 +486,7 @@ func StoredFrom(acc *Account) StoredAccount {
 		Dyes: acc.Dyes, DyeColors: acc.DyeColors, LuckySpinDay: acc.LuckySpinDay, PopupDay: acc.PopupDay, AvatarCreated: acc.AvatarCreated,
 		BirthdayClaims: acc.BirthdayClaims,
 		Identity:       acc.Identity, CodeHashes: acc.CodeHashes, Ban: acc.Ban,
-		StyleSlots: acc.StyleSlots, StyleBought: acc.StyleBought, StyleNextID: acc.StyleNextID,
+		StyleSlots: acc.StyleSlots, StyleBought: acc.StyleBought, StyleNextID: acc.StyleNextID, Remodel: acc.Remodel,
 	}
 }
 
@@ -515,7 +516,7 @@ func accountFromStored(saved StoredAccount) *Account {
 		Dyes: saved.Dyes, DyeColors: saved.DyeColors, LuckySpinDay: saved.LuckySpinDay, PopupDay: saved.PopupDay, AvatarCreated: saved.AvatarCreated,
 		BirthdayClaims: saved.BirthdayClaims,
 		GuestCode:      saved.GuestCode, Identity: saved.Identity, CodeHashes: saved.CodeHashes, Ban: saved.Ban,
-		StyleSlots: saved.StyleSlots, StyleBought: max(saved.StyleBought, 0), StyleNextID: saved.StyleNextID,
+		StyleSlots: saved.StyleSlots, StyleBought: max(saved.StyleBought, 0), StyleNextID: saved.StyleNextID, Remodel: saved.Remodel,
 	}
 }
 

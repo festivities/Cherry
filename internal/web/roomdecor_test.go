@@ -595,3 +595,80 @@ func TestRoomPresetSecondFloorDefaults(t *testing.T) {
 		t.Fatalf("delete = %d", rec.Code)
 	}
 }
+
+// TestRoomRemodelThirdFloorAndTileSize exercises the full flow across HTTP routes: default LEVEL_2 + tileSize 12,
+// buying 1F expansion (24x24) and 3F unlock (36x36) via /v4/purchase/interior/buy, checking groundlevel/status,
+// dividefloor (3 arrays), myroom/enter per-floor tileSize, and saving furniture on LEVEL_3.
+func TestRoomRemodelThirdFloorAndTileSize(t *testing.T) {
+	testutil.UseDatabase(t)
+	acc := decorSetup(t)
+	store.AccountsMu.Lock()
+	acc.Gems = 25000
+	if err := store.SaveLocked(nil, acc); err != nil {
+		store.AccountsMu.Unlock()
+		t.Fatal(err)
+	}
+	store.AccountsMu.Unlock()
+
+	// Default groundlevel status is LEVEL_2 and LEVEL_3 save is refused.
+	if rec := decorReq(t, "dtok", http.MethodGet, "/v4/room/groundlevel/status/9101", ""); !strings.Contains(rec.Body.String(), `"LEVEL_2"`) {
+		t.Fatalf("default groundlevel = %s", rec.Body)
+	}
+	if rec := decorReq(t, "dtok", http.MethodPost, "/v4/room/save/new", `{"groundLevel":"LEVEL_3"}`); rec.Body.String() != room.RoomSaveFalse {
+		t.Fatalf("locked LEVEL_3 save = %s", rec.Body)
+	}
+
+	// Buy 1F 24x24 (4000 Gems) and 3F 36x36 (10000 Gems).
+	buy1 := `{"itemType":"ROOM","items":[{"itemCode":"RULA0001H","price":4000,"cpId":"avtplay"}]}`
+	if rec := decorReq(t, "dtok", http.MethodPost, "/v4/purchase/interior/buy", buy1); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"balance":21000`) {
+		t.Fatalf("buy 1F 24x24 = %d %s", rec.Code, rec.Body)
+	}
+	buy3 := `{"itemType":"ROOM","items":[{"itemCode":"RULA024MG","price":10000,"cpId":"avtplay"}]}`
+	if rec := decorReq(t, "dtok", http.MethodPost, "/v4/purchase/interior/buy", buy3); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"balance":11000`) {
+		t.Fatalf("buy 3F 36x36 = %d %s", rec.Code, rec.Body)
+	}
+
+	// Groundlevel status is now LEVEL_3, dividefloor has 3 floor arrays, and myroom/enter report LEVEL_3 + per-floor tileSize.
+	if rec := decorReq(t, "dtok", http.MethodGet, "/v4/room/groundlevel/status/9101", ""); !strings.Contains(rec.Body.String(), `"LEVEL_3"`) {
+		t.Fatalf("unlocked groundlevel = %s", rec.Body)
+	}
+	var div struct {
+		Result [][]string `json:"result"`
+	}
+	rec := decorReq(t, "dtok", http.MethodGet, "/v4/inven/use/list/interior/dividefloor", "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &div); err != nil || len(div.Result) != 3 {
+		t.Fatalf("dividefloor = %s (err=%v)", rec.Body, err)
+	}
+	for path, wantSize := range map[string]float64{
+		"/v4/room/myroom/LEVEL_1":     24,
+		"/v4/room/myroom/LEVEL_2":     12,
+		"/v4/room/myroom/LEVEL_3":     36,
+		"/v4/room/enter/9101/LEVEL_3": 36,
+	} {
+		rec := decorReq(t, "dtok", http.MethodGet, path, "")
+		var env struct {
+			Result struct {
+				OwnMax   string         `json:"ownMaxGroundLevel"`
+				AvailMax string         `json:"availMaxGroundLevel"`
+				RoomInfo map[string]any `json:"roomInfo"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+			t.Fatalf("%s decode: %v", path, err)
+		}
+		if env.Result.OwnMax != "LEVEL_3" || env.Result.AvailMax != "LEVEL_3" || env.Result.RoomInfo["tileSize"] != wantSize {
+			t.Fatalf("%s = max:%s/%s tileSize:%v, want LEVEL_3 / %v", path, env.Result.OwnMax, env.Result.AvailMax, env.Result.RoomInfo["tileSize"], wantSize)
+		}
+	}
+
+	// Saving furniture on LEVEL_3 works at expanded coordinates (30, 30).
+	chair := seqOf(t, acc, "RUCH0011X")
+	save3 := `{"additionItems":[` + rowJSON(chair, "RUCH0011X", 30, 30, 0, "FR") + `],"groundLevel":"LEVEL_3"}`
+	if rec := decorReq(t, "dtok", http.MethodPost, "/v4/room/save/new", save3); rec.Body.String() != `{"result":true}` {
+		t.Fatalf("LEVEL_3 save = %s", rec.Body)
+	}
+	ri := decorRoomInfo(t, "/v4/room/enter/9101/LEVEL_3", "")
+	if items := ri["item"].([]any); len(items) != 1 || items[0].(map[string]any)["x"] != float64(30) {
+		t.Fatalf("LEVEL_3 enter after save = %v", ri)
+	}
+}

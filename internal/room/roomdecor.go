@@ -254,7 +254,8 @@ func HandleInvenDivideFloor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var lays []store.RoomLayout
-	for n := 1; n <= RoomPartyFloors; n++ {
+	maxFloor := acc.RoomMaxFloor()
+	for n := 1; n <= maxFloor; n++ {
 		lay, _ := roomLevelLayout(acc, "LEVEL_"+strconv.Itoa(n))
 		lays = append(lays, lay)
 	}
@@ -461,7 +462,9 @@ func RoomDecorInfo(r *http.Request, aid, level string) map[string]any {
 	if !ok {
 		return nil
 	}
-	return roomLayoutInfo(lay)
+	info := roomLayoutInfo(lay)
+	info["tileSize"] = acc.FloorTileSize(level)
+	return info
 }
 
 // roomLayoutInfo renders a layout as the roomInfo members the client parses
@@ -498,13 +501,13 @@ func roomLayoutInfo(lay store.RoomLayout) map[string]any {
 }
 
 // roomLevelLayout returns the saved layout for level, or an empty one (floor/wall
-// seq 0 = client default art) for an unsaved owned floor 1..roomPartyFloors.
+// seq 0 = client default art) for an unsaved owned floor 1..acc.RoomMaxFloor().
 func roomLevelLayout(acc *store.Account, level string) (store.RoomLayout, bool) {
 	if lay, ok := acc.Rooms[level]; ok {
 		return lay, true
 	}
 	n := roomLevelNum(level)
-	if !RoomLevelValid(level) || n < 1 || n > RoomPartyFloors {
+	if !RoomLevelValid(level) || n < 1 || n > acc.RoomMaxFloor() {
 		return store.RoomLayout{}, false
 	}
 	return store.RoomLayout{Placed: []store.RoomPlaced{}}, true
@@ -567,14 +570,18 @@ func HandleRoomPresetSave(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusOK, RoomSaveFalse)
 		return
 	}
-	prev := acc.Presets
-	acc.Presets = maps.Clone(prev)
-	if acc.Presets == nil {
-		acc.Presets = map[string]store.RoomPreset{}
+	slot := strconv.Itoa(n)
+	nextPresets := maps.Clone(acc.Presets)
+	if nextPresets == nil {
+		nextPresets = map[string]store.RoomPreset{}
 	}
-	acc.Presets[strconv.Itoa(n)] = store.RoomPreset{Layout: lay, Level: req.GroundLevel, Image: req.RepresentImagePath, TileSize: req.TileSize}
-	if err := store.SaveLocked(nil, acc); err != nil {
-		acc.Presets = prev
+	oldImg := nextPresets[slot].Image
+	nextPresets[slot] = store.RoomPreset{Layout: lay, Level: req.GroundLevel, Image: req.RepresentImagePath, TileSize: req.TileSize}
+	var superseded []string
+	if oldImg != "" && oldImg != req.RepresentImagePath {
+		superseded = []string{oldImg}
+	}
+	if err := store.SaveRoomPresetsLocked(acc, nextPresets, superseded...); err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
 		return
 	}
@@ -594,12 +601,15 @@ func HandleRoomPresetRemove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer store.AccountsMu.Unlock()
-	prev := acc.Presets
-	if _, have := prev[strconv.Itoa(n)]; have {
-		acc.Presets = maps.Clone(prev)
-		delete(acc.Presets, strconv.Itoa(n))
-		if err := store.SaveLocked(nil, acc); err != nil {
-			acc.Presets = prev
+	slot := strconv.Itoa(n)
+	if old, have := acc.Presets[slot]; have {
+		nextPresets := maps.Clone(acc.Presets)
+		delete(nextPresets, slot)
+		var superseded []string
+		if old.Image != "" {
+			superseded = []string{old.Image}
+		}
+		if err := store.SaveRoomPresetsLocked(acc, nextPresets, superseded...); err != nil {
 			httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
 			return
 		}
@@ -666,21 +676,48 @@ const (
 	RoomWallCode  = "RUWA000HR" // 121400639: has wall_l_1.png and wall_r_1.png
 )
 
-// RoomPartyFloors is sent as rc_room_enter_res ExtendFloors (floor count; the
-// client hides the floor selector when it is 1).
-// ponytail: every room has 2 floors until a remodeling shop / ownership exists.
-const RoomPartyFloors = 2
+// RoomPartyFloors is the default floor count for accounts that have not unlocked 3F (1F and 2F free).
+// MaxRoomFloors is the highest floor count supported by the client and Room Party (3F).
+const (
+	RoomPartyFloors = store.DefaultRoomFloors
+	MaxRoomFloors   = store.MaxRoomFloors
+)
+
+// AccountMaxFloor returns the unlocked floor count (2 or 3) for aid, or for the requester when aid == "".
+func AccountMaxFloor(r *http.Request, aid string) int {
+	if aid != "" {
+		if acc, ok := store.AccountByAvatarID(aid); ok {
+			return acc.Remodel.RoomMaxFloor()
+		}
+		return RoomPartyFloors
+	}
+	if r != nil {
+		if acc, ok := store.AccountForRequest(r); ok {
+			return acc.Remodel.RoomMaxFloor()
+		}
+	}
+	return RoomPartyFloors
+}
+
+// HostMaxFloor returns the unlocked floor count (2 or 3) for a numeric host avatar id.
+func HostMaxFloor(aid uint64) int {
+	if acc, ok := store.AccountByAvatarID(strconv.FormatUint(aid, 10)); ok {
+		return acc.Remodel.RoomMaxFloor()
+	}
+	return RoomPartyFloors
+}
 
 // HandleGroundLevelStatus serves GET room/groundlevel/status/<aid>, the Remodeling Shop's floor level
 // (NaDispatcherRoom::ResRoomGroundLevelStatus 0x1a8771c). The client strips "LEVEL_" from ownMaxGroundLevel
 // and atoi's the rest; that number selects the shop tier (11741 → NaRemodelingShopLayer::LoadCurrentLevelShop).
-// Floors are free, so every account has RoomPartyFloors.
 func HandleGroundLevelStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		httpx.ServeNotFound(w)
 		return
 	}
-	petJSON(w, map[string]any{"ownMaxGroundLevel": "LEVEL_" + strconv.Itoa(RoomPartyFloors)})
+	aid := strings.Trim(strings.TrimPrefix(r.URL.Path, "/v4/room/groundlevel/status/"), "/")
+	maxFloor := AccountMaxFloor(r, aid)
+	petJSON(w, map[string]any{"ownMaxGroundLevel": "LEVEL_" + strconv.Itoa(maxFloor)})
 }
 
 // RoomLevelValid accepts LEVEL_<n>.

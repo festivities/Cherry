@@ -642,13 +642,15 @@ func wireLevel(role string) string {
 
 // circleAvatarView is one avatar of circle c. The name comes from the account table (locked by the caller).
 func circleAvatarView(aid, role string, date int64) circleAvatarJSON {
-	name := ""
+	name, img, bg := "", "", ""
 	if a := store.AccountByAidLocked(aid); a != nil {
 		name = a.Name
+		img, _, bg = a.ProfileImage.Fields()
 	}
 	ms := strconv.FormatInt(date, 10)
 	return circleAvatarJSON{
 		AvatarID: aid, MemberAid: aid, AvatarName: name, MemberLevel: wireLevel(role),
+		ProfileImagePath: img, ObsProfileImagePath: img, ProfileBackground: bg,
 		RegistDate: ms, CircleJoinedDate: ms,
 	}
 }

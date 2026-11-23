@@ -249,13 +249,17 @@ func handleProfilePhotoSave(w http.ResponseWriter, r *http.Request) {
 	}
 	previous := acc.DiaryProfile
 	next := store.DiaryProfile{}
+	var superseded []string
 	if previous != nil {
 		next = *previous
+		for _, p := range previous.Photos {
+			if p.ImageURL != "" {
+				superseded = append(superseded, p.ImageURL)
+			}
+		}
 	}
 	next.Photos = photos
-	acc.DiaryProfile = &next
-	if err := store.SaveLocked(nil, acc); err != nil {
-		acc.DiaryProfile = previous
+	if err := store.SaveProfilePhotosLocked(acc, &next, superseded...); err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
 	}

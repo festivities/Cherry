@@ -81,19 +81,7 @@ func profilePicture(aid string) (img, wb, bg string) {
 	defer store.AccountsMu.Unlock()
 	for _, acc := range store.AllAccountsLocked() {
 		if acc.Aid == aid {
-			if acc.ProfileImage.Image == "" {
-				return "", "", ""
-			}
-			img = acc.ProfileImage.Image
-			wb = acc.ProfileImage.WholeBody
-			if wb == "" {
-				wb = img
-			}
-			bg = acc.ProfileImage.Bg
-			if bg == "" {
-				bg = "profilebg/12.jpg"
-			}
-			return img, wb, bg
+			return acc.ProfileImage.Fields()
 		}
 	}
 	return "", "", ""

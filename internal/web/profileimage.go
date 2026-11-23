@@ -56,10 +56,8 @@ func handleProfileImageSave(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
 	}
-	previous := acc.ProfileImage
-	acc.ProfileImage = store.ProfileImage{Image: req.ImageURL, WholeBody: req.WbImageURL, Bg: req.BgURL}
-	if err := store.SaveLocked(nil, acc); err != nil {
-		acc.ProfileImage = previous
+	next := store.ProfileImage{Image: req.ImageURL, WholeBody: req.WbImageURL, Bg: req.BgURL}
+	if err := store.SaveProfileImageLocked(acc, next); err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
 	}

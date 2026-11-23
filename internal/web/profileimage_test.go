@@ -180,3 +180,103 @@ func TestProfileImagePersists(t *testing.T) {
 		t.Fatal("empty profile image must be omitted")
 	}
 }
+
+func TestProfilePicturesAcrossSocialRoutes(t *testing.T) {
+	installSocialTestAccounts(t, map[string]*store.Account{
+		"viewer-tok": {
+			AccessToken: "viewer-tok", Aid: "9801", Name: "Viewer", Country: "JP",
+			ProfileImage: store.ProfileImage{Image: "/lineplay/pr/9801_1"},
+			Pins:         []string{"9802"},
+		},
+		"friend-tok": {
+			AccessToken: "friend-tok", Aid: "9802", Name: "FriendPic", Country: "JP",
+			ProfileImage: store.ProfileImage{Image: "/lineplay/pr/9802_1", WholeBody: "/lineplay/pr/9802_2", Bg: "profilebg/14.jpg"},
+		},
+		"plain-tok": {
+			AccessToken: "plain-tok", Aid: "9803", Name: "PlainFriend", Country: "JP",
+		},
+	})
+	store.ResetSocial()
+	t.Cleanup(store.ResetSocial)
+	store.SocialMu.Lock()
+	store.Friendships = []store.Friendship{{A: "9801", B: "9802", State: "accepted"}}
+	store.SocialMu.Unlock()
+
+	// 1. Diary intro (GET /v4/diary2/intro/<aid>): profile, bg, obsProfileImagePath.
+	rec := decorReq(t, "viewer-tok", http.MethodGet, "/v4/diary2/intro/9802", "")
+	var introDoc struct {
+		Result map[string]any `json:"result"`
+	}
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &introDoc) != nil {
+		t.Fatalf("diary intro 9802 = %d %s", rec.Code, rec.Body.String())
+	}
+	if introDoc.Result["profile"] != "/lineplay/pr/9802_1" || introDoc.Result["bg"] != "profilebg/14.jpg" || introDoc.Result["obsProfileImagePath"] != "/lineplay/pr/9802_1" {
+		t.Fatalf("diary intro 9802 = %+v", introDoc.Result)
+	}
+	rec = decorReq(t, "viewer-tok", http.MethodGet, "/v4/diary2/intro/9801", "")
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &introDoc) != nil {
+		t.Fatalf("diary intro 9801 = %d %s", rec.Code, rec.Body.String())
+	}
+	if introDoc.Result["profile"] != "/lineplay/pr/9801_1" || introDoc.Result["bg"] != store.DefaultProfileBg || introDoc.Result["obsProfileImagePath"] != "/lineplay/pr/9801_1" {
+		t.Fatalf("diary intro 9801 fallback = %+v", introDoc.Result)
+	}
+
+	// 2. Friend sync (GET /v4/sync/friends/0): own + buddy bg and picture gate fields.
+	rec = decorReq(t, "viewer-tok", http.MethodGet, "/v4/sync/friends/0", "")
+	var syncDoc struct {
+		Result struct {
+			MyProfileImageURL   string     `json:"myProfileImageUrl"`
+			ObsProfileImagePath string     `json:"obsProfileImagePath"`
+			Bg                  string     `json:"bg"`
+			BuddyList           []buddyRow `json:"buddyList"`
+		} `json:"result"`
+	}
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &syncDoc) != nil {
+		t.Fatalf("sync friends = %d %s", rec.Code, rec.Body.String())
+	}
+	if syncDoc.Result.MyProfileImageURL != "/lineplay/pr/9801_1" || syncDoc.Result.ObsProfileImagePath != "/lineplay/pr/9801_1" || syncDoc.Result.Bg != store.DefaultProfileBg {
+		t.Fatalf("sync own = %+v", syncDoc.Result)
+	}
+	found9802 := false
+	for _, b := range syncDoc.Result.BuddyList {
+		if b.AvatarNo == "9802" {
+			found9802 = true
+			if b.ProfileImageURL != "/lineplay/pr/9802_1" || b.ObsProfileImagePath != "/lineplay/pr/9802_1" || b.Bg != "profilebg/14.jpg" {
+				t.Fatalf("sync buddy 9802 = %+v", b)
+			}
+		}
+	}
+	if !found9802 {
+		t.Fatal("buddy 9802 missing from friend sync")
+	}
+
+	// 3. Friend search (POST /v4/square/friends/search).
+	rec = decorReq(t, "viewer-tok", http.MethodPost, "/v4/square/friends/search?page=0&size=10", `{"country":"JP","caricNickName":"FriendPic","searchType":"NICK"}`)
+	var searchDoc struct {
+		Result struct {
+			Items []friendSearchItem `json:"items"`
+		} `json:"result"`
+	}
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &searchDoc) != nil || len(searchDoc.Result.Items) != 1 {
+		t.Fatalf("friend search = %d %s", rec.Code, rec.Body.String())
+	}
+	it := searchDoc.Result.Items[0]
+	if it.ProfileURL != "/lineplay/pr/9802_1" || it.ObsProfileImagePath != "/lineplay/pr/9802_1" || it.WholeBodyProfileURL != "/lineplay/pr/9802_2" || it.BG != "profilebg/14.jpg" {
+		t.Fatalf("friend search item = %+v", it)
+	}
+
+	// 4. My Pins (GET /v4/pin/list).
+	rec = decorReq(t, "viewer-tok", http.MethodGet, "/v4/pin/list", "")
+	var pinDoc struct {
+		Result struct {
+			PinList []pinRow `json:"pinList"`
+		} `json:"result"`
+	}
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &pinDoc) != nil || len(pinDoc.Result.PinList) != 1 {
+		t.Fatalf("pin list = %d %s", rec.Code, rec.Body.String())
+	}
+	pr := pinDoc.Result.PinList[0]
+	if pr.ProfileImageURL != "/lineplay/pr/9802_1" || pr.ObsProfileImageURL != "/lineplay/pr/9802_1" || pr.ProfileBgURL != "profilebg/14.jpg" {
+		t.Fatalf("pin row = %+v", pr)
+	}
+}

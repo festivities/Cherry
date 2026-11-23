@@ -31,6 +31,7 @@ type AccountSnapshot struct {
 	DiaryProfile   *DiaryProfile
 	DyeColors      map[string][]DyeColor
 	BirthdayClaims map[int]int64 // birthday reward claims by avatar turn (economy/birthday.go); replaced, never edited in place
+	Remodel        *RoomRemodel  // unlocked floors and per-floor tile sizes (economy/remodel.go); replaced, never edited in place
 }
 
 func AccountInventoryCodes(acc *Account) []string {
@@ -79,6 +80,7 @@ func AccountByAvatarID(id string) (AccountSnapshot, bool) {
 				ProfileImage:   acc.ProfileImage,
 				DiaryProfile:   acc.DiaryProfile,
 				DyeColors:      acc.DyeColors,
+				Remodel:        acc.Remodel,
 			}, true
 		}
 	}
@@ -152,6 +154,72 @@ type Account struct {
 	StyleSlots      []StyleSlot           // Closet styling slots (economy/styling.go); replaced, never edited in place
 	StyleBought     int64                 // extra styling slots bought (economy/styling.go)
 	StyleNextID     int64                 // last styling slot id handed out; ids are never reused
+	Remodel         *RoomRemodel          // unlocked floors and per-floor tile sizes (economy/remodel.go); replaced, never edited in place
+}
+
+// Room remodeling defaults: 1F and 2F are free at 12x12 (legacy default); 3F and larger sizes unlock via Remodeling Shop.
+const (
+	DefaultRoomFloors   = 2
+	MaxRoomFloors       = 3
+	DefaultRoomTileSize = 12
+)
+
+// RoomRemodel holds a player's unlocked floor count (2 default, 3 once 3F unlocked), active per-floor tileSize, and
+// owned remodeling item codes.
+type RoomRemodel struct {
+	MaxFloor   int            `json:"maxFloor,omitempty"`
+	FloorSizes map[string]int `json:"floorSizes,omitempty"`
+	Owned      []string       `json:"owned,omitempty"`
+}
+
+// RoomMaxFloor returns the highest floor (2 or 3) the remodel state unlocks.
+func (r *RoomRemodel) RoomMaxFloor() int {
+	if r == nil || r.MaxFloor < DefaultRoomFloors {
+		return DefaultRoomFloors
+	}
+	if r.MaxFloor > MaxRoomFloors {
+		return MaxRoomFloors
+	}
+	return r.MaxFloor
+}
+
+// FloorTileSize returns the active tileSize for level ("LEVEL_1".."LEVEL_3"), defaulting to DefaultRoomTileSize (12).
+func (r *RoomRemodel) FloorTileSize(level string) int {
+	if r != nil && r.FloorSizes != nil {
+		if sz := r.FloorSizes[level]; sz >= DefaultRoomTileSize {
+			return sz
+		}
+	}
+	return DefaultRoomTileSize
+}
+
+// Owns reports whether code is in Owned.
+func (r *RoomRemodel) Owns(code string) bool {
+	if r == nil {
+		return false
+	}
+	for _, c := range r.Owned {
+		if c == code {
+			return true
+		}
+	}
+	return false
+}
+
+// RoomMaxFloor is the account's highest unlocked floor (2 default, 3 once 3F is unlocked).
+func (a *Account) RoomMaxFloor() int {
+	if a == nil {
+		return DefaultRoomFloors
+	}
+	return a.Remodel.RoomMaxFloor()
+}
+
+// FloorTileSize is the account's active tileSize for level.
+func (a *Account) FloorTileSize(level string) int {
+	if a == nil {
+		return DefaultRoomTileSize
+	}
+	return a.Remodel.FloorTileSize(level)
 }
 
 // FishingGear is the Square fishing gear an account bought (economy/fishing_shop.go): the item IDs
@@ -163,12 +231,34 @@ type FishingGear struct {
 	BaitUses map[int64]int64 `json:"baitUses,omitempty"`
 }
 
+// DefaultProfileBg is the Cherry-chosen fallback background when an account has a saved profile picture
+// with no stored background (several client cells gate background/picture rendering on non-empty bg).
+const DefaultProfileBg = "profilebg/12.jpg"
+
 // ProfileImage is the "Take profile picture" result: OBS paths as the client sent them
 // ("/lineplay/pr/<userid>_<ctime>") and the "profilebg/<n>.jpg" background name.
 type ProfileImage struct {
 	Image     string `json:"image,omitempty"`
 	WholeBody string `json:"wholeBody,omitempty"`
 	Bg        string `json:"bg,omitempty"`
+}
+
+// Fields returns the wire values (image, wholeBody, bg) for p. When Image is empty, all three are "".
+// Otherwise WholeBody defaults to Image and Bg defaults to DefaultProfileBg.
+func (p ProfileImage) Fields() (img, wb, bg string) {
+	if p.Image == "" {
+		return "", "", ""
+	}
+	img = p.Image
+	wb = p.WholeBody
+	if wb == "" {
+		wb = img
+	}
+	bg = p.Bg
+	if bg == "" {
+		bg = DefaultProfileBg
+	}
+	return img, wb, bg
 }
 
 // QuestDay is one game day (06:00 JST boundary) of daily-quest progress. Done and
@@ -601,7 +691,7 @@ func accountForToken(token string) (AccountSnapshot, bool) {
 		Aid: acc.Aid, Name: acc.Name, Gender: acc.Gender, Skin: acc.Skin,
 		Country: acc.Country, ItemCodes: append([]string(nil), acc.ItemCodes...),
 		InventoryCodes: append([]string(nil), AccountInventoryCodes(acc)...),
-		BirthdayClaims: acc.BirthdayClaims, ProfileImage: acc.ProfileImage,
+		BirthdayClaims: acc.BirthdayClaims, ProfileImage: acc.ProfileImage, Remodel: acc.Remodel,
 	}
 	AccountsMu.Unlock()
 	return snapshot, true

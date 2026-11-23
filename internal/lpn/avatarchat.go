@@ -752,8 +752,11 @@ func avatarChatListRows(aid uint64) []avatarChatListed {
 // avatarChatAvatarOf is the userList entry of a friend (see avatarChatAvatar). The friend's account is read by aid.
 func avatarChatAvatarOf(friend uint64) avatarChatAvatar {
 	acc, _ := store.AccountByAvatarID(strconv.FormatUint(friend, 10))
+	img, wb, bg := acc.ProfileImage.Fields()
 	return avatarChatAvatar{
-		AvatarID: strconv.FormatUint(friend, 10), Name: acc.Name, Gender: acc.Gender, Items: []any{}, PetProfiles: []any{},
+		AvatarID: strconv.FormatUint(friend, 10), Name: acc.Name, Gender: acc.Gender,
+		Profile: img, WholeProfile: wb, ObsProfileImagePath: img, ObsWholeBodyProfileImagePath: wb, Bg: bg,
+		Items: []any{}, PetProfiles: []any{},
 	}
 }
 

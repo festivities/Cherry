@@ -29,6 +29,7 @@ type buddyRow struct {
 	Mid                 string `json:"mid"`
 	ProfileImageURL     string `json:"profileImageUrl"`
 	ObsProfileImagePath string `json:"obsProfileImagePath"`
+	Bg                  string `json:"bg"`
 }
 
 func handleFriendSync(w http.ResponseWriter, r *http.Request) {
@@ -88,16 +89,17 @@ func handleFriendSync(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	for _, rel := range rels {
-		name, obs := rel.aid, ""
+		name, img, bg := rel.aid, "", ""
 		if acc, ok := store.AccountByAvatarID(rel.aid); ok {
-			name, obs = acc.Name, acc.ProfileImage.Image
+			name = acc.Name
+			img, _, bg = acc.ProfileImage.Fields()
 		}
-		// NaBaseFriendCell::SetAvatarImage (0x1c4431c) draws a picture only when profileImageUrl is non-empty, then fetches
-		// obsProfileImagePath; both carry the same path (a URL alone in profileImageUrl would be fetched as a URL).
+		// NaBaseFriendCell::SetAvatarImage (0x1c4431c) and NaRoomPartySearchCell (0x1ef9e60/0x1ef9d7c) gate on
+		// profileImageUrl != "" and bg != "", then fetch obsProfileImagePath.
 		buddies = append(buddies, buddyRow{
 			AvatarNo: rel.aid, AvatarName: name, BuddyAvatarNo: rel.aid,
 			Status: rel.status, FriendStatus: rel.status, LineBuddyYn: "N", Mid: rel.aid,
-			ProfileImageURL: obs, ObsProfileImagePath: obs,
+			ProfileImageURL: img, ObsProfileImagePath: img, Bg: bg,
 		})
 	}
 	friends := 0
@@ -111,9 +113,10 @@ func handleFriendSync(w http.ResponseWriter, r *http.Request) {
 	}
 	// The Friends screen's own "Profile" row (NaFriendProfileCell, from the sync reply's top level) has the same gate:
 	// myProfileImageUrl non-empty, then obsProfileImagePath (friendlist-picture-spec 2026-11-22).
-	own, ownName, ownAid := "", "", ""
+	own, ownBg, ownName, ownAid := "", "", "", ""
 	if actorOK {
-		own, ownName, ownAid = actor.ProfileImage.Image, actor.Name, actor.Aid
+		own, _, ownBg = actor.ProfileImage.Fields()
+		ownName, ownAid = actor.Name, actor.Aid
 	}
 	body, err := json.Marshal(map[string]any{
 		"result": map[string]any{
@@ -121,7 +124,7 @@ func handleFriendSync(w http.ResponseWriter, r *http.Request) {
 			"friendsCount": friends, "buddyList": buddies,
 			"newbieRecommendList": []any{}, "nearbyRecommendList": []any{},
 			"bookmarks": bookmarks, "mid": ownAid, "myAvatarName": ownName,
-			"myProfileImageUrl": own, "obsProfileImagePath": own,
+			"myProfileImageUrl": own, "obsProfileImagePath": own, "bg": ownBg,
 		},
 	})
 	if err != nil {
@@ -417,7 +420,7 @@ func diaryIntroTextOK(s string) bool {
 }
 
 // diaryIntroResult builds the SetDiaryIntroduceData result map for aid. Acquires and releases store.SocialMu.
-func diaryIntroResult(aid, nickname, obsProfileImagePath string, dp store.DiaryProfile, viewer store.AccountSnapshot, viewerOK bool) map[string]any {
+func diaryIntroResult(aid, nickname string, pi store.ProfileImage, dp store.DiaryProfile, viewer store.AccountSnapshot, viewerOK bool) map[string]any {
 	store.SocialMu.Lock()
 	count := 0
 	for _, post := range store.DiaryPosts {
@@ -437,6 +440,7 @@ func diaryIntroResult(aid, nickname, obsProfileImagePath string, dp store.DiaryP
 	if diaryName == "" {
 		diaryName = nickname
 	}
+	img, _, bg := pi.Fields()
 	return map[string]any{
 		"avatarId": aid, "nickname": nickname, "diaryName": diaryName,
 		"introduce": dp.Introduce, "skinId": dp.SkinID,
@@ -445,8 +449,8 @@ func diaryIntroResult(aid, nickname, obsProfileImagePath string, dp store.DiaryP
 		"bloodType": shown(dp.BloodType, dp.BloodTypeSecret), "bloodTypeSecret": dp.BloodTypeSecret,
 		"job": shown(dp.Job, dp.JobSecret), "jobSecret": dp.JobSecret,
 		"created": true, "diaryCount": count, "todayVisitor": 0, "totalVisitor": 0,
-		"obsProfileImagePath": obsProfileImagePath,
-		"showGuestBook":       true, "showCmt": true, "useCmtTagBrandAvatarOnly": false, "showProfile": true,
+		"profile": img, "bg": bg, "obsProfileImagePath": img,
+		"showGuestBook": true, "showCmt": true, "useCmtTagBrandAvatarOnly": false, "showProfile": true,
 	}
 }
 
@@ -462,7 +466,7 @@ func handleDiaryIntro(w http.ResponseWriter, r *http.Request) {
 		aid = "1"
 	}
 	nickname := "guest"
-	obsProfileImagePath := ""
+	var pi store.ProfileImage
 	var dp store.DiaryProfile
 	if aid == store.FriendAID {
 		nickname = store.FriendName()
@@ -470,12 +474,12 @@ func handleDiaryIntro(w http.ResponseWriter, r *http.Request) {
 		if acc.Name != "" {
 			nickname = acc.Name
 		}
-		obsProfileImagePath = acc.ProfileImage.Image
+		pi = acc.ProfileImage
 		if acc.DiaryProfile != nil {
 			dp = *acc.DiaryProfile
 		}
 	}
-	body, err := json.Marshal(map[string]any{"result": diaryIntroResult(aid, nickname, obsProfileImagePath, dp, viewer, viewerOK)})
+	body, err := json.Marshal(map[string]any{"result": diaryIntroResult(aid, nickname, pi, dp, viewer, viewerOK)})
 	if err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
@@ -552,11 +556,11 @@ func handleDiaryIntroSave(w http.ResponseWriter, r *http.Request) {
 	if nickname == "" {
 		nickname = "guest"
 	}
-	obsProfileImagePath := acc.ProfileImage.Image
+	pi := acc.ProfileImage
 	dp := next
 	store.AccountsMu.Unlock()
 
-	result := diaryIntroResult(aid, nickname, obsProfileImagePath, dp, store.AccountSnapshot{Aid: aid}, true)
+	result := diaryIntroResult(aid, nickname, pi, dp, store.AccountSnapshot{Aid: aid}, true)
 	body, err := json.Marshal(map[string]any{"result": result})
 	if err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
@@ -804,39 +808,29 @@ func handleDiaryModify(w http.ResponseWriter, r *http.Request) {
 	if images == nil {
 		images = []store.DiaryImage{}
 	}
-	store.SocialMu.Lock()
-	idx := -1
-	for i := range store.DiaryPosts {
-		if store.DiaryPosts[i].AvatarID == actor.Aid && store.DiaryPosts[i].DiaryNo == req.DiaryNo {
-			idx = i
-			break
+	updated, found, err := store.ModifyDiaryPost(actor.Aid, req.DiaryNo, func(post *store.DiaryPost) {
+		post.Title = req.Title
+		post.Content = req.Content
+		post.OpenState = openState
+		post.Images = images
+		post.ImageLocationType = store.DiaryImageLocationType(images)
+		if req.FeelingState != nil {
+			post.FeelingState = *req.FeelingState
 		}
-	}
-	if idx < 0 {
-		store.SocialMu.Unlock()
-		httpx.ServeNotFound(w)
-		return
-	}
-	old := store.DiaryPosts[idx]
-	post := &store.DiaryPosts[idx]
-	post.Title = req.Title
-	post.Content = req.Content
-	post.OpenState = openState
-	post.Images = images
-	post.ImageLocationType = store.DiaryImageLocationType(images)
-	if req.FeelingState != nil {
-		post.FeelingState = *req.FeelingState
-	}
-	if req.ImageTypeKind != "" {
-		post.ImageTypeKind = req.ImageTypeKind
-	}
-	if err := store.SaveSocialLocked(store.SocialChange{Posts: []string{post.DiaryNo}}); err != nil {
-		store.DiaryPosts[idx] = old
-		store.SocialMu.Unlock()
+		if req.ImageTypeKind != "" {
+			post.ImageTypeKind = req.ImageTypeKind
+		}
+	})
+	if err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
 	}
-	detail := diaryPostDetailLocked(*post, actor.Aid)
+	if !found {
+		httpx.ServeNotFound(w)
+		return
+	}
+	store.SocialMu.Lock()
+	detail := diaryPostDetailLocked(updated, actor.Aid)
 	store.SocialMu.Unlock()
 	data, err := json.Marshal(map[string]any{"result": diaryPostDetailMap(detail)})
 	if err != nil {
@@ -1132,7 +1126,11 @@ func handleFriendSearch(w http.ResponseWriter, r *http.Request) {
 		if acc == nil || !store.ValidAvatarID(acc.Aid) || acc.Aid == "0" || acc.Aid == store.FriendAID {
 			continue
 		}
-		candidate := friendSearchItem{AvatarID: acc.Aid, CaricNickName: acc.Name, FriendStatus: strconv.Itoa(relNone)}
+		img, wb, bg := acc.ProfileImage.Fields()
+		candidate := friendSearchItem{
+			AvatarID: acc.Aid, CaricNickName: acc.Name, FriendStatus: strconv.Itoa(relNone),
+			ProfileURL: img, ObsProfileImagePath: img, WholeBodyProfileURL: wb, BG: bg,
+		}
 		if current, exists := byID[acc.Aid]; exists && current.CaricNickName <= candidate.CaricNickName {
 			continue
 		}

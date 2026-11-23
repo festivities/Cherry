@@ -430,7 +430,7 @@ func partyAidList(data []byte) ([]uint64, bool) {
 func partyEnterBody(result, host uint64) []byte {
 	b := pbVar(pbVar(nil, 1, result), 2, host)
 	if result == 0 {
-		b = pbVar(b, 5, room.RoomPartyFloors) // ExtendFloors
+		b = pbVar(b, 5, uint64(room.HostMaxFloor(host))) // ExtendFloors
 	}
 	return b
 }
@@ -606,8 +606,8 @@ func (s *roomPartySession) inviteCancel(frame, data []byte) error {
 	return s.reply(frame, 22, body)
 }
 
-// partyFloorOK reports whether f is a servable floor.
-func partyFloorOK(f uint64) bool { return f >= 1 && f <= room.RoomPartyFloors }
+// partyFloorOK reports whether f is a servable floor of host's room.
+func partyFloorOK(host, f uint64) bool { return f >= 1 && f <= uint64(room.HostMaxFloor(host)) }
 
 // partyName is the display name for floor notifications.
 func partyName(aid uint64) []byte {
@@ -620,7 +620,7 @@ func partyName(aid uint64) []byte {
 // allRosterLocked lists every member (all floors), floor by floor; caller holds h.mu.
 func (r *partyRoom) allRosterLocked() []partySnap {
 	var out []partySnap
-	for f := 1; f <= room.RoomPartyFloors; f++ {
+	for f := 1; f <= room.MaxRoomFloors; f++ {
 		out = append(out, r.rosterLocked(f)...)
 	}
 	return out
@@ -638,7 +638,7 @@ func (s *roomPartySession) relayStart(frame, data []byte) error {
 		return nil
 	}
 	floor := 1
-	if f, found := protobufUintField(data, 2); found && partyFloorOK(f) {
+	if f, found := protobufUintField(data, 2); found && partyFloorOK(s.host, f) {
 		floor = int(f)
 	}
 	cx, cy, _, _, _ := partyMoveFields(move)
@@ -747,8 +747,9 @@ func (s *roomPartySession) member() *partyRoom {
 // cr_floor_relaystart_req; the move itself is applied there. Nonzero: client does nothing.
 func (s *roomPartySession) floorEnter(frame, data []byte) error {
 	f, _ := protobufUintField(data, 1)
+	r := s.member()
 	result := uint64(0)
-	if s.member() == nil || !partyFloorOK(f) {
+	if r == nil || !partyFloorOK(r.host, f) {
 		result = 1
 	}
 	s.logger.Printf("ROOMPARTY floor-enter aid=%d floor=%d result=%d", s.aid, f, result)
@@ -762,7 +763,7 @@ func (s *roomPartySession) floorRelayStart(data []byte) error {
 	r := s.member()
 	f, _ := protobufUintField(data, 1)
 	move, _, ok := pbBytesField(data, 2)
-	if r == nil || !partyFloorOK(f) || !ok {
+	if r == nil || !partyFloorOK(r.host, f) || !ok {
 		s.logger.Printf("ROOMPARTY floor-relaystart ignored aid=%d floor=%d", s.aid, f)
 		return nil
 	}
@@ -1061,8 +1062,13 @@ func HandleRoom(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	roomInfo := roomInfoFor(r, level, decorAID, parts[0] == "myroom" || decorAID != "")
-	maxLevel := "LEVEL_" + strconv.Itoa(room.RoomPartyFloors)
+	decor := parts[0] == "myroom" || decorAID != ""
+	roomInfo := roomInfoFor(r, level, decorAID, decor)
+	maxFloor := room.RoomPartyFloors
+	if decor {
+		maxFloor = room.AccountMaxFloor(r, decorAID)
+	}
+	maxLevel := "LEVEL_" + strconv.Itoa(maxFloor)
 	body, _ := json.Marshal(map[string]any{"result": map[string]any{
 		"roomInfo":          roomInfo,
 		"ownMaxGroundLevel": maxLevel, "availMaxGroundLevel": maxLevel,
@@ -1118,7 +1124,7 @@ func HandleRoomRandom(w http.ResponseWriter, r *http.Request) {
 			NoteRoomVisit(v, h)
 		}
 	}
-	maxLevel := "LEVEL_" + strconv.Itoa(room.RoomPartyFloors)
+	maxLevel := "LEVEL_" + strconv.Itoa(room.AccountMaxFloor(r, host))
 	httpx.WriteObj(w, map[string]any{"result": map[string]any{
 		"hostAvatarId": host, "room": roomInfoFor(r, randomRoomLevel, host, true),
 		"ownMaxGroundLevel": maxLevel, "availMaxGroundLevel": maxLevel,
