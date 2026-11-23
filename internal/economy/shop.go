@@ -233,9 +233,17 @@ type shopCatalog struct {
 	gardens                *Gardens             // the gardens.json the landscape rows came from
 	fashion, interior, pet []shopItem           // sellable: art, so listed, pooled and granted
 	landscape              []shopItem           // Garden landscapes gardens.json lists (no archive folder; landscape.go)
+	petItems               map[string]*shopItem // Minipet room items (RUPI, catIdx 29) with art and a pet: sold only in the Minipet Shop
+	minipets               []miniPetPair        // the Minipet Shop: paired pets with art whose item has art (minipet.go)
 	byCode                 map[string]*shopItem // the same items by code
 	animated               map[string]bool      // every priced code, art or not (ItemPrice; sell-back needs it)
 }
+
+// miniPetPair is one Minipet for sale: a pet with art and its room item with art.
+type miniPetPair struct{ pet, item shopItem }
+
+// minipetItem is the listed Minipet room item with that code, or nil.
+func (c *shopCatalog) minipetItem(code string) *shopItem { return c.petItems[code] }
 
 var (
 	catalogMu sync.Mutex
@@ -271,12 +279,12 @@ func WarmArchive() error {
 	return nil
 }
 
-// PetSpecies is the Minipet Shop catalog (the sellable pets with art) for the Pet Book (room.HandlePetBook).
+// PetSpecies is the Minipet Shop catalog (the paired pets with art and item art) for the Pet Book (room.HandlePetBook).
 func PetSpecies() []room.PetSpecies {
 	c := loadCatalog()
-	out := make([]room.PetSpecies, 0, len(c.pet))
-	for _, it := range c.pet {
-		out = append(out, room.PetSpecies{Code: it.Code, ID: it.ID, Catg: it.Catg, Name: PetDisplayName(it.Code)})
+	out := make([]room.PetSpecies, 0, len(c.minipets))
+	for _, mp := range c.minipets {
+		out = append(out, room.PetSpecies{Code: mp.pet.Code, ID: mp.pet.ID, Catg: mp.pet.Catg, Name: PetDisplayName(mp.pet.Code), MaxExp: miniPetMaxExp(mp.pet.Code)})
 	}
 	return out
 }
@@ -310,7 +318,7 @@ func petCategory(kind string, n int64, ride bool) string {
 }
 
 func scanCatalog(archive *assets.Store) *shopCatalog {
-	c := &shopCatalog{archive: archive, originals: archive.Items(), generated: assets.GeneratedItems(), gardens: gardensFile.Get(), byCode: map[string]*shopItem{}, animated: map[string]bool{}}
+	c := &shopCatalog{archive: archive, originals: archive.Items(), generated: assets.GeneratedItems(), gardens: gardensFile.Get(), byCode: map[string]*shopItem{}, animated: map[string]bool{}, petItems: map[string]*shopItem{}}
 	for _, sub := range []string{"custom", "dress", "interior", "tile", "pet"} {
 		for _, n := range c.originals.IDs(sub) {
 			c.add(sub, n, true)
@@ -328,6 +336,13 @@ func scanCatalog(archive *assets.Store) *shopCatalog {
 		}
 	}
 	c.classifyPets()
+	for _, pet := range c.pet {
+		if item, ok := MiniPetItem(pet.Code); ok {
+			if it := c.petItems[item]; it != nil {
+				c.minipets = append(c.minipets, miniPetPair{pet: pet, item: *it})
+			}
+		}
+	}
 	return c
 }
 
@@ -368,6 +383,13 @@ func (c *shopCatalog) add(sub string, n int64, original bool) {
 	}
 	// Priced whether or not it has art, so an owned copy sells back at its real price.
 	c.animated[code] = it.Animated
+	if kind == kindInterior && code[2:4] == "PI" {
+		// A Minipet room item is sold only in the Minipet Shop, with its pet (minipet.go); no other shop lists it.
+		if _, paired := MiniPetOfItem(code); paired && (!original || thumbs.HasArt(sub, n)) {
+			c.petItems[code] = &it
+		}
+		return
+	}
 	if original && !thumbs.HasArt(sub, n) {
 		// No art: the client would show the grey placeholder, so it is not listed, pooled or granted.
 		return
@@ -507,29 +529,14 @@ func handleShopList(kind byte) http.HandlerFunc {
 				rows = append(rows, interiorRow(it, owned[it.Code], deals, now))
 			}
 		default:
-			_, owned, _ := requesterOwned(r)
-			for _, it := range c.pet {
-				// The client has three tabs (button ids 101/1/46 select UDOGINT/UCATINT/URIDEINT,
-				// @0x1cf5690); UPETINT is only reachable by a link argument and lists everything.
-				// ponytail: the toys (UTOY) have no tab of their own, so they ride in the default
-				// Dog tab; move them to UPETINT only if the stock UI turns out to have a Toy tab.
-				if cat == "UPETINT" || cat == "UDOGINT" && (it.Catg == "UDOG" || it.Catg == "UTOY") ||
-					cat == "UCATINT" && it.Catg == "UCAT" || cat == "URIDEINT" && it.Catg == "URIDE" {
-					row := interiorRow(it, owned[it.Code], deals, now)
-					row["purchasedYn"] = owned[it.Code]
-					if name := PetDisplayName(it.Code); name != "" {
-						row["name"] = name
-					}
-					var speed, power, stamina, itemSlot int64
-					if it.Catg == "URIDE" {
-						st := PetRaceStat(it.Code)
-						speed, power, stamina, itemSlot = st.Speed, st.Power, st.Stamina, st.ItemSlot
-					}
-					for k, v := range map[string]any{"raceId": 1, "catgCd": it.Catg, "petSkinId": room.PetSkinID(it.Code), "petSkinCode": it.Code,
-						"linkPosX": 0, "linkPosY": 0, "linkScale": 100, "linkPosScale": 100, "speed": speed, "power": power, "stamina": stamina, "itemSlot": itemSlot} {
-						row[k] = v
-					}
-					rows = append(rows, row)
+			// A Minipet row is the room item (RUPI itemCode) at its pet's price; the client's three tabs (button ids
+			// 101/1/46 select UDOGINT/UCATINT/URIDEINT, @0x1cf5690) list the pets of their category. UPETINT is only
+			// reachable by a link argument and lists everything. ponytail: the toys (UTOY) ride in the Dog tab.
+			owned, _, _ := requesterOwned(r)
+			for _, mp := range c.minipets {
+				if cat == "UPETINT" || cat == "UDOGINT" && (mp.pet.Catg == "UDOG" || mp.pet.Catg == "UTOY") ||
+					cat == "UCATINT" && mp.pet.Catg == "UCAT" || cat == "URIDEINT" && mp.pet.Catg == "URIDE" {
+					rows = append(rows, miniPetRow(mp, owned[mp.item.Code], deals, now))
 				}
 			}
 		}
@@ -548,6 +555,34 @@ func handleShopList(kind byte) http.HandlerFunc {
 		})
 		httpx.WriteJSON(w, http.StatusOK, itemsBody(rows))
 	}
+}
+
+// miniPetRow is one Minipet Shop row (sShopInteriorItem + sShopPetItem, spec 3 section 4): the room item's code and
+// itemType ROOM, at the pet's price and currency, with the pet's skin code and ride stats.
+func miniPetRow(mp miniPetPair, owned bool, deals dealSet, now time.Time) map[string]any {
+	pet := mp.pet.Code
+	item := mp.item
+	item.Animated = mp.pet.Animated
+	row := priceKeys(item, deals, now)
+	price, cash := miniPetPrice(pet)
+	payment := "GEM"
+	if cash {
+		payment = "CASH"
+	}
+	for k, v := range map[string]any{
+		"name": PetDisplayName(pet), "price": price, "discountedPrice": price, "paymentType": payment,
+		"itemId": item.ID, "description": "", "itemType": "ROOM", "existInven": owned, "purchased": owned, "purchasedYn": owned,
+		"sellingStart": "", "discountStart": "", "raceId": 1, "catgCd": mp.pet.Catg, "petSkinId": room.PetSkinID(pet),
+		"petSkinCode": pet, "linkPosX": 0, "linkPosY": 0, "linkScale": 100, "linkPosScale": 100,
+		"speed": 0, "power": 0, "stamina": 0, "itemSlot": 0,
+	} {
+		row[k] = v
+	}
+	if mp.pet.Catg == "URIDE" {
+		st := PetRaceStat(pet)
+		row["speed"], row["power"], row["stamina"], row["itemSlot"] = st.Speed, st.Power, st.Stamina, st.ItemSlot
+	}
+	return row
 }
 
 func interiorRow(it shopItem, owned bool, deals dealSet, now time.Time) map[string]any {
@@ -622,11 +657,19 @@ func handleShopBuy(kind byte) http.HandlerFunc {
 			return
 		}
 		kind := kind
-		if _, k := classify(firstCode(req)); kind == kindInterior && (k == kindPet || k == kindGarden) {
-			kind = k // the stock pet shop (runtime 2026-10-07) and the landscapes buy through purchase/interior/buy
+		if _, k := classify(firstCode(req)); kind == kindInterior && k == kindGarden {
+			kind = k // the landscapes buy through purchase/interior/buy
 		}
 		give := strings.Trim(strings.TrimSpace(string(req.GiveNo)), `"`)
-		if len(req.Items) == 0 || len(req.Items) > maxShopBatch || kind == kindPet && give != "" && give != "null" && give != "0" {
+		if kind == kindPet { // the Minipet Shop buys its RUPI room items through purchase/interior/buy (minipet.go)
+			shopError(w, r, raw, errUnknown, "unknown item")
+			return
+		}
+		if _, paired := MiniPetOfItem(firstCode(req)); paired && kind == kindInterior {
+			miniPetBuy(w, r, raw, req, give)
+			return
+		}
+		if len(req.Items) == 0 || len(req.Items) > maxShopBatch {
 			shopError(w, r, raw, errUnknown, "bad product")
 			return
 		}
@@ -663,8 +706,6 @@ func handleShopBuy(kind byte) http.HandlerFunc {
 		switch kind {
 		case kindFashion:
 			noMoney, label = errNoGemsFas, "dress"
-		case kindPet:
-			label = "pet"
 		case kindGarden:
 			label = "landscape"
 		}
@@ -676,11 +717,8 @@ func handleShopBuy(kind byte) http.HandlerFunc {
 			httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
 			return
 		}
-		switch kind { // lab accounts get their showcase seeded first, new accounts their starter room
-		case kindInterior:
+		if kind == kindInterior { // lab accounts get their showcase seeded first, new accounts their starter room
 			err = room.EnsureRoomLocked(acc)
-		case kindPet:
-			err = room.EnsurePetsLocked(acc)
 		}
 		if err != nil {
 			httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
@@ -697,13 +735,6 @@ func handleShopBuy(kind byte) http.HandlerFunc {
 					return
 				}
 				if slices.Contains(owned, code) || slices.Contains(codes[:i], code) {
-					shopError(w, r, raw, errOwned, "already owned")
-					return
-				}
-			}
-		case kindPet:
-			for i, code := range codes {
-				if slices.ContainsFunc(acc.Pets, func(p store.PetItem) bool { return p.Cd == code }) || slices.Contains(codes[:i], code) {
 					shopError(w, r, raw, errOwned, "already owned")
 					return
 				}
@@ -742,14 +773,6 @@ func handleShopBuy(kind byte) http.HandlerFunc {
 			acc.RoomItems, acc.NextRoomSeq = items, seq
 		case kindGarden:
 			acc.Landscapes = append(slices.Clone(acc.Landscapes), codes...)
-		case kindPet:
-			for _, code := range codes {
-				p := room.NewPetLocked(acc, code)
-				if name := PetDisplayName(code); name != "" {
-					p.Name = name
-				}
-				acc.Pets = append(slices.Clone(acc.Pets), p)
-			}
 		}
 		if err := store.SaveLocked(lines, acc); err != nil {
 			*acc = previous

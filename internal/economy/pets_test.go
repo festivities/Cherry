@@ -113,12 +113,16 @@ func TestCheckPetsValidationErrors(t *testing.T) {
 
 func TestPetCatalogPricingNamesAndStats(t *testing.T) {
 	shopFixture(t, map[string][]string{
-		"pet/326400016": {"skeleton.xml", "dp.png"},              // PUPE0000G: 800 GEM
-		"pet/326400019": {"skeleton.xml", "dp.png"},              // PUPE0000J: 12 CASH
-		"pet/326400029": {"skeleton.xml", "dp.png"},              // PUPE0000T: unpriced -> 1200 GEM fallback
-		"pet/326400230": {"skeleton.xml", "r.aniproj", "dp.png"}, // PUPE0006E: 2000 GEM ride
-		"pet/326400256": {"skeleton.xml", "r.aniproj", "dp.png"}, // PUPE00074: 35 CASH ride
-		"pet/326400259": {"skeleton.xml", "r.aniproj", "dp.png"}, // PUPE00077: unpriced animated -> 25 CASH fallback
+		"interior/122900007": {"dp.png"},                              // RUPI00007: PUPE0000G's room item
+		"interior/122900145": {"dp.png"},                              // RUPI00041: PUPE0000J's
+		"interior/122900006": {"dp.png"},                              // RUPI00006: PUPE0006E's
+		"interior/122900043": {"dp.png"},                              // RUPI00017 (base 36 "00017" = 43): PUPE00077's
+		"pet/326400016":      {"skeleton.xml", "dp.png"},              // PUPE0000G: 800 GEM
+		"pet/326400019":      {"skeleton.xml", "dp.png"},              // PUPE0000J: 12 CASH
+		"pet/326400029":      {"skeleton.xml", "dp.png"},              // PUPE0000T: unpriced -> 1200 GEM fallback
+		"pet/326400230":      {"skeleton.xml", "r.aniproj", "dp.png"}, // PUPE0006E: 2000 GEM ride
+		"pet/326400256":      {"skeleton.xml", "r.aniproj", "dp.png"}, // PUPE00074: 35 CASH ride
+		"pet/326400259":      {"skeleton.xml", "r.aniproj", "dp.png"}, // PUPE00077: unpriced animated -> 25 CASH fallback
 	})
 
 	priceCases := []struct {
@@ -192,23 +196,24 @@ func TestPetCatalogPricingNamesAndStats(t *testing.T) {
 			Speed, Power, Stamina, Slot int64
 		}{it.Name, it.Speed, it.Power, it.Stamina, it.ItemSlot}
 	}
-	if got := byCode["PUPE0006E"]; got.Name != "Carrie" || got.Power != 100 || got.Speed != 110 || got.Stamina != 105 || got.Slot != 1 {
-		t.Errorf("shop row PUPE0006E = %+v", got)
+	// A Minipet row is keyed by its room item (RUPI): the pet's name and racing stats ride on it.
+	if got := byCode["RUPI00006"]; got.Name != "Carrie" || got.Power != 100 || got.Speed != 110 || got.Stamina != 105 || got.Slot != 1 {
+		t.Errorf("shop row RUPI00006 = %+v", got)
 	}
-	if got, def := byCode["PUPE00077"], ActiveRacing().PetStat; got.Name != "Pio" || got.Power != def.Power || got.Speed != def.Speed || got.Stamina != def.Stamina || got.Slot != def.ItemSlot {
-		t.Errorf("shop row PUPE00077 = %+v, want Pio + fallback %+v", got, def)
+	if got, def := byCode["RUPI00017"], ActiveRacing().PetStat; got.Name != "Pio" || got.Power != def.Power || got.Speed != def.Speed || got.Stamina != def.Stamina || got.Slot != def.ItemSlot {
+		t.Errorf("shop row RUPI00017 = %+v, want Pio + fallback %+v", got, def)
 	}
-	if got := byCode["PUPE0000G"]; got.Name != "Mixed Breed" || got.Power != 0 || got.Speed != 0 || got.Stamina != 0 || got.Slot != 0 {
-		t.Errorf("shop row PUPE0000G = %+v, want Mixed Breed + 0 stats", got)
+	if got := byCode["RUPI00007"]; got.Name != "Mixed Breed" || got.Power != 0 || got.Speed != 0 || got.Stamina != 0 || got.Slot != 0 {
+		t.Errorf("shop row RUPI00007 = %+v, want Mixed Breed + 0 stats", got)
 	}
 
-	// Buy assigns PetDisplayName to the owned PetItem.
+	// The Minipet item is bought as a room item at its pet's price; the pet itself is not granted (it is adopted later).
 	acc, _ := phaseEAccount(t, 5000, nil)
-	if rec := postAs(handleShopBuy(kindPet), `{"items":[{"itemCode":"PUPE0000G","price":800}]}`); rec.Code != http.StatusOK {
-		t.Fatalf("buy PUPE0000G = %d %s", rec.Code, rec.Body.String())
+	if rec := postAs(handleShopBuy(kindInterior), `{"items":[{"itemCode":"RUPI00007","price":800}]}`); rec.Code != http.StatusOK {
+		t.Fatalf("buy RUPI00007 = %d %s", rec.Code, rec.Body.String())
 	}
-	if len(acc.Pets) != 1 || acc.Pets[0].Name != "Mixed Breed" {
-		t.Errorf("purchased pet = %+v, want Name Mixed Breed", acc.Pets)
+	if len(acc.Pets) != 0 || len(acc.RoomItems) == 0 || acc.RoomItems[len(acc.RoomItems)-1].Cd != "RUPI00007" {
+		t.Errorf("bought room items %+v pets %+v, want RUPI00007 and no pet", acc.RoomItems, acc.Pets)
 	}
 	// Verify room.PetSpecies type compiles with Name.
 	_ = room.PetSpecies{Code: "PUPE0000G", Name: "Mixed Breed"}

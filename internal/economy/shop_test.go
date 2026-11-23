@@ -137,6 +137,7 @@ func noArtFixture(t *testing.T) {
 		"dress/225106259":    {"x.aniproj"}, // CUON004TV animated, no art: still priced 625 R
 		"interior/121400639": {"dp.png"},
 		"interior/121700005": {"a.png"},
+		"interior/122900007": {"dp.png"}, // RUPI00007: the room item of PUPE0000G (a Minipet item, sold in the Minipet Shop only)
 		"pet/326400016":      {"skeleton.xml", "dp.png"},
 		"pet/326400017":      {"skeleton.xml"},
 	})
@@ -191,7 +192,7 @@ func TestNoArtItemsNotSoldOrGranted(t *testing.T) {
 	if got := list(handleShopList(kindInterior), "/v4/shop/interior/itemlist/"+room.RoomCategoryCode("RUTD00005")); len(got) != 0 {
 		t.Errorf("no-art furniture listed: %v", got)
 	}
-	if got := list(handleShopList(kindPet), "/v4/shop/interior/petitemlist/UPETINT"); !slices.Equal(got, []string{"PUPE0000G"}) {
+	if got := list(handleShopList(kindPet), "/v4/shop/interior/petitemlist/UPETINT"); !slices.Equal(got, []string{"RUPI00007"}) {
 		t.Errorf("pet list = %v", got)
 	}
 

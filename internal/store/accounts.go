@@ -38,6 +38,7 @@ type StoredAccount struct {
 	Rooms           map[string]RoomLayout `json:"rooms,omitempty"`
 	Presets         map[string]RoomPreset `json:"roomPresets,omitempty"`
 	Pets            []PetItem             `json:"pets,omitempty"`
+	MiniPets        []MiniPetState        `json:"miniPets,omitempty"`
 	Gems            int64                 `json:"gems,omitempty"`
 	Cash            int64                 `json:"cash,omitempty"`
 	FaceTickets     int64                 `json:"faceTickets,omitempty"`
@@ -472,7 +473,7 @@ func StoredFrom(acc *Account) StoredAccount {
 		AvatarUserID: acc.AvatarUserID, Aid: acc.Aid, Name: acc.Name, Gender: acc.Gender,
 		Skin: acc.Skin, Country: acc.Country, ItemCodes: acc.ItemCodes,
 		InventoryCodes: acc.InventoryCodes,
-		RoomItems:      acc.RoomItems, NextRoomSeq: acc.NextRoomSeq, Rooms: acc.Rooms, Presets: acc.Presets, Pets: acc.Pets,
+		RoomItems:      acc.RoomItems, NextRoomSeq: acc.NextRoomSeq, Rooms: acc.Rooms, Presets: acc.Presets, Pets: acc.Pets, MiniPets: acc.MiniPets,
 		Gems: acc.Gems, Cash: acc.Cash, FaceTickets: acc.FaceTickets, Welcomed: acc.Welcomed,
 		AttendDay: acc.AttendDay, AttendKey: acc.AttendKey, Mail: acc.Mail, NextMailSeq: acc.NextMailSeq,
 		ProfileImage: pi, Quests: acc.Quests, Fishing: acc.Fishing, FishCaught: acc.FishCaught, FishBookClaimed: slices.Clone(acc.FishBookClaimed), Gear: acc.Gear,
@@ -501,7 +502,7 @@ func accountFromStored(saved StoredAccount) *Account {
 		AvatarUserID: saved.AvatarUserID, Aid: saved.Aid, Name: saved.Name,
 		Gender: saved.Gender, Skin: saved.Skin, Country: saved.Country,
 		ItemCodes: saved.ItemCodes, InventoryCodes: inventoryCopy,
-		RoomItems: saved.RoomItems, NextRoomSeq: roomNextSeq(saved.RoomItems, saved.NextRoomSeq), Rooms: saved.Rooms, Presets: saved.Presets, Pets: saved.Pets,
+		RoomItems: saved.RoomItems, NextRoomSeq: roomNextSeq(saved.RoomItems, saved.NextRoomSeq), Rooms: saved.Rooms, Presets: saved.Presets, Pets: saved.Pets, MiniPets: saved.MiniPets,
 		Gems: max(saved.Gems, 0), Cash: max(saved.Cash, 0), FaceTickets: max(saved.FaceTickets, 0), Welcomed: saved.Welcomed,
 		AttendDay: saved.AttendDay, AttendKey: saved.AttendKey, Mail: saved.Mail, NextMailSeq: saved.NextMailSeq,
 		ProfileImage: derefProfile(saved.ProfileImage), Quests: saved.Quests, Fishing: saved.Fishing,

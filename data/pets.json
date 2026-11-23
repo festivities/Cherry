@@ -1,39 +1,45 @@
 {
   "origin": "mixed",
-  "note": "Mixed. ORIGINAL: the pet item codes (PUPE0000G..), the LINE PLAY pet names, cuddles requirements (100/200), currency kinds (GEM/CASH) and Riding Pet stats (power, speed, stamina, item_slot) of the 26 original Shop pets, and the wiki pet name pools. CHERRY-MADE: the scaled affordable Shop prices (no real money; Cash is earned-only), and the category-matched assignment of remaining wiki pet names to non-shop archive pets.",
+  "note": "Mixed. ORIGINAL: the pet item codes (PUPE0000G..), the LINE PLAY pet names, cuddles requirements (100/200), currency kinds (GEM/CASH) and Riding Pet stats (power, speed, stamina, item_slot) of the 26 original Shop pets, and the wiki pet name pools. CHERRY-MADE: the scaled affordable Shop prices (no real money; Cash is earned-only), and the category-matched assignment of remaining wiki pet names to non-shop archive pets. CHERRY-MADE (2026-11-23, Minipet loop): the pet-to-room-item pairing (`item` on each pet: 260 pets, from picture review of the pets and the RUPI room items; 23 clear matches, the rest by theme, kind and fill; the 50 pets without an item leave the Minipet Shop), and the `minipet` tuning block (friendship per petting, call times, the paid call price, the present list: 14 Cherry-picked clothing items with art, from the current shop catalog).",
   "pets": {
     "PUPE0000G": {
       "name": "Mixed Breed",
+      "item": "RUPI00007",
       "price": 800,
       "currency": "GEM",
       "cuddles": 100
     },
     "PUPE0000H": {
       "name": "Shih Tzu",
+      "item": "RUPI00008",
       "price": 1800,
       "currency": "GEM",
       "cuddles": 200
     },
     "PUPE0000I": {
       "name": "Mame Shiba",
+      "item": "RUPI0000C",
       "price": 1200,
       "currency": "GEM",
       "cuddles": 100
     },
     "PUPE0000J": {
       "name": "Dachshund",
+      "item": "RUPI00041",
       "price": 12,
       "currency": "CASH",
       "cuddles": 100
     },
     "PUPE0000K": {
       "name": "Chihuahua",
+      "item": "RUPI0006Y",
       "price": 20,
       "currency": "CASH",
       "cuddles": 200
     },
     "PUPE0000L": {
       "name": "Calico Cat",
+      "item": "RUPI00009",
       "price": 800,
       "currency": "GEM",
       "cuddles": 100
@@ -64,6 +70,7 @@
     },
     "PUPE0000R": {
       "name": "Toy Poodle",
+      "item": "RUPI0007J",
       "price": 16,
       "currency": "CASH",
       "cuddles": 100
@@ -86,20 +93,25 @@
     },
     "PUPE0000V": {
       "name": "Munchkin Cat",
+      "item": "RUPI0000A",
       "cuddles": 100
     },
     "PUPE0000W": {
-      "name": "Artemis"
+      "name": "Artemis",
+      "item": "RUPI0000B"
     },
     "PUPE0000X": {
       "name": "Cane Corso",
+      "item": "RUPI0007K",
       "cuddles": 100
     },
     "PUPE0000Y": {
-      "name": "Nasa"
+      "name": "Nasa",
+      "item": "RUPI0000D"
     },
     "PUPE00017": {
-      "name": "Yuri"
+      "name": "Yuri",
+      "item": "RUPI0000E"
     },
     "PUPE00018": {
       "name": "Chilinmaro"
@@ -108,17 +120,21 @@
       "name": "Prin-chan"
     },
     "PUPE0001C": {
-      "name": "Meo"
+      "name": "Meo",
+      "item": "RUPI00023"
     },
     "PUPE0001D": {
       "name": "Milk",
+      "item": "RUPI0008H",
       "cuddles": 100
     },
     "PUPE0001E": {
-      "name": "Matey"
+      "name": "Matey",
+      "item": "RUPI0003X"
     },
     "PUPE0001F": {
       "name": "Persha",
+      "item": "RUPI0003Y",
       "price": 16,
       "currency": "CASH",
       "cuddles": 100
@@ -128,12 +144,14 @@
     },
     "PUPE0001K": {
       "name": "British Shorthair",
+      "item": "RUPI0006X",
       "price": 16,
       "currency": "CASH",
       "cuddles": 200
     },
     "PUPE0001L": {
       "name": "Aifii",
+      "item": "RUPI00074",
       "price": 15,
       "currency": "CASH",
       "cuddles": 100
@@ -142,16 +160,19 @@
       "name": "Subaggy"
     },
     "PUPE0001O": {
-      "name": "Chic"
+      "name": "Chic",
+      "item": "RUPI0007L"
     },
     "PUPE0001P": {
       "name": "Tanpopo"
     },
     "PUPE0001Q": {
-      "name": "Honey"
+      "name": "Honey",
+      "item": "RUPI0009F"
     },
     "PUPE0001U": {
-      "name": "Narry"
+      "name": "Narry",
+      "item": "RUPI0007Y"
     },
     "PUPE0001W": {
       "name": "Sonno"
@@ -161,196 +182,253 @@
     },
     "PUPE0001Y": {
       "name": "Chris",
+      "item": "RUPI0001K",
       "cuddles": 100
     },
     "PUPE0001Z": {
-      "name": "Kokoro"
+      "name": "Kokoro",
+      "item": "RUPI000AR"
     },
     "PUPE00020": {
-      "name": "Minky"
+      "name": "Minky",
+      "item": "RUPI000B1"
     },
     "PUPE00021": {
-      "name": "Neo"
+      "name": "Neo",
+      "item": "RUPI0007Z"
     },
     "PUPE00022": {
-      "name": "Cleo"
+      "name": "Cleo",
+      "item": "RUPI0008X"
     },
     "PUPE00023": {
-      "name": "Trip"
+      "name": "Trip",
+      "item": "RUPI000A1"
     },
     "PUPE00024": {
-      "name": "Leomaro"
+      "name": "Leomaro",
+      "item": "RUPI000BK"
     },
     "PUPE00025": {
-      "name": "Macaroon"
+      "name": "Macaroon",
+      "item": "RUPI000A2"
     },
     "PUPE00026": {
       "name": "Moko"
     },
     "PUPE00027": {
-      "name": "Ciel"
+      "name": "Ciel",
+      "item": "RUPI0008M"
     },
     "PUPE00028": {
-      "name": "New Moon"
+      "name": "New Moon",
+      "item": "RUPI0008P"
     },
     "PUPE0002A": {
-      "name": "(JP) Gib"
+      "name": "(JP) Gib",
+      "item": "RUPI0008R"
     },
     "PUPE0002C": {
-      "name": "Lee"
+      "name": "Lee",
+      "item": "RUPI0000F"
     },
     "PUPE0002D": {
       "name": "Angelo"
     },
     "PUPE0002E": {
-      "name": "Lux"
+      "name": "Lux",
+      "item": "RUPI0007X"
     },
     "PUPE0002F": {
-      "name": "Chizuru"
+      "name": "Chizuru",
+      "item": "RUPI00018"
     },
     "PUPE0002G": {
-      "name": "Toy C-3PO"
+      "name": "Toy C-3PO",
+      "item": "RUPI0005B"
     },
     "PUPE0002H": {
-      "name": "(JP) Tib"
+      "name": "(JP) Tib",
+      "item": "RUPI0008T"
     },
     "PUPE0002I": {
-      "name": "Pigna"
+      "name": "Pigna",
+      "item": "RUPI0006D"
     },
     "PUPE0002K": {
       "name": "Aile"
     },
     "PUPE0002L": {
-      "name": "Cocoa"
+      "name": "Cocoa",
+      "item": "RUPI0003R"
     },
     "PUPE0002M": {
-      "name": "Gwen"
+      "name": "Gwen",
+      "item": "RUPI0000V"
     },
     "PUPE0002O": {
-      "name": "Nyacaroon"
+      "name": "Nyacaroon",
+      "item": "RUPI0008V"
     },
     "PUPE0002Q": {
-      "name": "Victorious Pepper"
+      "name": "Victorious Pepper",
+      "item": "RUPI0005F"
     },
     "PUPE0002R": {
-      "name": "Nero"
+      "name": "Nero",
+      "item": "RUPI00091"
     },
     "PUPE0002S": {
-      "name": "Simba"
+      "name": "Simba",
+      "item": "RUPI0007H"
     },
     "PUPE0002T": {
-      "name": "Meow"
+      "name": "Meow",
+      "item": "RUPI0000Z"
     },
     "PUPE0002V": {
       "name": "Candy"
     },
     "PUPE0002W": {
-      "name": "Roddy"
+      "name": "Roddy",
+      "item": "RUPI0005H"
     },
     "PUPE0002X": {
-      "name": "Nabi"
+      "name": "Nabi",
+      "item": "RUPI00092"
     },
     "PUPE0002Y": {
-      "name": "Connie"
+      "name": "Connie",
+      "item": "RUPI0002M"
     },
     "PUPE00030": {
-      "name": "Eternal"
+      "name": "Eternal",
+      "item": "RUPI0005I"
     },
     "PUPE00032": {
-      "name": "Bella"
+      "name": "Bella",
+      "item": "RUPI0005L"
     },
     "PUPE00033": {
-      "name": "Cam"
+      "name": "Cam",
+      "item": "RUPI00093"
     },
     "PUPE00034": {
       "name": "Stella"
     },
     "PUPE00035": {
-      "name": "Gloom"
+      "name": "Gloom",
+      "item": "RUPI0005M"
     },
     "PUPE00036": {
-      "name": "Downy"
+      "name": "Downy",
+      "item": "RUPI00051"
     },
     "PUPE00037": {
-      "name": "Luminar"
+      "name": "Luminar",
+      "item": "RUPI000A9"
     },
     "PUPE00038": {
       "name": "Jewel"
     },
     "PUPE0003A": {
-      "name": "Lapin"
+      "name": "Lapin",
+      "item": "RUPI00069"
     },
     "PUPE0003B": {
-      "name": "Toy BB-8"
+      "name": "Toy BB-8",
+      "item": "RUPI00035"
     },
     "PUPE0003C": {
-      "name": "Lumen"
+      "name": "Lumen",
+      "item": "RUPI00036"
     },
     "PUPE0003D": {
-      "name": "Cream"
+      "name": "Cream",
+      "item": "RUPI00038"
     },
     "PUPE0003E": {
-      "name": "Seven"
+      "name": "Seven",
+      "item": "RUPI00037"
     },
     "PUPE0003F": {
-      "name": "Lia"
+      "name": "Lia",
+      "item": "RUPI0006C"
     },
     "PUPE0003G": {
-      "name": "Reve"
+      "name": "Reve",
+      "item": "RUPI0005N"
     },
     "PUPE0003I": {
-      "name": "Lina"
+      "name": "Lina",
+      "item": "RUPI0005O"
     },
     "PUPE0003J": {
-      "name": "Hobaggy"
+      "name": "Hobaggy",
+      "item": "RUPI0003D"
     },
     "PUPE0003N": {
-      "name": "Strawberry"
+      "name": "Strawberry",
+      "item": "RUPI0005R"
     },
     "PUPE0003O": {
-      "name": "Lang Lang"
+      "name": "Lang Lang",
+      "item": "RUPI0006F"
     },
     "PUPE0003P": {
-      "name": "Fondue"
+      "name": "Fondue",
+      "item": "RUPI00098"
     },
     "PUPE0003Q": {
-      "name": "Noir"
+      "name": "Noir",
+      "item": "RUPI0005T"
     },
     "PUPE0003S": {
-      "name": "Leona"
+      "name": "Leona",
+      "item": "RUPI00099"
     },
     "PUPE0003U": {
-      "name": "Qiao Qiao"
+      "name": "Qiao Qiao",
+      "item": "RUPI0007P"
     },
     "PUPE0003V": {
-      "name": "Earl"
+      "name": "Earl",
+      "item": "RUPI0005U"
     },
     "PUPE0003X": {
-      "name": "Fuwa"
+      "name": "Fuwa",
+      "item": "RUPI0000U"
     },
     "PUPE0003Y": {
-      "name": "Beast"
+      "name": "Beast",
+      "item": "RUPI00079"
     },
     "PUPE0003Z": {
-      "name": "Shine"
+      "name": "Shine",
+      "item": "RUPI0005V"
     },
     "PUPE00040": {
-      "name": "Noel"
+      "name": "Noel",
+      "item": "RUPI0001C"
     },
     "PUPE00042": {
-      "name": "Charlotte"
+      "name": "Charlotte",
+      "item": "RUPI0009A"
     },
     "PUPE00043": {
-      "name": "Lily"
+      "name": "Lily",
+      "item": "RUPI0009B"
     },
     "PUPE00044": {
       "name": "Frise"
     },
     "PUPE00045": {
-      "name": "Bear Q02"
+      "name": "Bear Q02",
+      "item": "RUPI0005X"
     },
     "PUPE00047": {
-      "name": "Winter"
+      "name": "Winter",
+      "item": "RUPI0007I"
     },
     "PUPE00048": {
       "name": "Beauty"
@@ -359,37 +437,48 @@
       "name": "Annie"
     },
     "PUPE0004C": {
-      "name": "Patra"
+      "name": "Patra",
+      "item": "RUPI00046"
     },
     "PUPE0004D": {
-      "name": "Hoho"
+      "name": "Hoho",
+      "item": "RUPI00047"
     },
     "PUPE0004E": {
-      "name": "Kitora"
+      "name": "Kitora",
+      "item": "RUPI00048"
     },
     "PUPE0004F": {
-      "name": "Miho"
+      "name": "Miho",
+      "item": "RUPI0007U"
     },
     "PUPE0004G": {
-      "name": "Kanon"
+      "name": "Kanon",
+      "item": "RUPI0007V"
     },
     "PUPE0004H": {
-      "name": "Nia"
+      "name": "Nia",
+      "item": "RUPI00064"
     },
     "PUPE0004J": {
-      "name": "Weiss"
+      "name": "Weiss",
+      "item": "RUPI00065"
     },
     "PUPE0004K": {
-      "name": "Black"
+      "name": "Black",
+      "item": "RUPI0006W"
     },
     "PUPE0004L": {
-      "name": "Frederick"
+      "name": "Frederick",
+      "item": "RUPI00066"
     },
     "PUPE0004M": {
-      "name": "Devirabi"
+      "name": "Devirabi",
+      "item": "RUPI00067"
     },
     "PUPE0004O": {
-      "name": "Lyra"
+      "name": "Lyra",
+      "item": "RUPI0009C"
     },
     "PUPE0004P": {
       "name": "Procyon"
@@ -398,19 +487,23 @@
       "name": "Ellie"
     },
     "PUPE0004R": {
-      "name": "Gray"
+      "name": "Gray",
+      "item": "RUPI00078"
     },
     "PUPE0004S": {
-      "name": "Kuroko"
+      "name": "Kuroko",
+      "item": "RUPI0009D"
     },
     "PUPE0004T": {
-      "name": "Lil"
+      "name": "Lil",
+      "item": "RUPI0009E"
     },
     "PUPE0004U": {
       "name": "Rosalie"
     },
     "PUPE0004V": {
-      "name": "Berry"
+      "name": "Berry",
+      "item": "RUPI0009J"
     },
     "PUPE0004W": {
       "name": "Dolce"
@@ -419,109 +512,139 @@
       "name": "Juju"
     },
     "PUPE0004Y": {
-      "name": "Holy"
+      "name": "Holy",
+      "item": "RUPI0009K"
     },
     "PUPE0004Z": {
       "name": "Sirius"
     },
     "PUPE00050": {
-      "name": "mignon"
+      "name": "mignon",
+      "item": "RUPI0006A"
     },
     "PUPE00058": {
-      "name": "White"
+      "name": "White",
+      "item": "RUPI0006H"
     },
     "PUPE00059": {
-      "name": "Memoir"
+      "name": "Memoir",
+      "item": "RUPI0006L"
     },
     "PUPE0005A": {
-      "name": "Pigner"
+      "name": "Pigner",
+      "item": "RUPI0006M"
     },
     "PUPE0005B": {
-      "name": "Eve"
+      "name": "Eve",
+      "item": "RUPI00088"
     },
     "PUPE0005C": {
       "name": "Torte"
     },
     "PUPE0005D": {
-      "name": "Mr.Clock"
+      "name": "Mr.Clock",
+      "item": "RUPI0006O"
     },
     "PUPE0005F": {
-      "name": "Misty"
+      "name": "Misty",
+      "item": "RUPI0009L"
     },
     "PUPE0005G": {
-      "name": "Beat"
+      "name": "Beat",
+      "item": "RUPI0006P"
     },
     "PUPE0005I": {
-      "name": "Exotic Shorthair"
+      "name": "Exotic Shorthair",
+      "item": "RUPI0009M"
     },
     "PUPE0005J": {
-      "name": "Shiroko"
+      "name": "Shiroko",
+      "item": "RUPI0009N"
     },
     "PUPE0005K": {
-      "name": "Bubbly Cam"
+      "name": "Bubbly Cam",
+      "item": "RUPI0009Q"
     },
     "PUPE0005L": {
-      "name": "Joy"
+      "name": "Joy",
+      "item": "RUPI0006Q"
     },
     "PUPE0005N": {
-      "name": "Pepe"
+      "name": "Pepe",
+      "item": "RUPI0009V"
     },
     "PUPE0005O": {
-      "name": "Heartie"
+      "name": "Heartie",
+      "item": "RUPI0006S"
     },
     "PUPE0005Q": {
-      "name": "Fil"
+      "name": "Fil",
+      "item": "RUPI0006V"
     },
     "PUPE0005R": {
-      "name": "Fabien"
+      "name": "Fabien",
+      "item": "RUPI0009Y"
     },
     "PUPE0005S": {
-      "name": "Eclipse"
+      "name": "Eclipse",
+      "item": "RUPI0009Z"
     },
     "PUPE0005T": {
-      "name": "Ageha"
+      "name": "Ageha",
+      "item": "RUPI000A0"
     },
     "PUPE0005U": {
-      "name": "Marine"
+      "name": "Marine",
+      "item": "RUPI0006T"
     },
     "PUPE0005V": {
       "name": "Heaven"
     },
     "PUPE0005W": {
-      "name": "Mr. Watch"
+      "name": "Mr. Watch",
+      "item": "RUPI0006U"
     },
     "PUPE0005X": {
-      "name": "Flower"
+      "name": "Flower",
+      "item": "RUPI0006Z"
     },
     "PUPE0005Y": {
       "name": "Lon"
     },
     "PUPE00060": {
-      "name": "Dancing Pepper"
+      "name": "Dancing Pepper",
+      "item": "RUPI00070"
     },
     "PUPE00061": {
-      "name": "Kero-chan"
+      "name": "Kero-chan",
+      "item": "RUPI00072"
     },
     "PUPE00062": {
-      "name": "Leo"
+      "name": "Leo",
+      "item": "RUPI000A3"
     },
     "PUPE00063": {
-      "name": "Rora"
+      "name": "Rora",
+      "item": "RUPI000A5"
     },
     "PUPE00068": {
       "name": "Hunter"
     },
     "PUPE00069": {
-      "name": "Bellborne"
+      "name": "Bellborne",
+      "item": "RUPI00075"
     },
     "PUPE0006A": {
-      "name": "Ochiyo"
+      "name": "Ochiyo",
+      "item": "RUPI00076"
     },
     "PUPE0006B": {
-      "name": "Penta"
+      "name": "Penta",
+      "item": "RUPI0007B"
     },
     "PUPE0006E": {
       "name": "Carrie",
+      "item": "RUPI00006",
       "price": 2000,
       "currency": "GEM",
       "cuddles": 100,
@@ -538,6 +661,7 @@
     },
     "PUPE0006H": {
       "name": "Bruno",
+      "item": "RUPI0000H",
       "price": 20,
       "currency": "CASH",
       "cuddles": 100,
@@ -550,6 +674,7 @@
     },
     "PUPE0006I": {
       "name": "Debbie",
+      "item": "RUPI0000I",
       "price": 25,
       "currency": "CASH",
       "cuddles": 100,
@@ -562,6 +687,7 @@
     },
     "PUPE0006J": {
       "name": "Rory",
+      "item": "RUPI0000J",
       "price": 25,
       "currency": "CASH",
       "cuddles": 100,
@@ -573,13 +699,16 @@
       }
     },
     "PUPE0006K": {
-      "name": "Aqua"
+      "name": "Aqua",
+      "item": "RUPI0007E"
     },
     "PUPE0006M": {
-      "name": "Bouquet"
+      "name": "Bouquet",
+      "item": "RUPI0005E"
     },
     "PUPE0006N": {
       "name": "Trudo",
+      "item": "RUPI0006I",
       "price": 30,
       "currency": "CASH",
       "cuddles": 100,
@@ -591,16 +720,20 @@
       }
     },
     "PUPE0006Q": {
-      "name": "Dreamy Cotton"
+      "name": "Dreamy Cotton",
+      "item": "RUPI0000K"
     },
     "PUPE0006R": {
-      "name": "Lampi"
+      "name": "Lampi",
+      "item": "RUPI0006N"
     },
     "PUPE0006S": {
-      "name": "Greenie"
+      "name": "Greenie",
+      "item": "RUPI0007F"
     },
     "PUPE0006T": {
       "name": "Coconut",
+      "item": "RUPI0000L",
       "price": 25,
       "currency": "CASH",
       "cuddles": 100,
@@ -612,19 +745,22 @@
       }
     },
     "PUPE0006U": {
-      "name": "Obisidian"
+      "name": "Obisidian",
+      "item": "RUPI0000M"
     },
     "PUPE0006V": {
       "name": "Tommi"
     },
     "PUPE0006W": {
-      "name": "Shirotora"
+      "name": "Shirotora",
+      "item": "RUPI000A6"
     },
     "PUPE0006X": {
       "name": "Lemon Honey"
     },
     "PUPE0006Y": {
       "name": "Pinky",
+      "item": "RUPI0000T",
       "price": 30,
       "currency": "CASH",
       "cuddles": 100,
@@ -636,13 +772,15 @@
       }
     },
     "PUPE00070": {
-      "name": "Ocre"
+      "name": "Ocre",
+      "item": "RUPI0000Y"
     },
     "PUPE00071": {
       "name": "Helen"
     },
     "PUPE00072": {
       "name": "Maru",
+      "item": "RUPI00010",
       "price": 25,
       "currency": "CASH",
       "cuddles": 100,
@@ -655,6 +793,7 @@
     },
     "PUPE00073": {
       "name": "Tofu",
+      "item": "RUPI00011",
       "price": 30,
       "currency": "CASH",
       "cuddles": 100,
@@ -678,25 +817,30 @@
       }
     },
     "PUPE00075": {
-      "name": "Troy"
+      "name": "Troy",
+      "item": "RUPI00013"
     },
     "PUPE00076": {
       "name": "Bram"
     },
     "PUPE00077": {
-      "name": "Pio"
+      "name": "Pio",
+      "item": "RUPI00017"
     },
     "PUPE00078": {
       "name": "Indigo"
     },
     "PUPE00079": {
-      "name": "Luna"
+      "name": "Luna",
+      "item": "RUPI000A7"
     },
     "PUPE0007B": {
-      "name": "Candela"
+      "name": "Candela",
+      "item": "RUPI0007G"
     },
     "PUPE0007C": {
-      "name": "Rose"
+      "name": "Rose",
+      "item": "RUPI0003S"
     },
     "PUPE0007D": {
       "name": "Silver Landau"
@@ -705,25 +849,30 @@
       "name": "Ericka"
     },
     "PUPE0007F": {
-      "name": "Leafy"
+      "name": "Leafy",
+      "item": "RUPI0001G"
     },
     "PUPE0007H": {
-      "name": "Rufus"
+      "name": "Rufus",
+      "item": "RUPI0001L"
     },
     "PUPE0007J": {
       "name": "Galadriel"
     },
     "PUPE0007K": {
-      "name": "Rene"
+      "name": "Rene",
+      "item": "RUPI0007O"
     },
     "PUPE0007L": {
-      "name": "Ponta"
+      "name": "Ponta",
+      "item": "RUPI0007S"
     },
     "PUPE0007N": {
       "name": "Springer"
     },
     "PUPE0007O": {
-      "name": "Dire Wolf"
+      "name": "Dire Wolf",
+      "item": "RUPI00083"
     },
     "PUPE0007P": {
       "name": "Floriane"
@@ -735,346 +884,479 @@
       "name": "MAHINA"
     },
     "PUPE0007S": {
-      "name": "Bunny"
+      "name": "Bunny",
+      "item": "RUPI0001M"
     },
     "PUPE0007T": {
       "name": "Mira"
     },
     "PUPE0007U": {
-      "name": "Grace"
+      "name": "Grace",
+      "item": "RUPI0006E"
     },
     "PUPE0007V": {
-      "name": "Odile"
+      "name": "Odile",
+      "item": "RUPI0001N"
     },
     "PUPE0007W": {
-      "name": "Cornet"
+      "name": "Cornet",
+      "item": "RUPI0001O"
     },
     "PUPE0007X": {
-      "name": "Koku"
+      "name": "Koku",
+      "item": "RUPI0001P"
     },
     "PUPE0007Y": {
-      "name": "Cara"
+      "name": "Cara",
+      "item": "RUPI0001Q"
     },
     "PUPE0007Z": {
-      "name": "Blanc"
+      "name": "Blanc",
+      "item": "RUPI0001R"
     },
     "PUPE00080": {
-      "name": "Oceanus"
+      "name": "Oceanus",
+      "item": "RUPI0001S"
     },
     "PUPE00081": {
-      "name": "Pinkberry"
+      "name": "Pinkberry",
+      "item": "RUPI0001T"
     },
     "PUPE00082": {
-      "name": "Kudan"
+      "name": "Kudan",
+      "item": "RUPI00097"
     },
     "PUPE00083": {
-      "name": "Blake"
+      "name": "Blake",
+      "item": "RUPI00094"
     },
     "PUPE00084": {
-      "name": "101 Dalmatians & Classic Chair"
+      "name": "101 Dalmatians & Classic Chair",
+      "item": "RUPI0009W"
     },
     "PUPE00085": {
-      "name": "Néve"
+      "name": "Néve",
+      "item": "RUPI0007R"
     },
     "PUPE00086": {
-      "name": "Leone"
+      "name": "Leone",
+      "item": "RUPI0001U"
     },
     "PUPE00087": {
-      "name": "Redberry"
+      "name": "Redberry",
+      "item": "RUPI0001W"
     },
     "PUPE0008E": {
-      "name": "Laranja"
+      "name": "Laranja",
+      "item": "RUPI0001Y"
     },
     "PUPE0008F": {
-      "name": "Rosa"
+      "name": "Rosa",
+      "item": "RUPI00022"
     },
     "PUPE0008G": {
-      "name": "Carousel"
+      "name": "Carousel",
+      "item": "RUPI00024"
     },
     "PUPE0008H": {
-      "name": "Memory"
+      "name": "Memory",
+      "item": "RUPI00084"
     },
     "PUPE0008J": {
-      "name": "Hikar"
+      "name": "Hikar",
+      "item": "RUPI00027"
     },
     "PUPE0008K": {
-      "name": "Cielo"
+      "name": "Cielo",
+      "item": "RUPI00028"
     },
     "PUPE0008L": {
-      "name": "Yumere"
+      "name": "Yumere",
+      "item": "RUPI0009G"
     },
     "PUPE0008M": {
-      "name": "Skeleton Wolf"
+      "name": "Skeleton Wolf",
+      "item": "RUPI00029"
     },
     "PUPE0008N": {
-      "name": "Toby"
+      "name": "Toby",
+      "item": "RUPI0002A"
     },
     "PUPE0008O": {
-      "name": "Sher"
+      "name": "Sher",
+      "item": "RUPI0002D"
     },
     "PUPE0008P": {
-      "name": "Gold Landau"
+      "name": "Gold Landau",
+      "item": "RUPI0008E"
     },
     "PUPE0008R": {
-      "name": "Creamberry"
+      "name": "Creamberry",
+      "item": "RUPI0002E"
     },
     "PUPE0008S": {
-      "name": "Merlin"
+      "name": "Merlin",
+      "item": "RUPI0002F"
     },
     "PUPE0008T": {
-      "name": "Sofia"
+      "name": "Sofia",
+      "item": "RUPI0007T"
     },
     "PUPE0008U": {
-      "name": "Farewell"
+      "name": "Farewell",
+      "item": "RUPI0002G"
     },
     "PUPE0008V": {
-      "name": "Mokona"
+      "name": "Mokona",
+      "item": "RUPI0002I"
     },
     "PUPE0008W": {
-      "name": "Didi"
+      "name": "Didi",
+      "item": "RUPI0002S"
     },
     "PUPE0008X": {
-      "name": "Rose"
+      "name": "Rose",
+      "item": "RUPI0001Z"
     },
     "PUPE0008Y": {
-      "name": "Albeata"
+      "name": "Albeata",
+      "item": "RUPI0002T"
     },
     "PUPE0008Z": {
-      "name": "Novalis"
+      "name": "Novalis",
+      "item": "RUPI0002W"
     },
     "PUPE00090": {
-      "name": "Varuna"
+      "name": "Varuna",
+      "item": "RUPI0002X"
     },
     "PUPE00091": {
-      "name": "Limoen"
+      "name": "Limoen",
+      "item": "RUPI0002Z"
     },
     "PUPE00092": {
-      "name": "Glor"
+      "name": "Glor",
+      "item": "RUPI00030"
     },
     "PUPE00093": {
-      "name": "Saku"
+      "name": "Saku",
+      "item": "RUPI00032"
     },
     "PUPE00095": {
-      "name": "Agnes"
+      "name": "Agnes",
+      "item": "RUPI00033"
     },
     "PUPE00096": {
-      "name": "Modoki"
+      "name": "Modoki",
+      "item": "RUPI0008Y"
     },
     "PUPE00097": {
-      "name": "Lumi"
+      "name": "Lumi",
+      "item": "RUPI0008Q"
     },
     "PUPE00098": {
-      "name": "Rufina"
+      "name": "Rufina",
+      "item": "RUPI00020"
     },
     "PUPE00099": {
-      "name": "Fudge Bear"
+      "name": "Fudge Bear",
+      "item": "RUPI00039"
     },
     "PUPE0009A": {
-      "name": "Sora"
+      "name": "Sora",
+      "item": "RUPI0003C"
     },
     "PUPE0009D": {
       "name": "Leher"
     },
     "PUPE0009E": {
-      "name": "Kamal"
+      "name": "Kamal",
+      "item": "RUPI00090"
     },
     "PUPE0009F": {
-      "name": "KUROMI Rocket"
+      "name": "KUROMI Rocket",
+      "item": "RUPI0008Z"
     },
     "PUPE0009G": {
-      "name": "Flora"
+      "name": "Flora",
+      "item": "RUPI0005C"
     },
     "PUPE0009H": {
-      "name": "Mignon"
+      "name": "Mignon",
+      "item": "RUPI0007A"
     },
     "PUPE0009I": {
-      "name": "Dovey"
+      "name": "Dovey",
+      "item": "RUPI00080"
     },
     "PUPE0009J": {
-      "name": "Diamond"
+      "name": "Diamond",
+      "item": "RUPI0003J"
     },
     "PUPE0009K": {
-      "name": "Haku"
+      "name": "Haku",
+      "item": "RUPI0003M"
     },
     "PUPE0009L": {
-      "name": "Rebecca"
+      "name": "Rebecca",
+      "item": "RUPI0003N"
     },
     "PUPE0009M": {
-      "name": "Cleone"
+      "name": "Cleone",
+      "item": "RUPI0003I"
     },
     "PUPE0009N": {
-      "name": "Lyell"
+      "name": "Lyell",
+      "item": "RUPI0003O"
     },
     "PUPE0009P": {
-      "name": "Lolo"
+      "name": "Lolo",
+      "item": "RUPI0003U"
     },
     "PUPE0009Q": {
-      "name": "Dolph"
+      "name": "Dolph",
+      "item": "RUPI0003V"
     },
     "PUPE0009R": {
-      "name": "Latte"
+      "name": "Latte",
+      "item": "RUPI00040"
     },
     "PUPE0009S": {
-      "name": "USATA"
+      "name": "USATA",
+      "item": "RUPI00081"
     },
     "PUPE0009T": {
       "name": "Hortensia"
     },
     "PUPE0009V": {
-      "name": "Enko"
+      "name": "Enko",
+      "item": "RUPI0009X"
     },
     "PUPE0009X": {
-      "name": "Anjelica"
+      "name": "Anjelica",
+      "item": "RUPI00042"
     },
     "PUPE0009Y": {
-      "name": "Louis"
+      "name": "Louis",
+      "item": "RUPI00082"
     },
     "PUPE0009Z": {
-      "name": "Freesia"
+      "name": "Freesia",
+      "item": "RUPI0009R"
     },
     "PUPE000A0": {
-      "name": "Tatsu"
+      "name": "Tatsu",
+      "item": "RUPI00086"
     },
     "PUPE000A1": {
-      "name": "Rex"
+      "name": "Rex",
+      "item": "RUPI0009T"
     },
     "PUPE000A2": {
-      "name": "Violett"
+      "name": "Violett",
+      "item": "RUPI0009U"
     },
     "PUPE000A3": {
-      "name": "Imp"
+      "name": "Imp",
+      "item": "RUPI00049"
     },
     "PUPE000A4": {
-      "name": "Adolph"
+      "name": "Adolph",
+      "item": "RUPI0004A"
     },
     "PUPE000A5": {
-      "name": "Citroen"
+      "name": "Citroen",
+      "item": "RUPI0004F"
     },
     "PUPE000A6": {
-      "name": "Singh"
+      "name": "Singh",
+      "item": "RUPI0004G"
     },
     "PUPE000A7": {
-      "name": "Rendy"
+      "name": "Rendy",
+      "item": "RUPI0004H"
     },
     "PUPE000A8": {
-      "name": "Sunset"
+      "name": "Sunset",
+      "item": "RUPI0004O"
     },
     "PUPE000A9": {
-      "name": "Rondine"
+      "name": "Rondine",
+      "item": "RUPI0007Q"
     },
     "PUPE000AA": {
-      "name": "Spirit"
+      "name": "Spirit",
+      "item": "RUPI0004I"
     },
     "PUPE000AB": {
-      "name": "Lovey"
+      "name": "Lovey",
+      "item": "RUPI00087"
     },
     "PUPE000AC": {
-      "name": "Corazon"
+      "name": "Corazon",
+      "item": "RUPI0004J"
     },
     "PUPE000AD": {
-      "name": "Spooky"
+      "name": "Spooky",
+      "item": "RUPI000AB"
     },
     "PUPE000AE": {
-      "name": "Lewina"
+      "name": "Lewina",
+      "item": "RUPI0004K"
     },
     "PUPE000AF": {
-      "name": "Lewin"
+      "name": "Lewin",
+      "item": "RUPI0004L"
     },
     "PUPE000AG": {
-      "name": "Rufino"
+      "name": "Rufino",
+      "item": "RUPI0007W"
     },
     "PUPE000AH": {
-      "name": "Mew"
+      "name": "Mew",
+      "item": "RUPI0000O"
     },
     "PUPE000AJ": {
-      "name": "Jessica"
+      "name": "Jessica",
+      "item": "RUPI000A4"
     },
     "PUPE000AK": {
-      "name": "Lumiere"
+      "name": "Lumiere",
+      "item": "RUPI0004M"
     },
     "PUPE000AL": {
-      "name": "Dreamy"
+      "name": "Dreamy",
+      "item": "RUPI00089"
     },
     "PUPE000AM": {
-      "name": "Sue"
+      "name": "Sue",
+      "item": "RUPI0004N"
     },
     "PUPE000AN": {
-      "name": "Rick"
+      "name": "Rick",
+      "item": "RUPI0001B"
     },
     "PUPE000AO": {
-      "name": "Yukiha"
+      "name": "Yukiha",
+      "item": "RUPI0004P"
     },
     "PUPE000AP": {
-      "name": "Brina"
+      "name": "Brina",
+      "item": "RUPI0003K"
     },
     "PUPE000AQ": {
-      "name": "Hestia"
+      "name": "Hestia",
+      "item": "RUPI0004R"
     },
     "PUPE000AR": {
-      "name": "King"
+      "name": "King",
+      "item": "RUPI000AC"
     },
     "PUPE000AS": {
-      "name": "Harvey"
+      "name": "Harvey",
+      "item": "RUPI0004S"
     },
     "PUPE000AT": {
-      "name": "Coppelia"
+      "name": "Coppelia",
+      "item": "RUPI0004T"
     },
     "PUPE000AV": {
-      "name": "Odette"
+      "name": "Odette",
+      "item": "RUPI0004U"
     },
     "PUPE000AW": {
-      "name": "Dolly"
+      "name": "Dolly",
+      "item": "RUPI0009S"
     },
     "PUPE000AZ": {
-      "name": "Totti"
+      "name": "Totti",
+      "item": "RUPI0004V"
     },
     "PUPE000B0": {
-      "name": "Tama"
+      "name": "Tama",
+      "item": "RUPI0004X"
     },
     "PUPE000B3": {
-      "name": "Lucia"
+      "name": "Lucia",
+      "item": "RUPI0004Z"
     },
     "PUPE000B5": {
-      "name": "Etoile"
+      "name": "Etoile",
+      "item": "RUPI00050"
     },
     "PUPE000B7": {
-      "name": "SHOOKY"
+      "name": "SHOOKY",
+      "item": "RUPI0008A"
     },
     "PUPE000B8": {
-      "name": "Samudra"
+      "name": "Samudra",
+      "item": "RUPI00052"
     },
     "PUPE000B9": {
-      "name": "Joli"
+      "name": "Joli",
+      "item": "RUPI00053"
     },
     "PUPE000BC": {
-      "name": "Divena"
+      "name": "Divena",
+      "item": "RUPI0008B"
     },
     "PUPE000BD": {
-      "name": "Vio"
+      "name": "Vio",
+      "item": "RUPI00054"
     },
     "PUPE000BF": {
-      "name": "Rion"
+      "name": "Rion",
+      "item": "RUPI0008D"
     },
     "PUPE000BG": {
-      "name": "Blanco"
+      "name": "Blanco",
+      "item": "RUPI00057"
     },
     "PUPE000BK": {
-      "name": "Azul"
+      "name": "Azul",
+      "item": "RUPI0003P"
     },
     "PUPE000BL": {
-      "name": "Titi"
+      "name": "Titi",
+      "item": "RUPI00059"
     },
     "PUPE000BN": {
-      "name": "Nuit"
+      "name": "Nuit",
+      "item": "RUPI0008I"
     },
     "PUPE000BP": {
-      "name": "Rico"
+      "name": "Rico",
+      "item": "RUPI0005A"
     },
     "PUPE000BR": {
-      "name": "Heart"
+      "name": "Heart",
+      "item": "RUPI0007D"
     },
     "PUPE000BS": {
-      "name": "Astra"
+      "name": "Astra",
+      "item": "RUPI0008L"
     }
+  },
+  "minipet": {
+    "gained_exp": 10,
+    "free_call_minutes": 240,
+    "visit_minutes": 60,
+    "paid_call_gems": 30,
+    "presents": [
+      "CUON004A9",
+      "CUON007CN",
+      "CUTO000KE",
+      "CUTO000XH",
+      "CUPA000C0",
+      "CUPA000H7",
+      "CUSH001Q8",
+      "CUSH002TY",
+      "CUAE003OG",
+      "CUAE007UF",
+      "CUAH003GD",
+      "CUAH006AD",
+      "CUFE000K8",
+      "CUFE000XG"
+    ]
   }
 }

@@ -189,7 +189,7 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 			}
 			var body []byte
 			var sender uint64
-			var hearted []uint64
+			var hearted, pets []uint64
 			if msgid == 1 {
 				packetNo, ok := clientEventPacketNo(frame[18:])
 				if !ok {
@@ -197,6 +197,7 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 					continue
 				}
 				sender, hearted = recordTLUPEvents(logger, frame[18:], gatewayLoginAid(rp, sq, gardenLoginAid))
+				pets = tlupPetStrokes(frame[18:], sender)
 				body = binary.AppendUvarint([]byte{0x08}, packetNo)
 			}
 			reply := make([]byte, 22+len(body))
@@ -222,6 +223,18 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 						logger.Printf("OBS %s heart-button remote=%s err=%v", addr, remote, err)
 						return
 					}
+				}
+			}
+			// A petting answers with QuestActionCommand 112 (tlup_push.go); the owner's own pets only.
+			for _, pet := range pets {
+				reply, ok := economy.MiniPetStroke(strconv.FormatUint(sender, 10), int64(pet))
+				if !ok {
+					logger.Printf("cherry: minipet stroke refused aid=%d", sender)
+					continue
+				}
+				if err := petStrokePush(conn, tlupSession, reply, logger); err != nil {
+					logger.Printf("OBS %s minipet-stroke remote=%s err=%v", addr, remote, err)
+					return
 				}
 			}
 			// A counted heart to the room the sender is visiting hides the button.
@@ -524,6 +537,26 @@ type tlupEvent struct {
 	serviceID, eventID uint64
 	names              []string // ParamData names in order; values are never logged
 	target             uint64   // youraid Intvalue, 0 when absent
+	pet                uint64   // target_pet Intvalue (a petting, ServiceId 101 Eventid 4), 0 when absent
+}
+
+// tlupPetStrokes returns the pets a verified numbered TLUP request pets (ServiceId 101, Eventid 4, target_pet). sender
+// is recordTLUPEvents' verified aid; 0 (refused or invalid) gives none.
+func tlupPetStrokes(data []byte, sender uint64) []uint64 {
+	if sender == 0 {
+		return nil
+	}
+	_, events, ok := tlupClientEvents(data)
+	if !ok {
+		return nil
+	}
+	var pets []uint64
+	for _, ev := range events {
+		if ev.serviceID == 101 && ev.eventID == 4 && ev.pet != 0 {
+			pets = append(pets, ev.pet)
+		}
+	}
+	return pets
 }
 
 // isHeart reports whether ev sends a heart to a target. The avatar buttons (Garden, profile,
@@ -613,8 +646,11 @@ func tlupEventRequest(data []byte) (tlupEvent, bool) {
 			name, value, paramOK := tlupParam(d)
 			bad = bad || !paramOK
 			ev.names = append(ev.names, name)
-			if name == "youraid" {
+			switch name {
+			case "youraid":
 				ev.target = value
+			case "target_pet":
+				ev.pet = value
 			}
 		}
 	})

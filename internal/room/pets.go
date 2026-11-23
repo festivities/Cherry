@@ -21,7 +21,8 @@ import (
 // Growth, feeding, paid calls and shop are not implemented; the Pet Book list is HandlePetBook (pet/book/race/list/*),
 // the Pet Book detail pages (pet/book/race/detail) are not.
 
-const PetMaxArrange = 8
+// PetMaxArrange is the most pets arranged on one floor (the client's maxcount, enforced there too).
+const PetMaxArrange = 5
 
 // ponytail: lab showcase grant, six renderable pets (complete skeleton/texture/
 // behavior in files/item/pet): numeric ids 326400016..021 = P,U,"PE",base36 n.
@@ -137,6 +138,48 @@ func petArrangeRow(aid string, p store.PetItem) map[string]any {
 func petJSON(w http.ResponseWriter, v any) {
 	body, _ := json.Marshal(map[string]any{"result": v})
 	httpx.WriteJSON(w, http.StatusOK, string(body))
+}
+
+// MiniPetVisitID is the petId of a paired pet the account has not adopted: one id per owner and pet, above the owned
+// ids (aid*100+n) and unique across owners (1e15 + aid*1e8 + the pet's number). An adopted pet keeps this id.
+func MiniPetVisitID(aid, cd string) int64 {
+	owner, _ := strconv.ParseInt(aid, 10, 64)
+	return 1_000_000_000_000_000 + owner*100_000_000 + int64(max(PetSkinID(cd)-326400000, 0))
+}
+
+// MiniPetArrange is one Minipet placed in a My Room floor, as the arrange lists describe it.
+type MiniPetArrange struct {
+	Aid, Item, Level, Pet, Name        string
+	PetID, Exp, MaxExp, CallRemain     int64
+	Exposed, Touchable, CanCall, Final bool
+}
+
+// MiniPetArrangeRow is the arrange element of a Minipet: itemCode is the placed room item (the client matches it to the
+// placed object), skinCode the pet's skin (spec 2 A3).
+func MiniPetArrangeRow(a MiniPetArrange) map[string]any {
+	id := strconv.FormatInt(a.PetID, 10)
+	return map[string]any{
+		"raceId": 1, "catgCd": "PET", "itemNo": 1, "itemCode": a.Item, "itemName": a.Name,
+		"localeCd": "en", "raceNm": "Minipet", "petId": id, "petName": a.Name, "avatarId": a.Aid,
+		"skinSerial": id, "skinId": PetSkinID(a.Pet), "skinCode": a.Pet,
+		"linkPosX": 0, "linkPosY": 0, "linkScale": 100, "exposureYn": a.Exposed,
+		"exp": a.Exp, "maxExp": a.MaxExp, "level": 1, "petTouchableYn": a.Touchable,
+		"callPayCode": "", "callPrice": 0, "defaultCallYn": a.CanCall,
+		"defaultCallRemainTimestamp": strconv.FormatInt(a.CallRemain, 10),
+		"petSleepingYn":              false, "finalLevelYn": a.Final, "groundLevel": a.Level,
+	}
+}
+
+// LegacyArrangeRows are the arrange rows of the owned pets arranged on level before the Minipet loop (PUPE item codes);
+// a pet skip returns true for already has a Minipet row.
+func LegacyArrangeRows(aid string, pets []store.PetItem, level string, skip func(cd string) bool) []map[string]any {
+	rows := []map[string]any{}
+	for _, p := range pets {
+		if p.Room == level && !skip(p.Cd) {
+			rows = append(rows, petArrangeRow(aid, p))
+		}
+	}
+	return rows
 }
 
 func arrangedRows(aid string, pets []store.PetItem, level string) []map[string]any {
@@ -327,12 +370,39 @@ func petBaseID(aid string) int64 {
 }
 
 // PetSpecies is one sellable Minipet of the Minipet Shop catalog as the Pet Book lists it: the item code,
-// the numeric item id, the client's race category (UDOG, UCAT, UTOY or URIDE) and display name. economy.PetSpecies supplies it.
+// the numeric item id, the client's race category (UDOG, UCAT, UTOY or URIDE), display name and the friendship a
+// pet needs for adoption. economy.PetSpecies supplies it.
 type PetSpecies struct {
-	Code string
-	ID   int64
-	Catg string
-	Name string
+	Code   string
+	ID     int64
+	Catg   string
+	Name   string
+	MaxExp int64
+}
+
+// petBookVisited is a Minipet the account has visited: its petId, friendship and avatar are the account's.
+func petBookVisited(aid string, sp PetSpecies, st store.MiniPetState) petBookRow {
+	row := petBookSpecies(sp)
+	id := strconv.FormatInt(MiniPetVisitID(aid, sp.Code), 10)
+	row.PetID, row.SkinSerial, row.AvatarID, row.PetName = id, id, aid, sp.Name
+	row.Exp, row.MaxExp, row.Level = int(st.Exp), int(sp.MaxExp), 1
+	row.FinalLevelYn = st.Exp >= sp.MaxExp
+	return row
+}
+
+// requesterMiniPets is the requester's aid and Minipet states by pet code (no session: "" and nil; no error).
+func requesterMiniPets(r *http.Request) (string, map[string]store.MiniPetState) {
+	store.AccountsMu.Lock()
+	defer store.AccountsMu.Unlock()
+	acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
+	if acc == nil {
+		return "", nil
+	}
+	states := map[string]store.MiniPetState{}
+	for _, st := range acc.MiniPets {
+		states[st.Cd] = st
+	}
+	return acc.Aid, states
 }
 
 // petBookRow is one ResPetBookList element (sDataPetInfo). Key types are IDA-checked (0x1c34340, rows-d 4.2):
@@ -435,8 +505,16 @@ func HandlePetBook(species func() []PetSpecies) http.HandlerFunc {
 			}
 			store.AccountsMu.Unlock()
 		} else {
+			// A race tab lists the Minipet Shop's pets of that category; a pet the account has visited carries its own
+			// petId and friendship.
+			aid, states := requesterMiniPets(r)
 			for _, sp := range all {
-				if sp.Catg == category {
+				if sp.Catg != category {
+					continue
+				}
+				if st, ok := states[sp.Code]; ok && aid != "" {
+					list = append(list, petBookVisited(aid, sp, st))
+				} else {
 					list = append(list, petBookSpecies(sp))
 				}
 			}

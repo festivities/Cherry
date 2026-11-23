@@ -106,7 +106,8 @@ type Account struct {
 	Rooms           map[string]RoomLayout
 	Presets         map[string]RoomPreset
 	Pets            []PetItem
-	Gems            int64 // economy ledger balances, never negative (economy.go)
+	MiniPets        []MiniPetState // Minipet friendship and visits for pets paired with a room item (economy/minipet.go); replaced, never edited in place
+	Gems            int64          // economy ledger balances, never negative (economy.go)
 	Cash            int64
 	FaceTickets     int64
 	Welcomed        bool      // 300-Gem welcome gift already credited

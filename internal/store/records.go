@@ -79,6 +79,17 @@ type RoomItem struct {
 	Paid int64  `json:"paid,omitempty"` // economy/deals.go: >0 the Gems paid at a daily deal, <0 a player's gift (sells for nothing, GiftPaid), 0 no record; sell-back pays it
 }
 
+// MiniPetState is the account's state for one Minipet whose room item it has been visited through (economy/minipet.go):
+// friendship, the free-call cooldown, the current visit and whether it was petted in that visit. Replaced, never edited
+// in place. An adopted pet also sits in Account.Pets (owned); its friendship stays here.
+type MiniPetState struct {
+	Cd       string `json:"cd"`                 // the PUPE pet code
+	Exp      int64  `json:"exp,omitempty"`      // friendship points (maxExp: the pet's cuddles, data/pets.json)
+	NextCall int64  `json:"nextCall,omitempty"` // unix seconds the next free call is allowed (0 = at once)
+	VisitEnd int64  `json:"visitEnd,omitempty"` // unix seconds the current visit ends (0 = no visit)
+	Petted   bool   `json:"petted,omitempty"`   // petted during the current visit
+}
+
 type RoomPlaced struct {
 	Seq       int64   `json:"seq"`
 	Cd        string  `json:"cd"`

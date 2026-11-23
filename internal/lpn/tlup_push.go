@@ -54,6 +54,55 @@ func heartButtonPush(conn *lockedConn, session [8]byte, id, viewer, owner uint64
 	return nil
 }
 
+// tlupQuestCommandPetStroke is the QuestActionCommand Id of a petting's answer (NaQuestManager::HandleQuestCommand).
+const tlupQuestCommandPetStroke = 112
+
+// tlupParamInt and tlupParamStr encode one ParamData: Name #1, Intvalue #2 or Strvalue #4.
+func tlupParamInt(name string, v int64) []byte {
+	return pbVar(pbLen(nil, 1, []byte(name)), 2, uint64(v))
+}
+
+func tlupParamStr(name, v string) []byte {
+	return pbLen(pbLen(nil, 1, []byte(name)), 4, []byte(v))
+}
+
+// tlupPetStrokeBody encodes the answer to a petting as tc_questevent_push {Action #1 {Command #1 {Id 112, Param #3...}}}.
+// Every required param is sent (spec 3 section 1): a missing one makes the client drop the answer. The gift params
+// follow only when the petting adopted the pet (levelUp 1).
+func tlupPetStrokeBody(r economy.MiniPetStrokeReply) []byte {
+	params := [][]byte{
+		tlupParamInt("petId", r.PetID), tlupParamInt("exp", r.Exp), tlupParamInt("maxExp", r.MaxExp),
+		tlupParamInt("gainedExp", r.Gained), tlupParamInt("paidTouch", 0), tlupParamInt("petTouchable", 0),
+		tlupParamInt("finalLevelYn", boolInt(r.Final)), tlupParamInt("levelUp", boolInt(r.LevelUp)),
+	}
+	if g := r.Gift; g != nil {
+		params = append(params, tlupParamInt("raceId", 1), tlupParamStr("giftItemCode", g.Item),
+			tlupParamStr("giftItemName", g.ItemName), tlupParamStr("giftItemGrade", g.Grade),
+			tlupParamStr("petSkinCode", g.Pet), tlupParamStr("petName", g.PetName), tlupParamInt("level", 1))
+	}
+	command := pbVar(nil, 2, tlupQuestCommandPetStroke)
+	for _, p := range params {
+		command = pbLen(command, 3, p)
+	}
+	return pbLen(nil, 1, pbLen(nil, 1, command))
+}
+
+func boolInt(b bool) int64 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// petStrokePush sends the answer to a petting on the client's own TLUP session (an unsolicited D frame, msgid 5).
+func petStrokePush(conn *lockedConn, session [8]byte, reply economy.MiniPetStrokeReply, logger *log.Logger) error {
+	if _, err := conn.Write(tlupDFrame(session, tlupQuestEventMsg, tlupPetStrokeBody(reply))); err != nil {
+		return err
+	}
+	logger.Printf("cherry: minipet stroke pet=%d exp=%d/%d adopted=%t", reply.PetID, reply.Exp, reply.MaxExp, reply.Gift != nil)
+	return nil
+}
+
 // heartButtonShow shows the button for viewer's visit to owner's My Room while viewer may still send
 // a heart there. The observer calls it on the client's quest-list request after the room load.
 // HeartReceivable rules out viewer's own room.

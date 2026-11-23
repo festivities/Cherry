@@ -504,7 +504,7 @@ func newMux(svc *auth.Service) http.Handler {
 	mux.HandleFunc("/v4/room/preset/remove/", room.HandleRoomPresetRemove)
 	mux.HandleFunc("/v4/room/preset/find/", room.HandleRoomPresetFind)
 	mux.HandleFunc("/v4/pet/book/race/list/", room.HandlePetBook(economy.PetSpecies))
-	mux.HandleFunc("/v4/pet/", room.HandlePet)
+	mux.HandleFunc("/v4/pet/", economy.HandlePet)
 	mux.HandleFunc("/v4/room/groundlevel/status/", room.HandleGroundLevelStatus)
 	mux.HandleFunc("/v4/room/random", lpn.HandleRoomRandom)
 	mux.HandleFunc("/v4/room/random/hostaid", lpn.HandleRandomGardenHost)
