@@ -82,7 +82,7 @@ func TestServerLimitsFromSettings(t *testing.T) {
 
 	for _, tc := range []struct{ key, value string }{
 		{"limits.conns-per-address", "0"}, {"limits.conns-per-address", "10001"}, {"limits.conns-per-address", "abc"},
-		{"limits.conns-per-address", ""}, {"limits.conns-total", "12001"}, {"limits.api-burst", "0"}, {"limits.static-rate", "100001"},
+		{"limits.conns-per-address", ""}, {"limits.conns-total", "50001"}, {"limits.api-burst", "0"}, {"limits.static-rate", "100001"},
 		{"limits.guest-per-minute", "-1"}, {"limits.not-a-key", "5"},
 	} {
 		expect(t, c.post("/settings/limit", url.Values{"csrf": {c.csrf()}, "key": {tc.key}, "value": {tc.value}}), http.StatusBadRequest)

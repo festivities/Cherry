@@ -168,7 +168,7 @@ func main() {
 		Handler:           httpx.WithLogging(web.NewGameMux(svc), logger),
 		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       120 * time.Second,
+		IdleTimeout:       30 * time.Second,
 		TLSNextProto:      map[string]func(*http.Server, *tls.Conn, http.Handler){},
 		TLSConfig: &tls.Config{
 			Certificates: certs,
@@ -234,7 +234,7 @@ func main() {
 		Handler:           httpx.WithLogging(web.NewPlainMux(), logger), // client port 80: the paths the client asks for, nothing else
 		ReadHeaderTimeout: 10 * time.Second,
 		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       120 * time.Second,
+		IdleTimeout:       30 * time.Second,
 	}
 	go func() {
 		errc <- httpSrv.Serve(httpLn)

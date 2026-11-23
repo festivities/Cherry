@@ -26,7 +26,7 @@ type limitRow struct {
 // limitTexts are the plain-language names of the limits, by config key.
 var limitTexts = map[string]struct{ Label, Help string }{
 	"limits.conns-per-address": {"Connections per address", "Open connections one address may hold on the game ports. Carrier networks put many players behind one address."},
-	"limits.conns-total":       {"Connections in total", "Open connections across every game port. Keep it below the process's file limit (16,384)."},
+	"limits.conns-total":       {"Connections in total", "Open connections across every game port. Keep it below the process's file limit (65,536 after the host's LimitNOFILE raise)."},
 	"limits.api-rate":          {"Game requests a second, per address", "Each address earns this many game requests a second. 0 turns the limit off."},
 	"limits.api-burst":         {"Game request burst, per address", "Requests an address may send at once. At least 1 while the rate is above 0."},
 	"limits.account-rate":      {"Game requests a second, per account", "Each signed-in account earns this many game requests a second. 0 turns the limit off."},

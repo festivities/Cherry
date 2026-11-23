@@ -88,7 +88,7 @@ func TestSetLimitRefusesBadValuesAndBrokenPairs(t *testing.T) {
 		key string
 		n   int
 	}{
-		{"limits.conns-per-address", 0}, {"limits.conns-per-address", 10001}, {"limits.conns-total", 12001},
+		{"limits.conns-per-address", 0}, {"limits.conns-per-address", 10001}, {"limits.conns-total", 50001},
 		{"limits.api-burst", 0}, {"limits.frame-rate", -1}, {"limits.guest-per-minute", 10001}, {"limits.static-rate", 100001},
 		{"limits.max-players", 5},
 	} {

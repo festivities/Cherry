@@ -21,7 +21,7 @@ type LimitKey struct {
 // LimitKeys are the panel's limits, in the order the page shows them.
 var LimitKeys = []LimitKey{
 	{"limits.conns-per-address", 1, 10000},
-	{"limits.conns-total", 1, 12000}, // the process may open 16384 files: keep headroom for the stores and the assets
+	{"limits.conns-total", 1, 50000}, // the unit raises LimitNOFILE to 65536 at deploy: headroom for the stores and the assets
 	{"limits.api-rate", 0, 100000},
 	{"limits.api-burst", 1, 1000000},
 	{"limits.account-rate", 0, 100000},
