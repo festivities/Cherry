@@ -1,8 +1,8 @@
 {
  "origin": "cherry",
- "note": "Cherry's switch (internal/assets/egress.go), off by default. The extension list is Cherry's choice: binary and picture kinds the client does not gzip (not .plist .ini .json .aniproj .xml .ast). The base is the operator's public domain for the R2 bucket and is set only in the config folder, never here.",
+ "note": "Cherry's switch (internal/assets/egress.go), off by default. R2 objects are stored as application/octet-stream (served uncompressed with exact Content-Length), so text/data kinds (.plist, .aniproj, .xml, .json) are included alongside the binary/image kinds. The base is the operator's public domain for the R2 bucket and is set only in the config folder, never here.",
  "enabled": false,
  "base": "",
  "status": 302,
- "extensions": [".png", ".jpg", ".ogg", ".mp3", ".mworldpack", ".artsitem", ".avb", ".avc"]
+ "extensions": [".png", ".jpg", ".ogg", ".mp3", ".mworldpack", ".artsitem", ".avb", ".avc", ".plist", ".aniproj", ".xml", ".json"]
 }

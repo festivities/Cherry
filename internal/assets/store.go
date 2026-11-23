@@ -184,8 +184,8 @@ func (s *Store) WriteCheckResource2(w http.ResponseWriter) {
 // /arts_chatting_<ch>/action_hd/<file>, and the /img/read dp.png form) and the
 // listed map packs (/<dir>/<name>, or /arts_animation_<lang>_<v>/../<dir>/<name>). It reports whether it wrote
 // the response. A file that R2 does not have returns false, so the caller's own handling (generated
-// thumbnails, the local string table, 404) still applies. With egress.json on, a known original is a redirect to
-// its public copy instead of the bytes (streamFile).
+// thumbnails, the local string table, 404) still applies. With egress.json on, a known original or converted item
+// is a redirect to its public copy instead of the bytes (streamFile).
 func (s *Store) ServeRoute(w http.ResponseWriter, r *http.Request) bool {
 	if !s.Streaming() || r.Method != http.MethodGet {
 		return false
@@ -214,7 +214,7 @@ func (s *Store) ServeRoute(w http.ResponseWriter, r *http.Request) bool {
 		return s.streamFile(w, r, "static/"+rel)
 	}
 	if key, ok := generatedItemKey(r.URL.Path); ok { // a converted item is Cherry-made: cherry/item/, never static/
-		return s.serve(w, r, key)
+		return s.streamFile(w, r, key)
 	}
 	if key, ok := fileKey(r.URL.Path); ok {
 		return s.streamFile(w, r, key)

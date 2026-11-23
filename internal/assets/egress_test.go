@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"cherry/data"
 	"cherry/internal/metrics"
 )
 
@@ -37,7 +38,7 @@ func loadEgressJSON(t *testing.T, body string) error {
 // enableEgress turns the redirect on with the placeholder base and the embedded extension list.
 func enableEgress(t *testing.T) {
 	t.Helper()
-	if err := loadEgressJSON(t, `{"enabled": true, "base": "`+testBase+`", "status": 302, "extensions": [".png", ".ogg", ".mp3", ".mworldpack", ".artsitem", ".avb", ".avc"]}`); err != nil {
+	if err := loadEgressJSON(t, `{"enabled": true, "base": "`+testBase+`", "status": 302, "extensions": [".png", ".jpg", ".ogg", ".mp3", ".mworldpack", ".artsitem", ".avb", ".avc", ".plist", ".aniproj", ".xml", ".json"]}`); err != nil {
 		t.Fatal(err)
 	}
 	if egress.Load() == nil {
@@ -70,18 +71,28 @@ func readyItem(s *Store, kind string, id int64, name string) {
 func TestEgressDefaultIsOffAndValid(t *testing.T) {
 	egressFile.Reset()
 	t.Cleanup(egressFile.Reset)
-	rule, err := newEgressRule(egressFile.Get())
-	if err != nil || rule != nil {
-		t.Fatalf("embedded default: rule %v, err %v; want off and valid", rule, err)
+	if err := loadEgressJSON(t, string(data.EgressJSON)); err != nil {
+		t.Fatalf("embedded default refused: %v", err)
+	}
+	if egress.Load() != nil {
+		t.Fatalf("embedded default enabled redirect, want off")
 	}
 	def := egressFile.Get()
-	if !slices.Contains(def.Extensions, ".png") || !slices.Contains(def.Extensions, ".mworldpack") {
-		t.Fatalf("default extensions %v lack the picture or pack kinds", def.Extensions)
+	if def.Origin != "cherry" || def.Enabled || def.Base != "" || def.Status != http.StatusFound {
+		t.Fatalf("embedded default = %+v", def)
 	}
-	// The kinds the client gzips (FileGet's flag list) are served by Cherry, never redirected by default.
-	for _, ext := range []string{".plist", ".ini", ".json", ".aniproj", ".xml", ".ast"} {
+	wantExts := []string{".png", ".jpg", ".ogg", ".mp3", ".mworldpack", ".artsitem", ".avb", ".avc", ".plist", ".aniproj", ".xml", ".json"}
+	for _, ext := range wantExts {
+		if !slices.Contains(def.Extensions, ext) {
+			t.Errorf("default list lacks %s", ext)
+		}
+	}
+	if len(def.Extensions) != len(wantExts) {
+		t.Errorf("default list len = %d (%v), want %d", len(def.Extensions), def.Extensions, len(wantExts))
+	}
+	for _, ext := range []string{".ini", ".ast"} {
 		if slices.Contains(def.Extensions, ext) {
-			t.Errorf("default list has gzip-flagged kind %s", ext)
+			t.Errorf("default list unexpectedly has %s", ext)
 		}
 	}
 }
@@ -141,13 +152,14 @@ func TestEgressRedirectsKnownOriginals(t *testing.T) {
 		before[n] = expvarInt(t, "cherry.static_redirects_"+n)
 	}
 	for target, want := range map[string]string{
-		"/arts_item_interior_223000001/dp.png":          "static/item/interior/223000001/dp.png",
-		"/img/read/arts_item_interior_223000001/dp.png": "static/item/interior/223000001/dp.png",
-		"/arts_animation_tw_00531/a.png":                "static/animation/a.png",
-		"/arts_animation_tw_00531/world_icon/b.png":     "static/animation/world_icon/b.png",
-		"/arts_ui_tw_00531/UIImage_hd/c.png":            "static/ui/UIImage_hd/c.png",
-		"/arts_sound_tw_00531/BGM.ogg":                  "static/sound/BGM.ogg",
-		"/garden/" + packs[0].Name:                      "static/garden/" + packs[0].Name,
+		"/arts_item_interior_223000001/dp.png":            "static/item/interior/223000001/dp.png",
+		"/img/read/arts_item_interior_223000001/dp.png":   "static/item/interior/223000001/dp.png",
+		"/arts_animation_tw_00531/a.png":                  "static/animation/a.png",
+		"/arts_animation_tw_00531/world_icon/b.png":       "static/animation/world_icon/b.png",
+		"/arts_ui_tw_00531/UIImage_hd/c.png":              "static/ui/UIImage_hd/c.png",
+		"/arts_sound_tw_00531/BGM.ogg":                    "static/sound/BGM.ogg",
+		"/arts_subui_en_00001/MarbleChallengePopup.plist": "static/subui/MarbleChallengePopup.plist",
+		"/garden/" + packs[0].Name:                        "static/garden/" + packs[0].Name,
 	} {
 		rec, handled := get(t, s, target)
 		if !handled || rec.Code != http.StatusFound || rec.Header().Get("Location") != testBase+want {
@@ -160,46 +172,42 @@ func TestEgressRedirectsKnownOriginals(t *testing.T) {
 	if n := f.getCount("static/item/interior/223000001/dp.png"); n != 0 {
 		t.Errorf("redirected item was read from R2 %d times", n)
 	}
-	// Counters: two item redirects, four bulk (a, world_icon/b, ui, ogg) and one pack.
-	for n, want := range map[string]int64{"item": 2, "bulk": 4, "pack": 1} {
+	// Counters: two item redirects, five bulk (a, world_icon/b, ui, ogg, plist) and one pack.
+	for n, want := range map[string]int64{"item": 2, "bulk": 5, "pack": 1} {
 		if got := expvarInt(t, "cherry.static_redirects_"+n) - before[n]; got != want {
 			t.Errorf("static_redirects_%s moved by %d, want %d", n, got, want)
 		}
 	}
-	if got := expvarInt(t, "cherry.static_redirects"); got < 7 {
-		t.Errorf("static_redirects total %d, want at least 7", got)
+	if got := expvarInt(t, "cherry.static_redirects"); got < 8 {
+		t.Errorf("static_redirects total %d, want at least 8", got)
 	}
 }
 
-// Kinds the client gzips, generated files, unknown keys and anything R2 may not hold are served by Cherry as before.
+// Disallowed extensions, generated thumbnails, unknown keys and anything R2 may not hold are served by Cherry as before.
 func TestEgressKeepsBytesWhereItMust(t *testing.T) {
 	f := newFakeR2(t)
 	fixture(t, f)
 	packFixture(t, f)
 	f.put("static/animation/unlisted.png", []byte("U"))
-	f.put("cherry/item/custom/223100001/0_0.png", []byte("PART"))
 	s, dir := webStore(t, f)
 	if _, err := s.load(); err != nil {
 		t.Fatal(err)
 	}
 	readyItem(s, "interior", 223000001, "dp.png")
 	enableEgress(t)
-	setGeneratedRoot(t, converted(t))
 
-	// A text kind listed by R2 and cached locally: the switch lists no .aniproj, so the bytes go out.
-	f.put("static/animation/x.aniproj", []byte("XML"))
+	// An extension outside the switch list cached locally: the switch omits .ini, so the cached bytes go out.
+	f.put("static/animation/x.ini", []byte("INI"))
 	if err := os.MkdirAll(filepath.Join(dir, "animation"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "animation", "x.aniproj"), []byte("XML"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "animation", "x.ini"), []byte("INI"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	for target, want := range map[string]string{
-		"/arts_animation_tw_00531/x.aniproj":              "XML",
-		"/arts_tx_en_00543/arts_strings.ast":              "ast-bytes",
-		"/arts_subui_en_00001/MarbleChallengePopup.plist": "<plist/>",
-		"/arts_animation_tw_00531/unlisted.png":           "U",
-		"/img/read/arts_item_custom_223100001/0_0.png":    "PART",
+		"/arts_animation_tw_00531/x.ini":        "INI",
+		"/arts_tx_en_00543/arts_strings.ast":    "ast-bytes",
+		"/arts_animation_tw_00531/unlisted.png": "U",
 	} {
 		rec, handled := get(t, s, target)
 		if !handled || rec.Code != http.StatusOK || rec.Body.String() != want {
@@ -213,8 +221,76 @@ func TestEgressKeepsBytesWhereItMust(t *testing.T) {
 			t.Errorf("%s: handled=%v location=%q, want not answered", target, handled, rec.Header().Get("Location"))
 		}
 	}
-	if n := f.getCount("static/animation/x.aniproj"); n != 0 {
-		t.Errorf("cached .aniproj read from R2 %d times", n)
+	if n := f.getCount("static/animation/x.ini"); n != 0 {
+		t.Errorf("cached .ini read from R2 %d times", n)
+	}
+}
+
+// Converted 2014 iOS items (cherry/item/) redirect when listed in items.json with an allowed extension, serve bytes when
+// the extension is disallowed, and never redirect unlisted keys.
+func TestEgressConvertedItems(t *testing.T) {
+	f := newFakeR2(t)
+	f.put("cherry/item/custom/223100001/0_0.png", []byte("PARTBYTES"))
+	f.put("cherry/item/custom/223100001/1409_iteminfo.artsitem", []byte("INFO"))
+	f.put("cherry/item/custom/223100001/unlisted.png", []byte("UNLISTED"))
+	s, dir := webStore(t, f)
+	setGeneratedRoot(t, converted(t))
+	enableEgress(t)
+
+	beforeItem := expvarInt(t, "cherry.static_redirects_item")
+	for target, want := range map[string]string{
+		"/img/read/arts_item_custom_223100001/0_0.png":       "cherry/item/custom/223100001/0_0.png",
+		"/arts_item_custom_223100001/1409_iteminfo.artsitem": "cherry/item/custom/223100001/1409_iteminfo.artsitem",
+	} {
+		rec, handled := get(t, s, target)
+		if !handled || rec.Code != http.StatusFound || rec.Header().Get("Location") != testBase+want {
+			t.Errorf("%s: handled=%v code=%d location=%q, want 302 to %s", target, handled, rec.Code, rec.Header().Get("Location"), testBase+want)
+		}
+		if rec.Body.Len() != 0 {
+			t.Errorf("%s: redirect has a body (%d bytes)", target, rec.Body.Len())
+		}
+	}
+	if got := expvarInt(t, "cherry.static_redirects_item") - beforeItem; got != 2 {
+		t.Errorf("static_redirects_item moved by %d, want 2", got)
+	}
+	if n := f.getCount("cherry/item/custom/223100001/0_0.png"); n != 0 {
+		t.Errorf("redirected converted item was read from R2 %d times", n)
+	}
+
+	// Unlisted cherry/item/ keys never redirect, even if cached locally.
+	cachedUnlisted := filepath.Join(dir, "cherry", "item", "custom", "223100001", "unlisted.png")
+	if err := os.MkdirAll(filepath.Dir(cachedUnlisted), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cachedUnlisted, []byte("UNLISTED"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{
+		"cherry/item/custom/223100001/unlisted.png",
+		"cherry/item/custom/999999999/0_0.png",
+		"cherry/item/interior/223000001/dp.png",
+		"cherry/item/custom/abc/dp.png",
+		"cherry/garden/19000000.mworldpack",
+	} {
+		if loc, status, ok := s.egressTarget(key); ok {
+			t.Errorf("egressTarget(%q) = (%q, %d, true), want ok=false", key, loc, status)
+		}
+	}
+	if rec, handled := get(t, s, "/img/read/arts_item_custom_223100001/unlisted.png"); handled || rec.Header().Get("Location") != "" {
+		t.Errorf("unlisted converted item: handled=%v location=%q, want not answered", handled, rec.Header().Get("Location"))
+	}
+
+	// Disallowed extension on a listed converted item serves bytes directly (no redirect).
+	if err := loadEgressJSON(t, `{"enabled": true, "base": "`+testBase+`", "status": 302, "extensions": [".artsitem"]}`); err != nil {
+		t.Fatal(err)
+	}
+	rec, handled := get(t, s, "/img/read/arts_item_custom_223100001/0_0.png")
+	if !handled || rec.Code != http.StatusOK || rec.Header().Get("Location") != "" || rec.Body.String() != "PARTBYTES" {
+		t.Fatalf("disallowed ext converted item: handled=%v code=%d location=%q body=%q, want 200 PARTBYTES",
+			handled, rec.Code, rec.Header().Get("Location"), rec.Body.String())
+	}
+	if n := f.getCount("cherry/item/custom/223100001/0_0.png"); n != 1 {
+		t.Errorf("served converted item R2 count = %d, want 1", n)
 	}
 }
 
@@ -285,10 +361,12 @@ func TestEgressRedirectIsChunkedWithoutContentLength(t *testing.T) {
 	f := newFakeR2(t)
 	fixture(t, f)
 	f.put("static/animation/unlisted.png", []byte("U"))
+	f.put("cherry/item/custom/223100001/0_0.png", []byte("PARTBYTES"))
 	s, _ := webStore(t, f)
 	if _, err := s.load(); err != nil {
 		t.Fatal(err)
 	}
+	setGeneratedRoot(t, converted(t))
 	enableEgress(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !s.ServeRoute(w, r) {
@@ -315,18 +393,23 @@ func TestEgressRedirectIsChunkedWithoutContentLength(t *testing.T) {
 		return string(b)
 	}
 
-	head, body, _ := strings.Cut(raw("/arts_animation_tw_00531/a.png"), "\r\n\r\n")
-	if !strings.HasPrefix(head, "HTTP/1.1 302 ") || !strings.Contains(head, "Location: "+testBase+"static/animation/a.png") {
-		t.Fatalf("redirect status or Location:\n%s", head)
-	}
-	if lower := strings.ToLower(head); strings.Contains(lower, "content-length:") || !strings.Contains(lower, "transfer-encoding: chunked") {
-		t.Errorf("redirect framing:\n%s", head)
-	}
-	if body != "0\r\n\r\n" {
-		t.Errorf("redirect body = %q, want the empty chunked body", body)
+	for target, wantKey := range map[string]string{
+		"/arts_animation_tw_00531/a.png":               "static/animation/a.png",
+		"/img/read/arts_item_custom_223100001/0_0.png": "cherry/item/custom/223100001/0_0.png",
+	} {
+		head, body, _ := strings.Cut(raw(target), "\r\n\r\n")
+		if !strings.HasPrefix(head, "HTTP/1.1 302 ") || !strings.Contains(head, "Location: "+testBase+wantKey) {
+			t.Fatalf("%s redirect status or Location:\n%s", target, head)
+		}
+		if lower := strings.ToLower(head); strings.Contains(lower, "content-length:") || !strings.Contains(lower, "transfer-encoding: chunked") {
+			t.Errorf("%s redirect framing:\n%s", target, head)
+		}
+		if body != "0\r\n\r\n" {
+			t.Errorf("%s redirect body = %q, want the empty chunked body", target, body)
+		}
 	}
 
-	head, _, _ = strings.Cut(raw("/arts_animation_tw_00531/unlisted.png"), "\r\n\r\n")
+	head, _, _ := strings.Cut(raw("/arts_animation_tw_00531/unlisted.png"), "\r\n\r\n")
 	if !strings.HasPrefix(head, "HTTP/1.1 200 ") || !strings.Contains(strings.ToLower(head), "content-length: 1") {
 		t.Errorf("served file lost its Content-Length:\n%s", head)
 	}

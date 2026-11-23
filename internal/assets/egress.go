@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -16,10 +18,11 @@ import (
 	"cherry/internal/opdata"
 )
 
-// egressFlag is egress.json: the operator switch that answers a streamed original's GET with a redirect to the public
-// copy of the object (a custom domain on the same R2 bucket, cached at the edge), so Cherry sends no bytes for it. Off
-// by default. Base is the public URL prefix ("https://<host>/", trailing slash); the Location is base plus the R2 key
-// ("static/item/interior/<id>/dp.png"). Origin and Note are the operator-data marking; they are optional here.
+// egressFlag is egress.json: the operator switch that answers a streamed GET with a redirect to the public copy of
+// the object (a custom domain on the same R2 bucket, cached at the edge), so Cherry sends no bytes for it. Off by
+// default. Base is the public URL prefix ("https://<host>/", trailing slash); the Location is base plus the R2 key
+// ("static/item/interior/<id>/dp.png" or "cherry/item/custom/<id>/dp.png"). Origin and Note are the operator-data
+// marking; they are optional here.
 type egressFlag struct {
 	Origin     string   `json:"origin,omitempty"`
 	Note       string   `json:"note,omitempty"`
@@ -91,8 +94,8 @@ func newEgressRule(f *egressFlag) (*egressRule, error) {
 	return &egressRule{base: f.Base, status: f.Status, exts: exts}, nil
 }
 
-// streamFile answers a streamed original that ServeRoute resolved to key: a redirect to the public copy when the switch
-// allows it (egressTarget), else the bytes (serve). Converted items, generated files and update lists never come here.
+// streamFile answers a streamed file that ServeRoute resolved to key: a redirect to the public copy when the switch
+// allows it (egressTarget), else the bytes (serve). Generated landscapes, generated files and update lists never come here.
 func (s *Store) streamFile(w http.ResponseWriter, r *http.Request, key string) bool {
 	loc, status, ok := s.egressTarget(key)
 	if !ok {
@@ -107,20 +110,26 @@ func (s *Store) streamFile(w http.ResponseWriter, r *http.Request, key string) b
 	return true
 }
 
-// egressTarget is the public URL of key when the switch is on, key is an original (static/) whose extension the switch
-// lists, and R2 is known to hold it (inR2). Any other key is served by Cherry, so a key that may 404 is never redirected.
+// egressTarget is the public URL of key when the switch is on, key is an original (static/) or converted item
+// (cherry/item/) whose extension the switch lists, and R2 is known to hold it (inR2). Any other key is served by
+// Cherry, so a key that may 404 is never redirected.
 func (s *Store) egressTarget(key string) (string, int, bool) {
 	rule := egress.Load()
-	if rule == nil || !strings.HasPrefix(key, "static/") || !rule.exts[strings.ToLower(path.Ext(key))] || !s.inR2(key) {
+	if rule == nil || (!strings.HasPrefix(key, "static/") && !strings.HasPrefix(key, CherryPrefix+"item/")) ||
+		!rule.exts[strings.ToLower(path.Ext(key))] || !s.inR2(key) {
 		return "", 0, false
 	}
 	return rule.base + escapeKey(key), rule.status, true
 }
 
 // inR2 reports whether the object at key is known to exist in R2, without waiting for a read: an index already read lists
-// it (the originals items index, the manifests, the pack index), or a local copy holds it (a copy is written only after
-// R2 answered 200).
+// it (the originals items index, the converted items index, the manifests, the pack index), or a local copy holds it (a
+// copy is written only after R2 answered 200). An unlisted cherry/item/ key always returns false.
 func (s *Store) inR2(key string) bool {
+	if strings.HasPrefix(key, CherryPrefix+"item/") {
+		kind, id, name, ok := parseGeneratedItemKey(key)
+		return ok && GeneratedItems().HasFile(kind, id, name)
+	}
 	if kind, id, name, ok := parseOriginalItemKey(key); ok && s.readyItems.Load().HasFile(kind, id, name) {
 		return true
 	}
@@ -133,6 +142,23 @@ func (s *Store) inR2(key string) bool {
 	}
 	fi, err := os.Stat(local)
 	return err == nil && fi.Mode().IsRegular()
+}
+
+// parseGeneratedItemKey splits cherry/item/<kind>/<id>/<name>; ok is false for any other key.
+func parseGeneratedItemKey(key string) (kind string, id int64, name string, ok bool) {
+	rest, ok := strings.CutPrefix(key, CherryPrefix+"item/")
+	if !ok {
+		return "", 0, "", false
+	}
+	parts := strings.SplitN(rest, "/", 3)
+	if len(parts) != 3 || !slices.Contains(GeneratedKinds, parts[0]) || !isDigits(parts[1]) || parts[2] == "" {
+		return "", 0, "", false
+	}
+	id, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return "", 0, "", false
+	}
+	return parts[0], id, parts[2], true
 }
 
 // warm reads the manifests and the originals index in the background while the switch is on. A request never waits for
