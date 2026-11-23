@@ -41,6 +41,10 @@ Earlier handoffs are in [HISTORY.md](HISTORY.md); the latest covers 2026-11-23 ~
 - Validate an operator file before it goes to the host (a bad config file stops startup): a throwaway `zz_*_test.go` that decodes it strictly and runs the package's check function, run alone and deleted at once. Never leave one in the tree while the gate runs.
 - Two workers at once need explicit file ownership; stage named paths only (memory `no-commit-a-with-workers`). Long Bash heredocs fail on this host: write scripts to the scratchpad with the file tool.
 
+### HANDOFF ACCEPTED — 2026-11-23 ~10:05 host time (Claude Code, Windows)
+
+Context loaded (PLAN handoff + Status, AGENTS Policies/Workflow/Production, Raspberry CONTRACT §4). No state corrections. Host, read-only: `cherry.commit` = `495c9da`; `healthz ok`; `cherry` + `litestream` active, `NRestarts=0` since 2026-11-22 23:50:56; 1,169 accounts, 139 session / 148 gateway connections, `conn_refused` 0, `frames_dropped` 0, `frame_floods` 0, `rate_limited` 18 (unchanged since 01:26); host AGENTS log ends at the 23:41/23:50 entry. Last hour of `journalctl`: no `status=5`, no panic; 56 `refused` lines, mostly the Square theme gate (msgid 37/52/64 outside their themes) plus a few worth a later look: `TREASURE msgid=9 travel refused … to=14 at=21` (twice), `BUTLER skin buy … butler=0 skin=0 … refused`, one `auth exchange refused reason=invalid_request`. Raspberry §4: newest entry 2026-11-22 (WSA guard, user-verified); no request to Cherry. `main` clean, CI green on `3e89094`.
+
 ## Status (2026-11-23)
 
 | Milestone | Scope | Status |
