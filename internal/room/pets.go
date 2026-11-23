@@ -370,18 +370,19 @@ func petBaseID(aid string) int64 {
 }
 
 // PetSpecies is one sellable Minipet of the Minipet Shop catalog as the Pet Book lists it: the item code,
-// the numeric item id, the client's race category (UDOG, UCAT, UTOY or URIDE), display name and the friendship a
-// pet needs for adoption. economy.PetSpecies supplies it.
+// the numeric item id, the client's race category (UDOG, UCAT, UTOY or URIDE), paired RUPI room item code (if any),
+// display name and the friendship a pet needs for adoption. economy.PetSpecies supplies it.
 type PetSpecies struct {
 	Code   string
 	ID     int64
 	Catg   string
+	Item   string
 	Name   string
 	MaxExp int64
 }
 
 // petBookVisited is a Minipet the account has visited: its petId, friendship and avatar are the account's.
-func petBookVisited(aid string, sp PetSpecies, st store.MiniPetState) petBookRow {
+func petBookVisited(aid string, sp PetSpecies, st store.MiniPetState) PetBookRow {
 	row := petBookSpecies(sp)
 	id := strconv.FormatInt(MiniPetVisitID(aid, sp.Code), 10)
 	row.PetID, row.SkinSerial, row.AvatarID, row.PetName = id, id, aid, sp.Name
@@ -405,9 +406,9 @@ func requesterMiniPets(r *http.Request) (string, map[string]store.MiniPetState) 
 	return acc.Aid, states
 }
 
-// petBookRow is one ResPetBookList element (sDataPetInfo). Key types are IDA-checked (0x1c34340, rows-d 4.2):
-// asInt keys are numbers, asString keys strings, asBool keys bools. Keys Cherry has no source for stay zero.
-type petBookRow struct {
+// PetBookRow is one ResPetBookList / ResPetBookDetail element (sDataPetInfo). Key types are IDA-checked
+// (0x1c34340, 0x1b63d5c, rows-d 4.2): asInt keys are numbers, asString keys strings, asBool keys bools.
+type PetBookRow struct {
 	RaceID                      int    `json:"raceId"`
 	CatgCd                      string `json:"catgCd"`
 	ItemNo                      int    `json:"itemNo"`
@@ -453,11 +454,11 @@ type petBookRow struct {
 
 // petBookOwned is an account's own pet (the MYPET tab): the same level and experience Cherry already serves
 // on the represent and arrange lists. DefaultCallYn marks the free call as available (spec 4c, Open Q3).
-func petBookOwned(aid string, p store.PetItem, catg, raceNm string) petBookRow {
+func petBookOwned(aid string, p store.PetItem, catg, raceNm string) PetBookRow {
 	if raceNm == "" {
 		raceNm = "Minipet"
 	}
-	return petBookRow{
+	return PetBookRow{
 		RaceID: PetSkinID(p.Cd), CatgCd: catg, ItemCode: p.Cd, LocaleCd: "en", RaceNm: raceNm,
 		PetID: strconv.FormatInt(p.ID, 10), AvatarID: aid, PetName: p.Name,
 		ExposureYn: true, ArrangedYn: p.Room != "", RepresentYn: p.Rep, DefaultCallYn: true, DefaultCallRemainTimestamp: "0",
@@ -468,8 +469,8 @@ func petBookOwned(aid string, p store.PetItem, catg, raceNm string) petBookRow {
 
 // petBookSpecies is a catalog Minipet in a race tab: the account may not own it, so no pet id, avatar or
 // name; level and experience stay 0 and the max experience 100 (neutral placeholders, no Cherry source).
-func petBookSpecies(sp PetSpecies) petBookRow {
-	return petBookRow{
+func petBookSpecies(sp PetSpecies) PetBookRow {
+	return PetBookRow{
 		RaceID: int(sp.ID), CatgCd: sp.Catg, ItemCode: sp.Code, LocaleCd: "en", RaceNm: sp.Name,
 		ExposureYn: true, MaxExp: 100, SkinID: int(sp.ID), SkinCode: sp.Code, LinkScale: 100,
 	}
@@ -488,7 +489,7 @@ func HandlePetBook(species func() []PetSpecies) http.HandlerFunc {
 		}
 		category := strings.TrimPrefix(r.URL.Path, "/v4/pet/book/race/list/")
 		all := species()
-		list := []petBookRow{}
+		list := []PetBookRow{}
 		if category == "MYPET" {
 			acc := petAccount(w, r)
 			if acc == nil {

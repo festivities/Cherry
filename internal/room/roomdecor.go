@@ -196,6 +196,15 @@ func roomAccount(w http.ResponseWriter, r *http.Request) *store.Account {
 // InvenInteriorHandler serves GET inven/interior/items/all. priceOf gives the
 // sell-back price and grade code per item (economy owns the table and sits above room).
 func InvenInteriorHandler(priceOf func(store.RoomItem) (int64, string)) http.HandlerFunc {
+	return InvenInteriorHandlerWithCategory(priceOf, RoomCategoryCode)
+}
+
+// InvenInteriorHandlerWithCategory serves GET inven/interior/items/all using catgOf to
+// map each item code to its client categoryCode.
+func InvenInteriorHandlerWithCategory(priceOf func(store.RoomItem) (int64, string), catgOf func(string) string) http.HandlerFunc {
+	if catgOf == nil {
+		catgOf = RoomCategoryCode
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			httpx.ServeNotFound(w)
@@ -207,11 +216,11 @@ func InvenInteriorHandler(priceOf func(store.RoomItem) (int64, string)) http.Han
 		}
 		items := slices.Clone(acc.RoomItems)
 		store.AccountsMu.Unlock()
-		invenInteriorRows(w, items, priceOf)
+		invenInteriorRows(w, items, priceOf, catgOf)
 	}
 }
 
-func invenInteriorRows(w http.ResponseWriter, items []store.RoomItem, priceOf func(store.RoomItem) (int64, string)) {
+func invenInteriorRows(w http.ResponseWriter, items []store.RoomItem, priceOf func(store.RoomItem) (int64, string), catgOf func(string) string) {
 	type row struct {
 		Seq            string `json:"seq"`
 		Cd             string `json:"cd"`
@@ -224,7 +233,7 @@ func invenInteriorRows(w http.ResponseWriter, items []store.RoomItem, priceOf fu
 	rows := make([]row, 0, len(items))
 	for _, it := range items {
 		price, grade := priceOf(it)
-		rows = append(rows, row{Seq: strconv.FormatInt(it.Seq, 10), Cd: it.Cd, Price: int(price), Grade: grade, CategoryCode: RoomCategoryCode(it.Cd)})
+		rows = append(rows, row{Seq: strconv.FormatInt(it.Seq, 10), Cd: it.Cd, Price: int(price), Grade: grade, CategoryCode: catgOf(it.Cd)})
 	}
 	body, _ := json.Marshal(map[string]any{"result": rows})
 	httpx.WriteJSON(w, http.StatusOK, string(body))

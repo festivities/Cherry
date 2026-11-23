@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -113,4 +115,54 @@ func shopBuy(t *testing.T, tok, body string) *httptest.ResponseRecorder {
 func itoaShop(n int64) string {
 	b, _ := json.Marshal(n)
 	return string(b)
+}
+
+// TestMiniPetItemNameAndCategory verifies RUPI item names use the pet's display name and
+// RoomItemCategory maps paired RUPI items to their pet-subtype *INT categoryCode.
+func TestMiniPetItemNameAndCategory(t *testing.T) {
+	root := shopFixture(t, map[string][]string{
+		"interior/122900007": {"dp.png"},
+		"pet/326400016":      {"skeleton.xml", "dp.png", "behavior.xml"}, // PUPE0000G (Mixed Breed)
+	})
+	if err := os.WriteFile(filepath.Join(root, "pet/326400016/behavior.xml"), []byte(`{"sndindex":215}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := ItemName("RUPI00007"); got != "Mixed Breed" {
+		t.Fatalf("ItemName(RUPI00007) = %q, want %q", got, "Mixed Breed")
+	}
+	if got := RoomItemCategory("RUPI00007"); got != "UDOGINT" {
+		t.Fatalf("RoomItemCategory(RUPI00007) = %q, want %q", got, "UDOGINT")
+	}
+	if got, want := RoomItemCategory("RUCH0011X"), room.RoomCategoryCode("RUCH0011X"); got != want {
+		t.Fatalf("RoomItemCategory(RUCH0011X) = %q, want %q", got, want)
+	}
+
+	testutil.InstallAccounts(t, map[string]*store.Account{"mp-inven": {
+		Aid:       "7010",
+		RoomItems: []store.RoomItem{{Seq: 100000, Cd: "RUPI00007"}, {Seq: 100001, Cd: "RUCH0011X"}},
+	}})
+	testutil.SetLab(t, "7010", false)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v4/inven/interior/items/all", nil)
+	req.AddCookie(&http.Cookie{Name: "AV_AUTH", Value: "mp-inven"})
+	room.InvenInteriorHandlerWithCategory(RoomItemPrice, RoomItemCategory)(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("inven status %d: %s", rec.Code, rec.Body)
+	}
+	var env struct {
+		Result []struct {
+			Cd           string `json:"cd"`
+			CategoryCode string `json:"categoryCode"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	cats := map[string]string{}
+	for _, r := range env.Result {
+		cats[r.Cd] = r.CategoryCode
+	}
+	if cats["RUPI00007"] != "UDOGINT" || cats["RUCH0011X"] != "UCHAIR" {
+		t.Fatalf("inventory categoryCodes = %v, want RUPI00007:UDOGINT and RUCH0011X:UCHAIR", cats)
+	}
 }

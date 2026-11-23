@@ -75,6 +75,17 @@ func MiniPetOfItem(item string) (string, bool) {
 	return pet, ok
 }
 
+// RoomItemCategory returns the Room Edit categoryCode for cd: for a paired Minipet RUPI item,
+// the pet's catalog category plus "INT" (UDOGINT, UCATINT, UTOYINT, URIDEINT); otherwise room.RoomCategoryCode.
+func RoomItemCategory(cd string) string {
+	if pet, ok := MiniPetOfItem(cd); ok {
+		if it := loadCatalog().byCode[pet]; it != nil && it.Catg != "" {
+			return it.Catg + "INT"
+		}
+	}
+	return room.RoomCategoryCode(cd)
+}
+
 // miniPetMaxExp is the friendship a pet needs for adoption: its cuddles, 100 where the catalog has none.
 func miniPetMaxExp(pet string) int64 {
 	if c := ActivePets().Pets[pet].Cuddles; c > 0 {
@@ -488,8 +499,9 @@ func miniPetBuy(w http.ResponseWriter, r *http.Request, raw []byte, req shopBuyR
 	writeMiniPetResult(w, map[string]any{"balance": balance, "resultCode": 0, "buyItems": codes})
 }
 
-// HandlePet serves /v4/pet/ for the Minipet loop: the paired pets' call, paid call, arrange lists and default skin.
-// Every other path, and a call of an owned pet that has no room item, is room.HandlePet's.
+// HandlePet serves /v4/pet/ for the Minipet loop: the paired pets' call, paid call, arrange lists,
+// default skin, Pet Book list and Pet Book detail. Every other path, and a call of an owned pet that
+// has no room item, is room.HandlePet's.
 func HandlePet(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/v4/pet/")
 	parts := strings.Split(path, "/")
@@ -511,6 +523,232 @@ func HandlePet(w http.ResponseWriter, r *http.Request) {
 	case get && path == "book/race/info/default/skin":
 		miniPetSkin(w, r)
 		return
+	case get && path == "book/race/detail":
+		miniPetBookDetail(w, r)
+		return
 	}
 	room.HandlePet(w, r)
+}
+
+func speciesMap(all []room.PetSpecies) map[string]room.PetSpecies {
+	byCode := make(map[string]room.PetSpecies, len(all))
+	for _, sp := range all {
+		byCode[sp.Code] = sp
+	}
+	return byCode
+}
+
+func ownedRoomItemSet(acc *store.Account) map[string]bool {
+	if acc == nil {
+		return nil
+	}
+	owned := make(map[string]bool, len(acc.RoomItems))
+	for _, it := range acc.RoomItems {
+		owned[it.Cd] = true
+	}
+	return owned
+}
+
+// miniPetOwnedBookRow builds the PetBookRow for an account's own pet (MYPET tab and detail).
+func miniPetOwnedBookRow(acc *store.Account, p store.PetItem, sp *room.PetSpecies, rules MiniPetRules) room.PetBookRow {
+	raceID := room.PetSkinID(p.Cd)
+	catgCd := ""
+	raceNm := PetDisplayName(p.Cd)
+	if sp != nil {
+		raceID = int(sp.ID)
+		catgCd = sp.Catg
+		if sp.Name != "" {
+			raceNm = sp.Name
+		}
+	}
+	if raceNm == "" {
+		raceNm = "Minipet"
+	}
+	petID := strconv.FormatInt(p.ID, 10)
+	maxExp := miniPetMaxExp(p.Cd)
+	row := room.PetBookRow{
+		RaceID:                     raceID,
+		CatgCd:                     catgCd,
+		LocaleCd:                   "en",
+		RaceNm:                     raceNm,
+		PetID:                      petID,
+		AvatarID:                   acc.Aid,
+		PetName:                    p.Name,
+		SkinSerial:                 petID,
+		SkinID:                     room.PetSkinID(p.Cd),
+		SkinCode:                   p.Cd,
+		LinkScale:                  100,
+		Level:                      1,
+		RepresentYn:                p.Rep,
+		InteriorOwnYn:              true,
+		CallPrice:                  int(rules.PaidCallGems),
+		MaxPaidCallCount:           10,
+		DefaultCallRemainTimestamp: "0",
+		MaxExp:                     int(maxExp),
+	}
+	if item, ok := MiniPetItem(p.Cd); ok {
+		st := minipetState(acc, p.Cd)
+		placed := placedLevel(acc, item) != ""
+		row.ItemCode = item
+		row.ArrangedYn = placed
+		row.ExposureYn = placed || p.Room != ""
+		row.Exp = int(st.Exp)
+		row.FinalLevelYn = st.Exp >= maxExp
+	} else {
+		row.ItemCode = p.Cd
+		row.ArrangedYn = p.Room != ""
+		row.ExposureYn = p.Room != ""
+		row.DefaultCallYn = p.Room == ""
+	}
+	return row
+}
+
+// miniPetSpeciesBookRow builds the PetBookRow for a catalog Minipet (race tabs and unowned detail).
+func miniPetSpeciesBookRow(acc *store.Account, sp room.PetSpecies, ownedItems map[string]bool, rules MiniPetRules, now time.Time) room.PetBookRow {
+	itemCode := sp.Item
+	if itemCode == "" {
+		itemCode = sp.Code
+	}
+	if acc != nil {
+		ownsItem := sp.Item != "" && ownedItems[sp.Item]
+		arranged := sp.Item != "" && placedLevel(acc, sp.Item) != ""
+		ownedPetRow, owned := ownedPet(acc, sp.Code)
+		st := minipetState(acc, sp.Code)
+		if ownsItem || arranged || owned || st.Exp > 0 || st.VisitEnd > 0 || st.NextCall > 0 {
+			petID := strconv.FormatInt(minipetID(acc, sp.Code), 10)
+			visit := st.VisitEnd > now.Unix()
+			remain := max(st.NextCall-now.Unix(), 0)
+			exposure := owned || visit
+			level := 0
+			if owned {
+				level = 1
+			}
+			return room.PetBookRow{
+				RaceID:                     int(sp.ID),
+				CatgCd:                     sp.Catg,
+				ItemCode:                   itemCode,
+				LocaleCd:                   "en",
+				RaceNm:                     sp.Name,
+				PetID:                      petID,
+				AvatarID:                   acc.Aid,
+				PetName:                    sp.Name,
+				SkinSerial:                 petID,
+				SkinID:                     int(sp.ID),
+				SkinCode:                   sp.Code,
+				LinkScale:                  100,
+				InteriorOwnYn:              ownsItem || owned,
+				ArrangedYn:                 arranged || (owned && ownedPetRow.Room != ""),
+				ExposureYn:                 exposure,
+				DefaultCallYn:              arranged && !exposure && remain == 0,
+				DefaultCallRemainTimestamp: strconv.FormatInt(remain, 10),
+				Exp:                        int(st.Exp),
+				MaxExp:                     int(sp.MaxExp),
+				FinalLevelYn:               st.Exp >= sp.MaxExp,
+				Level:                      level,
+				RepresentYn:                owned && ownedPetRow.Rep,
+				CallPrice:                  int(rules.PaidCallGems),
+				MaxPaidCallCount:           10,
+			}
+		}
+	}
+	return room.PetBookRow{
+		RaceID:     int(sp.ID),
+		CatgCd:     sp.Catg,
+		ItemCode:   itemCode,
+		LocaleCd:   "en",
+		RaceNm:     sp.Name,
+		ExposureYn: true,
+		MaxExp:     int(sp.MaxExp),
+		SkinID:     int(sp.ID),
+		SkinCode:   sp.Code,
+		LinkScale:  100,
+	}
+}
+
+// HandlePetBook serves GET /v4/pet/book/race/list/<category> with Minipet ownership, placement,
+// visit and cooldown state.
+func HandlePetBook(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		httpx.ServeNotFound(w)
+		return
+	}
+	category := strings.TrimPrefix(r.URL.Path, "/v4/pet/book/race/list/")
+	all := PetSpecies()
+	rules := ActivePets().Minipet
+	list := []room.PetBookRow{}
+	if category == "MYPET" {
+		acc := minipetAccount(w, r)
+		if acc == nil {
+			return
+		}
+		byCode := speciesMap(all)
+		for _, p := range acc.Pets {
+			var sp *room.PetSpecies
+			if s, ok := byCode[p.Cd]; ok {
+				sp = &s
+			}
+			list = append(list, miniPetOwnedBookRow(acc, p, sp, rules))
+		}
+		store.AccountsMu.Unlock()
+	} else {
+		store.AccountsMu.Lock()
+		acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
+		if acc != nil {
+			_ = room.EnsurePetsLocked(acc)
+		}
+		now := NowFunc()
+		ownedItems := ownedRoomItemSet(acc)
+		for _, sp := range all {
+			if sp.Catg != category {
+				continue
+			}
+			list = append(list, miniPetSpeciesBookRow(acc, sp, ownedItems, rules, now))
+		}
+		store.AccountsMu.Unlock()
+	}
+	writeMiniPetResult(w, map[string]any{"list": list})
+}
+
+// miniPetBookDetail serves GET /v4/pet/book/race/detail?petId=<id>.
+func miniPetBookDetail(w http.ResponseWriter, r *http.Request) {
+	acc := minipetAccount(w, r)
+	if acc == nil {
+		return
+	}
+	defer store.AccountsMu.Unlock()
+	id, err := strconv.ParseInt(r.URL.Query().Get("petId"), 10, 64)
+	if err != nil {
+		httpx.WriteJSON(w, http.StatusBadRequest, `{"errorCode":"400"}`)
+		return
+	}
+	all := PetSpecies()
+	byCode := speciesMap(all)
+	rules := ActivePets().Minipet
+	if i := slices.IndexFunc(acc.Pets, func(p store.PetItem) bool { return p.ID == id }); i >= 0 {
+		p := acc.Pets[i]
+		var sp *room.PetSpecies
+		if s, ok := byCode[p.Cd]; ok {
+			sp = &s
+		}
+		writeMiniPetResult(w, miniPetOwnedBookRow(acc, p, sp, rules))
+		return
+	}
+	pet, ok := minipetByID(acc, id)
+	if !ok {
+		httpx.WriteJSON(w, http.StatusBadRequest, `{"errorCode":"400"}`)
+		return
+	}
+	sp, ok := byCode[pet]
+	if !ok {
+		item, _ := MiniPetItem(pet)
+		catg := ""
+		if it := loadCatalog().byCode[pet]; it != nil {
+			catg = it.Catg
+		}
+		sp = room.PetSpecies{
+			Code: pet, ID: int64(room.PetSkinID(pet)), Catg: catg,
+			Item: item, Name: PetDisplayName(pet), MaxExp: miniPetMaxExp(pet),
+		}
+	}
+	writeMiniPetResult(w, miniPetSpeciesBookRow(acc, sp, ownedRoomItemSet(acc), rules, NowFunc()))
 }

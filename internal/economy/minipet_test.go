@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -230,5 +232,131 @@ func TestMiniPetSkinAndCap(t *testing.T) {
 	}
 	if res := miniPetResult(t, miniPetReq(t, "mp-skin", http.MethodGet, "room/arrange/maxcount", "")); res["maxCount"] != float64(5) {
 		t.Fatalf("maxcount %v", res)
+	}
+}
+
+// TestMiniPetBookStateAndDetail verifies Pet Book state across MYPET, UDOG (owned/placed, visiting, cooldown,
+// and unowned), and GET /v4/pet/book/race/detail?petId=<id>.
+func TestMiniPetBookStateAndDetail(t *testing.T) {
+	root := shopFixture(t, map[string][]string{
+		"interior/122900007": {"dp.png"}, // RUPI00007 -> PUPE0000G
+		"interior/122900012": {"dp.png"}, // RUPI0000C -> PUPE0000I
+		"pet/326400016":      {"skeleton.xml", "dp.png", "behavior.xml"},
+		"pet/326400018":      {"skeleton.xml", "dp.png", "behavior.xml"},
+	})
+	for _, id := range []string{"326400016", "326400018"} {
+		if err := os.WriteFile(filepath.Join(root, "pet", id, "behavior.xml"), []byte(`{"sndindex":215}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	bookList := func(tok, cat string) []map[string]any {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/v4/pet/book/race/list/"+cat, nil)
+		if tok != "" {
+			req.AddCookie(&http.Cookie{Name: "AV_AUTH", Value: tok})
+		}
+		HandlePetBook(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("HandlePetBook(%s) status %d: %s", cat, rec.Code, rec.Body)
+		}
+		var env struct {
+			Result struct {
+				List []map[string]any `json:"list"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+			t.Fatalf("decode %s: %v", rec.Body, err)
+		}
+		return env.Result.List
+	}
+	findRow := func(rows []map[string]any, skin string) map[string]any {
+		t.Helper()
+		for _, r := range rows {
+			if r["skinCode"] == skin {
+				return r
+			}
+		}
+		t.Fatalf("missing skinCode %s in %v", skin, rows)
+		return nil
+	}
+
+	// 1. UDOG: RUPI00007 owned and placed, not visiting yet; PUPE0000I unowned.
+	testutil.InstallAccounts(t, map[string]*store.Account{"mp-book": miniPetOwner("7007", 100, true)})
+	testutil.SetLab(t, "7007", false)
+	clock := miniPetClock(t, time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC))
+	visitID := strconv.FormatInt(room.MiniPetVisitID("7007", "PUPE0000G"), 10)
+
+	udog := bookList("mp-book", "UDOG")
+	g := findRow(udog, "PUPE0000G")
+	if g["interiorOwnYn"] != true || g["arrangedYn"] != true || g["exposureYn"] != false || g["defaultCallYn"] != true || g["level"] != float64(0) {
+		t.Fatalf("owned+placed UDOG before visit = %v", g)
+	}
+	unowned := findRow(udog, "PUPE0000I")
+	if unowned["interiorOwnYn"] != false || unowned["skinSerial"] != "" || unowned["exposureYn"] != true {
+		t.Fatalf("unowned UDOG = %v", unowned)
+	}
+
+	// 2. Start visit -> exposureYn: true, defaultCallYn: false; detail returns single PetBookRow object.
+	miniPetResult(t, miniPetReq(t, "mp-book", http.MethodGet, "room/call/"+visitID, ""))
+	g = findRow(bookList("mp-book", "UDOG"), "PUPE0000G")
+	if g["exposureYn"] != true || g["defaultCallYn"] != false || g["interiorOwnYn"] != true || g["arrangedYn"] != true || g["level"] != float64(0) {
+		t.Fatalf("UDOG during visit = %v", g)
+	}
+	detailVisit := miniPetResult(t, miniPetReq(t, "mp-book", http.MethodGet, "book/race/detail?petId="+visitID, ""))
+	if detailVisit["petId"] != visitID || detailVisit["exposureYn"] != true || detailVisit["defaultCallYn"] != false || detailVisit["level"] != float64(0) {
+		t.Fatalf("detail visited pet = %v", detailVisit)
+	}
+
+	// 3. Visit ends while still on free-call cooldown -> exposureYn: false, defaultCallYn: false, remain > 0.
+	*clock = clock.Add(time.Duration(ActivePets().Minipet.VisitMinutes+1) * time.Minute)
+	g = findRow(bookList("mp-book", "UDOG"), "PUPE0000G")
+	remain, err := strconv.ParseInt(g["defaultCallRemainTimestamp"].(string), 10, 64)
+	if err != nil || remain <= 0 || g["defaultCallYn"] != false || g["exposureYn"] != false {
+		t.Fatalf("UDOG on cooldown = %v (remain %d, err %v)", g, remain, err)
+	}
+
+	// 4. MYPET and detail for owned pets (paired and unpaired).
+	const ownedPairedID, ownedUnpairedID = "700801", "700802"
+	accOwned := miniPetOwner("7008", 100, true)
+	accOwned.Pets = []store.PetItem{
+		{ID: 700801, Cd: "PUPE0000G", Name: "Mixed Breed", Rep: true},
+		{ID: 700802, Cd: room.PetItemCode(1), Name: "Legacy Pet", Room: "LEVEL_1"},
+	}
+	testutil.InstallAccounts(t, map[string]*store.Account{"mp-owned": accOwned})
+	testutil.SetLab(t, "7008", false)
+
+	mine := bookList("mp-owned", "MYPET")
+	if len(mine) != 2 {
+		t.Fatalf("MYPET len = %d, want 2", len(mine))
+	}
+	for _, r := range mine {
+		if r["interiorOwnYn"] != true || r["level"] != float64(1) {
+			t.Fatalf("MYPET row missing interiorOwnYn/level: %v", r)
+		}
+	}
+	pRow := findRow(mine, "PUPE0000G")
+	if pRow["itemCode"] != "RUPI00007" || pRow["arrangedYn"] != true || pRow["exposureYn"] != true || pRow["representYn"] != true {
+		t.Fatalf("MYPET paired row = %v", pRow)
+	}
+	detailOwned := miniPetResult(t, miniPetReq(t, "mp-owned", http.MethodGet, "book/race/detail?petId="+ownedPairedID, ""))
+	if detailOwned["petId"] != ownedPairedID || detailOwned["interiorOwnYn"] != true || detailOwned["level"] != float64(1) {
+		t.Fatalf("detail owned paired = %v", detailOwned)
+	}
+	detailLegacy := miniPetResult(t, miniPetReq(t, "mp-owned", http.MethodGet, "book/race/detail?petId="+ownedUnpairedID, ""))
+	if detailLegacy["petId"] != ownedUnpairedID || detailLegacy["interiorOwnYn"] != true || detailLegacy["itemCode"] != room.PetItemCode(1) {
+		t.Fatalf("detail owned unpaired = %v", detailLegacy)
+	}
+
+	// 5. Detail error cases: 400 for unknown/missing petId, 404 without session.
+	if rec := miniPetReq(t, "mp-owned", http.MethodGet, "book/race/detail?petId=999999", ""); rec.Code != http.StatusBadRequest {
+		t.Fatalf("unknown detail status %d, want 400", rec.Code)
+	}
+	if rec := miniPetReq(t, "mp-owned", http.MethodGet, "book/race/detail", ""); rec.Code != http.StatusBadRequest {
+		t.Fatalf("missing petId status %d, want 400", rec.Code)
+	}
+	if rec := miniPetReq(t, "", http.MethodGet, "book/race/detail?petId="+ownedPairedID, ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("no-session detail status %d, want 404", rec.Code)
 	}
 }

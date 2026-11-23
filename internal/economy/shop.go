@@ -279,12 +279,15 @@ func WarmArchive() error {
 	return nil
 }
 
-// PetSpecies is the Minipet Shop catalog (the paired pets with art and item art) for the Pet Book (room.HandlePetBook).
+// PetSpecies is the Minipet Shop catalog (the paired pets with art and item art) for the Pet Book.
 func PetSpecies() []room.PetSpecies {
 	c := loadCatalog()
 	out := make([]room.PetSpecies, 0, len(c.minipets))
 	for _, mp := range c.minipets {
-		out = append(out, room.PetSpecies{Code: mp.pet.Code, ID: mp.pet.ID, Catg: mp.pet.Catg, Name: PetDisplayName(mp.pet.Code), MaxExp: miniPetMaxExp(mp.pet.Code)})
+		out = append(out, room.PetSpecies{
+			Code: mp.pet.Code, ID: mp.pet.ID, Catg: mp.pet.Catg, Item: mp.item.Code,
+			Name: PetDisplayName(mp.pet.Code), MaxExp: miniPetMaxExp(mp.pet.Code),
+		})
 	}
 	return out
 }
@@ -983,6 +986,9 @@ func ItemName(code string) string {
 	}
 	if l, ok := listedLandscape(code); ok {
 		return l.Name
+	}
+	if pet, ok := MiniPetOfItem(code); ok {
+		return PetDisplayName(pet)
 	}
 	label := "Item"
 	switch code[:2] {
