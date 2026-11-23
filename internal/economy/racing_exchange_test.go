@@ -18,7 +18,7 @@ func rideShopArchive(t *testing.T) {
 	shopFixture(t, map[string][]string{
 		"dress/225001616":    {"dp.png"}, // CUTO0018W
 		"dress/225100605":    {"dp.png"}, // CUON000GT
-		"interior/121400823": {"dp.png"}, // RUWA000MV
+		"interior/121400934": {"dp.png"}, // RUWA000PY
 		"dress/225101333":    {"dp.png"}, // CUON00111
 		"dress/225106511":    {"dp.png"}, // CUON0050V
 	})
@@ -141,7 +141,7 @@ func TestRideShopBuyChargesPoints(t *testing.T) {
 	}
 
 	// A room row grants a room item.
-	if _, points, ok := RideShopBuy("9851", 3, now); !ok || points != 5 || !exchangeOwns(t, "9851", "RUWA000MV") {
+	if _, points, ok := RideShopBuy("9851", 3, now); !ok || points != 5 || !exchangeOwns(t, "9851", "RUWA000PY") {
 		t.Fatalf("room row: points %d ok %v", points, ok)
 	}
 

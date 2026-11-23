@@ -46,6 +46,16 @@ func writeThumbItem(t *testing.T, itemRoot, kind, id, name string, data []byte) 
 			}
 		}
 	}
+	// The same marker on a room or tile stands for a drawable item: thumbs.HasArt wants its layer picture too.
+	if name == "dp.png" && string(data) == "x" && (kind == "interior" || kind == "tile") {
+		layer := "fl_l0_a00.png"
+		if kind == "tile" {
+			layer = "tile_1.png"
+		}
+		if _, err := os.Stat(filepath.Join(dir, layer)); os.IsNotExist(err) {
+			writeThumbItem(t, itemRoot, kind, id, layer, []byte("x"))
+		}
+	}
 }
 
 // solidThumbPNG returns an opaque RGBA PNG of w*h filled with c.

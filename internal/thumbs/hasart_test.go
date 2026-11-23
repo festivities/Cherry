@@ -76,3 +76,31 @@ func TestHasArtCachedPerStore(t *testing.T) {
 		t.Fatal("a new store did not answer afresh")
 	}
 }
+
+// A room or tile whose only picture is its shop picture (dp.png) draws nothing in My Room, so it has no art; a layer
+// picture makes it art, and a dp.png beside it changes nothing.
+func TestHasArtRoomNeedsLayer(t *testing.T) {
+	itemRoot, _ := setDpFixture(t)
+	red := solidPNG(t, 20, 20, color.RGBA{R: 0xff, A: 0xff})
+	writeItemFile(t, itemRoot, "interior", "21", "dp.png", red) // shop picture only
+	writeItemFile(t, itemRoot, "interior", "22", "dp.png", red)
+	writeItemFile(t, itemRoot, "interior", "22", "wall_l_1.png", red)
+	writeItemFile(t, itemRoot, "tile", "23", "dp.png", red) // shop picture only
+	writeItemFile(t, itemRoot, "tile", "24", "dp.png", red)
+	writeItemFile(t, itemRoot, "tile", "24", "tile_1.png", red)
+	cases := []struct {
+		kind string
+		id   int64
+		want bool
+	}{
+		{"interior", 21, false},
+		{"interior", 22, true},
+		{"tile", 23, false},
+		{"tile", 24, true},
+	}
+	for _, c := range cases {
+		if got := HasArt(c.kind, c.id); got != c.want {
+			t.Errorf("HasArt(%s, %d) = %v, want %v", c.kind, c.id, got, c.want)
+		}
+	}
+}

@@ -34,6 +34,13 @@ func shopFixture(t *testing.T, files map[string][]string) string {
 		if (strings.HasPrefix(dir, "dress/") || strings.HasPrefix(dir, "custom/")) && slices.Contains(names, "dp.png") {
 			names = append(slices.Clone(names), "1409_iteminfo.artsitem", "0_0.png")
 		}
+		// A room or tile fixture listing dp.png stands for a drawable item too: thumbs.HasArt wants its layer picture.
+		if strings.HasPrefix(dir, "interior/") && slices.Contains(names, "dp.png") {
+			names = append(slices.Clone(names), "fl_l0_a00.png")
+		}
+		if strings.HasPrefix(dir, "tile/") && slices.Contains(names, "dp.png") {
+			names = append(slices.Clone(names), "tile_1.png")
+		}
 		for _, n := range names {
 			if err := os.WriteFile(filepath.Join(d, n), []byte("x"), 0o644); err != nil {
 				t.Fatal(err)

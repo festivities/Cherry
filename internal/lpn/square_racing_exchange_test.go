@@ -112,7 +112,7 @@ func TestRideShopListShape(t *testing.T) {
 	if squareUint(t, first, 16) != 0 || squareUint(t, first, 17) != 0 {
 		t.Fatalf("row 1 remain/status = %d/%d, want 0/0", squareUint(t, first, 16), squareUint(t, first, 17))
 	}
-	if squareUint(t, rows[2], 2) != 2 { // RUWA000MV, a room item
+	if squareUint(t, rows[2], 2) != 2 { // RUWA000PY, a room item
 		t.Fatalf("row 3 item type = %d, want 2 (room)", squareUint(t, rows[2], 2))
 	}
 	balances := squareRepeated(t, body, 2)
