@@ -14,6 +14,20 @@ import (
 	"cherry/internal/store"
 )
 
+// guestbookRowOf builds a guestbook response row with the guest's live profile picture overlaid.
+// Never call under SocialMu because profilePicture acquires AccountsMu.
+func guestbookRowOf(entry store.SavedGuestbookEntry) store.GuestbookRow {
+	row := entry.Row()
+	if img, wb, bg := profilePicture(entry.GuestAvtNo); img != "" {
+		row.GuestProfile = img
+		row.GuestBg = bg
+		row.ObsProfileImagePath = img
+		row.GuestWholeProfile = wb
+		row.ObsWholeBodyProfilePath = wb
+	}
+	return row
+}
+
 func handleGuestbookWrite(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		httpx.ServeNotFound(w)
@@ -84,7 +98,7 @@ func handleGuestbookWrite(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
 	}
-	data, err := json.Marshal(map[string]any{"result": entry.Row()})
+	data, err := json.Marshal(map[string]any{"result": guestbookRowOf(entry)})
 	if err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
@@ -129,7 +143,7 @@ func handleGuestbookList(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]store.GuestbookRow, 0, len(entries))
 	for _, entry := range entries {
-		items = append(items, entry.Row())
+		items = append(items, guestbookRowOf(entry))
 	}
 	data, err := json.Marshal(map[string]any{"result": map[string]any{"lastData": lastData, "items": items}})
 	if err != nil {

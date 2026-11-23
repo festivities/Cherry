@@ -19,7 +19,7 @@ import (
 // diaryPageSize is the comment and like page size when the request sends no size (cursorPage defaults to 10).
 const diaryPageSize = 20
 
-// commentRow is one comment item (spec 3.3 "Comment item"). Profile and background are not set by Cherry.
+// commentRow is one comment item (spec 3.3 "Comment item").
 type commentRow struct {
 	CommentNo           string `json:"commentNo"`
 	CommentAvatarID     string `json:"commentAvatarId"`
@@ -45,9 +45,10 @@ type likeRow struct {
 }
 
 func commentRowOf(c store.DiaryComment) commentRow {
+	img, _, bg := profilePicture(c.CommentAvatarID)
 	return commentRow{
 		CommentNo: c.CommentNo, CommentAvatarID: c.CommentAvatarID, CommentAvatarLocale: c.CommentAvatarLocale,
-		Nickname: c.Nickname, Content: c.Content, ObsProfileImagePath: profileImagePath(c.CommentAvatarID), Date: c.Date,
+		Nickname: c.Nickname, Content: c.Content, Profile: img, Bg: bg, ObsProfileImagePath: img, Date: c.Date,
 	}
 }
 
@@ -63,24 +64,39 @@ func commentRows(items []store.DiaryComment) []commentRow {
 func likeRows(items []store.DiaryLike) []likeRow {
 	rows := make([]likeRow, 0, len(items))
 	for _, l := range items {
+		img, _, bg := profilePicture(l.LikeAvatarID)
 		rows = append(rows, likeRow{
 			LikeNo: l.LikeNo, LikeAvatarID: l.LikeAvatarID, Nickname: l.Nickname, LikeType: l.LikeType,
-			ObsProfileImagePath: profileImagePath(l.LikeAvatarID),
+			Profile: img, Bg: bg, ObsProfileImagePath: img,
 		})
 	}
 	return rows
 }
 
-// profileImagePath is the avatar's saved profile picture, "" when none. It takes AccountsMu: never call it under SocialMu.
-func profileImagePath(aid string) string {
+// profilePicture returns the avatar's saved square, whole-body, and background paths ("" when none).
+// When Image is set, WholeBody defaults to Image and Bg defaults to "profilebg/12.jpg".
+// It takes AccountsMu: never call it under SocialMu.
+func profilePicture(aid string) (img, wb, bg string) {
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
 	for _, acc := range store.AllAccountsLocked() {
 		if acc.Aid == aid {
-			return acc.ProfileImage.Image
+			if acc.ProfileImage.Image == "" {
+				return "", "", ""
+			}
+			img = acc.ProfileImage.Image
+			wb = acc.ProfileImage.WholeBody
+			if wb == "" {
+				wb = img
+			}
+			bg = acc.ProfileImage.Bg
+			if bg == "" {
+				bg = "profilebg/12.jpg"
+			}
+			return img, wb, bg
 		}
 	}
-	return ""
+	return "", "", ""
 }
 
 // diaryPathParts splits the path after prefix into n segments. The first is an avatar id, the others digits.

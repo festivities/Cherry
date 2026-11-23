@@ -563,3 +563,181 @@ func TestDeleteAccountDropsCommentsLikesAndReplies(t *testing.T) {
 		t.Fatalf("record comments %d likes %d replies %d, want 2 1 1", len(b.Comments), len(b.Likes), len(b.Replies))
 	}
 }
+
+func TestDiaryCommentAndLikePictures(t *testing.T) {
+	installSocialTestAccounts(t, map[string]*store.Account{
+		"owner-tok": {AccessToken: "owner-tok", Aid: "1", Name: "Owner", Country: "JP"},
+		"bg-tok":    {AccessToken: "bg-tok", Aid: "3", Name: "WithBg", Country: "JP", ProfileImage: store.ProfileImage{Image: "/lineplay/pr/3_1", Bg: "profilebg/15.jpg"}},
+		"nobg-tok":  {AccessToken: "nobg-tok", Aid: "4", Name: "NoBg", Country: "JP", ProfileImage: store.ProfileImage{Image: "/lineplay/pr/4_1"}},
+		"plain-tok": {AccessToken: "plain-tok", Aid: "5", Name: "Plain", Country: "JP"},
+	})
+	store.ResetSocial()
+	t.Cleanup(store.ResetSocial)
+
+	no := diaryPost(t, "owner-tok", "1", "public")
+
+	type wantPic struct {
+		profile, bg, obs string
+	}
+	wantByAid := map[string]wantPic{
+		"3": {profile: "/lineplay/pr/3_1", bg: "profilebg/15.jpg", obs: "/lineplay/pr/3_1"},
+		"4": {profile: "/lineplay/pr/4_1", bg: "profilebg/12.jpg", obs: "/lineplay/pr/4_1"},
+		"5": {profile: "", bg: "", obs: ""},
+	}
+	checkComment := func(where string, got commentRow) {
+		t.Helper()
+		want, ok := wantByAid[got.CommentAvatarID]
+		if !ok {
+			t.Fatalf("%s: unexpected commentAvatarId %q", where, got.CommentAvatarID)
+		}
+		if got.Profile != want.profile || got.Bg != want.bg || got.ObsProfileImagePath != want.obs {
+			t.Fatalf("%s aid=%s: profile=%q bg=%q obs=%q, want %+v", where, got.CommentAvatarID, got.Profile, got.Bg, got.ObsProfileImagePath, want)
+		}
+	}
+	checkLike := func(where string, got likeRow) {
+		t.Helper()
+		want, ok := wantByAid[got.LikeAvatarID]
+		if !ok {
+			t.Fatalf("%s: unexpected likeAvatarId %q", where, got.LikeAvatarID)
+		}
+		if got.Profile != want.profile || got.Bg != want.bg || got.ObsProfileImagePath != want.obs {
+			t.Fatalf("%s aid=%s: profile=%q bg=%q obs=%q, want %+v", where, got.LikeAvatarID, got.Profile, got.Bg, got.ObsProfileImagePath, want)
+		}
+	}
+
+	actors := []struct {
+		tok, aid string
+	}{
+		{"bg-tok", "3"},
+		{"nobg-tok", "4"},
+		{"plain-tok", "5"},
+	}
+	for _, a := range actors {
+		cBody := fmt.Sprintf(`{"diaryNo":%s,"avatarID":%q,"content":"hi"}`, no, a.aid)
+		cRec := diaryCall(t, a.tok, dsPost, "/v4/diary2/comment/write/1", cBody)
+		var cOut struct {
+			Result commentRow `json:"result"`
+		}
+		if cRec.Code != http.StatusOK || json.Unmarshal(cRec.Body.Bytes(), &cOut) != nil {
+			t.Fatalf("comment write aid=%s: %d %s", a.aid, cRec.Code, cRec.Body.String())
+		}
+		checkComment("comment write", cOut.Result)
+
+		lBody := fmt.Sprintf(`{"diaryNo":%s,"likeAvatarId":%q,"likeType":1}`, no, a.aid)
+		if lRec := diaryCall(t, a.tok, dsPost, "/v4/diary2/like/save/1", lBody); lRec.Code != http.StatusOK {
+			t.Fatalf("like save aid=%s: %d %s", a.aid, lRec.Code, lRec.Body.String())
+		}
+	}
+
+	csRec := diaryCall(t, "", dsGet, "/v4/diary2/comment/search/1/"+no+"?lastSeq=-1", "")
+	var csOut struct {
+		Result struct {
+			Items []commentRow `json:"items"`
+		} `json:"result"`
+	}
+	if csRec.Code != http.StatusOK || json.Unmarshal(csRec.Body.Bytes(), &csOut) != nil || len(csOut.Result.Items) != 3 {
+		t.Fatalf("comment search = %d %s", csRec.Code, csRec.Body.String())
+	}
+	for _, item := range csOut.Result.Items {
+		checkComment("comment search", item)
+	}
+
+	lsRec := diaryCall(t, "", dsGet, "/v4/diary2/like/search/1/"+no+"?lastSeq=-1", "")
+	var lsOut struct {
+		Result struct {
+			Items []likeRow `json:"items"`
+		} `json:"result"`
+	}
+	if lsRec.Code != http.StatusOK || json.Unmarshal(lsRec.Body.Bytes(), &lsOut) != nil || len(lsOut.Result.Items) != 3 {
+		t.Fatalf("like search = %d %s", lsRec.Code, lsRec.Body.String())
+	}
+	for _, item := range lsOut.Result.Items {
+		checkLike("like search", item)
+	}
+
+	lookRec := diaryCall(t, "", dsGet, "/v4/diary2/ext/look/1/"+no, "")
+	var lookOut struct {
+		Result struct {
+			Comments struct {
+				Items []commentRow `json:"items"`
+			} `json:"comments"`
+			Likes struct {
+				Items []likeRow `json:"items"`
+			} `json:"likes"`
+		} `json:"result"`
+	}
+	if lookRec.Code != http.StatusOK || json.Unmarshal(lookRec.Body.Bytes(), &lookOut) != nil ||
+		len(lookOut.Result.Comments.Items) != 3 || len(lookOut.Result.Likes.Items) != 3 {
+		t.Fatalf("look = %d %s", lookRec.Code, lookRec.Body.String())
+	}
+	for _, item := range lookOut.Result.Comments.Items {
+		checkComment("diary detail", item)
+	}
+	for _, item := range lookOut.Result.Likes.Items {
+		checkLike("diary detail", item)
+	}
+}
+
+func TestGuestbookPictures(t *testing.T) {
+	installSocialTestAccounts(t, map[string]*store.Account{
+		"host-tok":  {AccessToken: "host-tok", Aid: "1", Name: "Host", Country: "JP"},
+		"wb-tok":    {AccessToken: "wb-tok", Aid: "3", Name: "ExplicitWB", Country: "JP", ProfileImage: store.ProfileImage{Image: "/lineplay/pr/3_1", WholeBody: "/lineplay/pr/3_2", Bg: "profilebg/14.jpg"}},
+		"nowb-tok":  {AccessToken: "nowb-tok", Aid: "4", Name: "FallbackWB", Country: "JP", ProfileImage: store.ProfileImage{Image: "/lineplay/pr/4_1"}},
+		"plain-tok": {AccessToken: "plain-tok", Aid: "5", Name: "Plain", Country: "JP"},
+	})
+	store.ResetSocial()
+	t.Cleanup(store.ResetSocial)
+
+	type wantPic struct {
+		profile, bg, obs, whole, obsWhole string
+	}
+	wantByAid := map[string]wantPic{
+		"3": {profile: "/lineplay/pr/3_1", bg: "profilebg/14.jpg", obs: "/lineplay/pr/3_1", whole: "/lineplay/pr/3_2", obsWhole: "/lineplay/pr/3_2"},
+		"4": {profile: "/lineplay/pr/4_1", bg: "profilebg/12.jpg", obs: "/lineplay/pr/4_1", whole: "/lineplay/pr/4_1", obsWhole: "/lineplay/pr/4_1"},
+		"5": {},
+	}
+	checkRow := func(where string, got store.GuestbookRow) {
+		t.Helper()
+		want, ok := wantByAid[got.GuestAvtNo]
+		if !ok {
+			t.Fatalf("%s: unexpected guestAvtNo %q", where, got.GuestAvtNo)
+		}
+		if got.GuestProfile != want.profile || got.GuestBg != want.bg || got.ObsProfileImagePath != want.obs ||
+			got.GuestWholeProfile != want.whole || got.ObsWholeBodyProfilePath != want.obsWhole {
+			t.Fatalf("%s aid=%s: profile=%q bg=%q obs=%q whole=%q obsWhole=%q, want %+v",
+				where, got.GuestAvtNo, got.GuestProfile, got.GuestBg, got.ObsProfileImagePath,
+				got.GuestWholeProfile, got.ObsWholeBodyProfilePath, want)
+		}
+	}
+
+	for _, a := range []struct {
+		tok, aid string
+	}{
+		{"wb-tok", "3"},
+		{"nowb-tok", "4"},
+		{"plain-tok", "5"},
+	} {
+		body := fmt.Sprintf(`{"hostAvtNo":"1","guestAvtNo":%q,"content":"hi","secret":false}`, a.aid)
+		rec := diaryCall(t, a.tok, dsPost, "/v4/guestbook/write", body)
+		var out struct {
+			Result store.GuestbookRow `json:"result"`
+		}
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &out) != nil {
+			t.Fatalf("guestbook write aid=%s: %d %s", a.aid, rec.Code, rec.Body.String())
+		}
+		checkRow("guestbook write", out.Result)
+	}
+
+	listRec := diaryCall(t, "", dsGet, "/v4/guestbook3/list/1/?lastSeq=-1&size=10", "")
+	var listOut struct {
+		Result struct {
+			Items []store.GuestbookRow `json:"items"`
+		} `json:"result"`
+	}
+	if listRec.Code != http.StatusOK || json.Unmarshal(listRec.Body.Bytes(), &listOut) != nil || len(listOut.Result.Items) != 3 {
+		t.Fatalf("guestbook list = %d %s", listRec.Code, listRec.Body.String())
+	}
+	for _, item := range listOut.Result.Items {
+		checkRow("guestbook list", item)
+	}
+}
