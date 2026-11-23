@@ -671,4 +671,11 @@ func TestRoomRemodelThirdFloorAndTileSize(t *testing.T) {
 	if items := ri["item"].([]any); len(items) != 1 || items[0].(map[string]any)["x"] != float64(30) {
 		t.Fatalf("LEVEL_3 enter after save = %v", ri)
 	}
+	// Apply owned starter 1F 12x12 through the full mux (/v4/room/inventory/change/<invenSeq> beats /v4/room/).
+	if rec := decorReq(t, "dtok", http.MethodGet, "/v4/room/inventory/change/122300054", ""); rec.Code != 200 || rec.Body.String() != `{"result":true}` {
+		t.Fatalf("apply 1F 12x12 via mux = %d %s", rec.Code, rec.Body)
+	}
+	if ri := decorRoomInfo(t, "/v4/room/myroom/LEVEL_1", "dtok"); ri["tileSize"] != float64(12) {
+		t.Fatalf("LEVEL_1 tileSize after apply = %v, want 12", ri["tileSize"])
+	}
 }

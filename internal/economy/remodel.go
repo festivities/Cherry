@@ -169,9 +169,10 @@ func remodelCurrency(r RemodelRow) (paymentType string, cash bool) {
 }
 
 // RegisterRemodelRoutes serves the Remodeling Shop list and apply routes (purchase goes through purchase/interior/buy).
+// At runtime applyRemodelingURL is GET /v4/room/inventory/change/<invenSeq> (live-verified 2026-11-24).
 func RegisterRemodelRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/v4/shop/interior/remodelingroomlist/", handleRemodelingRoomList)
-	mux.HandleFunc("/v4/shop/interior/apply/", handleRemodelingApply)
+	mux.HandleFunc("/v4/room/inventory/change/", handleRemodelingApply)
 }
 
 // handleRemodelingRoomList serves GET /v4/shop/interior/remodelingroomlist/<URMEXT|URM2F|URM3F>?isFull=false.
@@ -359,14 +360,14 @@ func cloneRoomRemodel(r *store.RoomRemodel) *store.RoomRemodel {
 	return out
 }
 
-// handleRemodelingApply serves GET /v4/shop/interior/apply/<invenSeq> (spec 2.3): applies an owned remodeling item
-// to its floor and returns {"result":true} or {"result":false}.
+// handleRemodelingApply serves GET /v4/room/inventory/change/<invenSeq> (live-verified 2026-11-24; spec 2.3):
+// applies an owned remodeling item to its floor and returns {"result":true} or {"result":false}.
 func handleRemodelingApply(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		httpx.ServeNotFound(w)
 		return
 	}
-	seqText := strings.Trim(strings.TrimPrefix(r.URL.Path, "/v4/shop/interior/apply/"), "/")
+	seqText := strings.Trim(strings.TrimPrefix(r.URL.Path, "/v4/room/inventory/change/"), "/")
 	id, err := strconv.ParseInt(seqText, 10, 64)
 	if err != nil || id <= 0 {
 		httpx.WriteObj(w, map[string]any{"result": false})

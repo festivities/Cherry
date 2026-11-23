@@ -69,7 +69,7 @@ func remodelBuyReq(t *testing.T, tok, code string, price int64) *httptest.Respon
 
 func remodelApplyReq(t *testing.T, tok, seq string) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, "/v4/shop/interior/apply/"+seq, nil)
+	req := httptest.NewRequest(http.MethodGet, "/v4/room/inventory/change/"+seq, nil)
 	req.AddCookie(&http.Cookie{Name: "AV_AUTH", Value: tok})
 	rec := httptest.NewRecorder()
 	handleRemodelingApply(rec, req)
@@ -189,7 +189,7 @@ func TestRemodelingBuyAndApply(t *testing.T) {
 		}
 	}
 	rec = httptest.NewRecorder()
-	handleRemodelingApply(rec, httptest.NewRequest(http.MethodPost, "/v4/shop/interior/apply/122300054", nil))
+	handleRemodelingApply(rec, httptest.NewRequest(http.MethodPost, "/v4/room/inventory/change/122300054", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("apply POST status %d, want 404", rec.Code)
 	}
