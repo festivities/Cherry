@@ -52,6 +52,34 @@ func TestBroadcastBannerAndMaintPopup(t *testing.T) {
 	expectNoSessionPush(t, c1)
 	expectNoSessionPush(t, c2)
 
+	type loMsg struct {
+		op      byte
+		txn     uint64
+		payload []byte
+	}
+	readBoth := func() [2]loMsg {
+		t.Helper()
+		var out [2]loMsg
+		ch := make(chan struct {
+			i   int
+			msg loMsg
+		}, 2)
+		for i, c := range []net.Conn{c1, c2} {
+			go func(idx int, conn net.Conn) {
+				op, txn, payload := readLOPush(t, conn)
+				ch <- struct {
+					i   int
+					msg loMsg
+				}{idx, loMsg{op, txn, payload}}
+			}(i, c)
+		}
+		for range 2 {
+			r := <-ch
+			out[r.i] = r.msg
+		}
+		return out
+	}
+
 	// Banner broadcast to both pipes concurrently (net.Pipe is unbuffered).
 	type counts struct{ sent, failed int }
 	done := make(chan counts, 1)
@@ -60,12 +88,11 @@ func TestBroadcastBannerAndMaintPopup(t *testing.T) {
 		done <- counts{s, f}
 	}()
 
-	for _, c := range []net.Conn{c1, c2} {
-		op, txn, payload := readLOPush(t, c)
-		if op != loOpPush || txn != 0 {
-			t.Fatalf("banner op=%#02x txn=%d, want 0x1b txn 0", op, txn)
+	for _, m := range readBoth() {
+		if m.op != loOpPush || m.txn != 0 {
+			t.Fatalf("banner op=%#02x txn=%d, want 0x1b txn 0", m.op, m.txn)
 		}
-		assertPushNotiJSON(t, payload, "notice", "1732450000123", "0", "Server restarting soon!", "PBO", 0, nil)
+		assertPushNotiJSON(t, m.payload, "notice", "1732450000123", "0", "Server restarting soon!", "PBO", 0, nil)
 	}
 	if res := <-done; res.sent != 2 || res.failed != 0 {
 		t.Fatalf("BroadcastBanner = (%d, %d), want (2, 0)", res.sent, res.failed)
@@ -81,8 +108,8 @@ func TestBroadcastBannerAndMaintPopup(t *testing.T) {
 
 	wantStart := "1732449940123"
 	wantEnd := "1732450600123"
-	for _, c := range []net.Conn{c1, c2} {
-		op, txn, payload := readLOPush(t, c)
+	for _, m := range readBoth() {
+		op, txn, payload := m.op, m.txn, m.payload
 		if op != loOpPush || txn != 0 {
 			t.Fatalf("maint op=%#02x txn=%d, want 0x1b txn 0", op, txn)
 		}
