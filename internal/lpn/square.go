@@ -664,12 +664,13 @@ func (s *squareSession) handleData(frame []byte) error {
 				s.room.mu.Unlock()
 				s.room.broadcast(s.logger, p, 9, pbLen(pbVar(nil, 1, s.aid), 2, stand))
 			}
-			return nil
+		} else {
+			s.room.mu.Lock()
+			self := p.info()
+			s.room.mu.Unlock()
+			s.room.broadcast(s.logger, p, 2, pbLen(nil, 1, self))
 		}
-		s.room.mu.Lock()
-		self := p.info()
-		s.room.mu.Unlock()
-		s.room.broadcast(s.logger, p, 2, pbLen(nil, 1, self))
+		s.pushHighFiveTargets(rejoined)
 		return nil
 	case 4: // cr_room_exit_req -> rc_room_exit_res
 		err := s.reply(frame, 4, pbVar(nil, 1, 0))
@@ -772,6 +773,8 @@ func (s *squareSession) handleData(frame []byte) error {
 		}
 		s.logger.Printf("SQUARE action aid=%d fields=%s", s.aid, pbSummary(action))
 		s.room.broadcast(s.logger, s.player, 12, pbLen(pbVar(nil, 1, s.aid), 2, action))
+	case 18: // cr_highfive_achieve_req -> rc_highfive_achieve_res (27) to initiator and target (square_highfive.go)
+		return s.handleHighFive(frame, data)
 	case 24: // cr_current_player_list_req -> rc_current_player_list_res
 		var body []byte
 		members := s.room.members(nil)

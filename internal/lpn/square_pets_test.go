@@ -117,6 +117,17 @@ func TestSquarePetRideAndRelays(t *testing.T) {
 		if id != 8 {
 			t.Fatalf("aid %d relaystart got msgid %d, want 8", aid, id)
 		}
+		var rosterCount int
+		pbScan(body, func(f, _ uint64, _ []byte) {
+			if f == 2 {
+				rosterCount++
+			}
+		})
+		if rosterCount > 1 {
+			if pid, _ := c.read(); pid != squareRcHighFiveTargetList {
+				t.Fatalf("aid %d highfive push got msgid %d, want %d", aid, pid, squareRcHighFiveTargetList)
+			}
+		}
 		return body
 	}
 
@@ -126,6 +137,7 @@ func TestSquarePetRideAndRelays(t *testing.T) {
 	joinSq(a, 711)
 	joinSq(b, 712)
 	a.read() // adduser(712)
+	a.expect(squareRcHighFiveTargetList, squareHighFiveTargetList([]uint64{712}))
 
 	// Rider mounts URIDE pet 71101 -> both a and b receive rc_pet_ride_res (120) with result=983041, aid=711, pet=71101, state=1.
 	a.send(squareCrPetRide, pbVar(pbVar(nil, 1, 71101), 2, 1))
@@ -137,7 +149,9 @@ func TestSquarePetRideAndRelays(t *testing.T) {
 	c := newSqClient(t, room, 3)
 	relayBody := joinSq(c, 713)
 	a.read() // adduser(713)
+	a.expect(squareRcHighFiveTargetList, squareHighFiveTargetList([]uint64{713}))
 	b.read() // adduser(713)
+	b.expect(squareRcHighFiveTargetList, squareHighFiveTargetList([]uint64{713}))
 	foundMounted := false
 	pbScan(relayBody, func(f, _ uint64, d []byte) {
 		if f != 2 {

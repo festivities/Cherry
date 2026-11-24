@@ -135,6 +135,17 @@ func (c *sqClient) joinTheme(aid, theme uint64) []byte {
 	if id != 8 {
 		c.t.Fatalf("relaystart msgid = %d, want 8", id)
 	}
+	var rosterCount int
+	pbScan(body, func(f, _ uint64, _ []byte) {
+		if f == 2 {
+			rosterCount++
+		}
+	})
+	if rosterCount > 1 && theme != squareBossThemeID && theme != squareRacingTheme && c.sess.boss == nil && c.sess.racing == nil {
+		if pid, _ := c.read(); pid != squareRcHighFiveTargetList {
+			c.t.Fatalf("highfive push msgid = %d, want %d", pid, squareRcHighFiveTargetList)
+		}
+	}
 	if theme == squareThemeID {
 		c.send(59, nil)
 		c.expect(78, nil)
@@ -311,6 +322,7 @@ func TestSquareRosterAndBroadcasts(t *testing.T) {
 	if aid, _ := protobufUintField(add[2:], 1); aid != 22 {
 		t.Fatalf("adduser aid = %d, want 22", aid)
 	}
+	a.expect(squareRcHighFiveTargetList, squareHighFiveTargetList([]uint64{22}))
 	b.none()
 
 	// Move: others only, verbatim moveInfo.
@@ -350,7 +362,9 @@ func TestSquareRosterAndBroadcasts(t *testing.T) {
 		t.Fatalf("roster C lacks A's updated position: %x", rc)
 	}
 	a.read() // adduser C
+	a.expect(squareRcHighFiveTargetList, squareHighFiveTargetList([]uint64{33}))
 	b.read()
+	b.expect(squareRcHighFiveTargetList, squareHighFiveTargetList([]uint64{33}))
 
 	// Exit: reply, then deluser to the rest.
 	a.send(4, nil)
@@ -442,6 +456,7 @@ func TestSquarePlayerListAndSpawn(t *testing.T) {
 	a.join(11)
 	b.join(22)
 	a.read() // adduser for 22
+	a.expect(squareRcHighFiveTargetList, squareHighFiveTargetList([]uint64{22}))
 	room.mu.Lock()
 	if p := room.players; p[0].x != 5400 || p[0].y != 2960 || p[1].x != 5440 || p[1].y != 2940 { // Treasure Island's spawn (73,98)
 		t.Fatalf("spawns = (%d,%d) (%d,%d)", p[0].x, p[0].y, p[1].x, p[1].y)
@@ -464,6 +479,7 @@ func TestSquareReenterKeepsAvatarForOthers(t *testing.T) {
 	a.join(11)
 	b.join(22)
 	a.read() // adduser 22
+	a.expect(squareRcHighFiveTargetList, squareHighFiveTargetList([]uint64{22}))
 	a.send(6, pbLen(nil, 1, squarePositionInfo(7000, 2800, 2)))
 	b.read() // move_all
 
@@ -475,6 +491,7 @@ func TestSquareReenterKeepsAvatarForOthers(t *testing.T) {
 	if id != 8 || !bytes.Contains(roster, squarePositionInfo(7000, 2800, 2)) {
 		t.Fatalf("re-enter roster = %d/%x, want own last position", id, roster)
 	}
+	a.expect(squareRcHighFiveTargetList, squareHighFiveTargetList([]uint64{22}))
 	aid, _ := protobufUintField(roster[len(relayResultBytes())+2:], 1)
 	if aid != 11 {
 		t.Fatalf("re-enter roster first aid = %d, want 11", aid)
@@ -503,6 +520,7 @@ func TestSquareSitRelayAndStandUp(t *testing.T) {
 	a.join(11)
 	b.join(22)
 	a.read() // adduser 22
+	a.expect(squareRcHighFiveTargetList, squareHighFiveTargetList([]uint64{22}))
 	info := sitInfo()
 
 	a.send(13, pbLen(nil, 1, info))
@@ -516,7 +534,9 @@ func TestSquareSitRelayAndStandUp(t *testing.T) {
 		t.Fatalf("roster C lacks A's seat: %x", rc)
 	}
 	a.read() // adduser 33
+	a.expect(squareRcHighFiveTargetList, squareHighFiveTargetList([]uint64{33}))
 	b.read()
+	b.expect(squareRcHighFiveTargetList, squareHighFiveTargetList([]uint64{33}))
 
 	// Walking stands A up: move_all reaches B and C, and a later joiner no longer sees the seat.
 	walk := squarePositionInfo(7000, 2800, 2)
@@ -528,8 +548,11 @@ func TestSquareSitRelayAndStandUp(t *testing.T) {
 		t.Fatalf("roster D still shows A seated after walking: %x", rd)
 	}
 	a.read()
+	a.expect(squareRcHighFiveTargetList, squareHighFiveTargetList([]uint64{44}))
 	b.read()
+	b.expect(squareRcHighFiveTargetList, squareHighFiveTargetList([]uint64{44}))
 	c.read()
+	c.expect(squareRcHighFiveTargetList, squareHighFiveTargetList([]uint64{44}))
 
 	// Leave while seated: the deluser removes A and its seat for everyone; a later joiner sees neither.
 	a.send(13, pbLen(nil, 1, info))
@@ -555,6 +578,7 @@ func TestSquareReenterStandsUpSeat(t *testing.T) {
 	a.join(11)
 	b.join(22)
 	a.read() // adduser 22
+	a.expect(squareRcHighFiveTargetList, squareHighFiveTargetList([]uint64{22}))
 	a.send(13, pbLen(nil, 1, sitInfo()))
 	b.expect(15, pbLen(pbVar(nil, 1, 11), 2, sitInfo()))
 
@@ -565,6 +589,7 @@ func TestSquareReenterStandsUpSeat(t *testing.T) {
 	if id != 8 || bytes.Contains(roster, pbLen(nil, 4, sitInfo())) {
 		t.Fatalf("re-enter roster = %d/%x, want no own seat", id, roster)
 	}
+	a.expect(squareRcHighFiveTargetList, squareHighFiveTargetList([]uint64{22}))
 	b.expect(9, pbLen(pbVar(nil, 1, 11), 2, squarePositionInfo(5400, 2960, 0))) // Treasure Island's spawn
 	b.none()
 }

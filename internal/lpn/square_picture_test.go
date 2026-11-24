@@ -43,9 +43,12 @@ func TestSquarePlayerListPictures(t *testing.T) {
 	a.join(7101)
 	b.join(7102)
 	a.read() // adduser for 7102
+	a.expect(squareRcHighFiveTargetList, squareHighFiveTargetList([]uint64{7102}))
 	c.join(7103)
 	a.read() // adduser for 7103
+	a.expect(squareRcHighFiveTargetList, squareHighFiveTargetList([]uint64{7103}))
 	b.read() // adduser for 7103
+	b.expect(squareRcHighFiveTargetList, squareHighFiveTargetList([]uint64{7103}))
 	a.send(24, nil)
 	id, body := a.read()
 	if id != 24 {

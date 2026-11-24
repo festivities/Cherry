@@ -42,8 +42,20 @@ func (c *sqClient) enterAt(aid, theme, want uint64) uint64 {
 	}
 	c.checkEnter(enter, theme, squareTestMaps[theme])
 	c.send(5, nil)
-	if id, _ := c.read(); id != 8 {
+	id, body := c.read()
+	if id != 8 {
 		c.t.Fatalf("relaystart msgid = %d, want 8", id)
+	}
+	var rosterCount int
+	pbScan(body, func(f, _ uint64, _ []byte) {
+		if f == 2 {
+			rosterCount++
+		}
+	})
+	if rosterCount > 1 && theme != squareBossThemeID && theme != squareRacingTheme && c.sess.boss == nil && c.sess.racing == nil {
+		if pid, _ := c.read(); pid != squareRcHighFiveTargetList {
+			c.t.Fatalf("highfive push msgid = %d, want %d", pid, squareRcHighFiveTargetList)
+		}
 	}
 	return enterRoom(enter)
 }

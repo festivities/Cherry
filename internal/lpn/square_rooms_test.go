@@ -44,6 +44,7 @@ func TestSquareRoomsAreSeparate(t *testing.T) {
 	b.joinTheme(22, 3)
 	c.join(33)
 	a.read() // adduser 33: same Square
+	a.expect(squareRcHighFiveTargetList, squareHighFiveTargetList([]uint64{33}))
 	b.none() // the Café never hears of City players
 
 	b.send(8, pbLen(nil, 1, []byte("hi")))
@@ -77,6 +78,7 @@ func TestSquareSwitchLeavesOldRoom(t *testing.T) {
 	a.join(11)
 	b.join(22)
 	a.read() // adduser 22
+	a.expect(squareRcHighFiveTargetList, squareHighFiveTargetList([]uint64{22}))
 
 	a.send(2, pbVar(nil, 1, 3))
 	id, enter := a.read()
