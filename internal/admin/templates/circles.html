@@ -1,0 +1,24 @@
+{{define "page"}}<h1>Circles</h1>
+<p class="muted">Player circles, newest first ({{.Circles.Total}} total). Search by name, code, ID, intro, or member; click a circle to edit name/intro, manage members, or disband.</p>
+<form method="get" action="/circles" class="filters" role="search">
+<label><span class="label">Search</span>
+<input type="search" name="q" value="{{.Circles.Query}}" maxlength="100" placeholder="name, code, ID, intro, or member"></label>
+<div class="actions"><button type="submit">Filter</button> <a href="/circles" class="button ghost">Clear</a></div>
+</form>
+<div class="scroll"><table>
+<thead><tr><th>Circle</th><th>Code</th><th>Intro</th><th>Leader</th><th class="num">Members</th><th>Join</th><th>Created (UTC)</th><th>Chat</th></tr></thead>
+<tbody>
+{{range .Circles.Rows}}<tr>
+<td><a href="{{.Href}}">{{.Name}}</a> <span class="muted small mono">#{{.ID}}</span></td>
+<td class="mono">{{.Code}}</td>
+<td class="wrap">{{if .Intro}}{{.Intro}}{{else}}<span class="muted">—</span>{{end}}</td>
+<td>{{if .LeaderHref}}<a href="{{.LeaderHref}}">{{if .LeaderName}}{{.LeaderName}}{{else}}{{.LeaderAid}}{{end}}</a>{{else}}{{with .LeaderName}}{{.}}{{else}}—{{end}}{{end}}{{with .LeaderAid}} <span class="muted small mono">{{.}}</span>{{end}}</td>
+<td class="num">{{.Members}} / {{.MaxMembers}}</td>
+<td>{{.JoinType}}</td>
+<td>{{.Created}}</td>
+<td><a href="{{.ChatHref}}">Chat log</a></td>
+</tr>
+{{else}}<tr class="empty"><td colspan="8">No circles match.</td></tr>{{end}}
+</tbody>
+</table></div>
+{{end}}

@@ -26,6 +26,7 @@ func TestCountryInfoNormalization(t *testing.T) {
 		{"br", "BR", "Brazil", RegionSouthAmerica},
 		{"in", "IN", "India", RegionSouthWestAsia},
 		{"za", "ZA", "South Africa", RegionAfrica},
+		{"sd", "SD", "Sudan", RegionAfrica},
 		{"zz", "ZZ", "ZZ", RegionOther},
 		{"xy", "XY", "XY", RegionOther},
 	}

@@ -2,6 +2,7 @@ package admin
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"html"
 	"image"
@@ -367,10 +368,225 @@ func TestModerationIsInTheSidebar(t *testing.T) {
 	if !strings.Contains(r.body, `<h2 class="nav-group">Moderation</h2>`) {
 		t.Fatal("the sidebar has no Moderation heading")
 	}
-	if !strings.Contains(r.body, `href="/chat" aria-current="page"`) || !strings.Contains(r.body, `href="/photos"`) {
+	if !strings.Contains(r.body, `href="/chat" aria-current="page"`) || !strings.Contains(r.body, `href="/diary"`) || !strings.Contains(r.body, `href="/circles"`) || !strings.Contains(r.body, `href="/photos"`) {
 		t.Fatal("the Moderation links are not in the sidebar, or the chat log is not marked")
 	}
 	if !strings.Contains(c.get("/photos").body, `href="/photos" aria-current="page"`) {
 		t.Fatal("the photos entry is not marked on the photo page")
 	}
+}
+
+// TestChatWhisperRenderingAndFilters: Square whispers render with chat-whisper class, kind badge, and sender -> target
+// links; kind=whisper separates them from kind=square; player= matches the recipient too.
+func TestChatWhisperRenderingAndFilters(t *testing.T) {
+	store.ResetSocial()
+	fx := newFixture(t, devConfig())
+	chatWriter(t)
+	c := fx.client()
+	c.signInDev("owner")
+	pSender := seedPlayer(t, "dev-wsender", "9401", "Alice", 0)
+	pTarget := seedPlayer(t, "dev-wtarget", "9402", "Bob", 0)
+	store.RecordChat(store.ChatEntry{Kind: store.ChatSquare, Channel: "100", Sender: "9401", SenderName: "Alice", Text: "public square line"})
+	store.RecordChat(store.ChatEntry{
+		Kind: store.ChatWhisper, Channel: "100",
+		Sender: "9401", SenderName: "Alice",
+		Target: "9402", TargetName: "Bob",
+		Text: "whispered secret",
+	})
+	store.FlushChatLog()
+
+	all := c.get("/chat")
+	expect(t, all, http.StatusOK)
+	checkPage(t, "/chat (whisper)", all)
+	for _, want := range []string{
+		`class="chat-whisper"`,
+		`class="chat-kind chat-kind-whisper"`,
+		fmt.Sprintf(`href="/players/%d"`, pSender),
+		fmt.Sprintf(`href="/players/%d"`, pTarget),
+		`class="chat-arrow"`,
+		"whispered secret",
+		"public square line",
+		`<script src="/static/chat.js?v=`,
+		`data-live="1"`,
+	} {
+		if !strings.Contains(all.body, want) {
+			t.Errorf("/chat missing %q", want)
+		}
+	}
+
+	whisp := c.get("/chat?kind=whisper")
+	expect(t, whisp, http.StatusOK)
+	if chatRowsIn(whisp.body) != 1 || !strings.Contains(whisp.body, "whispered secret") || strings.Contains(whisp.body, "public square line") {
+		t.Fatalf("kind=whisper body unexpected: rows=%d", chatRowsIn(whisp.body))
+	}
+
+	sq := c.get("/chat?kind=square")
+	expect(t, sq, http.StatusOK)
+	if chatRowsIn(sq.body) != 1 || !strings.Contains(sq.body, "public square line") || strings.Contains(sq.body, "whispered secret") {
+		t.Fatalf("kind=square body unexpected: rows=%d", chatRowsIn(sq.body))
+	}
+
+	byTarget := c.get("/chat?player=9402")
+	expect(t, byTarget, http.StatusOK)
+	if chatRowsIn(byTarget.body) != 1 || !strings.Contains(byTarget.body, "whispered secret") {
+		t.Fatalf("player=9402 (target) body unexpected: rows=%d", chatRowsIn(byTarget.body))
+	}
+}
+
+// TestChatLiveEligibilityAttributes: data-live is 1 on the live tip view, and 0 when viewing history (before=, around=, or a
+// past to= day).
+func TestChatLiveEligibilityAttributes(t *testing.T) {
+	store.ResetSocial()
+	fx := newFixture(t, devConfig())
+	chatWriter(t)
+	c := fx.client()
+	c.signInDev("owner")
+	say(store.ChatLounge, "1930000001", "9410", "Tip", "hello")
+	store.FlushChatLog()
+
+	for _, tc := range []struct {
+		url      string
+		wantLive string
+		wantJump string
+	}{
+		{"/chat", `data-live="1"`, ""},
+		{"/chat?kind=lounge", `data-live="1"`, ""},
+		{"/chat?to=" + fx.clk.now().UTC().Format(time.DateOnly), `data-live="1"`, ""},
+		{"/chat?before=999", `data-live="0"`, `href="/chat" class="button ghost" data-chat-jump`},
+		{"/chat?kind=lounge&around=1700000000000", `data-live="0"`, `href="/chat?kind=lounge" class="button ghost" data-chat-jump`},
+		{"/chat?kind=whisper&to=2020-01-01", `data-live="0"`, `href="/chat?kind=whisper" class="button ghost" data-chat-jump`},
+	} {
+		r := c.get(tc.url)
+		expect(t, r, http.StatusOK)
+		if !strings.Contains(r.body, tc.wantLive) {
+			t.Errorf("GET %s missing %s", tc.url, tc.wantLive)
+		}
+		if tc.wantJump != "" && !strings.Contains(r.body, tc.wantJump) {
+			t.Errorf("GET %s missing jump link %s", tc.url, tc.wantJump)
+		}
+	}
+}
+
+// TestChatJSONEndpoint: /chat.json requires a session (401 JSON), does not extend idle timeout, streams ?after= in ascending
+// order with advancing latest_id and ?before= in descending order, and refuses invalid cursors/filters with 400 JSON.
+func TestChatJSONEndpoint(t *testing.T) {
+	store.ResetSocial()
+	fx := newFixture(t, devConfig())
+	chatWriter(t)
+	c := fx.client()
+
+	// 401 JSON without a session.
+	unauth := c.get("/chat.json?after=0")
+	expect(t, unauth, http.StatusUnauthorized)
+	if ct := unauth.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Fatalf("401 content type %q", ct)
+	}
+
+	c.signInDev("owner")
+	seedPlayer(t, "dev-j1", "9501", "Jone", 0)
+	seedPlayer(t, "dev-j2", "9502", "Jtwo", 0)
+	for i := 1; i <= 55; i++ {
+		store.RecordChat(store.ChatEntry{
+			Kind: store.ChatWhisper, Channel: "7",
+			Sender: "9501", SenderName: "Jone",
+			Target: "9502", TargetName: "Jtwo",
+			Text: fmt.Sprintf("msg %02d", i),
+		})
+	}
+	store.FlushChatLog()
+
+	// ?before= returns descending rows with has_more.
+	bRes := c.get("/chat.json?before=56")
+	expect(t, bRes, http.StatusOK)
+	if ct := bRes.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Fatalf("200 content type %q", ct)
+	}
+	var bData struct {
+		Rows    []chatRow `json:"rows"`
+		HasMore bool      `json:"has_more"`
+	}
+	if err := json.Unmarshal([]byte(bRes.body), &bData); err != nil {
+		t.Fatal(err)
+	}
+	if len(bData.Rows) != chatPage || !bData.HasMore || bData.Rows[0].ID != 55 || bData.Rows[chatPage-1].ID != 6 {
+		t.Fatalf("before=56 got %d rows (hasMore=%t, first=%v, last=%v)", len(bData.Rows), bData.HasMore, bData.Rows[0].ID, bData.Rows[len(bData.Rows)-1].ID)
+	}
+	if bData.Rows[0].TargetAid != "9502" || bData.Rows[0].TargetName != "Jtwo" || bData.Rows[0].TargetHref == "" {
+		t.Fatalf("before row target fields = %+v", bData.Rows[0])
+	}
+
+	bTail := c.get("/chat.json?before=6")
+	expect(t, bTail, http.StatusOK)
+	if err := json.Unmarshal([]byte(bTail.body), &bData); err != nil {
+		t.Fatal(err)
+	}
+	if len(bData.Rows) != 5 || bData.HasMore || bData.Rows[0].ID != 5 || bData.Rows[4].ID != 1 {
+		t.Fatalf("before=6 got %d rows (hasMore=%t)", len(bData.Rows), bData.HasMore)
+	}
+
+	// ?after= returns ascending rows; when filtered to 0 matches, latest_id still advances to maxID.
+	aRes := c.get("/chat.json?after=52")
+	expect(t, aRes, http.StatusOK)
+	var aData struct {
+		Rows     []chatRow `json:"rows"`
+		LatestID int64     `json:"latest_id"`
+		HasMore  bool      `json:"has_more"`
+	}
+	if err := json.Unmarshal([]byte(aRes.body), &aData); err != nil {
+		t.Fatal(err)
+	}
+	if len(aData.Rows) != 3 || aData.HasMore || aData.LatestID != 55 || aData.Rows[0].ID != 53 || aData.Rows[2].ID != 55 {
+		t.Fatalf("after=52 got %+v", aData)
+	}
+
+	// Add non-matching row (lounge) and poll with kind=whisper: 0 rows, latest_id advances to 56.
+	say(store.ChatLounge, "1930000001", "9501", "Jone", "non-matching")
+	store.FlushChatLog()
+	aNone := c.get("/chat.json?after=55&kind=whisper")
+	expect(t, aNone, http.StatusOK)
+	if err := json.Unmarshal([]byte(aNone.body), &aData); err != nil {
+		t.Fatal(err)
+	}
+	if len(aData.Rows) != 0 || aData.HasMore || aData.LatestID != 56 {
+		t.Fatalf("after=55&kind=whisper got %+v, want 0 rows and latest_id=56", aData)
+	}
+
+	// Capped ?after= (100 rows limit): add 105 rows -> has_more=true and latest_id=100th row.
+	for i := 1; i <= 105; i++ {
+		say(store.ChatSquare, "100", "9501", "Jone", fmt.Sprintf("burst %d", i))
+	}
+	store.FlushChatLog()
+	aCap := c.get("/chat.json?after=56")
+	expect(t, aCap, http.StatusOK)
+	if err := json.Unmarshal([]byte(aCap.body), &aData); err != nil {
+		t.Fatal(err)
+	}
+	if len(aData.Rows) != 100 || !aData.HasMore || aData.LatestID != 156 {
+		t.Fatalf("capped after=56 got len=%d hasMore=%t latestID=%d", len(aData.Rows), aData.HasMore, aData.LatestID)
+	}
+
+	// Bad inputs return 400 JSON.
+	for _, bad := range []string{
+		"/chat.json",
+		"/chat.json?after=0&before=1",
+		"/chat.json?after=-1",
+		"/chat.json?after=abc",
+		"/chat.json?after=1&after=2",
+		"/chat.json?before=0",
+		"/chat.json?before=abc",
+		"/chat.json?before=1&before=2",
+		"/chat.json?after=0&kind=bogus",
+	} {
+		r := c.get(bad)
+		expect(t, r, http.StatusBadRequest)
+		if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+			t.Errorf("%s: content type %q, want application/json", bad, ct)
+		}
+	}
+
+	// Polling /chat.json does NOT extend the idle timeout.
+	fx.clk.advance(idleTimeout - 5*time.Minute)
+	expect(t, c.get("/chat.json?after=0"), http.StatusOK)
+	fx.clk.advance(6 * time.Minute)
+	expect(t, c.get("/chat.json?after=0"), http.StatusUnauthorized)
 }

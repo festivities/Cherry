@@ -13,7 +13,8 @@ func TestStaticAllowlist(t *testing.T) {
 	c := fx.client()
 	for name, ctype := range map[string]string{
 		"staff.css": "text/css; charset=utf-8", "staff.js": "text/javascript; charset=utf-8",
-		"editor.js": "text/javascript; charset=utf-8", "favicon.svg": "image/svg+xml",
+		"editor.js": "text/javascript; charset=utf-8", "chat.js": "text/javascript; charset=utf-8",
+		"diary.js": "text/javascript; charset=utf-8", "favicon.svg": "image/svg+xml",
 	} {
 		r := c.get("/static/" + name)
 		expect(t, r, http.StatusOK)
@@ -74,4 +75,6 @@ func TestAssetURLIsVersioned(t *testing.T) {
 	}
 	expect(t, c.get(assetURL("staff.css")), http.StatusOK)
 	expect(t, c.get(assetURL("staff.js")), http.StatusOK)
+	expect(t, c.get(assetURL("chat.js")), http.StatusOK)
+	expect(t, c.get(assetURL("diary.js")), http.StatusOK)
 }

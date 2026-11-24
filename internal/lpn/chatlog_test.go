@@ -71,16 +71,18 @@ func TestChatLogKeepsTypedPrivateAndLoungeText(t *testing.T) {
 	if len(rows) != 3 {
 		t.Fatalf("%d rows, want 3 (the Lounge text, Ben's and Ann's 1:1 messages)", len(rows))
 	}
-	want := []struct{ kind, channel, sender, name, text string }{
-		{store.ChatLounge, fmt.Sprint(room), "9981", "Ann", "lounge hi"},
-		{store.ChatPrivate, "1960000000", "9982", "Ben", "hi back"},
-		{store.ChatPrivate, "1960000000", "9981", "Ann", "hello"},
+	want := []struct{ kind, channel, sender, name, target, targetName, text string }{
+		{store.ChatLounge, fmt.Sprint(room), "9981", "Ann", "", "", "lounge hi"},
+		{store.ChatPrivate, "1960000000", "9982", "Ben", "9981", "Ann", "hi back"},
+		{store.ChatPrivate, "1960000000", "9981", "Ann", "9982", "Ben", "hello"},
 	}
 	for i, w := range want {
 		got := rows[i]
-		if got.Kind != w.kind || got.Channel != w.channel || got.Sender != w.sender || got.SenderName != w.name || got.Text != w.text {
-			t.Errorf("row %d = %s %s %s %q %q, want %s %s %s %q %q", i, got.Kind, got.Channel, got.Sender, got.SenderName, got.Text,
-				w.kind, w.channel, w.sender, w.name, w.text)
+		if got.Kind != w.kind || got.Channel != w.channel || got.Sender != w.sender || got.SenderName != w.name ||
+			got.Target != w.target || got.TargetName != w.targetName || got.Text != w.text {
+			t.Errorf("row %d = %s %s %s %q -> %s %q %q, want %s %s %s %q -> %s %q %q",
+				i, got.Kind, got.Channel, got.Sender, got.SenderName, got.Target, got.TargetName, got.Text,
+				w.kind, w.channel, w.sender, w.name, w.target, w.targetName, w.text)
 		}
 		if got.Time <= 0 {
 			t.Errorf("row %d has no time", i)

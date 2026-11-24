@@ -163,10 +163,12 @@ func (s *squareSession) handleWhisper(frame, data []byte) error {
 
 		s.logger.Printf("SQUARE whisper-chat aid=%d target=%d serial=%d bytes=%d", s.aid, targetAid, serial, len(msg))
 		store.RecordChat(store.ChatEntry{
-			Kind:       store.ChatSquare,
+			Kind:       store.ChatWhisper,
 			Channel:    strconv.FormatUint(s.square.Theme, 10),
 			Sender:     strconv.FormatUint(s.aid, 10),
 			SenderName: squareAccountName(s.aid),
+			Target:     strconv.FormatUint(targetAid, 10),
+			TargetName: squareAccountName(targetAid),
 			Text:       msg,
 		})
 		body := squareTrunkCallBody(s.aid, targetAid, serial, msg, squareWhisperStepConnect, squareWhisperOK)

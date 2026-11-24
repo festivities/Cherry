@@ -306,6 +306,181 @@ func TestChatLogSearchFilters(t *testing.T) {
 	}
 }
 
+// TestMigrationV10ToV11KeepsRows: migrating from v10 to v11 preserves existing rows with their ids and empty target columns,
+// allows 'whisper' rows, still rejects unknown kinds, and recreates the exact three chat_log indexes.
+func TestMigrationV10ToV11KeepsRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), DBFileName)
+	raw, err := sql.Open("sqlite", path+"?"+dbPragmas)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateTo(raw, 10); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`INSERT INTO chat_log (id, time, kind, channel, sender, sender_name, text) VALUES
+		(41, 1700000001000, 'square', '100', '9001', 'Ann', 'public hi'),
+		(42, 1700000002000, 'private', '1960000001', '9002', 'Ben', 'dm hi')`); err != nil {
+		t.Fatal(err)
+	}
+	raw.Close()
+
+	d, err := OpenDB(path)
+	if err != nil {
+		t.Fatalf("migrate v10 to v11: %v", err)
+	}
+	defer d.Close()
+
+	var version int
+	if err := d.write.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != len(migrations) {
+		t.Fatalf("user_version = %d (err %v), want %d", version, err, len(migrations))
+	}
+	type row struct {
+		id         int64
+		kind, text string
+		target     string
+		targetName string
+	}
+	var kept []row
+	r, err := d.write.Query(`SELECT id, kind, text, target, target_name FROM chat_log ORDER BY id`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for r.Next() {
+		var x row
+		if err := r.Scan(&x.id, &x.kind, &x.text, &x.target, &x.targetName); err != nil {
+			t.Fatal(err)
+		}
+		kept = append(kept, x)
+	}
+	r.Close()
+	if len(kept) != 2 || kept[0] != (row{41, ChatSquare, "public hi", "", ""}) || kept[1] != (row{42, ChatPrivate, "dm hi", "", ""}) {
+		t.Fatalf("kept rows = %+v", kept)
+	}
+	if _, err := d.write.Exec(`INSERT INTO chat_log (time, kind, channel, sender, sender_name, target, target_name, text)
+		VALUES (1700000003000, 'whisper', '100', '9001', 'Ann', '9002', 'Ben', 'psst')`); err != nil {
+		t.Fatalf("insert whisper: %v", err)
+	}
+	if _, err := d.write.Exec(`INSERT INTO chat_log (time, kind, channel, sender, sender_name, text) VALUES (1, 'bogus', '1', '1', 'x', 'x')`); err == nil {
+		t.Fatal("bogus kind stored after v11 migration")
+	}
+	idxRows, err := d.write.Query(`SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'chat_log' ORDER BY name`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for idxRows.Next() {
+		var n string
+		idxRows.Scan(&n)
+		names = append(names, n)
+	}
+	idxRows.Close()
+	if strings.Join(names, ",") != "chat_log_channel,chat_log_sender,chat_log_time" {
+		t.Fatalf("chat_log indexes = %v", names)
+	}
+}
+
+// TestChatWhisperTargetAndAfter: RecordChat stores whispers with Target/TargetName, Player filters match both sender and
+// target (by aid and name), ChatLogMaxID reads the tip, and ChatLogAfter streams ascending rows with advancing latestID.
+func TestChatWhisperTargetAndAfter(t *testing.T) {
+	docStore(t)
+	d, err := docDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Update(func(tx *sql.Tx) error {
+		for _, q := range []string{
+			`INSERT INTO accounts (aid, name, created, updated, data_hash, data) VALUES ('9981', 'Ann', '', '', '', '{}')`,
+			`INSERT INTO accounts (aid, name, created, updated, data_hash, data) VALUES ('9982', 'Ben', '', '', '', '{}')`,
+		} {
+			if _, err := tx.Exec(q); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var annRow, benRow int64
+	if err := d.View(func(q Querier) error {
+		if err := q.QueryRow(`SELECT id FROM accounts WHERE aid = '9981'`).Scan(&annRow); err != nil {
+			return err
+		}
+		return q.QueryRow(`SELECT id FROM accounts WHERE aid = '9982'`).Scan(&benRow)
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if max0, err := ChatLogMaxID(); err != nil || max0 != 0 {
+		t.Fatalf("empty ChatLogMaxID = (%d, %v), want (0, nil)", max0, err)
+	}
+
+	StartChatLog()
+	t.Cleanup(StopChatLog)
+	RecordChat(ChatEntry{Kind: ChatSquare, Channel: "7", Sender: "9983", SenderName: "Cy", Text: "public square"})
+	RecordChat(ChatEntry{Kind: ChatWhisper, Channel: "7", Sender: "9981", SenderName: "Ann", Target: "9982", TargetName: "Ben", Text: "secret whisper"})
+	RecordChat(ChatEntry{Kind: ChatLounge, Channel: "1930000001", Sender: "9984", SenderName: "Dan", Text: "lounge tail"})
+	FlushChatLog()
+
+	maxID, err := ChatLogMaxID()
+	if err != nil || maxID != 3 {
+		t.Fatalf("ChatLogMaxID = (%d, %v), want (3, nil)", maxID, err)
+	}
+
+	// Player filter matches recipient by aid and by name substring.
+	for _, q := range []string{"9982", "be"} {
+		rows, err := ChatLogSearch(ChatFilter{Player: q}, 0, 10)
+		if err != nil || len(rows) != 1 {
+			t.Fatalf("Player=%q rows = %+v (err %v), want 1 whisper row", q, rows, err)
+		}
+		if rows[0].Kind != ChatWhisper || rows[0].Target != "9982" || rows[0].TargetName != "Ben" ||
+			rows[0].PlayerID != annRow || rows[0].TargetPlayerID != benRow {
+			t.Fatalf("whisper row = %+v", rows[0])
+		}
+	}
+
+	// Kind separation: square does not include whisper.
+	sqRows, err := ChatLogSearch(ChatFilter{Kind: ChatSquare}, 0, 10)
+	if err != nil || len(sqRows) != 1 || sqRows[0].Text != "public square" {
+		t.Fatalf("square rows = %+v (err %v)", sqRows, err)
+	}
+
+	// ChatLogAfter: ascending order, capped hasMore + exact latestID, and tip latestID advancing past non-matching rows.
+	allAsc, latest, more, err := ChatLogAfter(ChatFilter{}, 0, 2)
+	if err != nil || !more || len(allAsc) != 2 || allAsc[0].ID != 1 || allAsc[1].ID != 2 || latest != 2 {
+		t.Fatalf("ChatLogAfter(0, 2) = (%+v, latest=%d, more=%t, err=%v)", allAsc, latest, more, err)
+	}
+	tail, latest2, more2, err := ChatLogAfter(ChatFilter{}, latest, 10)
+	if err != nil || more2 || len(tail) != 1 || tail[0].ID != 3 || latest2 != 3 {
+		t.Fatalf("ChatLogAfter(2, 10) = (%+v, latest=%d, more=%t, err=%v)", tail, latest2, more2, err)
+	}
+	// Filter matching 0 new rows still advances latestID to maxID (3).
+	none, latest3, more3, err := ChatLogAfter(ChatFilter{Kind: ChatWhisper}, 2, 10)
+	if err != nil || more3 || len(none) != 0 || latest3 != 3 {
+		t.Fatalf("ChatLogAfter(whisper, 2, 10) = (%+v, latest=%d, more=%t, err=%v)", none, latest3, more3, err)
+	}
+	// If after is already ahead of maxID, latestID stays after.
+	ahead, latest4, more4, err := ChatLogAfter(ChatFilter{}, 10, 10)
+	if err != nil || more4 || len(ahead) != 0 || latest4 != 10 {
+		t.Fatalf("ChatLogAfter(10, 10) = (%+v, latest=%d, more=%t, err=%v)", ahead, latest4, more4, err)
+	}
+
+	// Invalid inputs.
+	for _, tc := range []struct {
+		f     ChatFilter
+		after int64
+		limit int
+	}{
+		{ChatFilter{}, -1, 10},
+		{ChatFilter{}, 0, 0},
+		{ChatFilter{}, 0, 201},
+		{ChatFilter{Kind: "bogus"}, 0, 10},
+	} {
+		if _, _, _, err := ChatLogAfter(tc.f, tc.after, tc.limit); !errors.Is(err, ErrBadInput) {
+			t.Errorf("ChatLogAfter(%+v, %d, %d) err = %v, want ErrBadInput", tc.f, tc.after, tc.limit, err)
+		}
+	}
+}
+
 // equalIDs reports whether two id lists are the same.
 func equalIDs(a, b []int64) bool {
 	if len(a) != len(b) {

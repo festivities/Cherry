@@ -159,7 +159,7 @@
 <div class="scroll"><table>
 <thead><tr><th>Time (UTC)</th><th>Channel</th><th>Sender</th><th>Text</th></tr></thead>
 <tbody>
-{{range .Lines}}<tr><td>{{.Date}}</td><td>{{.Kind}} {{.Channel}}</td><td class="mono">{{.Sender}} {{.Name}}</td><td>{{.Text}}</td></tr>
+{{range .Lines}}<tr{{if eq .Kind "whisper"}} class="chat-whisper"{{end}}><td>{{.Date}}</td><td><span class="chat-kind chat-kind-{{.Kind}}">{{.Kind}}</span> {{.Channel}}</td><td class="mono">{{.Sender}} {{.Name}}{{if .Target}} <span class="chat-arrow" aria-label="to">&rarr;</span> {{.Target}} {{.TargetName}}{{end}}</td><td>{{.Text}}</td></tr>
 {{else}}<tr class="empty"><td colspan="4">No chat lines are kept (the chat log keeps messages for the retention days).</td></tr>{{end}}
 </tbody>
 </table></div>

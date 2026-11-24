@@ -26,11 +26,12 @@ const (
 	ChatLounge  = "lounge"  // Lounge Chat (lpn/themechat.go): the room id
 	ChatCircle  = "circle"  // Circle chat (lpn/circle.go): the circle id
 	ChatSquare  = "square"  // Square chat (lpn/square.go): the Square's theme id
+	ChatWhisper = "whisper" // Square 1:1 whisper (lpn/square_whisper.go): the Square's theme id
 	ChatParty   = "party"   // Room Party chat (lpn/roomparty.go): the host's avatar id
 )
 
 // ChatKinds are the kinds the table holds, in the order the staff page lists them.
-var ChatKinds = []string{ChatPrivate, ChatLounge, ChatCircle, ChatSquare, ChatParty}
+var ChatKinds = []string{ChatPrivate, ChatLounge, ChatCircle, ChatSquare, ChatWhisper, ChatParty}
 
 // ponytail: 1024 queued messages is a few seconds of a busy server's chat; a longer burst drops the newest and is counted.
 const chatLogQueue = 1024
@@ -44,9 +45,9 @@ const (
 )
 
 // ChatEntry is one message to record: the channel's kind and id, the sender's avatar id and name (the name it had when it
-// was sent) and the text.
+// was sent), optional recipient avatar id and name (1:1 messages), and the text.
 type ChatEntry struct {
-	Kind, Channel, Sender, SenderName, Text string
+	Kind, Channel, Sender, SenderName, Target, TargetName, Text string
 }
 
 // chatRecord is a queued message with its time (Unix milliseconds, UTC).
@@ -134,8 +135,8 @@ func writeChatBatch(batch []chatRecord) {
 	if d := attachedDB(); d != nil {
 		err = d.Update(func(tx *sql.Tx) error {
 			for _, r := range batch {
-				if _, err := tx.Exec(`INSERT INTO chat_log (time, kind, channel, sender, sender_name, text) VALUES (?, ?, ?, ?, ?, ?)`,
-					r.at, r.e.Kind, r.e.Channel, r.e.Sender, r.e.SenderName, r.e.Text); err != nil {
+				if _, err := tx.Exec(`INSERT INTO chat_log (time, kind, channel, sender, sender_name, target, target_name, text) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+					r.at, r.e.Kind, r.e.Channel, r.e.Sender, r.e.SenderName, r.e.Target, r.e.TargetName, r.e.Text); err != nil {
 					return err
 				}
 			}
@@ -211,21 +212,89 @@ func PruneChatLog(now time.Time, days int) (int64, error) {
 	return n, err
 }
 
-// ChatLogRow is one message of the chat log as the staff page shows it. PlayerID is the row id of the sender's account (0
-// when the sender has no account row now).
+// ChatLogRow is one message of the chat log as the staff page shows it. PlayerID and TargetPlayerID are the account row
+// ids of the sender and recipient (0 when absent or when no account row exists now).
 type ChatLogRow struct {
-	ID                                      int64
-	Time                                    int64 // Unix milliseconds, UTC
-	Kind, Channel, Sender, SenderName, Text string
-	PlayerID                                int64
+	ID                                                          int64
+	Time                                                        int64 // Unix milliseconds, UTC
+	Kind, Channel, Sender, SenderName, Target, TargetName, Text string
+	PlayerID, TargetPlayerID                                    int64
 }
 
-// ChatFilter narrows the chat log. Kind and Channel match exactly. Player matches the sender's avatar id exactly or the
-// sender's name as a substring (any case). Text matches a substring (any case). From and To are UTC days (YYYY-MM-DD, both
-// inclusive). Around (Unix milliseconds, 0 = none) keeps the messages within ChatContextWindow of it.
+// ChatFilter narrows the chat log. Kind and Channel match exactly. Player matches the sender's or recipient's avatar id
+// exactly or either name as a substring (any case). Text matches a substring (any case). From and To are UTC days
+// (YYYY-MM-DD, both inclusive). Around (Unix milliseconds, 0 = none) keeps the messages within ChatContextWindow of it.
 type ChatFilter struct {
 	Kind, Channel, Player, Text, From, To string
 	Around                                int64
+}
+
+const chatLogSelect = `SELECT c.id, c.time, c.kind, c.channel, c.sender, c.sender_name, c.target, c.target_name, c.text,
+	COALESCE(a.id, 0), COALESCE(ta.id, 0)
+	FROM chat_log c
+	LEFT JOIN accounts a ON a.aid = c.sender AND c.sender <> '0'
+	LEFT JOIN accounts ta ON ta.aid = c.target AND c.target <> '' AND c.target <> '0'`
+
+// chatFilterClauses validates f and builds the fixed SQL predicates and bound arguments for it.
+func chatFilterClauses(f ChatFilter) (where []string, args []any, err error) {
+	add := func(clause string, v ...any) {
+		where = append(where, clause)
+		args = append(args, v...)
+	}
+	if f.Kind != "" {
+		if !slices.Contains(ChatKinds, f.Kind) {
+			return nil, nil, fmt.Errorf("%w: unknown channel kind", ErrBadInput)
+		}
+		add("c.kind = ?", f.Kind)
+	}
+	if f.Channel != "" {
+		add("c.channel = ?", f.Channel)
+	}
+	if f.Player != "" {
+		add("(c.sender = ? OR c.target = ? OR instr(lower(c.sender_name), lower(?)) > 0 OR instr(lower(c.target_name), lower(?)) > 0)",
+			f.Player, f.Player, f.Player, f.Player)
+	}
+	if f.Text != "" {
+		add("instr(lower(c.text), lower(?)) > 0", f.Text)
+	}
+	if f.From != "" {
+		t, err := time.Parse(time.DateOnly, f.From)
+		if err != nil {
+			return nil, nil, fmt.Errorf("%w: the from date is a day", ErrBadInput)
+		}
+		add("c.time >= ?", t.UnixMilli())
+	}
+	if f.To != "" {
+		t, err := time.Parse(time.DateOnly, f.To)
+		if err != nil {
+			return nil, nil, fmt.Errorf("%w: the to date is a day", ErrBadInput)
+		}
+		add("c.time < ?", t.AddDate(0, 0, 1).UnixMilli())
+	}
+	if f.Around > 0 {
+		w := ChatContextWindow.Milliseconds()
+		add("c.time BETWEEN ? AND ?", f.Around-w, f.Around+w)
+	}
+	return where, args, nil
+}
+
+// queryChatRows runs a chatLogSelect query and scans its rows.
+func queryChatRows(q Querier, query string, args ...any) ([]ChatLogRow, error) {
+	rows, err := q.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ChatLogRow{}
+	for rows.Next() {
+		var r ChatLogRow
+		if err := rows.Scan(&r.ID, &r.Time, &r.Kind, &r.Channel, &r.Sender, &r.SenderName,
+			&r.Target, &r.TargetName, &r.Text, &r.PlayerID, &r.TargetPlayerID); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 // ChatLogSearch returns up to limit messages the filter keeps, newest first, with ids below before (0 = from the newest).
@@ -239,67 +308,85 @@ func ChatLogSearch(f ChatFilter, before int64, limit int) ([]ChatLogRow, error) 
 	if limit < 1 || limit > 200 {
 		return nil, fmt.Errorf("%w: the chat page is 1 to 200 rows", ErrBadInput)
 	}
+	filterWhere, filterArgs, err := chatFilterClauses(f)
+	if err != nil {
+		return nil, err
+	}
 	// Only fixed clauses enter the SQL text; every value is a bound argument.
-	where := []string{"(? = 0 OR c.id < ?)"}
-	args := []any{before, before}
-	add := func(clause string, v ...any) {
-		where = append(where, clause)
-		args = append(args, v...)
-	}
-	if f.Kind != "" {
-		if !slices.Contains(ChatKinds, f.Kind) {
-			return nil, fmt.Errorf("%w: unknown channel kind", ErrBadInput)
-		}
-		add("c.kind = ?", f.Kind)
-	}
-	if f.Channel != "" {
-		add("c.channel = ?", f.Channel)
-	}
-	if f.Player != "" {
-		add("(c.sender = ? OR instr(lower(c.sender_name), lower(?)) > 0)", f.Player, f.Player)
-	}
-	if f.Text != "" {
-		add("instr(lower(c.text), lower(?)) > 0", f.Text)
-	}
-	if f.From != "" {
-		t, err := time.Parse(time.DateOnly, f.From)
-		if err != nil {
-			return nil, fmt.Errorf("%w: the from date is a day", ErrBadInput)
-		}
-		add("c.time >= ?", t.UnixMilli())
-	}
-	if f.To != "" {
-		t, err := time.Parse(time.DateOnly, f.To)
-		if err != nil {
-			return nil, fmt.Errorf("%w: the to date is a day", ErrBadInput)
-		}
-		add("c.time < ?", t.AddDate(0, 0, 1).UnixMilli())
-	}
-	if f.Around > 0 {
-		w := ChatContextWindow.Milliseconds()
-		add("c.time BETWEEN ? AND ?", f.Around-w, f.Around+w)
-	}
+	where := append([]string{"(? = 0 OR c.id < ?)"}, filterWhere...)
+	args := append([]any{before, before}, filterArgs...)
 	args = append(args, limit)
-	query := `SELECT c.id, c.time, c.kind, c.channel, c.sender, c.sender_name, c.text, COALESCE(a.id, 0)
-		FROM chat_log c LEFT JOIN accounts a ON a.aid = c.sender AND c.sender <> '0'
-		WHERE ` + strings.Join(where, " AND ") + ` ORDER BY c.id DESC LIMIT ?`
-	out := []ChatLogRow{}
+	query := chatLogSelect + ` WHERE ` + strings.Join(where, " AND ") + ` ORDER BY c.id DESC LIMIT ?`
+	var out []ChatLogRow
+	err = d.View(func(q Querier) error {
+		var err error
+		out, err = queryChatRows(q, query, args...)
+		return err
+	})
+	return out, err
+}
+
+// ChatLogMaxID returns the highest id currently stored in chat_log, or 0 when the table is empty.
+func ChatLogMaxID() (int64, error) {
+	d := attachedDB()
+	if d == nil {
+		return 0, ErrNoDatabase
+	}
+	var maxID int64
 	err := d.View(func(q Querier) error {
-		rows, err := q.Query(query, args...)
+		return q.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM chat_log`).Scan(&maxID)
+	})
+	return maxID, err
+}
+
+// ChatLogAfter returns up to limit messages matching f with id > after, in ascending id order. hasMore reports whether more
+// matching rows remain past limit; latestID is the last returned row's id when capped, else max(after, maxID) in the same
+// snapshot so non-matching rows do not stall polling.
+func ChatLogAfter(f ChatFilter, after int64, limit int) (rows []ChatLogRow, latestID int64, hasMore bool, err error) {
+	d := attachedDB()
+	if d == nil {
+		return nil, 0, false, ErrNoDatabase
+	}
+	if limit < 1 || limit > 200 {
+		return nil, 0, false, fmt.Errorf("%w: the chat page is 1 to 200 rows", ErrBadInput)
+	}
+	if after < 0 {
+		return nil, 0, false, fmt.Errorf("%w: invalid chat cursor", ErrBadInput)
+	}
+	filterWhere, filterArgs, err := chatFilterClauses(f)
+	if err != nil {
+		return nil, 0, false, err
+	}
+	where := append([]string{"c.id > ?"}, filterWhere...)
+	args := append([]any{after}, filterArgs...)
+	args = append(args, limit+1)
+	query := chatLogSelect + ` WHERE ` + strings.Join(where, " AND ") + ` ORDER BY c.id ASC LIMIT ?`
+	rows = []ChatLogRow{}
+	err = d.View(func(q Querier) error {
+		var maxID int64
+		if err := q.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM chat_log`).Scan(&maxID); err != nil {
+			return err
+		}
+		got, err := queryChatRows(q, query, args...)
 		if err != nil {
 			return err
 		}
-		defer rows.Close()
-		for rows.Next() {
-			var r ChatLogRow
-			if err := rows.Scan(&r.ID, &r.Time, &r.Kind, &r.Channel, &r.Sender, &r.SenderName, &r.Text, &r.PlayerID); err != nil {
-				return err
-			}
-			out = append(out, r)
+		if len(got) > limit {
+			hasMore = true
+			got = got[:limit]
 		}
-		return rows.Err()
+		rows = got
+		if hasMore {
+			latestID = rows[len(rows)-1].ID
+		} else {
+			latestID = max(after, maxID)
+		}
+		return nil
 	})
-	return out, err
+	if err != nil {
+		return nil, 0, false, err
+	}
+	return rows, latestID, hasMore, nil
 }
 
 // cutRunes is the first n characters of s.

@@ -1,0 +1,52 @@
+{{define "page"}}<h1>Diary entries</h1>
+<p class="muted">Diary entries and comments players posted, newest first, with attached diary photos shown inline. Removals delete the item (and for an entry, its comments, likes, and unreferenced photos) and need a Discord sign-in in the last five minutes.</p>
+<form method="get" action="/diary" class="filters" role="search">
+<input type="hidden" name="filter" value="1">
+<div class="filter-checks">
+<label class="check"><input type="checkbox" name="posts" value="1"{{if .Diary.Filter.Posts}} checked{{end}}> Diary entries</label>
+<label class="check"><input type="checkbox" name="comments" value="1"{{if .Diary.Filter.Comments}} checked{{end}}> Diary comments</label>
+<span class="filter-sep muted small">Entry media:</span>
+<label class="check"><input type="checkbox" name="photos" value="1"{{if .Diary.Filter.WithPhotos}} checked{{end}}> With photos</label>
+<label class="check"><input type="checkbox" name="textonly" value="1"{{if .Diary.Filter.TextOnly}} checked{{end}}> Text only</label>
+</div>
+<label><span class="label">Player</span>
+<input type="text" name="player" value="{{.Diary.Filter.Player}}" maxlength="100" placeholder="avatar id or part of the name"></label>
+<label><span class="label">Text</span>
+<input type="search" name="text" value="{{.Diary.Filter.Text}}" maxlength="100" placeholder="title or content"></label>
+<div class="actions"><button type="submit">Filter</button> <a href="/diary" class="button ghost">Clear</a></div>
+</form>
+<section class="diary-feed" data-diary-feed data-live="{{if .Diary.Live}}1{{else}}0{{end}}" data-newest-post="{{.Diary.NewestPostID}}" data-newest-comment="{{.Diary.NewestCommentID}}" data-oldest-time="{{.Diary.OldestTime}}" data-oldest-no="{{.Diary.OldestNo}}" data-oldest-kind="{{.Diary.OldestKind}}" data-has-more="{{if .Diary.HasMore}}1{{else}}0{{end}}" data-query="{{.Diary.Query}}" data-live-href="{{.Diary.LiveHref}}" data-csrf="{{.CSRF}}">
+<div class="chat-bar">
+<span class="chat-status" data-diary-status></span>
+<button type="button" class="ghost" data-diary-toggle{{if not .Diary.Live}} hidden{{end}}>Pause</button>
+<button type="button" class="ghost chat-pending" data-diary-pending hidden></button>
+<a href="{{.Diary.LiveHref}}" class="button ghost" data-diary-jump{{if .Diary.Live}} hidden{{end}}>Jump to live</a>
+</div>
+{{if gt .Diary.Total 0}}<p class="muted small" data-diary-summary>Showing {{.Diary.Start}}–{{.Diary.End}} of {{.Diary.Total}} matching items.</p>{{end}}
+<div class="diary-list" data-diary-list>
+{{range .Diary.Rows}}<article class="diary-card diary-kind-{{.Kind}}" data-kind="{{.Kind}}" data-no="{{.No}}" data-time-ms="{{.TimeMs}}" data-no-num="{{.NoNum}}">
+<div class="diary-meta">
+<span class="chat-kind diary-pill-{{.Kind}}">{{if eq .Kind "post"}}Entry{{else}}Comment{{end}}</span>
+{{if eq .Kind "post"}}<span>#{{.No}}</span>{{with .OpenState}}<span class="pill">{{.}}</span>{{end}}{{else}}<span>#{{.No}} on entry #{{.PostNo}}</span>{{end}}
+<span>{{if .AuthorHref}}<a href="{{.AuthorHref}}">{{.AuthorName}}</a>{{else}}{{.AuthorName}}{{end}} <span class="muted small">{{.AuthorAid}}</span></span>
+{{if eq .Kind "comment"}}<span>on {{if .OwnerName}}{{if .OwnerHref}}<a href="{{.OwnerHref}}">{{.OwnerName}}</a>{{else}}{{.OwnerName}}{{end}} {{end}}<span class="muted small">{{.OwnerAid}}</span>'s diary</span>{{end}}
+{{with .Time}}<span class="muted small">{{.}} UTC</span>{{end}}
+</div>
+{{with .Title}}<p class="strong">{{.}}</p>{{end}}
+{{with .Content}}<p class="diary-text">{{.}}</p>{{end}}
+{{if .PhotoIDs}}<div class="diary-thumbs">{{range .PhotoIDs}}<a href="/photos/{{.}}/file"><img src="/photos/{{.}}/file" alt="Diary photo #{{.}}" loading="lazy" class="diary-thumb"></a>{{end}}</div>{{else if .HasPhotos}}<p class="muted small">Photo attached (no stored media row).</p>{{end}}
+<div class="diary-actions">
+{{if .AuthorPlayerID}}<form method="post" action="{{if eq .Kind "post"}}/diary/remove-post{{else}}/diary/remove-comment{{end}}" class="row-form" data-confirm="{{if eq .Kind "post"}}Remove this diary entry? Its comments, likes and unreferenced photos go with it. The audit trail keeps the number and your reason.{{else}}Remove this diary comment? The audit trail keeps the number and your reason.{{end}}">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<input type="hidden" name="player_id" value="{{.AuthorPlayerID}}">
+<input type="hidden" name="no" value="{{.No}}">
+<input type="text" name="reason" maxlength="200" placeholder="Reason" aria-label="Reason for removing {{.Kind}} #{{.No}}" required>
+<button type="submit" class="danger">Remove {{if eq .Kind "post"}}post{{else}}comment{{end}}</button>
+</form>{{else}}<span class="muted small">no account</span>{{end}}
+</div>
+</article>{{else}}<p class="empty-state" data-diary-empty>No diary entries or comments match.</p>{{end}}
+</div>
+<p class="pager chat-pager-fallback">{{with .Diary.NewerHref}}<a href="{{.}}">Newer</a> · {{end}}{{with .Diary.OlderHref}}<a href="{{.}}">Older</a> · {{end}}<a href="{{.Diary.NewestHref}}">Newest</a></p>
+<div class="chat-more" data-diary-more><button type="button" class="ghost" data-diary-load-older hidden>Load older</button><span class="muted small" data-diary-more-status></span></div>
+</section>
+{{end}}

@@ -29,13 +29,15 @@
 </table></div>
 
 <h2>Connections</h2>
+<p class="muted small">One row per player (prefers session when both session and gateway are open).</p>
 <div class="scroll"><table>
-<thead><tr><th>Player</th><th>Listener</th><th>Network</th><th>Connected (UTC)</th><th>Up for</th><th>Rooms</th><th>Kick</th></tr></thead>
+<thead><tr><th>Player</th><th>Listener</th><th>Network</th><th>Country</th><th>Connected (UTC)</th><th>Up for</th><th>Rooms</th><th>Kick</th></tr></thead>
 <tbody>
 {{range .Online.Rows}}<tr>
 <td>{{if .PlayerHref}}<a href="{{.PlayerHref}}">{{with .Name}}{{.}}{{else}}player{{end}}</a> <span class="muted small">{{.Aid}}</span>{{else}}<span class="muted">{{.Aid}}</span>{{end}}</td>
 <td>{{.Listener}}</td>
 <td class="mono">{{with .Remote}}{{.}}{{else}}—{{end}}</td>
+<td>{{if .CountryCode}}{{.CountryName}}{{if ne .CountryName .CountryCode}} <span class="muted small mono">{{.CountryCode}}</span>{{end}}{{else if .CountryName}}<span class="muted">{{.CountryName}}</span>{{else}}<span class="muted">—</span>{{end}}</td>
 <td>{{.Since}}</td>
 <td>{{.For}}</td>
 <td>{{.Rooms}}</td>
@@ -45,7 +47,7 @@
 <button type="submit" class="danger">Kick</button>
 </form>{{else}}<span class="muted">no account</span>{{end}}</td>
 </tr>
-{{else}}<tr class="empty"><td colspan="7">Nobody is connected with a login right now.</td></tr>
+{{else}}<tr class="empty"><td colspan="8">Nobody is connected with a login right now.</td></tr>
 {{end}}</tbody>
 </table></div>
 {{end}}

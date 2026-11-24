@@ -16,12 +16,21 @@
 <div class="actions"><button type="submit">Filter</button> <a href="/chat" class="button ghost">Clear</a></div>
 </form>
 {{with .ChatContext}}<p class="flash warn" role="status">{{.}} <a href="/chat">Back to the whole log</a></p>{{end}}
+<section class="chat-feed" data-chat-feed data-live="{{if .ChatLive}}1{{else}}0{{end}}" data-newest-id="{{.ChatNewestID}}" data-oldest-id="{{.ChatOldestID}}" data-has-more="{{if .ChatHasMore}}1{{else}}0{{end}}" data-query="{{.ChatQuery}}" data-newest-href="{{.NewestHref}}">
+<div class="chat-bar">
+<span class="chat-status" data-chat-status></span>
+<button type="button" class="ghost" data-chat-toggle{{if not .ChatLive}} hidden{{end}}>Pause</button>
+<button type="button" class="ghost chat-pending" data-chat-pending hidden></button>
+<a href="{{.ChatLiveHref}}" class="button ghost" data-chat-jump{{if .ChatLive}} hidden{{end}}>Jump to live</a>
+</div>
 <div class="scroll"><table class="chat">
 <thead><tr><th>Time (UTC)</th><th>Channel</th><th>Sender</th><th>Text</th></tr></thead>
 <tbody>
-{{range .ChatRows}}<tr><td>{{.Time}}</td><td><a href="{{.ContextHref}}" title="Show this channel around this time">{{.Kind}} {{.Channel}}</a></td><td>{{if .PlayerHref}}<a href="{{.PlayerHref}}">{{.Name}}</a>{{else}}{{.Name}}{{end}} <span class="muted small">{{.Aid}}</span></td><td class="wrap">{{.Text}}</td></tr>
+{{range .ChatRows}}<tr data-id="{{.ID}}"{{if eq .Kind "whisper"}} class="chat-whisper"{{end}}><td>{{.Time}}</td><td><a href="{{.ContextHref}}" title="Show this channel around this time"><span class="chat-kind chat-kind-{{.Kind}}">{{.Kind}}</span> {{.Channel}}</a></td><td>{{if .PlayerHref}}<a href="{{.PlayerHref}}">{{.Name}}</a>{{else}}{{.Name}}{{end}} <span class="muted small">{{.Aid}}</span>{{if .TargetAid}} <span class="chat-arrow" aria-label="to">&rarr;</span> {{if .TargetHref}}<a href="{{.TargetHref}}">{{.TargetName}}</a>{{else}}{{.TargetName}}{{end}} <span class="muted small">{{.TargetAid}}</span>{{end}}</td><td class="wrap">{{.Text}}</td></tr>
 {{else}}<tr class="empty"><td colspan="4">No messages match.</td></tr>{{end}}
 </tbody>
 </table></div>
-<p class="pager">{{with .OlderHref}}<a href="{{.}}">Older messages</a> · {{end}}<a href="{{.NewestHref}}">Newest messages</a></p>
+<p class="pager chat-pager-fallback">{{with .OlderHref}}<a href="{{.}}">Older messages</a> · {{end}}<a href="{{.NewestHref}}">Newest messages</a></p>
+<div class="chat-more" data-chat-more><button type="button" class="ghost" data-chat-load-older hidden>Load older messages</button><span class="muted small" data-chat-more-status></span></div>
+</section>
 {{end}}

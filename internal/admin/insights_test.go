@@ -149,44 +149,143 @@ func TestGeographyPageRendersStatsAndCSP(t *testing.T) {
 	}
 }
 
-// TestOnlinePageListsConnectionsPlacesAndKicks: each row names its player (linked), its listener, its network (or a dash), its
-// rooms and a kick form; a connection with no account has no kick. The counts per room count each player once.
+// TestOnlinePageListsConnectionsPlacesAndKicks: each player appears once (preferring session over gateway while merging
+// places and falling back for Remote), showing linked player, listener, network, country, rooms and a kick form; a
+// connection with no account has no kick and "—" for country. The counts per room count each player once.
 func TestOnlinePageListsConnectionsPlacesAndKicks(t *testing.T) {
 	fx := newFixture(t, devConfig())
 	c := fx.client()
 	c.signInDev("owner")
-	id := seedPlayer(t, "dev-online1", "2001", "Alpha", 0)
+	id1 := seedPlayer(t, "dev-online1", "2001", "Alpha", 0)
+	id2 := seedPlayer(t, "dev-online2", "2002", "Beta", 0)
+	store.AccountsMu.Lock()
+	acc1 := store.IdentityAccountLocked("dev-online1")
+	acc1.Country = "id"
+	if err := store.SaveLocked(nil, acc1); err != nil {
+		store.AccountsMu.Unlock()
+		t.Fatal(err)
+	}
+	store.AccountsMu.Unlock()
+
 	since := fx.clk.t.Add(-90 * time.Minute)
 	fakeOnline(fx,
 		lpn.Connection{Aid: 2001, Listener: "session", Remote: "203.0.113.0/24", Since: since},
 		lpn.Connection{Aid: 2001, Listener: "gateway", Remote: "203.0.113.0/24", Since: since.Add(time.Minute),
 			Places: []lpn.Place{{Kind: "garden", ID: "2002"}}},
+		lpn.Connection{Aid: 2002, Listener: "gateway", Remote: "198.51.100.0/24", Since: since.Add(90 * time.Second),
+			Places: []lpn.Place{{Kind: "garden", ID: "2002"}}},
 		lpn.Connection{Aid: 3001, Listener: "session", Remote: "", Since: since.Add(2 * time.Minute)},
 	)
-	body := c.get("/online").body
+	r := c.get("/online")
+	expect(t, r, http.StatusOK)
+	checkPage(t, "/online", r)
+	body := r.body
 	for _, want := range []string{
-		playerURL(id) + `">Alpha</a>`,
+		`<th>Network</th><th>Country</th>`,
+		playerURL(id1) + `">Alpha</a>`,
+		playerURL(id2) + `">Beta</a>`,
 		"203.0.113.0/24",
+		"198.51.100.0/24",
+		`Indonesia <span class="muted small mono">ID</span>`,
+		`<span class="muted">Unknown</span>`,
+		"Own Garden",
 		"Garden of 2002",
+		`<td>In own Garden</td><td class="num">1</td>`,
 		`<td>In a Garden visit</td><td class="num">1</td>`,
 		`<td>In a public Square</td><td class="num">0</td>`,
 		`<td>In a private Square</td><td class="num">0</td>`,
 		`<td>In none of those rooms</td><td class="num">1</td>`,
 		`<span class="muted">3001</span>`,
 		"no account",
-		`action="` + playerURL(id) + `/kick"`,
+		`action="` + playerURL(id1) + `/kick"`,
+		`action="` + playerURL(id2) + `/kick"`,
 		`name="reason" required maxlength="200"`,
 		`data-confirm="Kick this player?`,
+		"<h2>Players online</h2>\n<p class=\"big\">3</p>\n<p class=\"muted small\">4 connections with a login.</p>",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the Online page lacks %q", want)
 		}
 	}
-	if n := strings.Count(body, "/kick\""); n != 2 {
-		t.Errorf("%d kick forms, want 2 (one per connection of the player with an account)", n)
+	if n := strings.Count(body, playerURL(id1)+`">Alpha</a>`); n != 1 {
+		t.Errorf("Aid 2001 appears %d times, want 1", n)
 	}
-	if !strings.Contains(body, "<h2>Players online</h2>\n<p class=\"big\">2</p>") {
-		t.Error("the Players online card does not count the distinct players: two players, one with two connections, want 2")
+	if n := strings.Count(body, playerURL(id2)+`">Beta</a>`); n != 1 {
+		t.Errorf("Aid 2002 appears %d times, want 1", n)
+	}
+	if n := strings.Count(body, `<span class="muted">3001</span>`); n != 1 {
+		t.Errorf("Aid 3001 appears %d times, want 1", n)
+	}
+	if n := strings.Count(body, "/kick\""); n != 2 {
+		t.Errorf("%d kick forms, want 2 (one per player with an account)", n)
+	}
+	if n := strings.Count(body, `action="`+playerURL(id1)+`/kick"`); n != 1 {
+		t.Errorf("%d kick forms for Aid 2001, want 1", n)
+	}
+	// Verify Aid 2001 row uses session (not gateway) and Aid 2002 row uses gateway,
+	// and Aid 3001 row has "—" for Country.
+	tbodyStart := strings.Index(body, "<h2>Connections</h2>")
+	if tbodyStart < 0 {
+		t.Fatal("missing Connections section")
+	}
+	connsHTML := body[tbodyStart:]
+	rows := strings.Split(connsHTML, "<tr>\n<td>")[1:]
+	if len(rows) != 3 {
+		t.Fatalf("got %d connection rows, want 3", len(rows))
+	}
+	if !strings.Contains(rows[0], "Alpha") || !strings.Contains(rows[0], "<td>session</td>") || !strings.Contains(rows[0], "Garden of 2002") {
+		t.Errorf("row 0 (Alpha): %s", rows[0])
+	}
+	if !strings.Contains(rows[1], "Beta") || !strings.Contains(rows[1], "<td>gateway</td>") || !strings.Contains(rows[1], "198.51.100.0/24") || !strings.Contains(rows[1], "Own Garden") {
+		t.Errorf("row 1 (Beta): %s", rows[1])
+	}
+	if !strings.Contains(rows[2], "3001") || !strings.Contains(rows[2], `<td><span class="muted">—</span></td>`) {
+		t.Errorf("row 2 (3001): %s", rows[2])
+	}
+}
+
+// TestOnlineDeduplicationRemoteFallbackAndOrder verifies gateway-first order, earliest Since, Remote fallback from the
+// secondary connection, and deduplicated merged Places across connections of the same player.
+func TestOnlineDeduplicationRemoteFallbackAndOrder(t *testing.T) {
+	fx := newFixture(t, devConfig())
+	c := fx.client()
+	c.signInDev("owner")
+	seedPlayer(t, "dev-dedup1", "2051", "First", 0)
+	seedPlayer(t, "dev-dedup2", "2052", "Second", 0)
+
+	t0 := fx.clk.t.Add(-30 * time.Minute)
+	fakeOnline(fx,
+		// 2052 has gateway at t0+1m with Remote, and session at t0+2m with empty Remote + overlapping place.
+		lpn.Connection{Aid: 2052, Listener: "gateway", Remote: "198.51.100.0/24", Since: t0.Add(time.Minute),
+			Places: []lpn.Place{{Kind: "garden", ID: "2052"}, {Kind: "square", ID: "6", Room: "1"}}},
+		lpn.Connection{Aid: 2052, Listener: "session", Remote: "", Since: t0.Add(2 * time.Minute),
+			Places: []lpn.Place{{Kind: "square", ID: "6", Room: "1"}, {Kind: "lounge", ID: "7"}}},
+		// 2051 has earliest Since at t0, so it must sort before 2052.
+		lpn.Connection{Aid: 2051, Listener: "gateway", Remote: "203.0.113.0/24", Since: t0},
+	)
+
+	page := fx.s.onlineAt(fx.clk.t)
+	if page.Players != 2 || page.Total != 3 {
+		t.Fatalf("Players=%d Total=%d, want 2 and 3", page.Players, page.Total)
+	}
+	if len(page.Rows) != 2 {
+		t.Fatalf("len(Rows) = %d, want 2", len(page.Rows))
+	}
+	if page.Rows[0].Aid != "2051" || page.Rows[1].Aid != "2052" {
+		t.Fatalf("row order = [%s, %s], want [2051, 2052]", page.Rows[0].Aid, page.Rows[1].Aid)
+	}
+	r2 := page.Rows[1]
+	if r2.Listener != "session" {
+		t.Errorf("Listener = %q, want session", r2.Listener)
+	}
+	if r2.Remote != "198.51.100.0/24" {
+		t.Errorf("Remote = %q, want fallback 198.51.100.0/24", r2.Remote)
+	}
+	if wantSince := t0.Add(time.Minute).UTC().Format(onlineTimeFormat); r2.Since != wantSince {
+		t.Errorf("Since = %q, want earliest %q", r2.Since, wantSince)
+	}
+	if wantRooms := "Own Garden, Treasure Island room 1, Lounge room 7"; r2.Rooms != wantRooms {
+		t.Errorf("Rooms = %q, want %q", r2.Rooms, wantRooms)
 	}
 }
 

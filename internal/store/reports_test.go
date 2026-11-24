@@ -202,16 +202,27 @@ func TestFileReportChatSnapshot(t *testing.T) {
 	if stored, err := FileReport(circle, dayAgo()); err != nil || !stored {
 		t.Fatalf("circle report: stored=%t err=%v", stored, err)
 	}
+	RecordChat(ChatEntry{Kind: ChatSquare, Channel: "7", Sender: "9005", SenderName: "Eve", Text: "square public"})
+	RecordChat(ChatEntry{Kind: ChatWhisper, Channel: "7", Sender: "9005", SenderName: "Eve", Target: "9002", TargetName: "Bo", Text: "square whisper"})
+	FlushChatLog()
+	sq := ReportIn{Source: ReportSquare, Reporter: "9002", Target: "9005", Reason: "R2", Channel: "7"}
+	if stored, err := FileReport(sq, dayAgo()); err != nil || !stored {
+		t.Fatalf("square report: stored=%t err=%v", stored, err)
+	}
 	none := ReportIn{Source: ReportChat, Reporter: "9002", Target: "9003", Reason: "R1"}
 	if stored, err := FileReport(none, dayAgo()); err != nil || !stored {
 		t.Fatalf("report without a room: stored=%t err=%v", stored, err)
 	}
 
 	rows, err := ListReports("", 0, 10)
-	if err != nil || len(rows) != 3 {
+	if err != nil || len(rows) != 4 {
 		t.Fatalf("rows = %d (err %v)", len(rows), err)
 	}
-	noRoom, gateway, room := rows[0].Snapshot(), rows[1].Snapshot(), rows[2].Snapshot()
+	noRoom, square, gateway, room := rows[0].Snapshot(), rows[1].Snapshot(), rows[2].Snapshot(), rows[3].Snapshot()
+	if square.Kind != ChatSquare || square.Channel != "7" || len(square.Lines) != 2 ||
+		square.Lines[0].Text != "square whisper" || square.Lines[1].Text != "square public" {
+		t.Fatalf("square snapshot = %+v, want both public Square and whisper lines", square)
+	}
 	if room.Kind != ChatPrivate || room.Channel != "77" || room.Line == nil || room.Line.Text != "the reported line" || room.Line.Sender != "9001" {
 		t.Fatalf("room snapshot = %+v (line %+v)", room, room.Line)
 	}

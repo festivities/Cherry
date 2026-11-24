@@ -120,7 +120,7 @@ type Querier interface {
 }
 
 // migrations[i] takes the database from schema version i to i+1. Append only: a shipped step is never edited.
-var migrations = []string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6, schemaV7, schemaV8, schemaV9, schemaV10}
+var migrations = []string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6, schemaV7, schemaV8, schemaV9, schemaV10, schemaV11}
 
 // migrate applies the missing steps, each in its own transaction together with its user_version bump.
 func migrate(db *sql.DB) error { return migrateTo(db, len(migrations)) }
@@ -446,6 +446,30 @@ CREATE INDEX reports_target ON reports(target_aid);
 const schemaV10 = `
 ALTER TABLE deleted_avatars ADD COLUMN restored_at TEXT NOT NULL DEFAULT '';
 ALTER TABLE deleted_avatars ADD COLUMN restored_account INTEGER REFERENCES accounts(id) ON DELETE SET NULL;
+`
+
+// schemaV11 differentiates Square 1:1 whispers from public Square chat (kind 'whisper') and records the recipient (target,
+// target_name) on 1:1 messages (private friend chat and Square whispers). The table is rebuilt inside the migration
+// transaction to update the CHECK constraint while preserving every row id and recreating the exact three indexes.
+const schemaV11 = `
+CREATE TABLE chat_log_v11 (
+	id          INTEGER PRIMARY KEY,
+	time        INTEGER NOT NULL,
+	kind        TEXT NOT NULL CHECK (kind IN ('private', 'lounge', 'circle', 'square', 'whisper', 'party')),
+	channel     TEXT NOT NULL,
+	sender      TEXT NOT NULL,
+	sender_name TEXT NOT NULL,
+	target      TEXT NOT NULL DEFAULT '',
+	target_name TEXT NOT NULL DEFAULT '',
+	text        TEXT NOT NULL
+) STRICT;
+INSERT INTO chat_log_v11 (id, time, kind, channel, sender, sender_name, text)
+	SELECT id, time, kind, channel, sender, sender_name, text FROM chat_log;
+DROP TABLE chat_log;
+ALTER TABLE chat_log_v11 RENAME TO chat_log;
+CREATE INDEX chat_log_time ON chat_log(time);
+CREATE INDEX chat_log_sender ON chat_log(sender, id);
+CREATE INDEX chat_log_channel ON chat_log(kind, channel, time);
 `
 
 // Path is the file the database was opened from.

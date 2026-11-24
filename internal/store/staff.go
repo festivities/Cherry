@@ -51,6 +51,7 @@ type Player struct {
 	Aid      string
 	Name     string
 	Identity string
+	Country  string
 	Gems     int64
 	Cash     int64
 	Ban      *Ban
@@ -84,7 +85,7 @@ func playerLocked(id int64) *Account {
 
 // playerOf is the staff view of acc. Caller holds AccountsMu.
 func playerOf(acc *Account) Player {
-	return Player{ID: accountRows[acc].id, Aid: acc.Aid, Name: acc.Name, Identity: acc.Identity, Gems: acc.Gems, Cash: acc.Cash, Ban: acc.Ban}
+	return Player{ID: accountRows[acc].id, Aid: acc.Aid, Name: acc.Name, Identity: acc.Identity, Country: acc.Country, Gems: acc.Gems, Cash: acc.Cash, Ban: acc.Ban}
 }
 
 // playerTarget is the audit target of an account.

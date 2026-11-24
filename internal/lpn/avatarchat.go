@@ -583,11 +583,27 @@ func avatarChatRange(roomID string, start, end int64, aid uint64) (tcReply, int6
 func avatarChatSend(roomID string, msgType int64, msg string, aid uint64) (tcReply, int64) {
 	text := strings.TrimSpace(msg)
 	name := squareAccountName(aid) // read before the lock: no account lookup runs under avatarChatMu
+	reply, id, to, ok := avatarChatSendLocked(roomID, msgType, text, name, aid)
+	if ok {
+		store.RecordChat(store.ChatEntry{
+			Kind:       store.ChatPrivate,
+			Channel:    strconv.FormatInt(id, 10),
+			Sender:     strconv.FormatUint(aid, 10),
+			SenderName: name,
+			Target:     strconv.FormatUint(to, 10),
+			TargetName: squareAccountName(to),
+			Text:       text,
+		})
+	}
+	return reply, id
+}
+
+func avatarChatSendLocked(roomID string, msgType int64, text, name string, aid uint64) (tcReply, int64, uint64, bool) {
 	avatarChatMu.Lock()
 	defer avatarChatMu.Unlock()
 	r, id := avatarChatRoomOf(roomID, aid)
 	if r == nil || msgType != avatarChatTypeText || text == "" || utf8.RuneCountInString(text) > avatarChatTextMax {
-		return avatarChatErr(acRefused), id
+		return avatarChatErr(acRefused), id, 0, false
 	}
 	m := avatarChatMsg{sn: r.lastSn + 1, sec: economy.NowFunc().Unix(), sender: aid, text: text}
 	// The message is saved before its serial is returned. A failed save keeps the serial taken (memory never goes back, and
@@ -606,9 +622,8 @@ func avatarChatSend(roomID string, msgType int64, msg string, aid uint64) (tcRep
 			avatarChatUnsaved[id] = prevSn
 		}
 		r.msgs = kept
-		return avatarChatErr(acInternal), id
+		return avatarChatErr(acInternal), id, 0, false
 	}
-	store.RecordChat(store.ChatEntry{Kind: store.ChatPrivate, Channel: strconv.FormatInt(id, 10), Sender: strconv.FormatUint(aid, 10), SenderName: name, Text: text})
 	// A member outside the room gets the banner text with the push; one inside gets the plain 13001 as before.
 	to := r.other(aid)
 	banner := ""
@@ -618,7 +633,7 @@ func avatarChatSend(roomID string, msgType int64, msg string, aid uint64) (tcRep
 	return tcReply{
 		result: map[string]any{"msgSn": m.sn, "msgTimeSec": m.sec},
 		pushes: []loungePush{avatarChatPush(id, to, aid, m.sn, banner)},
-	}, id
+	}, id, to, true
 }
 
 // avatarChatBanner is the arrival banner text, "<sender name>: <text>" cut to avatarChatBannerMax runes. It is Cherry's own

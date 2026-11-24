@@ -224,6 +224,29 @@ func SaveCirclesLocked(prev, next CircleBook) error {
 	return nil
 }
 
+// SaveCirclesAuditedLocked is SaveCirclesLocked with one audit row in the same transaction, so an unaudited staff edit
+// never succeeds. Without an attached database it fails with ErrNoDatabase. Caller holds CirclesMu.
+func SaveCirclesAuditedLocked(prev, next CircleBook, actor, action, target string, detail map[string]any) error {
+	defer metrics.SaveSince(time.Now())
+	d := attachedDB()
+	if d == nil {
+		return ErrNoDatabase
+	}
+	site := callerSite()
+	if err := d.Update(func(tx *sql.Tx) error {
+		if err := saveCirclesRowsTx(tx, prev, next); err != nil {
+			return err
+		}
+		return auditTx(tx, actor, action, target, detail)
+	}); err != nil {
+		return err
+	}
+	if testing.Testing() {
+		netCheckCircles(d, next, site)
+	}
+	return nil
+}
+
 // saveCirclesRowsTx writes the difference between prev and next (see SaveCirclesLocked).
 func saveCirclesRowsTx(tx *sql.Tx, prev, next CircleBook) error {
 	before := make(map[int64][]byte, len(prev.Circles))

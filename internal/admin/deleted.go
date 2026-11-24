@@ -61,9 +61,10 @@ type deletedMail struct {
 	Item                           string
 }
 
-// deletedLine is one chat_log line of the record: time, channel kind and id, sender (avatar id and name) and text.
+// deletedLine is one chat_log line of the record: time, channel kind and id, sender (avatar id and name), optional recipient,
+// and text.
 type deletedLine struct {
-	Date, Kind, Channel, Sender, Name, Text string
+	Date, Kind, Channel, Sender, Name, Target, TargetName, Text string
 }
 
 // deletedRoom is one 1:1 room of the record: the other avatar and its newest messages (oldest first).
@@ -228,7 +229,7 @@ func deletedAvatarPageOf(det store.DeletedAvatarDetail, now time.Time) (deletedA
 	}
 	for i := len(rec.ChatLog) - 1; i >= 0 && len(page.Lines) < deletedChatMax; i-- {
 		l := rec.ChatLog[i]
-		page.Lines = append(page.Lines, deletedLine{Date: unixMsDate(l.Time), Kind: l.Kind, Channel: l.Channel, Sender: l.Sender, Name: l.SenderName, Text: l.Text})
+		page.Lines = append(page.Lines, deletedLine{Date: unixMsDate(l.Time), Kind: l.Kind, Channel: l.Channel, Sender: l.Sender, Name: l.SenderName, Target: l.Target, TargetName: l.TargetName, Text: l.Text})
 	}
 	for _, room := range rec.ChatRooms {
 		dr := deletedRoom{With: room.Aids[0]}

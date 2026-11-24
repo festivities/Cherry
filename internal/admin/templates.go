@@ -29,6 +29,12 @@ var staffJS []byte
 //go:embed static/editor.js
 var editorJS []byte
 
+//go:embed static/chat.js
+var chatJS []byte
+
+//go:embed static/diary.js
+var diaryJS []byte
+
 //go:embed static/favicon.svg
 var faviconSVG []byte
 
@@ -44,6 +50,8 @@ var staticFiles = map[string]staticFile{
 	"staff.css":   newStaticFile("text/css; charset=utf-8", staffCSS),
 	"staff.js":    newStaticFile("text/javascript; charset=utf-8", staffJS),
 	"editor.js":   newStaticFile("text/javascript; charset=utf-8", editorJS),
+	"chat.js":     newStaticFile("text/javascript; charset=utf-8", chatJS),
+	"diary.js":    newStaticFile("text/javascript; charset=utf-8", diaryJS),
 	"favicon.svg": newStaticFile("image/svg+xml", faviconSVG),
 }
 

@@ -191,14 +191,23 @@ func TestSquareWhisperFullFlowAndIsolation(t *testing.T) {
 	expectTrunkCall(t, a, trunkCallMsg{sendAid: 22, targetAid: 11, chatSerial: 5, msg: "secret-two", step: 6})
 	obs.none()
 
-	// 6. Verify chat log recorded both messages and stdout/logger never saw message text.
+	// 6. Verify chat log recorded both messages as whispers with target populated, and square filter excludes them.
 	store.FlushChatLog()
-	rows, err := store.ChatLogSearch(store.ChatFilter{Kind: store.ChatSquare}, 0, 10)
+	sqRows, err := store.ChatLogSearch(store.ChatFilter{Kind: store.ChatSquare}, 0, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 2 || rows[0].Text != "secret-two" || rows[1].Text != "secret-one" {
-		t.Fatalf("chat_log rows = %+v", rows)
+	if len(sqRows) != 0 {
+		t.Fatalf("square chat_log rows = %+v, want 0", sqRows)
+	}
+	rows, err := store.ChatLogSearch(store.ChatFilter{Kind: store.ChatWhisper}, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 ||
+		rows[0].Text != "secret-two" || rows[0].Sender != "22" || rows[0].Target != "11" || rows[0].TargetName != "Login" ||
+		rows[1].Text != "secret-one" || rows[1].Sender != "11" || rows[1].Target != "22" || rows[1].TargetName != "Login" {
+		t.Fatalf("whisper chat_log rows = %+v", rows)
 	}
 	if strings.Contains(logBuf.String(), "secret-one") || strings.Contains(logBuf.String(), "secret-two") {
 		t.Fatalf("logger leaked private whisper text: %s", logBuf.String())

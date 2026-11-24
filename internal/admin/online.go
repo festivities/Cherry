@@ -1,7 +1,9 @@
 package admin
 
 import (
+	"cmp"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -20,12 +22,13 @@ const onlineTimeFormat = "2006-01-02 15:04:05"
 // onlineRow is one connection on the page. PlayerID is the store row id the kick names (0 when no account has the avatar id);
 // PlayerHref is the player's page. Rooms is the rooms the account is in now, "—" for none.
 type onlineRow struct {
-	PlayerID         int64
-	PlayerHref       string
-	Name, Aid        string
-	Listener, Remote string
-	Since, For       string
-	Rooms            string
+	PlayerID                 int64
+	PlayerHref               string
+	Name, Aid                string
+	Listener, Remote         string
+	CountryName, CountryCode string
+	Since, For               string
+	Rooms                    string
 }
 
 // placeCount is one line of the "where they are" table: the distinct players in one kind of room.
@@ -45,7 +48,8 @@ type onlinePage struct {
 
 // placeKinds are the kinds of room the page counts, in the order it lists them, with their labels.
 var placeKinds = []struct{ kind, label string }{
-	{"garden", "In a Garden visit"},
+	{"garden_own", "In own Garden"},
+	{"garden_visit", "In a Garden visit"},
 	{"square_public", "In a public Square"},
 	{"square_private", "In a private Square"},
 	{"circle", "In a circle room"},
@@ -53,9 +57,16 @@ var placeKinds = []struct{ kind, label string }{
 	{"lounge", "In a Lounge room"},
 }
 
-// placeKey maps a Place to its bucket in placeKinds, splitting public and private Squares.
-func placeKey(p lpn.Place) string {
-	if p.Kind == "square" {
+// placeKey maps a Place to its bucket in placeKinds for the player's aid, splitting own vs visited Gardens
+// and public vs private Squares.
+func placeKey(p lpn.Place, aid string) string {
+	switch p.Kind {
+	case "garden":
+		if aid != "" && p.ID == aid {
+			return "garden_own"
+		}
+		return "garden_visit"
+	case "square":
 		if p.Secret {
 			return "square_private"
 		}
@@ -64,10 +75,18 @@ func placeKey(p lpn.Place) string {
 	return p.Kind
 }
 
-// placeText names a room the way the page shows it.
+// placeText names a room without player context.
 func placeText(p lpn.Place) string {
+	return placeTextFor(p, "")
+}
+
+// placeTextFor names a room the way the page shows it for the player's aid.
+func placeTextFor(p lpn.Place, aid string) string {
 	switch p.Kind {
 	case "garden":
+		if aid != "" && p.ID == aid {
+			return "Own Garden"
+		}
 		return "Garden of " + p.ID
 	case "square":
 		theme, _ := strconv.ParseUint(p.ID, 10, 64)
@@ -89,40 +108,105 @@ func placeText(p lpn.Place) string {
 	return p.Kind + " " + p.ID
 }
 
-// onlineAt builds the page from the live connections at now. The players are looked up in one pass of the accounts.
+// onlineAt builds the page from the live connections at now, deduplicated to one row per player.
+// The players are looked up in one pass of the accounts.
 func (s *Server) onlineAt(now time.Time) onlinePage {
 	conns := s.online()
-	aids := make([]string, 0, len(conns))
+
+	type aggConn struct {
+		aid      uint64
+		listener string
+		remote   string
+		fallback string
+		since    time.Time
+		places   []lpn.Place
+		seen     map[lpn.Place]bool
+	}
+	byAid := make(map[uint64]*aggConn, len(conns))
+	aggs := make([]*aggConn, 0, len(conns))
 	for _, c := range conns {
-		aids = append(aids, strconv.FormatUint(c.Aid, 10))
+		agg := byAid[c.Aid]
+		if agg == nil {
+			agg = &aggConn{
+				aid:      c.Aid,
+				listener: c.Listener,
+				remote:   c.Remote,
+				fallback: c.Remote,
+				since:    c.Since,
+				seen:     map[lpn.Place]bool{},
+			}
+			byAid[c.Aid] = agg
+			aggs = append(aggs, agg)
+		} else {
+			if c.Since.Before(agg.since) {
+				agg.since = c.Since
+			}
+			if agg.listener != "session" && c.Listener == "session" {
+				agg.listener = c.Listener
+				agg.remote = c.Remote
+			}
+			if c.Remote != "" && agg.fallback == "" {
+				agg.fallback = c.Remote
+			}
+		}
+		for _, pl := range c.Places {
+			if !agg.seen[pl] {
+				agg.seen[pl] = true
+				agg.places = append(agg.places, pl)
+			}
+		}
+	}
+	slices.SortFunc(aggs, func(a, b *aggConn) int {
+		if c := a.since.Compare(b.since); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.aid, b.aid)
+	})
+
+	aids := make([]string, 0, len(aggs))
+	for _, agg := range aggs {
+		aids = append(aids, strconv.FormatUint(agg.aid, 10))
 	}
 	players := store.PlayersOfAids(aids)
 
-	page := onlinePage{Total: len(conns), Session: metrics.SessionConns.Load(), Gateway: metrics.GatewayConns.Load()}
-	everyone := map[uint64]bool{} // distinct players
-	roomed := map[uint64]bool{}   // players with a room now
+	page := onlinePage{
+		Players: len(aggs),
+		Total:   len(conns),
+		Session: metrics.SessionConns.Load(),
+		Gateway: metrics.GatewayConns.Load(),
+	}
+	roomed := map[uint64]bool{} // players with a room now
 	inKind := map[string]map[uint64]bool{}
-	for _, c := range conns {
-		everyone[c.Aid] = true
-		row := onlineRow{Aid: strconv.FormatUint(c.Aid, 10), Listener: c.Listener, Remote: c.Remote,
-			Since: c.Since.UTC().Format(onlineTimeFormat), For: humanDuration(now.Sub(c.Since).Truncate(time.Second))}
+	for i, agg := range aggs {
+		remote := agg.remote
+		if remote == "" {
+			remote = agg.fallback
+		}
+		row := onlineRow{
+			Aid:      aids[i],
+			Listener: agg.listener,
+			Remote:   remote,
+			Since:    agg.since.UTC().Format(onlineTimeFormat),
+			For:      humanDuration(now.Sub(agg.since).Truncate(time.Second)),
+		}
 		if p, ok := players[row.Aid]; ok {
 			row.PlayerID, row.PlayerHref, row.Name = p.ID, playerPath(p.ID), p.Name
+			code, name, _ := store.CountryInfo(p.Country)
+			row.CountryCode, row.CountryName = code, name
 		}
 		var names []string
-		for _, pl := range c.Places {
-			names = append(names, placeText(pl))
-			roomed[c.Aid] = true
-			key := placeKey(pl)
+		for _, pl := range agg.places {
+			names = append(names, placeTextFor(pl, row.Aid))
+			roomed[agg.aid] = true
+			key := placeKey(pl, row.Aid)
 			if inKind[key] == nil {
 				inKind[key] = map[uint64]bool{}
 			}
-			inKind[key][c.Aid] = true
+			inKind[key][agg.aid] = true
 		}
 		row.Rooms = joinOrDash(names)
 		page.Rows = append(page.Rows, row)
 	}
-	page.Players = len(everyone)
 	for _, k := range placeKinds {
 		page.Places = append(page.Places, placeCount{Label: k.label, Count: len(inKind[k.kind])})
 	}

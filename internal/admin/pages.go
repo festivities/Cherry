@@ -31,7 +31,7 @@ type navGroup struct {
 var navGroups = []navGroup{
 	{"Overview", []link{{Href: "/", Label: "Dashboard"}}},
 	{"Players", []link{{Href: "/players", Label: "Players"}, {Href: "/players/deleted", Label: "Deleted avatars"}, {Href: "/mail", Label: "Mail"}, {Href: "/balances", Label: "All balances"}}},
-	{"Moderation", []link{{Href: "/reports", Label: "Reports"}, {Href: "/chat", Label: "Chat log"}, {Href: "/photos", Label: "Photos"}}},
+	{"Moderation", []link{{Href: "/reports", Label: "Reports"}, {Href: "/chat", Label: "Chat log"}, {Href: "/diary", Label: "Diary entries"}, {Href: "/circles", Label: "Circles"}, {Href: "/photos", Label: "Photos"}}},
 	{"Insights", []link{{Href: "/online", Label: "Online now"}, {Href: "/economy", Label: "Economy"}, {Href: "/activity", Label: "Activity"}, {Href: "/geography", Label: "Geography"}}},
 	{"Content", []link{{Href: "/docs", Label: "Documents"}}},
 	{"System", []link{{Href: "/audit", Label: "Audit log"}, {Href: "/settings", Label: "Settings"}}},
@@ -80,6 +80,9 @@ var notices = map[string]string{
 	"report-resolved":           "The report is resolved. The audit trail has the line and your note.",
 	"report-dismissed":          "The report is dismissed. The audit trail has the line and your note.",
 	"balances-already-applied":  "This balance change was already made. Nothing changed again.",
+	"circle-edited":             "The circle details are saved. The audit trail has the line and your reason.",
+	"circle-member-removed":     "The member is removed from the circle. The audit trail has the line and your reason.",
+	"circle-disbanded":          "The circle is disbanded. Its members are removed and the audit trail has the line.",
 }
 
 // check is a validation result shown on a version page, or next to the draft editor when a draft just saved was refused
@@ -138,14 +141,21 @@ type view struct {
 	Media    []playerMedia
 
 	// chat log and photos (moderation.go)
-	ChatRows    []chatRow
-	ChatFilter  store.ChatFilter
-	ChatKinds   []string
-	ChatContext string // the context line of a context link
-	Keep        int    // days the chat log keeps a message (0 = no limit): the panel's value, else retention.chat-days
-	Pictures    []pictureRow
-	PicFilter   store.PictureFilter
-	PicKinds    []string
+	ChatRows     []chatRow
+	ChatFilter   store.ChatFilter
+	ChatKinds    []string
+	ChatContext  string // the context line of a context link
+	ChatNewestID int64
+	ChatOldestID int64
+	ChatHasMore  bool
+	ChatLive     bool
+	ChatQuery    string
+	ChatLiveHref string
+	Keep         int // days the chat log keeps a message (0 = no limit): the panel's value, else retention.chat-days
+	Pictures     []pictureRow
+	PicFilter    store.PictureFilter
+	PicKinds     []string
+	Diary        diaryPage
 
 	// Insights (insights.go, online.go, economy.go, activity.go, geography.go)
 	Online    onlinePage
@@ -170,6 +180,10 @@ type view struct {
 	Reports     reportsPage
 	Report      reportDetail
 	OpenReports int
+
+	// circles (circles.go): the list and one circle's detail page
+	Circles circlesPage
+	Circle  circleDetailPage
 }
 
 // base is the view of a signed-in page: the sidebar, the identity and role in the header, the session's CSRF token and the

@@ -45,13 +45,16 @@ type AvatarRecord struct {
 	Media         []MediaFile           `json:"media"` // the picture rows the avatar owned
 }
 
-// AvatarChatLine is one chat_log row of a deleted avatar: a line it sent, or a line of one of its 1:1 rooms.
+// AvatarChatLine is one chat_log row of a deleted avatar: a line it sent, a line it received as target, or a line of one
+// of its 1:1 rooms.
 type AvatarChatLine struct {
 	Time       int64  `json:"time"`
 	Kind       string `json:"kind"`
 	Channel    string `json:"channel"`
 	Sender     string `json:"sender"`
 	SenderName string `json:"senderName"`
+	Target     string `json:"target,omitempty"`
+	TargetName string `json:"targetName,omitempty"`
 	Text       string `json:"text"`
 }
 
@@ -90,16 +93,16 @@ func GatherAvatarHistoryLocked(rec *AvatarRecord, aid string) error {
 	}
 	var rooms []ChatRoom
 	err = d.View(func(q Querier) error {
-		lines, err := q.Query(`SELECT time, kind, channel, sender, sender_name, text FROM chat_log
-			WHERE sender = ? OR (kind = ? AND channel IN (SELECT CAST(room_id AS TEXT) FROM chat_rooms WHERE aid_a = ? OR aid_b = ?))
-			ORDER BY id`, aid, ChatPrivate, aid, aid)
+		lines, err := q.Query(`SELECT time, kind, channel, sender, sender_name, target, target_name, text FROM chat_log
+			WHERE sender = ? OR target = ? OR (kind = ? AND channel IN (SELECT CAST(room_id AS TEXT) FROM chat_rooms WHERE aid_a = ? OR aid_b = ?))
+			ORDER BY id`, aid, aid, ChatPrivate, aid, aid)
 		if err != nil {
 			return err
 		}
 		defer lines.Close()
 		for lines.Next() {
 			var l AvatarChatLine
-			if err := lines.Scan(&l.Time, &l.Kind, &l.Channel, &l.Sender, &l.SenderName, &l.Text); err != nil {
+			if err := lines.Scan(&l.Time, &l.Kind, &l.Channel, &l.Sender, &l.SenderName, &l.Target, &l.TargetName, &l.Text); err != nil {
 				return err
 			}
 			rec.ChatLog = append(rec.ChatLog, l)

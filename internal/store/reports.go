@@ -347,8 +347,16 @@ func roomLineBySerial(q Querier, room int64, sn, target string) (*ReportLine, er
 // now, newest first, at most reportChatLines. chat_log is written by a batching writer, so a line sent a moment before the
 // report may not be in the table yet; the snapshot does not wait for it.
 func chatLinesOf(q Querier, kind, channel, sender string, now time.Time) ([]ReportLine, error) {
-	query := `SELECT time, sender, sender_name, text FROM chat_log WHERE sender = ? AND kind = ? AND time >= ?`
-	args := []any{sender, kind, now.Add(-reportChatWindow).UnixMilli()}
+	args := []any{sender}
+	kindClause := `kind = ?`
+	if kind == ChatSquare {
+		kindClause = `kind IN (?, ?)`
+		args = append(args, ChatSquare, ChatWhisper)
+	} else {
+		args = append(args, kind)
+	}
+	args = append(args, now.Add(-reportChatWindow).UnixMilli())
+	query := `SELECT time, sender, sender_name, text FROM chat_log WHERE sender = ? AND ` + kindClause + ` AND time >= ?`
 	if channel != "" {
 		query += ` AND channel = ?`
 		args = append(args, channel)

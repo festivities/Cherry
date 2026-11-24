@@ -34,7 +34,7 @@
 <h2>Chat messages ({{len .Search.Chat}}{{if .Search.ChatMore}}+{{end}})</h2>
 {{if .Search.Chat}}<div class="scroll"><table>
 <thead><tr><th>Time (UTC)</th><th>Channel</th><th>Sender</th><th>Text</th><th>Context</th></tr></thead>
-<tbody>{{range .Search.Chat}}<tr><td>{{.Time}}</td><td>{{.Kind}} {{.Channel}}</td><td>{{if .PlayerHref}}<a href="{{.PlayerHref}}">{{.Name}}</a>{{else}}{{.Name}}{{end}} <span class="muted small">{{.Aid}}</span></td><td>{{.Text}}</td><td><a href="{{.ContextHref}}">around this time</a></td></tr>{{end}}</tbody>
+<tbody>{{range .Search.Chat}}<tr{{if eq .Kind "whisper"}} class="chat-whisper"{{end}}><td>{{.Time}}</td><td><span class="chat-kind chat-kind-{{.Kind}}">{{.Kind}}</span> {{.Channel}}</td><td>{{if .PlayerHref}}<a href="{{.PlayerHref}}">{{.Name}}</a>{{else}}{{.Name}}{{end}} <span class="muted small">{{.Aid}}</span>{{if .TargetAid}} <span class="chat-arrow" aria-label="to">&rarr;</span> {{if .TargetHref}}<a href="{{.TargetHref}}">{{.TargetName}}</a>{{else}}{{.TargetName}}{{end}} <span class="muted small">{{.TargetAid}}</span>{{end}}</td><td>{{.Text}}</td><td><a href="{{.ContextHref}}">around this time</a></td></tr>{{end}}</tbody>
 </table></div>
 {{if .Search.ChatMore}}<p class="flash warn">More messages match. Use the chat log's filters to narrow them.</p>{{end}}
 {{else}}<p class="empty-state">No chat message contains this text.</p>{{end}}

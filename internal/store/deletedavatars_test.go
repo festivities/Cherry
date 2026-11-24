@@ -189,7 +189,8 @@ func TestGatherAvatarHistoryReadsTheStores(t *testing.T) {
 	if err := d.Update(func(tx *sql.Tx) error {
 		for _, q := range []string{
 			`INSERT INTO chat_log (time, kind, channel, sender, sender_name, text) VALUES (1700000000000, 'lounge', '5', '8201', 'Gia', 'mine')`,
-			`INSERT INTO chat_log (time, kind, channel, sender, sender_name, text) VALUES (1700000001000, 'private', '1960000001', '8202', 'Hal', 'to you')`,
+			`INSERT INTO chat_log (time, kind, channel, sender, sender_name, target, target_name, text) VALUES (1700000001000, 'private', '1960000001', '8202', 'Hal', '8201', 'Gia', 'to you')`,
+			`INSERT INTO chat_log (time, kind, channel, sender, sender_name, target, target_name, text) VALUES (1700000001500, 'whisper', '7', '8202', 'Hal', '8201', 'Gia', 'whisper to you')`,
 			`INSERT INTO chat_log (time, kind, channel, sender, sender_name, text) VALUES (1700000002000, 'lounge', '5', '9999', 'Zed', 'not theirs')`,
 			`INSERT INTO chat_rooms (room_id, aid_a, aid_b, data) VALUES (1960000001, '8201', '8202', '{"id":1960000001,"aids":["8201","8202"],"ceil":2}')`,
 			`INSERT INTO chat_rooms (room_id, aid_a, aid_b, data) VALUES (1960000002, '9998', '9999', '{"id":1960000002,"aids":["9998","9999"],"ceil":0}')`,
@@ -218,8 +219,9 @@ func TestGatherAvatarHistoryReadsTheStores(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rec.ChatLog) != 2 || rec.ChatLog[0].Text != "mine" || rec.ChatLog[1].Text != "to you" {
-		t.Fatalf("chat lines = %+v, want its own line and its room's line", rec.ChatLog)
+	if len(rec.ChatLog) != 3 || rec.ChatLog[0].Text != "mine" || rec.ChatLog[1].Text != "to you" ||
+		rec.ChatLog[2].Text != "whisper to you" || rec.ChatLog[2].Target != "8201" || rec.ChatLog[2].TargetName != "Gia" {
+		t.Fatalf("chat lines = %+v, want its own line, its room's line, and whisper to it", rec.ChatLog)
 	}
 	if len(rec.ChatRooms) != 1 || rec.ChatRooms[0].ID != 1960000001 || len(rec.ChatRooms[0].Msgs) != 2 || rec.ChatRooms[0].Msgs[1].Text != "back" {
 		t.Fatalf("rooms = %+v, want the one 1:1 room with its two messages", rec.ChatRooms)

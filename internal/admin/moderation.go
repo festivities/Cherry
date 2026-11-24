@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -35,11 +36,21 @@ var photoTypes = map[string]bool{"image/png": true, "image/jpeg": true, "image/g
 // photoKinds are the kinds of picture the store keeps (store.MediaDiary, MediaRoom, MediaProfile).
 var photoKinds = []string{store.MediaDiary, store.MediaRoom, store.MediaProfile}
 
-// chatRow is one message of the chat page: its time, channel, sender and text, with the links the page shows.
+// chatRow is one message of the chat page and /chat.json: its id, time, channel, sender, optional recipient and text,
+// with the links the page shows.
 type chatRow struct {
-	Time, Kind, Channel, Name, Aid, Text string
-	PlayerHref                           string // "" when the sender has no account row now
-	ContextHref                          string // the channel around the message's time
+	ID          int64  `json:"id"`
+	Time        string `json:"time"`
+	Kind        string `json:"kind"`
+	Channel     string `json:"channel"`
+	Name        string `json:"name"`
+	Aid         string `json:"aid"`
+	TargetName  string `json:"target_name"`
+	TargetAid   string `json:"target_aid"`
+	Text        string `json:"text"`
+	PlayerHref  string `json:"player_href"`  // "" when the sender has no account row now
+	TargetHref  string `json:"target_href"`  // "" when there is no recipient or no account row now
+	ContextHref string `json:"context_href"` // the channel around the message's time
 }
 
 // pictureRow is one picture of the photo page.
@@ -110,8 +121,8 @@ func chatFilterOf(q url.Values) (store.ChatFilter, string) {
 	return f, ""
 }
 
-// chatHref is the chat page with the filter and, when before is set, the page marker.
-func chatHref(f store.ChatFilter, before int64) string {
+// chatFilterValues returns the URL query values for f (without before or after).
+func chatFilterValues(f store.ChatFilter) url.Values {
 	q := url.Values{}
 	for k, v := range map[string]string{"kind": f.Kind, "channel": f.Channel, "player": f.Player, "text": f.Text, "from": f.From, "to": f.To} {
 		if v != "" {
@@ -121,6 +132,17 @@ func chatHref(f store.ChatFilter, before int64) string {
 	if f.Around > 0 {
 		q.Set("around", strconv.FormatInt(f.Around, 10))
 	}
+	return q
+}
+
+// chatFilterQuery is the URL-encoded query string for f (without before or after).
+func chatFilterQuery(f store.ChatFilter) string {
+	return chatFilterValues(f).Encode()
+}
+
+// chatHref is the chat page with the filter and, when before is set, the page marker.
+func chatHref(f store.ChatFilter, before int64) string {
+	q := chatFilterValues(f)
 	if before > 0 {
 		q.Set("before", strconv.FormatInt(before, 10))
 	}
@@ -135,11 +157,15 @@ func chatRows(msgs []store.ChatLogRow) []chatRow {
 	rows := []chatRow{}
 	for _, m := range msgs {
 		row := chatRow{
-			Time: unixMsDate(m.Time), Kind: m.Kind, Channel: m.Channel, Name: m.SenderName, Aid: m.Sender, Text: m.Text,
+			ID: m.ID, Time: unixMsDate(m.Time), Kind: m.Kind, Channel: m.Channel,
+			Name: m.SenderName, Aid: m.Sender, TargetName: m.TargetName, TargetAid: m.Target, Text: m.Text,
 			ContextHref: chatHref(store.ChatFilter{Kind: m.Kind, Channel: m.Channel, Around: m.Time}, 0),
 		}
 		if m.PlayerID > 0 {
 			row.PlayerHref = playerPath(m.PlayerID)
+		}
+		if m.TargetPlayerID > 0 {
+			row.TargetHref = playerPath(m.TargetPlayerID)
 		}
 		rows = append(rows, row)
 	}
@@ -164,22 +190,126 @@ func (s *Server) handleChatLog(w http.ResponseWriter, r *http.Request, sess sess
 		s.fail(w, http.StatusBadRequest, problem)
 		return
 	}
-	msgs, err := store.ChatLogSearch(f, before, chatPage)
+	// Read maxID before ChatLogSearch so ChatNewestID never exceeds the search snapshot (preventing skipped rows on poll).
+	maxID, err := store.ChatLogMaxID()
 	if err != nil {
 		s.storeError(w, err)
 		return
 	}
+	msgs, err := store.ChatLogSearch(f, before, chatPage+1)
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
+	hasMore := len(msgs) > chatPage
+	if hasMore {
+		msgs = msgs[:chatPage]
+	}
 	v := s.base(r, sess, "Chat log")
+	v.Scripts = []string{"chat.js"}
 	v.ChatRows, v.ChatFilter, v.ChatKinds = chatRows(msgs), f, store.ChatKinds
 	v.Keep = store.ChatRetention(s.cfg.ChatDays)
 	v.NewestHref = chatHref(f, 0)
-	if len(msgs) == chatPage {
+	v.ChatHasMore = hasMore
+	if hasMore {
 		v.OlderHref = chatHref(f, msgs[len(msgs)-1].ID)
 	}
+	v.ChatNewestID = maxID
+	if len(msgs) > 0 {
+		if msgs[0].ID > v.ChatNewestID {
+			v.ChatNewestID = msgs[0].ID
+		}
+		v.ChatOldestID = msgs[len(msgs)-1].ID
+	}
+	today := s.now().UTC().Format(time.DateOnly)
+	v.ChatLive = before == 0 && f.Around == 0 && (f.To == "" || f.To >= today)
+	liveFilter := f
+	liveFilter.Around = 0
+	if liveFilter.To != "" && liveFilter.To < today {
+		liveFilter.To = ""
+	}
+	v.ChatLiveHref = chatHref(liveFilter, 0)
+	v.ChatQuery = chatFilterQuery(f)
 	if f.Around > 0 {
 		v.ChatContext = fmt.Sprintf("Messages in %s %s within %d minutes of %s (UTC).", f.Kind, f.Channel, int(store.ChatContextWindow.Minutes()), unixMsDate(f.Around))
 	}
 	s.render(w, http.StatusOK, "chat", v)
+}
+
+func respondJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func (s *Server) chatJSONStoreError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, store.ErrNoDatabase):
+		respondJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "The database is not available."})
+	case errors.Is(err, store.ErrBadInput):
+		respondJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+	default:
+		s.logger.Printf("cherry: staff chat json failed: %v", err)
+		respondJSON(w, http.StatusInternalServerError, map[string]string{"error": "Something went wrong."})
+	}
+}
+
+// handleChatJSON: GET /chat.json. Keyset polling (?after=) and infinite scroll (?before=) for the chat log.
+// The session guard is jsonPage (does not extend idle timeout).
+func (s *Server) handleChatJSON(w http.ResponseWriter, r *http.Request, _ session) {
+	q := r.URL.Query()
+	f, problem := chatFilterOf(q)
+	if problem != "" {
+		respondJSON(w, http.StatusBadRequest, map[string]string{"error": problem})
+		return
+	}
+	afterRaw, beforeRaw := q["after"], q["before"]
+	switch {
+	case len(afterRaw) == 1 && len(beforeRaw) == 0:
+		after, err := strconv.ParseInt(afterRaw[0], 10, 64)
+		if err != nil || after < 0 {
+			respondJSON(w, http.StatusBadRequest, map[string]string{"error": "The after cursor is not valid."})
+			return
+		}
+		msgs, latestID, hasMore, err := store.ChatLogAfter(f, after, 100)
+		if err != nil {
+			s.chatJSONStoreError(w, err)
+			return
+		}
+		respondJSON(w, http.StatusOK, struct {
+			Rows     []chatRow `json:"rows"`
+			LatestID int64     `json:"latest_id"`
+			HasMore  bool      `json:"has_more"`
+		}{
+			Rows:     chatRows(msgs),
+			LatestID: latestID,
+			HasMore:  hasMore,
+		})
+	case len(beforeRaw) == 1 && len(afterRaw) == 0:
+		before, err := strconv.ParseInt(beforeRaw[0], 10, 64)
+		if err != nil || before < 1 {
+			respondJSON(w, http.StatusBadRequest, map[string]string{"error": "The before cursor is not valid."})
+			return
+		}
+		msgs, err := store.ChatLogSearch(f, before, chatPage+1)
+		if err != nil {
+			s.chatJSONStoreError(w, err)
+			return
+		}
+		hasMore := len(msgs) > chatPage
+		if hasMore {
+			msgs = msgs[:chatPage]
+		}
+		respondJSON(w, http.StatusOK, struct {
+			Rows    []chatRow `json:"rows"`
+			HasMore bool      `json:"has_more"`
+		}{
+			Rows:    chatRows(msgs),
+			HasMore: hasMore,
+		})
+	default:
+		respondJSON(w, http.StatusBadRequest, map[string]string{"error": "Specify exactly one of after or before."})
+	}
 }
 
 // photoHref is the photo page with the filter and, when before is set, the page marker.

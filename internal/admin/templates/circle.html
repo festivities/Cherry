@@ -1,0 +1,70 @@
+{{define "page"}}<h1>{{.Circle.Name}}</h1>
+<section class="page-section">
+<h2>Overview</h2>
+<div class="card">
+<dl class="facts">
+<dt>ID</dt><dd class="mono">{{.Circle.ID}}</dd>
+<dt>Code</dt><dd class="mono">{{.Circle.Code}}</dd>
+<dt>Join type</dt><dd>{{.Circle.JoinType}}</dd>
+<dt>Members</dt><dd>{{.Circle.MemberCount}} / {{.Circle.MaxMembers}}</dd>
+<dt>Created (UTC)</dt><dd>{{.Circle.Created}}</dd>
+<dt>Modified (UTC)</dt><dd>{{.Circle.Modified}}</dd>
+<dt>Chat log</dt><dd><a href="{{.Circle.ChatHref}}">Circle chat log</a></dd>
+</dl>
+</div>
+</section>
+
+<section class="page-section">
+<h2>Edit name and intro</h2>
+<div class="card">
+<form method="post" action="/circles/{{.Circle.ID}}/edit" class="stack">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<label><span class="label">Name</span>
+<input type="text" name="name" value="{{.Circle.Name}}" maxlength="20" required>
+<small class="help">1 to 20 characters, unique across circles, no control characters.</small></label>
+<label><span class="label">Intro</span>
+<input type="text" name="intro" value="{{.Circle.Intro}}" maxlength="50">
+<small class="help">At most 50 characters, no control characters. Leave empty to clear.</small></label>
+<label><span class="label">Reason</span>
+<input type="text" name="reason" maxlength="200" required>
+<small class="help">Written to the audit trail (1 to 200 characters). Needs a Discord sign-in in the last five minutes.</small></label>
+<div class="actions"><button type="submit">Save changes</button></div>
+</form>
+</div>
+</section>
+
+<section class="page-section">
+<h2>Members</h2>
+<div class="scroll"><table>
+<thead><tr><th>Role</th><th>Player</th><th>Joined (UTC)</th><th>Action</th></tr></thead>
+<tbody>
+{{range .Circle.Members}}<tr>
+<td>{{.Role}}</td>
+<td>{{if .Href}}<a href="{{.Href}}">{{if .Name}}{{.Name}}{{else}}{{.Aid}}{{end}}</a>{{else}}{{with .Name}}{{.}}{{else}}—{{end}}{{end}} <span class="muted small mono">{{.Aid}}</span></td>
+<td>{{.Joined}}</td>
+<td>{{if .IsLeader}}<span class="muted small">leader</span>{{else}}
+<form method="post" action="/circles/{{$.Circle.ID}}/kick-member" class="row-form" data-confirm="Remove this member from the circle? The audit trail keeps the line and your reason.">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<input type="hidden" name="aid" value="{{.Aid}}">
+<input type="text" name="reason" maxlength="200" placeholder="Reason" aria-label="Reason for removing {{.Aid}}" required>
+<button type="submit" class="danger">Remove</button>
+</form>{{end}}</td>
+</tr>
+{{else}}<tr class="empty"><td colspan="4">No members.</td></tr>{{end}}
+</tbody>
+</table></div>
+</section>
+
+<section class="page-section">
+<h2>Disband circle</h2>
+<div class="card">
+<form method="post" action="/circles/{{.Circle.ID}}/disband" class="stack" data-confirm="Disband this circle? All members will be removed and the circle cannot be restored. The audit trail keeps the line and your reason.">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<label><span class="label">Reason</span>
+<input type="text" name="reason" maxlength="200" required>
+<small class="help">Deletes the circle and removes all members. Needs a Discord sign-in in the last five minutes.</small></label>
+<div class="actions"><button type="submit" class="danger">Disband circle</button></div>
+</form>
+</div>
+</section>
+{{end}}
