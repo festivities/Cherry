@@ -1,0 +1,123 @@
+{{define "page"}}<h1>Geography</h1>
+<p class="muted">Avatar countries and macro-regions normalized from account profiles, cross-referenced with live connections and 7-day avatar creations.</p>
+
+<section class="cards">
+<div class="card">
+<h2>Total avatars</h2>
+<p class="big">{{.Geography.TotalAvatars}}</p>
+<p class="muted small">{{if .Geography.PendingCreation}}{{.Geography.PendingCreation}} pending avatar creation.{{else}}Created avatars across all accounts.{{end}}</p>
+</div>
+<div class="card">
+<h2>Countries</h2>
+<p class="big">{{.Geography.CountriesCount}}</p>
+<p class="muted small">Known country codes represented.</p>
+</div>
+<div class="card">
+<h2>Top country</h2>
+<p class="big">{{if .Geography.TopCountryTotal}}{{.Geography.TopCountryName}}{{else}}—{{end}}</p>
+<p class="muted small">{{if .Geography.TopCountryTotal}}{{.Geography.TopCountryTotal}} avatars ({{.Geography.TopCountryShare}}).{{else}}No country data yet.{{end}}</p>
+</div>
+<div class="card">
+<h2>Online now</h2>
+<p class="big">{{.Geography.OnlineMapped}} / {{.Geography.OnlineTotal}}</p>
+<p class="muted small">{{if .Geography.OnlineTotal}}{{.Geography.OnlineMappedShare}} mapped to a known country.{{else}}Nobody online right now.{{end}}</p>
+</div>
+<div class="card">
+<h2>Unset country</h2>
+<p class="big">{{.Geography.UnknownCount}}</p>
+<p class="muted small">{{.Geography.UnknownShare}} of avatars have no country set.</p>
+</div>
+</section>
+
+<div class="grid-2">
+<section>
+<h2>Online now by country</h2>
+<div class="scroll"><table>
+<thead><tr><th>Country</th><th>Code</th><th class="num">Online</th><th class="num">Share</th><th>Bar</th></tr></thead>
+<tbody>
+{{range .Geography.OnlineCountries}}<tr>
+<td>{{.Name}}</td>
+<td class="mono">{{with .Code}}{{.}}{{else}}—{{end}}</td>
+<td class="num">{{.Online}}</td>
+<td class="num">{{.OnlineShare}}</td>
+<td><div class="bar-track"><div class="bar-fill w-{{.OnlineBar}}"></div></div></td>
+</tr>
+{{else}}<tr class="empty"><td colspan="5">Nobody is online right now.</td></tr>
+{{end}}</tbody>
+</table></div>
+</section>
+
+<section>
+<h2>By region</h2>
+<div class="scroll"><table>
+<thead><tr><th>Region</th><th class="num">Avatars</th><th class="num">Share</th><th class="num">Online</th><th class="num">New 7d</th><th>Bar</th></tr></thead>
+<tbody>
+{{range .Geography.Regions}}<tr>
+<td>{{.Name}}</td>
+<td class="num">{{.Total}}</td>
+<td class="num">{{.Share}}</td>
+<td class="num">{{.Online}}</td>
+<td class="num">{{.New7d}}</td>
+<td><div class="bar-track"><div class="bar-fill w-{{.Bar}}"></div></div></td>
+</tr>
+{{else}}<tr class="empty"><td colspan="6">No avatars yet.</td></tr>
+{{end}}</tbody>
+</table></div>
+</section>
+</div>
+
+<div class="grid-2">
+<section>
+<h2>New avatars (last 7 days)</h2>
+<div class="scroll"><table>
+<thead><tr><th>Country</th><th>Code</th><th class="num">New 7d</th><th class="num">Share</th><th>Bar</th></tr></thead>
+<tbody>
+{{range .Geography.NewCountries}}<tr>
+<td>{{.Name}}</td>
+<td class="mono">{{with .Code}}{{.}}{{else}}—{{end}}</td>
+<td class="num">{{.New7d}}</td>
+<td class="num">{{.New7dShare}}</td>
+<td><div class="bar-track"><div class="bar-fill w-{{.New7dBar}}"></div></div></td>
+</tr>
+{{else}}<tr class="empty"><td colspan="5">No new avatars in the last 7 days.</td></tr>
+{{end}}</tbody>
+</table></div>
+</section>
+
+<section>
+<h2>Avatar types</h2>
+<div class="scroll"><table>
+<thead><tr><th>Type</th><th class="num">Avatars</th><th class="num">Share</th><th>Bar</th></tr></thead>
+<tbody>
+{{range .Geography.AvatarTypes}}<tr>
+<td>{{.Label}}</td>
+<td class="num">{{.Count}}</td>
+<td class="num">{{.Share}}</td>
+<td><div class="bar-track"><div class="bar-fill w-{{.Bar}}"></div></div></td>
+</tr>
+{{end}}</tbody>
+</table></div>
+</section>
+</div>
+
+<h2>All countries</h2>
+<div class="scroll"><table>
+<thead><tr><th>Code</th><th>Country</th><th>Region</th><th class="num">Avatars</th><th class="num">Share</th><th class="num">Online</th><th class="num">New 7d</th><th class="num">Female</th><th class="num">Male</th><th class="num">Animal</th><th>Bar</th></tr></thead>
+<tbody>
+{{range .Geography.Countries}}<tr>
+<td class="mono">{{with .Code}}{{.}}{{else}}—{{end}}</td>
+<td>{{.Name}}</td>
+<td>{{.Region}}</td>
+<td class="num">{{.Total}}</td>
+<td class="num">{{.Share}}</td>
+<td class="num">{{.Online}}</td>
+<td class="num">{{.New7d}}</td>
+<td class="num">{{.Female}}</td>
+<td class="num">{{.Male}}</td>
+<td class="num">{{.Animal}}</td>
+<td><div class="bar-track"><div class="bar-fill w-{{.Bar}}"></div></div></td>
+</tr>
+{{else}}<tr class="empty"><td colspan="11">No avatars yet.</td></tr>
+{{end}}</tbody>
+</table></div>
+{{end}}

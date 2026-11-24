@@ -119,6 +119,21 @@ func TestOnlinePlacesFromEachRegistry(t *testing.T) {
 	if got := onlineOf(loginAidB)[0].Places; len(got) != 1 || got[0].Kind != "circle" {
 		t.Errorf("after leaving the Square, places %v, want the circle only", got)
 	}
+
+	defaultSquares.mu.Lock()
+	secret := defaultSquares.secretRoomLocked(2202250100, 42)
+	defaultSquares.mu.Unlock()
+	secret.mu.Lock()
+	secret.players = append(secret.players, &squarePlayer{aid: loginAidB})
+	secret.mu.Unlock()
+	t.Cleanup(func() {
+		secret.mu.Lock()
+		secret.players = nil
+		secret.mu.Unlock()
+	})
+	if got := onlineOf(loginAidB)[0].Places; !slices.Contains(got, Place{Kind: "square", ID: "2202250100", Room: "[0042]", Secret: true}) {
+		t.Errorf("secret Square place missing from %v", got)
+	}
 	CloseAid("9102")
 	waitOffline(t, loginAidB)
 }

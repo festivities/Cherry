@@ -32,7 +32,7 @@ var navGroups = []navGroup{
 	{"Overview", []link{{Href: "/", Label: "Dashboard"}}},
 	{"Players", []link{{Href: "/players", Label: "Players"}, {Href: "/players/deleted", Label: "Deleted avatars"}, {Href: "/mail", Label: "Mail"}, {Href: "/balances", Label: "All balances"}}},
 	{"Moderation", []link{{Href: "/reports", Label: "Reports"}, {Href: "/chat", Label: "Chat log"}, {Href: "/photos", Label: "Photos"}}},
-	{"Insights", []link{{Href: "/online", Label: "Online now"}, {Href: "/economy", Label: "Economy"}, {Href: "/activity", Label: "Activity"}}},
+	{"Insights", []link{{Href: "/online", Label: "Online now"}, {Href: "/economy", Label: "Economy"}, {Href: "/activity", Label: "Activity"}, {Href: "/geography", Label: "Geography"}}},
 	{"Content", []link{{Href: "/docs", Label: "Documents"}}},
 	{"System", []link{{Href: "/audit", Label: "Audit log"}, {Href: "/settings", Label: "Settings"}}},
 }
@@ -147,11 +147,12 @@ type view struct {
 	PicFilter   store.PictureFilter
 	PicKinds    []string
 
-	// Insights (insights.go, online.go, economy.go, activity.go)
-	Online   onlinePage
-	Economy  economyPage
-	Activity activityPage
-	Summary  insightsSummary // the dashboard's row
+	// Insights (insights.go, online.go, economy.go, activity.go, geography.go)
+	Online    onlinePage
+	Economy   economyPage
+	Activity  activityPage
+	Geography *geographyView
+	Summary   insightsSummary // the dashboard's row
 
 	// the player page (playerpage.go), mail (mail.go), balances (balances.go), search (search.go), settings (settings.go)
 	Page     playerPage

@@ -15,10 +15,11 @@ import (
 // read-only copy of the registries: each one is locked on its own and copied, and no lock is held while the rows are built.
 
 // Place is a room a logged-in account is in now. Kind is "garden" (ID: the owner's avatar id), "square" (ID: the Square's
-// theme, Room: its room number), "circle" (the circle id), "party" (the Room Party host's avatar id) or "lounge" (the Lounge
-// room id). Room is set for a Square only.
+// theme, Room: its room number, Secret: true for a private code room), "circle" (the circle id), "party" (the Room Party
+// host's avatar id) or "lounge" (the Lounge room id). Room and Secret are set for a Square only.
 type Place struct {
 	Kind, ID, Room string
+	Secret         bool
 }
 
 // Connection is one live connection that holds a login: the avatar id, the listener ("session" for :10123, "gateway" for
@@ -97,7 +98,7 @@ func placesByAid() map[uint64][]Place {
 			roomLabel = fmt.Sprintf("[%04d]", r.number)
 		}
 		for _, p := range r.players {
-			out[p.aid] = append(out[p.aid], Place{Kind: "square", ID: strconv.FormatUint(r.theme, 10), Room: roomLabel})
+			out[p.aid] = append(out[p.aid], Place{Kind: "square", ID: strconv.FormatUint(r.theme, 10), Room: roomLabel, Secret: r.secret})
 		}
 		r.mu.Unlock()
 	}

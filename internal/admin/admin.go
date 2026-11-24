@@ -243,6 +243,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /online", s.page(s.handleOnline))
 	mux.HandleFunc("GET /economy", s.page(s.handleEconomy))
 	mux.HandleFunc("GET /activity", s.page(s.handleActivity))
+	mux.HandleFunc("GET /geography", s.page(s.handleGeography))
 	mux.HandleFunc("GET /reports", s.page(s.handleReports))
 	mux.HandleFunc("GET /reports/{id}", s.page(s.handleReport))
 	mux.HandleFunc("POST /reports/{id}/resolve", s.action(false, maxBodySmall, s.handleReportResolve))

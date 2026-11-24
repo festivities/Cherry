@@ -12,6 +12,9 @@ func TestPlaceTextNamesTheSquareRoom(t *testing.T) {
 	if got := placeText(lpn.Place{Kind: "square", ID: "6", Room: "2"}); got != "Treasure Island room 2" {
 		t.Fatalf("placeText = %q, want %q", got, "Treasure Island room 2")
 	}
+	if got := placeText(lpn.Place{Kind: "square", ID: "6", Room: "[0042]", Secret: true}); got != "Treasure Island private room [0042]" {
+		t.Fatalf("private placeText = %q, want %q", got, "Treasure Island private room [0042]")
+	}
 	if got := placeText(lpn.Place{Kind: "square", ID: "999", Room: "1"}); got != "Square theme 999 room 1" {
 		t.Fatalf("unknown theme = %q, want %q", got, "Square theme 999 room 1")
 	}

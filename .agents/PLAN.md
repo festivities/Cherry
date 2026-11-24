@@ -53,6 +53,14 @@ Earlier handoffs are in [HISTORY.md](HISTORY.md); the latest covers 2026-11-24 ~
 - Implementation goes to `worker`, RE to `reverse-engineer`, device tests to `tester`, reviews and Oracle host operations are main-agent-only.
 - Always check `.agents/PLAN.md` for stray control characters before committing, stage named paths only, and verify `.opencode/line-play-artifacts` stays intact and git-ignored.
 
+### HANDOFF ACCEPTED — 2026-11-24 ~20:28 host time (Antigravity, Windows)
+
+Context loaded from `.agents/` and Raspberry's `CONTRACT.md`. Read-only production check complete:
+- `/home/cherry/bin/cherry.commit` = `25fe77f`, `healthz` = `ok`, `cherry` + `litestream` both `active`.
+- `journalctl -u cherry --since "2026-11-24 20:12:00"`: **0** `status=5xx`/panics, **408** `SQUARE invite` lines (invites + pushes + accepts live), **11** `SQUARE enter code` lines.
+- `/debug/vars`: 2,475 accounts, 489 session / 507 gateway conns, 0 `conn_refused` / `rate_limited` / `frames_dropped` / `frame_floods` / `chat_log_dropped`, 1,119,549 static redirects vs 35.0 MB direct static bytes served since restart.
+- Direct Oracle NIC (`enp0s6`) outbound TX: **1.386 TB** (1.260 TiB) cumulative since boot (`2026-10-06`); `sa24` (00:00–20:20) avg **2,875.98 kB/s** (**215.57 GB** / 200.77 GiB in 20.33 h; evening peak 19:30–20:20 at 3,866–4,634 kB/s).
+
 ## Status (2026-11-24)
 
 | Milestone | Scope | Status |

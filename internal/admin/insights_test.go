@@ -54,23 +54,23 @@ func setCreated(t *testing.T, id int64, created string) {
 	}
 }
 
-// TestInsightPagesNeedASessionAndSitInTheNav: the three pages are the sign-in page without a session; with one they answer, and
+// TestInsightPagesNeedASessionAndSitInTheNav: the four pages are the sign-in page without a session; with one they answer, and
 // the sidebar lists the Insights group between Moderation and Content with the pages in order.
 func TestInsightPagesNeedASessionAndSitInTheNav(t *testing.T) {
 	fx := newFixture(t, devConfig())
 	c := fx.client()
 	fakeOnline(fx)
-	for _, p := range []string{"/online", "/economy", "/activity"} {
+	for _, p := range []string{"/online", "/economy", "/activity", "/geography"} {
 		expect(t, c.get(p), http.StatusUnauthorized)
 	}
 	c.signInDev("owner")
-	for _, p := range []string{"/online", "/economy", "/economy?window=7d", "/economy?window=30d", "/activity"} {
+	for _, p := range []string{"/online", "/economy", "/economy?window=7d", "/economy?window=30d", "/activity", "/geography"} {
 		r := c.get(p)
 		expect(t, r, http.StatusOK)
 		checkPage(t, p, r)
 	}
 	online := c.get("/online").body
-	for _, want := range []string{`href="/online" aria-current="page"`, `href="/economy"`, `href="/activity"`} {
+	for _, want := range []string{`href="/online" aria-current="page"`, `href="/economy"`, `href="/activity"`, `href="/geography"`} {
 		if !strings.Contains(online, want) {
 			t.Errorf("the nav lacks %s", want)
 		}
@@ -82,8 +82,70 @@ func TestInsightPagesNeedASessionAndSitInTheNav(t *testing.T) {
 	if got := strings.Join(titles, ","); got != "Overview,Players,Moderation,Insights,Content,System" {
 		t.Errorf("nav groups %s", got)
 	}
-	if n := len(navGroups[3].Links); n != 3 {
-		t.Errorf("Insights has %d pages, want 3", n)
+	if n := len(navGroups[3].Links); n != 4 {
+		t.Errorf("Insights has %d pages, want 4", n)
+	}
+}
+
+// TestGeographyPageRendersStatsAndCSP: Geography normalizes countries, aggregates regions and avatar types,
+// cross-references live online connections, and renders strictly without inline markup.
+func TestGeographyPageRendersStatsAndCSP(t *testing.T) {
+	fx := newFixture(t, devConfig())
+	c := fx.client()
+	c.signInDev("owner")
+
+	seedPlayer(t, "dev-geo1", "2301", "IndoLower", 0)
+	seedPlayer(t, "dev-geo2", "2302", "IndoUpper", 0)
+	seedPlayer(t, "dev-geo3", "2303", "ThaiPlayer", 0)
+	seedPlayer(t, "dev-geo4", "2304", "UnknownCountry", 0)
+
+	recentMs := fx.clk.t.Add(-24 * time.Hour).UnixMilli()
+	oldMs := fx.clk.t.Add(-10 * 24 * time.Hour).UnixMilli()
+	store.AccountsMu.Lock()
+	for _, set := range []struct {
+		id, country, gender string
+		created             int64
+	}{
+		{"dev-geo1", "id", "FEMALE", recentMs},
+		{"dev-geo2", "ID", "MALE", oldMs},
+		{"dev-geo3", "th", "ANIMAL", recentMs},
+		{"dev-geo4", "", "", oldMs},
+	} {
+		acc := store.IdentityAccountLocked(set.id)
+		acc.Country = set.country
+		acc.Gender = set.gender
+		acc.AvatarCreated = set.created
+		if err := store.SaveLocked(nil, acc); err != nil {
+			store.AccountsMu.Unlock()
+			t.Fatal(err)
+		}
+	}
+	store.AccountsMu.Unlock()
+
+	fakeOnline(fx,
+		lpn.Connection{Aid: 2301, Listener: "session", Since: fx.clk.t},
+		lpn.Connection{Aid: 2301, Listener: "gateway", Since: fx.clk.t},
+		lpn.Connection{Aid: 2304, Listener: "session", Since: fx.clk.t},
+	)
+
+	r := c.get("/geography")
+	expect(t, r, http.StatusOK)
+	checkPage(t, "/geography", r)
+	for _, want := range []string{
+		`href="/geography" aria-current="page"`,
+		"<h1>Geography</h1>",
+		"<h2>Total avatars</h2>\n<p class=\"big\">4</p>",
+		"<h2>Countries</h2>\n<p class=\"big\">2</p>",
+		"<h2>Top country</h2>\n<p class=\"big\">Indonesia</p>",
+		"<h2>Online now</h2>\n<p class=\"big\">1 / 2</p>",
+		"<h2>Unset country</h2>\n<p class=\"big\">1</p>",
+		"Southeast Asia",
+		"Thailand",
+		"bar-fill w-",
+	} {
+		if !strings.Contains(r.body, want) {
+			t.Errorf("the Geography page lacks %q", want)
+		}
 	}
 }
 
@@ -107,7 +169,8 @@ func TestOnlinePageListsConnectionsPlacesAndKicks(t *testing.T) {
 		"203.0.113.0/24",
 		"Garden of 2002",
 		`<td>In a Garden visit</td><td class="num">1</td>`,
-		`<td>In a Square</td><td class="num">0</td>`,
+		`<td>In a public Square</td><td class="num">0</td>`,
+		`<td>In a private Square</td><td class="num">0</td>`,
 		`<td>In none of those rooms</td><td class="num">1</td>`,
 		`<span class="muted">3001</span>`,
 		"no account",
@@ -143,6 +206,46 @@ func TestOnlinePageEmptyAndDistinctPlayers(t *testing.T) {
 	onlineBody := c.get("/online").body
 	if !strings.Contains(onlineBody, "<h2>Players online</h2>\n<p class=\"big\">1</p>") {
 		t.Error("two connections of one player count as one player")
+	}
+}
+
+// TestOnlinePageSplitsPublicAndPrivateSquares: public and private Square rooms are counted separately under "Where they are"
+// (counting distinct players per bucket) and labeled in the connection list.
+func TestOnlinePageSplitsPublicAndPrivateSquares(t *testing.T) {
+	fx := newFixture(t, devConfig())
+	c := fx.client()
+	c.signInDev("owner")
+	seedPlayer(t, "dev-sq1", "2011", "PubOne", 0)
+	seedPlayer(t, "dev-sq2", "2012", "PubTwo", 0)
+	seedPlayer(t, "dev-sq3", "2013", "PrivOne", 0)
+	since := fx.clk.t.Add(-10 * time.Minute)
+	fakeOnline(fx,
+		lpn.Connection{Aid: 2011, Listener: "session", Since: since,
+			Places: []lpn.Place{{Kind: "square", ID: "6", Room: "1"}}},
+		lpn.Connection{Aid: 2011, Listener: "gateway", Since: since,
+			Places: []lpn.Place{{Kind: "square", ID: "6", Room: "1"}}},
+		lpn.Connection{Aid: 2012, Listener: "session", Since: since,
+			Places: []lpn.Place{{Kind: "square", ID: "6", Room: "2"}}},
+		lpn.Connection{Aid: 2013, Listener: "session", Since: since,
+			Places: []lpn.Place{{Kind: "square", ID: "6", Room: "[0042]", Secret: true}}},
+	)
+	r := c.get("/online")
+	expect(t, r, http.StatusOK)
+	checkPage(t, "/online", r)
+	for _, want := range []string{
+		`<td>In a public Square</td><td class="num">2</td>`,
+		`<td>In a private Square</td><td class="num">1</td>`,
+		`<td>In none of those rooms</td><td class="num">0</td>`,
+		"Treasure Island room 1",
+		"Treasure Island room 2",
+		"Treasure Island private room [0042]",
+	} {
+		if !strings.Contains(r.body, want) {
+			t.Errorf("the Online page lacks %q", want)
+		}
+	}
+	if strings.Contains(r.body, "<td>In a Square</td>") {
+		t.Error("the old combined \"In a Square\" row is still present")
 	}
 }
 

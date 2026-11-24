@@ -46,10 +46,22 @@ type onlinePage struct {
 // placeKinds are the kinds of room the page counts, in the order it lists them, with their labels.
 var placeKinds = []struct{ kind, label string }{
 	{"garden", "In a Garden visit"},
-	{"square", "In a Square"},
+	{"square_public", "In a public Square"},
+	{"square_private", "In a private Square"},
 	{"circle", "In a circle room"},
 	{"party", "In a Room Party"},
 	{"lounge", "In a Lounge room"},
+}
+
+// placeKey maps a Place to its bucket in placeKinds, splitting public and private Squares.
+func placeKey(p lpn.Place) string {
+	if p.Kind == "square" {
+		if p.Secret {
+			return "square_private"
+		}
+		return "square_public"
+	}
+	return p.Kind
 }
 
 // placeText names a room the way the page shows it.
@@ -62,6 +74,9 @@ func placeText(p lpn.Place) string {
 		name := lpn.SquareName(theme)
 		if name == "" {
 			name = "Square theme " + p.ID
+		}
+		if p.Secret {
+			return name + " private room " + p.Room
 		}
 		return name + " room " + p.Room
 	case "circle":
@@ -98,10 +113,11 @@ func (s *Server) onlineAt(now time.Time) onlinePage {
 		for _, pl := range c.Places {
 			names = append(names, placeText(pl))
 			roomed[c.Aid] = true
-			if inKind[pl.Kind] == nil {
-				inKind[pl.Kind] = map[uint64]bool{}
+			key := placeKey(pl)
+			if inKind[key] == nil {
+				inKind[key] = map[uint64]bool{}
 			}
-			inKind[pl.Kind][c.Aid] = true
+			inKind[key][c.Aid] = true
 		}
 		row.Rooms = joinOrDash(names)
 		page.Rows = append(page.Rows, row)
