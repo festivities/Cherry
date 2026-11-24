@@ -102,9 +102,9 @@ func TestSquarePetRideAndRelays(t *testing.T) {
 		"PUPE0000G": {"skeleton.xml", "dp.png"},                 // UTOY (non-ride)
 	})
 	testutil.InstallAccounts(t, map[string]*store.Account{
-		"t1": {AccessToken: "t1", SessionKey: testSessionKey, Aid: "1", Name: "Rider", Gender: "FEMALE", Pets: []store.PetItem{{ID: 101, Cd: "PUPE0007V", Name: "Odile", Rep: true}}},
-		"t2": {AccessToken: "t2", SessionKey: testSessionKey, Aid: "2", Name: "Watcher", Gender: "FEMALE", Pets: []store.PetItem{{ID: 201, Cd: "PUPE0000G", Name: "Pup", Rep: true}}},
-		"t3": {AccessToken: "t3", SessionKey: testSessionKey, Aid: "3", Name: "Late", Gender: "FEMALE"},
+		"t711": {AccessToken: "t711", SessionKey: testSessionKey, Aid: "711", Name: "Rider", Gender: "FEMALE", Pets: []store.PetItem{{ID: 71101, Cd: "PUPE0007V", Name: "Odile", Rep: true}}},
+		"t712": {AccessToken: "t712", SessionKey: testSessionKey, Aid: "712", Name: "Watcher", Gender: "FEMALE", Pets: []store.PetItem{{ID: 71201, Cd: "PUPE0000G", Name: "Pup", Rep: true}}},
+		"t713": {AccessToken: "t713", SessionKey: testSessionKey, Aid: "713", Name: "Late", Gender: "FEMALE"},
 	})
 
 	joinSq := func(c *sqClient, aid uint64) []byte {
@@ -123,27 +123,27 @@ func TestSquarePetRideAndRelays(t *testing.T) {
 	room := &squareRoom{}
 	a := newSqClient(t, room, 1)
 	b := newSqClient(t, room, 2)
-	joinSq(a, 1)
-	joinSq(b, 2)
-	a.read() // adduser(2)
+	joinSq(a, 711)
+	joinSq(b, 712)
+	a.read() // adduser(712)
 
-	// Rider mounts URIDE pet 101 -> both a and b receive rc_pet_ride_res (120) with result=983041, aid=1, pet=101, state=1.
-	a.send(squareCrPetRide, pbVar(pbVar(nil, 1, 101), 2, 1))
-	wantMount := pbVar(pbVar(pbVar(pbVar(nil, 1, squarePetRideOK), 2, 1), 3, 101), 4, 1)
+	// Rider mounts URIDE pet 71101 -> both a and b receive rc_pet_ride_res (120) with result=983041, aid=711, pet=71101, state=1.
+	a.send(squareCrPetRide, pbVar(pbVar(nil, 1, 71101), 2, 1))
+	wantMount := pbVar(pbVar(pbVar(pbVar(nil, 1, squarePetRideOK), 2, 711), 3, 71101), 4, 1)
 	a.expect(squareRcPetRide, wantMount)
 	b.expect(squareRcPetRide, wantMount)
 
 	// Late joiner c sees Rider's avatar with pet_ride_state=1 in rc_room_relaystart_res.
 	c := newSqClient(t, room, 3)
-	relayBody := joinSq(c, 3)
-	a.read() // adduser(3)
-	b.read() // adduser(3)
+	relayBody := joinSq(c, 713)
+	a.read() // adduser(713)
+	b.read() // adduser(713)
 	foundMounted := false
 	pbScan(relayBody, func(f, _ uint64, d []byte) {
 		if f != 2 {
 			return
 		}
-		if aid, _ := protobufUintField(d, 1); aid == 1 {
+		if aid, _ := protobufUintField(d, 1); aid == 711 {
 			av, _, _ := pbBytesField(d, 2)
 			pb, _, _ := pbBytesField(av, 23)
 			if rs, ok := protobufUintField(pb, 2); ok && rs == 1 {
@@ -155,29 +155,29 @@ func TestSquarePetRideAndRelays(t *testing.T) {
 		t.Fatalf("late joiner did not see Rider mounted (pet_ride_state=1)")
 	}
 
-	// Non-rideable pet mount (Watcher's UTOY pet 201) -> refused to requester only (result=0).
-	b.send(squareCrPetRide, pbVar(pbVar(nil, 1, 201), 2, 1))
-	b.expect(squareRcPetRide, pbVar(pbVar(pbVar(pbVar(nil, 1, 0), 2, 2), 3, 201), 4, 0))
+	// Non-rideable pet mount (Watcher's UTOY pet 71201) -> refused to requester only (result=0).
+	b.send(squareCrPetRide, pbVar(pbVar(nil, 1, 71201), 2, 1))
+	b.expect(squareRcPetRide, pbVar(pbVar(pbVar(pbVar(nil, 1, 0), 2, 712), 3, 71201), 4, 0))
 	a.none()
 
 	// Pet move (40 -> 49 to others only), action (38 -> 47 to others only), interaction (39 -> 48 to all).
-	pm := pbVar(nil, 1, 101)
+	pm := pbVar(nil, 1, 71101)
 	a.send(squareCrPetMove, pbLen(nil, 1, pm))
-	wantMove := pbLen(pbVar(nil, 1, 1), 2, pm)
+	wantMove := pbLen(pbVar(nil, 1, 711), 2, pm)
 	b.expect(squareRcPetMove, wantMove)
 	c.expect(squareRcPetMove, wantMove)
 	a.none()
 
 	act := pbVar(pbVar(nil, 1, 2), 2, 1)
-	a.send(squareCrPetAction, pbLen(pbVar(nil, 1, 101), 2, act))
-	wantAct := pbLen(pbVar(pbVar(nil, 1, 1), 2, 101), 3, act)
+	a.send(squareCrPetAction, pbLen(pbVar(nil, 1, 71101), 2, act))
+	wantAct := pbLen(pbVar(pbVar(nil, 1, 711), 2, 71101), 3, act)
 	b.expect(squareRcPetAction, wantAct)
 	c.expect(squareRcPetAction, wantAct)
 	a.none()
 
 	inter := pbVar(nil, 7, 28)
-	b.send(squareCrPetInteraction, pbVar(pbLen(pbVar(nil, 1, 101), 2, inter), 3, 1))
-	wantInter := pbLen(pbVar(pbVar(nil, 1, 1), 2, 101), 3, inter)
+	b.send(squareCrPetInteraction, pbVar(pbLen(pbVar(nil, 1, 71101), 2, inter), 3, 711))
+	wantInter := pbLen(pbVar(pbVar(nil, 1, 711), 2, 71101), 3, inter)
 	for _, cl := range []*sqClient{a, b, c} {
 		gotID, gotBody := cl.read()
 		if gotID != squareRcPetInteraction || !bytes.Equal(gotBody, wantInter) {
