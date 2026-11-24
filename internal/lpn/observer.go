@@ -242,12 +242,18 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 					return
 				}
 			}
-			// A counted heart to the room the sender is visiting hides the button.
-			for _, target := range hearted {
-				if takeRoomVisitHide(sender, target) {
-					if err := heartButtonPush(conn, tlupSession, heartButtonHideID, sender, target, logger); err != nil {
-						logger.Printf("OBS %s heart-button remote=%s err=%v", addr, remote, err)
-						return
+			// A counted heart notifies the recipient on :10123 and, if it is for the room the sender is
+			// visiting, hides the button.
+			if len(hearted) > 0 {
+				senderAid := strconv.FormatUint(sender, 10)
+				senderName := accountDisplayName(senderAid)
+				for _, target := range hearted {
+					PushHeartNoti(strconv.FormatUint(target, 10), senderAid, senderName)
+					if takeRoomVisitHide(sender, target) {
+						if err := heartButtonPush(conn, tlupSession, heartButtonHideID, sender, target, logger); err != nil {
+							logger.Printf("OBS %s heart-button remote=%s err=%v", addr, remote, err)
+							return
+						}
 					}
 				}
 			}

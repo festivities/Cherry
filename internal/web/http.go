@@ -545,24 +545,30 @@ func newMux(svc *auth.Service) http.Handler {
 	})
 }
 
-// handleBadgeInfos serves GET /v4/badge/infos/. POSTBOX is the account's unread mail count and CHAT its unread 1:1 chat
-// messages (both 0 without a session); every other key stays as badgeInfosBody has it.
+// handleBadgeInfos serves GET /v4/badge/infos/. POSTBOX is the account's unread mail count, CHAT its unread 1:1 chat
+// messages, and IFRD its incoming pending friend requests (all 0 without a session); every other key stays as
+// badgeInfosBody has it.
 func handleBadgeInfos(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		httpx.ServeNotFound(w)
 		return
 	}
 	store.AccountsMu.Lock()
-	postbox, aid := 0, uint64(0)
+	postbox, aid, aidStr := 0, uint64(0), ""
 	if acc := store.SessionAccountLocked(r); acc != nil {
 		postbox = economy.UnreadMail(acc, economy.NowFunc())
+		aidStr = acc.Aid
 		aid, _ = strconv.ParseUint(acc.Aid, 10, 64)
 	}
 	store.AccountsMu.Unlock()
-	// The chat count is read with no account lock held: the talk list takes its own lock and the account lookups.
+	// The chat and friend-request counts are read with no account lock held: the talk list takes its own lock and the account lookups.
 	chat := lpn.AvatarChatUnread(aid)
+	store.SocialMu.Lock()
+	ifrd := incomingFriendRequestsLocked(aidStr)
+	store.SocialMu.Unlock()
 	body := strings.Replace(badgeInfosBody, `"POSTBOX":0`, `"POSTBOX":`+strconv.Itoa(postbox), 1)
-	httpx.WriteJSON(w, http.StatusOK, strings.Replace(body, `"CHAT":0`, `"CHAT":`+strconv.Itoa(chat), 1))
+	body = strings.Replace(body, `"CHAT":0`, `"CHAT":`+strconv.Itoa(chat), 1)
+	httpx.WriteJSON(w, http.StatusOK, strings.Replace(body, `"IFRD":0`, `"IFRD":`+strconv.Itoa(ifrd), 1))
 }
 
 // handleBadgeReset acknowledges POST /v4/r/badge/reset/<BADGE> (e.g. CSET, FACE after a

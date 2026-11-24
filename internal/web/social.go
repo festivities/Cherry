@@ -1305,7 +1305,7 @@ func handleFriendApply(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
 	}
-	setFriendship(w, actor.Aid, aid, false)
+	setFriendship(w, actor.Aid, actor.Name, aid, false)
 }
 
 func handleFriendAccept(w http.ResponseWriter, r *http.Request) {
@@ -1337,11 +1337,25 @@ func handleFriendAccept(w http.ResponseWriter, r *http.Request) {
 		restoreFriend(w)
 		return
 	}
-	setFriendship(w, actor.Aid, aid, true)
+	setFriendship(w, actor.Aid, actor.Name, aid, true)
+}
+
+// incomingFriendRequestsLocked counts incoming pending friend requests for aid. Caller holds store.SocialMu.
+func incomingFriendRequestsLocked(aid string) int {
+	if aid == "" || aid == "0" {
+		return 0
+	}
+	n := 0
+	for _, f := range store.Friendships {
+		if f.State == "pending" && f.B == aid {
+			n++
+		}
+	}
+	return n
 }
 
 // setFriendship handles a real-account apply (accept=false) or accept (accept=true) by actor toward other.
-func setFriendship(w http.ResponseWriter, actor, other string, accept bool) {
+func setFriendship(w http.ResponseWriter, actor, actorName, other string, accept bool) {
 	store.SocialMu.Lock()
 	prev := append([]store.Friendship(nil), store.Friendships...)
 	i := store.FriendshipIndex(actor, other, "")
@@ -1350,6 +1364,7 @@ func setFriendship(w http.ResponseWriter, actor, other string, accept bool) {
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
 	}
+	var notifyType string
 	switch {
 	case accept && (i < 0 || store.Friendships[i].State != "pending" || store.Friendships[i].B != actor):
 		if i >= 0 && store.Friendships[i].State == "accepted" {
@@ -1360,19 +1375,32 @@ func setFriendship(w http.ResponseWriter, actor, other string, accept bool) {
 		return
 	case i < 0:
 		store.Friendships = append(store.Friendships, store.Friendship{A: actor, B: other, State: "pending"})
+		notifyType = "FRR"
 	case store.Friendships[i].State == "removed":
 		store.Friendships[i] = store.Friendship{A: actor, B: other, State: "pending"}
+		notifyType = "FRR"
 	case store.Friendships[i].State == "pending" && store.Friendships[i].A == other:
 		store.Friendships[i].State = "accepted"
+		notifyType = "FRA"
 	}
 	err := store.SaveSocialLocked(store.SocialChange{Friends: [][2]string{{actor, other}}})
 	if err != nil {
 		store.Friendships = prev
 	}
+	ifrd := 0
+	if err == nil && notifyType == "FRR" {
+		ifrd = incomingFriendRequestsLocked(other)
+	}
 	store.SocialMu.Unlock()
 	if err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
+	}
+	switch notifyType {
+	case "FRR":
+		lpn.PushFriendNoti(other, actor, actorName, "FRR", ifrd, 0)
+	case "FRA":
+		lpn.PushFriendNoti(other, actor, actorName, "FRA", 0, 1)
 	}
 	httpx.WriteJSON(w, http.StatusOK, `{"result":1}`)
 }
