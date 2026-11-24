@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -229,14 +230,24 @@ type ChatFilter struct {
 	Around                                int64
 }
 
-const chatLogSelect = `SELECT c.id, c.time, c.kind, c.channel, c.sender, c.sender_name, c.target, c.target_name, c.text,
-	COALESCE(a.id, 0), COALESCE(ta.id, 0)
-	FROM chat_log c
-	LEFT JOIN accounts a ON a.aid = c.sender AND c.sender <> '0'
-	LEFT JOIN accounts ta ON ta.aid = c.target AND c.target <> '' AND c.target <> '0'`
+const chatLogReadTimeout = 10 * time.Second
 
-// chatFilterClauses validates f and builds the fixed SQL predicates and bound arguments for it.
-func chatFilterClauses(f ChatFilter) (where []string, args []any, err error) {
+// chatLogInnerSelect selects matching chat_log rows before joining accounts so the join only touches the <= limit returned
+// rows. The outer join uses a.aid <> '0' (matching the partial unique index accounts_aid) so SQLite performs covering index
+// lookups instead of full-scanning the accounts table.
+const (
+	chatLogInnerSelect = `SELECT c.id, c.time, c.kind, c.channel, c.sender, c.sender_name, c.target, c.target_name, c.text FROM chat_log c`
+	chatLogOuterJoin   = `SELECT m.id, m.time, m.kind, m.channel, m.sender, m.sender_name, m.target, m.target_name, m.text,
+	COALESCE(a.id, 0), COALESCE(ta.id, 0)
+	FROM m
+	LEFT JOIN accounts a ON a.aid = m.sender AND a.aid <> '0'
+	LEFT JOIN accounts ta ON ta.aid = m.target AND ta.aid <> '0' AND m.target <> ''`
+)
+
+// chatFilterClauses validates f and builds the fixed SQL predicates and bound arguments for it. When forcePK is true,
+// secondary-index columns are wrapped with unary '+' so SQLite walks chat_log by its INTEGER PRIMARY KEY instead of
+// scanning a low-selectivity index (like kind='square', which matches >95% of the table) and temp-sorting it.
+func chatFilterClauses(f ChatFilter, forcePK bool) (where []string, args []any, err error) {
 	add := func(clause string, v ...any) {
 		where = append(where, clause)
 		args = append(args, v...)
@@ -245,10 +256,20 @@ func chatFilterClauses(f ChatFilter) (where []string, args []any, err error) {
 		if !slices.Contains(ChatKinds, f.Kind) {
 			return nil, nil, fmt.Errorf("%w: unknown channel kind", ErrBadInput)
 		}
-		add("c.kind = ?", f.Kind)
+		// Without a channel, chat_log_channel(kind, channel, time) cannot satisfy ORDER BY id DESC and would scan every
+		// row of that kind (hundreds of thousands for 'square') into a temp B-tree; walking id DESC stops after limit rows.
+		if forcePK || f.Channel == "" {
+			add("+c.kind = ?", f.Kind)
+		} else {
+			add("c.kind = ?", f.Kind)
+		}
 	}
 	if f.Channel != "" {
-		add("c.channel = ?", f.Channel)
+		if forcePK {
+			add("+c.channel = ?", f.Channel)
+		} else {
+			add("c.channel = ?", f.Channel)
+		}
 	}
 	if f.Player != "" {
 		add("(c.sender = ? OR c.target = ? OR instr(lower(c.sender_name), lower(?)) > 0 OR instr(lower(c.target_name), lower(?)) > 0)",
@@ -257,30 +278,70 @@ func chatFilterClauses(f ChatFilter) (where []string, args []any, err error) {
 	if f.Text != "" {
 		add("instr(lower(c.text), lower(?)) > 0", f.Text)
 	}
+	timeCol := "c.time"
+	if forcePK {
+		timeCol = "+c.time"
+	}
 	if f.From != "" {
 		t, err := time.Parse(time.DateOnly, f.From)
 		if err != nil {
 			return nil, nil, fmt.Errorf("%w: the from date is a day", ErrBadInput)
 		}
-		add("c.time >= ?", t.UnixMilli())
+		add(timeCol+" >= ?", t.UnixMilli())
 	}
 	if f.To != "" {
 		t, err := time.Parse(time.DateOnly, f.To)
 		if err != nil {
 			return nil, nil, fmt.Errorf("%w: the to date is a day", ErrBadInput)
 		}
-		add("c.time < ?", t.AddDate(0, 0, 1).UnixMilli())
+		add(timeCol+" < ?", t.AddDate(0, 0, 1).UnixMilli())
 	}
 	if f.Around > 0 {
 		w := ChatContextWindow.Milliseconds()
-		add("c.time BETWEEN ? AND ?", f.Around-w, f.Around+w)
+		add(timeCol+" BETWEEN ? AND ?", f.Around-w, f.Around+w)
 	}
 	return where, args, nil
 }
 
-// queryChatRows runs a chatLogSelect query and scans its rows.
-func queryChatRows(q Querier, query string, args ...any) ([]ChatLogRow, error) {
-	rows, err := q.Query(query, args...)
+// chatLogSearchQuery builds the CTE SQL and bound arguments for ChatLogSearch.
+func chatLogSearchQuery(f ChatFilter, before int64, limit int) (string, []any, error) {
+	filterWhere, filterArgs, err := chatFilterClauses(f, false)
+	if err != nil {
+		return "", nil, err
+	}
+	var where []string
+	var args []any
+	if before > 0 {
+		where = append(where, "c.id < ?")
+		args = append(args, before)
+	}
+	where = append(where, filterWhere...)
+	args = append(args, filterArgs...)
+	args = append(args, limit)
+	whereSQL := ""
+	if len(where) > 0 {
+		whereSQL = " WHERE " + strings.Join(where, " AND ")
+	}
+	query := `WITH m AS (` + chatLogInnerSelect + whereSQL + ` ORDER BY c.id DESC LIMIT ?) ` + chatLogOuterJoin + ` ORDER BY m.id DESC`
+	return query, args, nil
+}
+
+// chatLogAfterQuery builds the CTE SQL and bound arguments for ChatLogAfter.
+func chatLogAfterQuery(f ChatFilter, after int64, limit int) (string, []any, error) {
+	filterWhere, filterArgs, err := chatFilterClauses(f, true)
+	if err != nil {
+		return "", nil, err
+	}
+	where := append([]string{"c.id > ?"}, filterWhere...)
+	args := append([]any{after}, filterArgs...)
+	args = append(args, limit+1)
+	query := `WITH m AS (` + chatLogInnerSelect + ` WHERE ` + strings.Join(where, " AND ") + ` ORDER BY c.id ASC LIMIT ?) ` + chatLogOuterJoin + ` ORDER BY m.id ASC`
+	return query, args, nil
+}
+
+// queryChatRowsContext runs a chat log query bounded by ctx and scans its rows.
+func queryChatRowsContext(ctx context.Context, tx *sql.Tx, query string, args ...any) ([]ChatLogRow, error) {
+	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -308,19 +369,16 @@ func ChatLogSearch(f ChatFilter, before int64, limit int) ([]ChatLogRow, error) 
 	if limit < 1 || limit > 200 {
 		return nil, fmt.Errorf("%w: the chat page is 1 to 200 rows", ErrBadInput)
 	}
-	filterWhere, filterArgs, err := chatFilterClauses(f)
+	query, args, err := chatLogSearchQuery(f, before, limit)
 	if err != nil {
 		return nil, err
 	}
-	// Only fixed clauses enter the SQL text; every value is a bound argument.
-	where := append([]string{"(? = 0 OR c.id < ?)"}, filterWhere...)
-	args := append([]any{before, before}, filterArgs...)
-	args = append(args, limit)
-	query := chatLogSelect + ` WHERE ` + strings.Join(where, " AND ") + ` ORDER BY c.id DESC LIMIT ?`
+	ctx, cancel := context.WithTimeout(context.Background(), chatLogReadTimeout)
+	defer cancel()
 	var out []ChatLogRow
-	err = d.View(func(q Querier) error {
+	err = d.ViewContext(ctx, func(tx *sql.Tx) error {
 		var err error
-		out, err = queryChatRows(q, query, args...)
+		out, err = queryChatRowsContext(ctx, tx, query, args...)
 		return err
 	})
 	return out, err
@@ -353,21 +411,19 @@ func ChatLogAfter(f ChatFilter, after int64, limit int) (rows []ChatLogRow, late
 	if after < 0 {
 		return nil, 0, false, fmt.Errorf("%w: invalid chat cursor", ErrBadInput)
 	}
-	filterWhere, filterArgs, err := chatFilterClauses(f)
+	query, args, err := chatLogAfterQuery(f, after, limit)
 	if err != nil {
 		return nil, 0, false, err
 	}
-	where := append([]string{"c.id > ?"}, filterWhere...)
-	args := append([]any{after}, filterArgs...)
-	args = append(args, limit+1)
-	query := chatLogSelect + ` WHERE ` + strings.Join(where, " AND ") + ` ORDER BY c.id ASC LIMIT ?`
+	ctx, cancel := context.WithTimeout(context.Background(), chatLogReadTimeout)
+	defer cancel()
 	rows = []ChatLogRow{}
-	err = d.View(func(q Querier) error {
+	err = d.ViewContext(ctx, func(tx *sql.Tx) error {
 		var maxID int64
-		if err := q.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM chat_log`).Scan(&maxID); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(id), 0) FROM chat_log`).Scan(&maxID); err != nil {
 			return err
 		}
-		got, err := queryChatRows(q, query, args...)
+		got, err := queryChatRowsContext(ctx, tx, query, args...)
 		if err != nil {
 			return err
 		}

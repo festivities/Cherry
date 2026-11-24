@@ -100,6 +100,17 @@ func (d *DB) View(fn func(q Querier) error) error {
 	return fn(tx)
 }
 
+// ViewContext runs fn against one read snapshot bounded by ctx. When ctx expires, database/sql cancels any in-flight
+// statement and rolls back the transaction so a slow read cannot pin SQLite's WAL read mark.
+func (d *DB) ViewContext(ctx context.Context, fn func(tx *sql.Tx) error) error {
+	tx, err := d.read.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	return fn(tx)
+}
+
 // Ping answers a trivial query on the attached database (the health endpoint). It returns ErrNoDatabase when none is
 // attached, and an error when the query fails or takes more than 2 s.
 func Ping() error {
@@ -151,6 +162,11 @@ func migrateTo(db *sql.DB, target int) error {
 		if err := tx.Commit(); err != nil {
 			return err
 		}
+	}
+	// A schema migration that rebuilds a large table (e.g. chat_log) writes hundreds of megabytes into the WAL. Flush and
+	// truncate it before the read pool opens and players reconnect so Litestream does not inherit a huge uncheckpointed WAL.
+	if have < target {
+		_, _ = db.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
 	}
 	return nil
 }

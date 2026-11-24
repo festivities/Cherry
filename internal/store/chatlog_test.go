@@ -481,6 +481,67 @@ func TestChatWhisperTargetAndAfter(t *testing.T) {
 	}
 }
 
+// TestChatLogQueryPlans: ChatLogSearch and ChatLogAfter always use the accounts_aid partial index (never scanning accounts),
+// never scan chat_log_channel for a bare kind filter (e.g. kind='square'), and always drive ChatLogAfter via the primary key.
+func TestChatLogQueryPlans(t *testing.T) {
+	docStore(t)
+	d, err := docDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	planOf := func(query string, args []any) string {
+		t.Helper()
+		rows, err := d.read.Query("EXPLAIN QUERY PLAN "+query, args...)
+		if err != nil {
+			t.Fatalf("explain %s: %v", query, err)
+		}
+		defer rows.Close()
+		var lines []string
+		for rows.Next() {
+			var id, parent, notused int
+			var detail string
+			if err := rows.Scan(&id, &parent, &notused, &detail); err != nil {
+				t.Fatal(err)
+			}
+			lines = append(lines, detail)
+		}
+		return strings.Join(lines, "\n")
+	}
+
+	qSearchKind, argsSearchKind, err := chatLogSearchQuery(ChatFilter{Kind: ChatSquare}, 0, 51)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := planOf(qSearchKind, argsSearchKind)
+	if strings.Contains(p, "SCAN a") || strings.Contains(p, "SCAN ta") {
+		t.Fatalf("search(kind=square) scans accounts:\n%s", p)
+	}
+	if strings.Contains(p, "chat_log_channel") {
+		t.Fatalf("search(kind=square) unexpectedly uses chat_log_channel:\n%s", p)
+	}
+	if !strings.Contains(p, "accounts_aid") {
+		t.Fatalf("search(kind=square) missing accounts_aid covering index:\n%s", p)
+	}
+
+	qSearchChan, argsSearchChan, err := chatLogSearchQuery(ChatFilter{Kind: ChatSquare, Channel: "100"}, 0, 51)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pChan := planOf(qSearchChan, argsSearchChan)
+	if !strings.Contains(pChan, "chat_log_channel") || !strings.Contains(pChan, "accounts_aid") || strings.Contains(pChan, "SCAN a") {
+		t.Fatalf("search(kind+channel) unexpected plan:\n%s", pChan)
+	}
+
+	qAfter, argsAfter, err := chatLogAfterQuery(ChatFilter{Kind: ChatSquare, Channel: "100"}, 500, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pAfter := planOf(qAfter, argsAfter)
+	if !strings.Contains(pAfter, "INTEGER PRIMARY KEY (rowid>?)") || !strings.Contains(pAfter, "accounts_aid") || strings.Contains(pAfter, "SCAN a") {
+		t.Fatalf("after(kind+channel) unexpected plan:\n%s", pAfter)
+	}
+}
+
 // equalIDs reports whether two id lists are the same.
 func equalIDs(a, b []int64) bool {
 	if len(a) != len(b) {

@@ -35,8 +35,12 @@ func MediaSearch(f PictureFilter, before int64, limit int) ([]PictureRow, error)
 	if limit < 1 || limit > 200 {
 		return nil, fmt.Errorf("%w: the photo page is 1 to 200 pictures", ErrBadInput)
 	}
-	where := []string{"(? = 0 OR m.id < ?)"}
-	args := []any{before, before}
+	var where []string
+	var args []any
+	if before > 0 {
+		where = append(where, "m.id < ?")
+		args = append(args, before)
+	}
 	if f.Kind != "" {
 		if !slices.Contains([]string{MediaDiary, MediaRoom, MediaProfile}, f.Kind) {
 			return nil, fmt.Errorf("%w: unknown picture kind", ErrBadInput)
@@ -49,9 +53,15 @@ func MediaSearch(f PictureFilter, before int64, limit int) ([]PictureRow, error)
 		args = append(args, f.Player, f.Player)
 	}
 	args = append(args, limit)
+	// a.aid <> '0' matches the partial unique index accounts_aid(aid) WHERE aid <> '0' so SQLite uses an index lookup
+	// instead of scanning the accounts table.
+	whereSQL := ""
+	if len(where) > 0 {
+		whereSQL = " WHERE " + strings.Join(where, " AND ")
+	}
 	query := `SELECT m.id, m.kind, m.owner, m.file, m.size, m.created, COALESCE(a.id, 0), COALESCE(a.name, '')
-		FROM media_files m LEFT JOIN accounts a ON a.aid = m.owner AND m.owner <> '0'
-		WHERE ` + strings.Join(where, " AND ") + ` ORDER BY m.id DESC LIMIT ?`
+		FROM media_files m LEFT JOIN accounts a ON a.aid = m.owner AND a.aid <> '0'` +
+		whereSQL + ` ORDER BY m.id DESC LIMIT ?`
 	out := []PictureRow{}
 	err := d.View(func(q Querier) error {
 		rows, err := q.Query(query, args...)
