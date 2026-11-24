@@ -90,7 +90,7 @@ func TestMigrationV4ToV5KeepsRows(t *testing.T) {
 		names = append(names, n)
 	}
 	rows.Close()
-	if strings.Join(names, ",") != "chat_log_channel,chat_log_sender,chat_log_time" {
+	if strings.Join(names, ",") != "chat_log_channel,chat_log_kind,chat_log_kind_channel,chat_log_sender,chat_log_time" {
 		t.Fatalf("chat_log indexes = %v", names)
 	}
 	if _, err := d.write.Exec(`INSERT INTO chat_log (time, kind, channel, sender, sender_name, text) VALUES (1, 'bogus', '1', '1', 'x', 'x')`); err == nil {
@@ -374,7 +374,7 @@ func TestMigrationV10ToV11KeepsRows(t *testing.T) {
 		names = append(names, n)
 	}
 	idxRows.Close()
-	if strings.Join(names, ",") != "chat_log_channel,chat_log_sender,chat_log_time" {
+	if strings.Join(names, ",") != "chat_log_channel,chat_log_kind,chat_log_kind_channel,chat_log_sender,chat_log_time" {
 		t.Fatalf("chat_log indexes = %v", names)
 	}
 }
@@ -508,28 +508,39 @@ func TestChatLogQueryPlans(t *testing.T) {
 		return strings.Join(lines, "\n")
 	}
 
-	qSearchKind, argsSearchKind, err := chatLogSearchQuery(ChatFilter{Kind: ChatSquare}, 0, 51)
+	// A page filtered by kind, or kind and channel, reads its rows newest first from the v12 index and stops at the LIMIT: no
+	// sort inside the page's co-routine (the outer sort of at most LIMIT rows is fine), no accounts scan.
+	for _, c := range []struct {
+		name   string
+		f      ChatFilter
+		before int64
+		index  string
+	}{
+		{"kind=square", ChatFilter{Kind: ChatSquare}, 0, "chat_log_kind (kind=?)"},
+		{"kind=lounge, older page", ChatFilter{Kind: ChatLounge}, 900, "chat_log_kind (kind=? AND rowid<?)"},
+		{"kind+channel", ChatFilter{Kind: ChatSquare, Channel: "100"}, 0, "chat_log_kind_channel (kind=? AND channel=?)"},
+		{"kind+channel, older page", ChatFilter{Kind: ChatSquare, Channel: "100"}, 900, "chat_log_kind_channel (kind=? AND channel=? AND rowid<?)"},
+	} {
+		q, args, err := chatLogSearchQuery(c.f, c.before, 51)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := planOf(q, args)
+		inner := p[:strings.Index(p, "SCAN m")]
+		if !strings.Contains(inner, c.index) || strings.Contains(inner, "TEMP B-TREE") {
+			t.Errorf("search(%s) does not read %s in order:\n%s", c.name, c.index, p)
+		}
+		if strings.Contains(p, "SCAN a") || strings.Contains(p, "SCAN ta") || !strings.Contains(p, "accounts_aid") {
+			t.Errorf("search(%s) does not look accounts up by accounts_aid:\n%s", c.name, p)
+		}
+	}
+	// A context link (a 20-minute window of one channel) reads that time range, not the channel from its newest row.
+	qAround, argsAround, err := chatLogSearchQuery(ChatFilter{Kind: ChatSquare, Channel: "100", Around: 1700000000000}, 0, 51)
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := planOf(qSearchKind, argsSearchKind)
-	if strings.Contains(p, "SCAN a") || strings.Contains(p, "SCAN ta") {
-		t.Fatalf("search(kind=square) scans accounts:\n%s", p)
-	}
-	if strings.Contains(p, "chat_log_channel") {
-		t.Fatalf("search(kind=square) unexpectedly uses chat_log_channel:\n%s", p)
-	}
-	if !strings.Contains(p, "accounts_aid") {
-		t.Fatalf("search(kind=square) missing accounts_aid covering index:\n%s", p)
-	}
-
-	qSearchChan, argsSearchChan, err := chatLogSearchQuery(ChatFilter{Kind: ChatSquare, Channel: "100"}, 0, 51)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pChan := planOf(qSearchChan, argsSearchChan)
-	if !strings.Contains(pChan, "chat_log_channel") || !strings.Contains(pChan, "accounts_aid") || strings.Contains(pChan, "SCAN a") {
-		t.Fatalf("search(kind+channel) unexpected plan:\n%s", pChan)
+	if p := planOf(qAround, argsAround); !strings.Contains(p, "chat_log_channel (kind=? AND channel=? AND time>? AND time<?)") {
+		t.Errorf("search(around) does not read the time window:\n%s", p)
 	}
 
 	qAfter, argsAfter, err := chatLogAfterQuery(ChatFilter{Kind: ChatSquare, Channel: "100"}, 500, 100)

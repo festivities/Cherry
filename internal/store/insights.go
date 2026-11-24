@@ -1,14 +1,22 @@
 package store
 
 import (
+	"context"
+	"database/sql"
+	"encoding/json"
 	"fmt"
+	"log"
+	"strings"
 	"time"
 )
 
 // The staff Insights (PLAN Roadmap 8, staff "Insights"): read-only aggregates over the ledger, the accounts and the chat log.
 // Every query is bounded by a window in time (the ledger_time, accounts_created and chat_log_time indexes give the range) and
-// by a LIMIT, and the staff pages cache the results for about a minute (admin/insights.go). Balances come from the accounts
-// in memory; the ledger and the chat log are read from the database.
+// by a LIMIT, and the staff pages cache the results for about a minute (admin/insights.go). Every read runs in ViewBounded, so
+// a window grown too large fails the page instead of holding the WAL. Balances come from the accounts in memory; the ledger
+// and the chat log are read from the database.
+// ponytail: the Economy windows read every ledger line in them (about 500k a day on 2026-11-25, no retention); the 30-day
+// window will reach the read cap. Day rollups like ActivityByDay's are the upgrade.
 
 // Holdings is what the accounts hold now: the Gems and Cash summed over every account, and the number of accounts that hold
 // any Gems or Cash.
@@ -55,8 +63,8 @@ func LedgerFlow(since time.Time) ([]CurrencyFlow, error) {
 		return nil, err
 	}
 	out := []CurrencyFlow{}
-	err = d.View(func(q Querier) error {
-		rows, err := q.Query(qLedgerFlow, ledgerSince(since))
+	err = d.ViewBounded(func(ctx context.Context, tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, qLedgerFlow, ledgerSince(since))
 		if err != nil {
 			return err
 		}
@@ -108,8 +116,8 @@ func LedgerReasons(since time.Time, limit int) ([]ReasonGroup, error) {
 		return nil, fmt.Errorf("%w: the reason list is 1 to 100 groups", ErrBadInput)
 	}
 	out := []ReasonGroup{}
-	err = d.View(func(q Querier) error {
-		rows, err := q.Query(qLedgerReasons, ledgerSince(since), limit)
+	err = d.ViewBounded(func(ctx context.Context, tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, qLedgerReasons, ledgerSince(since), limit)
 		if err != nil {
 			return err
 		}
@@ -154,8 +162,8 @@ func TopLedger(since time.Time, spent bool, limit int) ([]LedgerTop, error) {
 		earned = 0
 	}
 	out := []LedgerTop{}
-	err = d.View(func(q Querier) error {
-		rows, err := q.Query(qTopLedger, ledgerSince(since), earned, limit)
+	err = d.ViewBounded(func(ctx context.Context, tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, qTopLedger, ledgerSince(since), earned, limit)
 		if err != nil {
 			return err
 		}
@@ -191,62 +199,125 @@ func PlayersOfAids(aids []string) map[string]Player {
 }
 
 const (
-	qSignups    = `SELECT substr(created, 1, 10), COUNT(*) FROM accounts INDEXED BY accounts_created WHERE created >= ? GROUP BY 1`
-	qChatDays   = `SELECT strftime('%Y-%m-%d', time / 1000, 'unixepoch'), COUNT(*) FROM chat_log INDEXED BY chat_log_time WHERE time >= ? GROUP BY 1`
-	qLineDays   = `SELECT substr(time, 1, 10), COUNT(*) FROM ledger INDEXED BY ledger_time WHERE time >= ? GROUP BY 1`
-	qActiveDays = `SELECT day, COUNT(*) FROM (
-		SELECT substr(time, 1, 10) AS day, aid FROM ledger INDEXED BY ledger_time WHERE time >= ? AND aid <> '0'
+	qDaySignups = `SELECT COUNT(*) FROM accounts INDEXED BY accounts_created WHERE created >= ? AND created < ?`
+	qDayChat    = `SELECT COUNT(*) FROM chat_log INDEXED BY chat_log_time WHERE time >= ? AND time < ?`
+	qDayLines   = `SELECT COUNT(*) FROM ledger INDEXED BY ledger_time WHERE time >= ? AND time < ?`
+	qDayActive  = `SELECT COUNT(*) FROM (
+		SELECT aid FROM ledger INDEXED BY ledger_time WHERE time >= ? AND time < ? AND aid <> '0'
 		UNION
-		SELECT strftime('%Y-%m-%d', time / 1000, 'unixepoch') AS day, sender FROM chat_log INDEXED BY chat_log_time WHERE time >= ? AND sender <> '0'
-	) GROUP BY day`
+		SELECT sender FROM chat_log INDEXED BY chat_log_time WHERE time >= ? AND time < ? AND sender <> '0')`
 )
 
 // Activity is the per-day counts of the staff Activity page, keyed by the UTC day (YYYY-MM-DD). A day with nothing has no key.
 type Activity struct {
 	Signups map[string]int64 // accounts created that day
-	Chat    map[string]int64 // chat messages kept that day
+	Chat    map[string]int64 // chat messages logged that day
 	Lines   map[string]int64 // ledger lines written that day
 	Active  map[string]int64 // avatars with a ledger line or a chat message that day: a daily-active proxy, not logins
 }
 
-// ActivityByDay reads the four series from the UTC day of since on, in one read snapshot. The chat and ledger reads are bounded
-// by the window's first instant; the accounts by its first day.
-func ActivityByDay(since time.Time) (Activity, error) {
+// activityCounts is one UTC day of the Activity series. A finished day is kept in meta (activityKeyPrefix + day) as JSON.
+type activityCounts struct {
+	Signups int64 `json:"signups"`
+	Chat    int64 `json:"chat"`
+	Lines   int64 `json:"lines"`
+	Active  int64 `json:"active"`
+}
+
+const (
+	activityKeyPrefix = "activity.day."
+	// activitySettle is how long after its end a day is final: the chat log writer flushes within 250 ms and a ledger line is
+	// written with its balance, so nothing more lands in a day this long after it ended.
+	activitySettle = 5 * time.Minute
+)
+
+// ActivityByDay returns the four series from the UTC day of since to the UTC day of now. Each day is read in its own bounded
+// snapshot (ViewBounded), so a read never holds the WAL longer than one day's rows take; a finished day is then kept in meta
+// and never read again, so a page load reads only today (and any day not kept yet). A kept day keeps its chat count after the
+// retention sweep deletes those messages.
+func ActivityByDay(since, now time.Time) (Activity, error) {
 	d, err := docDB()
 	if err != nil {
 		return Activity{}, err
 	}
 	from := since.UTC().Truncate(24 * time.Hour)
-	day := from.Format(time.DateOnly)
-	ms := from.UnixMilli()
-	act := Activity{Signups: map[string]int64{}, Chat: map[string]int64{}, Lines: map[string]int64{}, Active: map[string]int64{}}
-	series := func(q Querier, dst map[string]int64, query string, args ...any) error {
-		rows, err := q.Query(query, args...)
+	kept := map[string]activityCounts{}
+	err = d.View(func(q Querier) error {
+		rows, err := q.Query(`SELECT key, value FROM meta WHERE key >= ? AND key < ?`, activityKeyPrefix+from.Format(time.DateOnly), activityKeyPrefix+"~")
 		if err != nil {
 			return err
 		}
 		defer rows.Close()
 		for rows.Next() {
-			var key string
-			var n int64
-			if err := rows.Scan(&key, &n); err != nil {
+			var key, value string
+			var c activityCounts
+			if err := rows.Scan(&key, &value); err != nil {
 				return err
 			}
-			dst[key] = n
+			if json.Unmarshal([]byte(value), &c) == nil {
+				kept[strings.TrimPrefix(key, activityKeyPrefix)] = c
+			}
 		}
 		return rows.Err()
-	}
-	err = d.View(func(q Querier) error {
-		if err := series(q, act.Signups, qSignups, day); err != nil {
-			return err
-		}
-		if err := series(q, act.Chat, qChatDays, ms); err != nil {
-			return err
-		}
-		if err := series(q, act.Lines, qLineDays, day); err != nil {
-			return err
-		}
-		return series(q, act.Active, qActiveDays, day, ms)
 	})
-	return act, err
+	if err != nil {
+		return Activity{}, err
+	}
+	act := Activity{Signups: map[string]int64{}, Chat: map[string]int64{}, Lines: map[string]int64{}, Active: map[string]int64{}}
+	for day := from; !day.After(now); day = day.AddDate(0, 0, 1) {
+		key := day.Format(time.DateOnly)
+		c, ok := kept[key]
+		if !ok {
+			if c, err = readActivityDay(d, day); err != nil {
+				return Activity{}, err
+			}
+			if !now.Before(day.AddDate(0, 0, 1).Add(activitySettle)) {
+				keepActivityDay(d, key, c)
+			}
+		}
+		for _, s := range []struct {
+			dst map[string]int64
+			n   int64
+		}{{act.Signups, c.Signups}, {act.Chat, c.Chat}, {act.Lines, c.Lines}, {act.Active, c.Active}} {
+			if s.n > 0 {
+				s.dst[key] = s.n
+			}
+		}
+	}
+	return act, nil
+}
+
+// readActivityDay counts one UTC day in one bounded snapshot. The ledger and the accounts keep RFC 3339 UTC text, so the day's
+// rows are the text range [day, next day); the chat log keeps Unix milliseconds.
+func readActivityDay(d *DB, day time.Time) (activityCounts, error) {
+	next := day.AddDate(0, 0, 1)
+	d1, d2 := day.Format(time.DateOnly), next.Format(time.DateOnly)
+	m1, m2 := day.UnixMilli(), next.UnixMilli()
+	var c activityCounts
+	err := d.ViewBounded(func(ctx context.Context, tx *sql.Tx) error {
+		for _, q := range []struct {
+			dst   *int64
+			query string
+			args  []any
+		}{
+			{&c.Signups, qDaySignups, []any{d1, d2}},
+			{&c.Chat, qDayChat, []any{m1, m2}},
+			{&c.Lines, qDayLines, []any{d1, d2}},
+			{&c.Active, qDayActive, []any{d1, d2, m1, m2}},
+		} {
+			if err := tx.QueryRowContext(ctx, q.query, q.args...).Scan(q.dst); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return c, err
+}
+
+// keepActivityDay stores a finished day's counts. A failure is only logged: the day is read again on the next load.
+func keepActivityDay(d *DB, key string, c activityCounts) {
+	value, _ := json.Marshal(c)
+	if err := d.Update(func(tx *sql.Tx) error { return setMetaTx(tx, activityKeyPrefix+key, string(value)) }); err != nil {
+		log.Printf("cherry: activity day %s not kept: %v", key, err)
+	}
 }

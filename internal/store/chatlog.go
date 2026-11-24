@@ -230,8 +230,6 @@ type ChatFilter struct {
 	Around                                int64
 }
 
-const chatLogReadTimeout = 10 * time.Second
-
 // chatLogInnerSelect selects matching chat_log rows before joining accounts so the join only touches the <= limit returned
 // rows. The outer join uses a.aid <> '0' (matching the partial unique index accounts_aid) so SQLite performs covering index
 // lookups instead of full-scanning the accounts table.
@@ -245,8 +243,9 @@ const (
 )
 
 // chatFilterClauses validates f and builds the fixed SQL predicates and bound arguments for it. When forcePK is true,
-// secondary-index columns are wrapped with unary '+' so SQLite walks chat_log by its INTEGER PRIMARY KEY instead of
-// scanning a low-selectivity index (like kind='square', which matches >95% of the table) and temp-sorting it.
+// secondary-index columns are wrapped with unary '+' so SQLite walks chat_log by its INTEGER PRIMARY KEY from the cursor
+// (ChatLogAfter: only the rows written since the last poll). Otherwise a kind, or a kind and channel, reads newest first
+// from chat_log_kind or chat_log_kind_channel (schema v12), which are in id order within one value.
 func chatFilterClauses(f ChatFilter, forcePK bool) (where []string, args []any, err error) {
 	add := func(clause string, v ...any) {
 		where = append(where, clause)
@@ -256,9 +255,7 @@ func chatFilterClauses(f ChatFilter, forcePK bool) (where []string, args []any, 
 		if !slices.Contains(ChatKinds, f.Kind) {
 			return nil, nil, fmt.Errorf("%w: unknown channel kind", ErrBadInput)
 		}
-		// Without a channel, chat_log_channel(kind, channel, time) cannot satisfy ORDER BY id DESC and would scan every
-		// row of that kind (hundreds of thousands for 'square') into a temp B-tree; walking id DESC stops after limit rows.
-		if forcePK || f.Channel == "" {
+		if forcePK {
 			add("+c.kind = ?", f.Kind)
 		} else {
 			add("c.kind = ?", f.Kind)
@@ -373,10 +370,8 @@ func ChatLogSearch(f ChatFilter, before int64, limit int) ([]ChatLogRow, error) 
 	if err != nil {
 		return nil, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), chatLogReadTimeout)
-	defer cancel()
 	var out []ChatLogRow
-	err = d.ViewContext(ctx, func(tx *sql.Tx) error {
+	err = d.ViewBounded(func(ctx context.Context, tx *sql.Tx) error {
 		var err error
 		out, err = queryChatRowsContext(ctx, tx, query, args...)
 		return err
@@ -415,10 +410,8 @@ func ChatLogAfter(f ChatFilter, after int64, limit int) (rows []ChatLogRow, late
 	if err != nil {
 		return nil, 0, false, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), chatLogReadTimeout)
-	defer cancel()
 	rows = []ChatLogRow{}
-	err = d.ViewContext(ctx, func(tx *sql.Tx) error {
+	err = d.ViewBounded(func(ctx context.Context, tx *sql.Tx) error {
 		var maxID int64
 		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(id), 0) FROM chat_log`).Scan(&maxID); err != nil {
 			return err

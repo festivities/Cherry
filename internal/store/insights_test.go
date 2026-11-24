@@ -194,7 +194,8 @@ func TestActivityByDayBucketsUTCDays(t *testing.T) {
 		}
 	}
 
-	act, err := ActivityByDay(day15)
+	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC) // the 15th and 16th are finished, the 17th is today
+	act, err := ActivityByDay(day15, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -218,6 +219,28 @@ func TestActivityByDayBucketsUTCDays(t *testing.T) {
 	check("active", act.Active, map[string]int64{"2026-11-15": 1, "2026-11-16": 2, "2026-11-17": 1})
 	// Sign-ups: accounts created on the 16th and the 17th; the 14th is out.
 	check("signups", act.Signups, map[string]int64{"2026-11-16": 1, "2026-11-17": 1})
+
+	// The finished days are kept and not read again; today is read on every call. A message added to the 16th now is not
+	// counted (that day is kept), one added to the 17th is.
+	if err := d.Update(func(tx *sql.Tx) error {
+		for _, ms := range []int64{day15.Add(36 * time.Hour).UnixMilli(), day15.Add(54 * time.Hour).UnixMilli()} {
+			if _, err := tx.Exec(`INSERT INTO chat_log (time, kind, channel, sender, sender_name, text) VALUES (?, 'lounge', '1960000001', '1005', 'n', 'hi')`, ms); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if act, err = ActivityByDay(day15, now); err != nil {
+		t.Fatal(err)
+	}
+	check("chat after", act.Chat, map[string]int64{"2026-11-15": 1, "2026-11-16": 2, "2026-11-17": 1})
+	check("active after", act.Active, map[string]int64{"2026-11-15": 1, "2026-11-16": 2, "2026-11-17": 2})
+	var kept int
+	if err := d.read.QueryRow(`SELECT COUNT(*) FROM meta WHERE key LIKE 'activity.day.%'`).Scan(&kept); err != nil || kept != 2 {
+		t.Fatalf("kept days = %d (%v), want the 15th and the 16th", kept, err)
+	}
 }
 
 // TestInsightQueriesUseTheirIndexes: the statements that cut the ledger, the accounts and the chat log by time read one range of
@@ -235,10 +258,10 @@ func TestInsightQueriesUseTheirIndexes(t *testing.T) {
 		{"flow", qLedgerFlow, []any{stamp}, "ledger_time"},
 		{"reasons", qLedgerReasons, []any{stamp, 15}, "ledger_time"},
 		{"top", qTopLedger, []any{stamp, 1, 10}, "ledger_time"},
-		{"signups", qSignups, []any{from}, "accounts_created"},
-		{"chat", qChatDays, []any{ms}, "chat_log_time"},
-		{"lines", qLineDays, []any{from}, "ledger_time"},
-		{"active", qActiveDays, []any{from, ms}, "ledger_time"},
+		{"signups", qDaySignups, []any{from, from}, "accounts_created"},
+		{"chat", qDayChat, []any{ms, ms}, "chat_log_time"},
+		{"lines", qDayLines, []any{from, from}, "ledger_time"},
+		{"active", qDayActive, []any{from, from, ms, ms}, "ledger_time"},
 	}
 	for _, c := range cases {
 		rows, err := d.read.Query("EXPLAIN QUERY PLAN "+c.query, c.args...)

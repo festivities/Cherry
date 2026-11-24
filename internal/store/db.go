@@ -111,6 +111,17 @@ func (d *DB) ViewContext(ctx context.Context, fn func(tx *sql.Tx) error) error {
 	return fn(tx)
 }
 
+// staffReadTimeout is the longest one staff page read may hold its snapshot (and so the WAL; the 2026-11-25 outage).
+const staffReadTimeout = 10 * time.Second
+
+// ViewBounded is ViewContext with staffReadTimeout. fn must run every statement with the ctx it is given (QueryContext,
+// QueryRowContext): a statement started without it is not interrupted.
+func (d *DB) ViewBounded(fn func(ctx context.Context, tx *sql.Tx) error) error {
+	ctx, cancel := context.WithTimeout(context.Background(), staffReadTimeout)
+	defer cancel()
+	return d.ViewContext(ctx, func(tx *sql.Tx) error { return fn(ctx, tx) })
+}
+
 // Ping answers a trivial query on the attached database (the health endpoint). It returns ErrNoDatabase when none is
 // attached, and an error when the query fails or takes more than 2 s.
 func Ping() error {
@@ -131,7 +142,7 @@ type Querier interface {
 }
 
 // migrations[i] takes the database from schema version i to i+1. Append only: a shipped step is never edited.
-var migrations = []string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6, schemaV7, schemaV8, schemaV9, schemaV10, schemaV11}
+var migrations = []string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6, schemaV7, schemaV8, schemaV9, schemaV10, schemaV11, schemaV12}
 
 // migrate applies the missing steps, each in its own transaction together with its user_version bump.
 func migrate(db *sql.DB) error { return migrateTo(db, len(migrations)) }
@@ -486,6 +497,15 @@ ALTER TABLE chat_log_v11 RENAME TO chat_log;
 CREATE INDEX chat_log_time ON chat_log(time);
 CREATE INDEX chat_log_sender ON chat_log(sender, id);
 CREATE INDEX chat_log_channel ON chat_log(kind, channel, time);
+`
+
+// schemaV12 lets a staff chat log page filtered by kind, or by kind and channel, read its rows newest first straight from an
+// index. SQLite ends every index with the row id (= chat_log.id), so within one kind, or one kind and channel, these two are
+// in id order: a page reads its LIMIT rows and stops, where chat_log_channel (kind, channel, time) had to sort every row of a
+// busy Square first. chat_log_channel stays for the time windows (context links, report snapshots). Only new indexes.
+const schemaV12 = `
+CREATE INDEX chat_log_kind ON chat_log(kind);
+CREATE INDEX chat_log_kind_channel ON chat_log(kind, channel);
 `
 
 // Path is the file the database was opened from.
