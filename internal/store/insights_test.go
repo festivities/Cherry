@@ -255,9 +255,15 @@ func TestInsightQueriesUseTheirIndexes(t *testing.T) {
 		args        []any
 		index       string
 	}{
-		{"flow", qLedgerFlow, []any{stamp}, "ledger_time"},
-		{"reasons", qLedgerReasons, []any{stamp, 15}, "ledger_time"},
-		{"top", qTopLedger, []any{stamp, 1, 10}, "ledger_time"},
+		{"flow", qLedgerFlow, []any{stamp, ledgerOpenEnd}, "ledger_time"},
+		{"reasons", qLedgerReasons, []any{stamp, ledgerOpenEnd}, "ledger_time"},
+		{"top", qTopLedger, []any{stamp, ledgerOpenEnd}, "ledger_time"},
+		{"roll flow", qRollFlow, []any{from, from}, "ledger_days"},
+		{"roll reasons", qRollReasons, []any{from, from}, "ledger_days"},
+		{"roll top", qRollTop, []any{from, from}, "ledger_day_aids"},
+		{"hour rollup", qLedgerHourRollup, []any{stamp, stamp}, "ledger_time"},
+		{"lines rolled", qDayLinesRolled, []any{from}, "ledger_days"},
+		{"active rolled", qDayActiveRolled, []any{from, ms, ms}, "ledger_day_aids"},
 		{"signups", qDaySignups, []any{from, from}, "accounts_created"},
 		{"chat", qDayChat, []any{ms, ms}, "chat_log_time"},
 		{"lines", qDayLines, []any{from, from}, "ledger_time"},

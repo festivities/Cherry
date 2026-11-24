@@ -72,6 +72,11 @@ type Config struct {
 	// Retention: days an alias token may stay unused. ChatDays is how long the chat log keeps a player's message (0 keeps every
 	// one). DeletedDays is unused since 2026-11-21 (deleted avatars are kept); it is parsed so the key stays accepted.
 	DeletedDays, IdleTokenDays, ChatDays int
+	// LedgerDays is how long raw ledger lines are kept once their day is rolled up (0 keeps every line; store.LedgerMinDays is
+	// the least the sweep uses). GeoCountryURL is the country.is batch endpoint the staff country lookup posts networks to
+	// ("" = off).
+	LedgerDays    int
+	GeoCountryURL string
 }
 
 // setting is one row of the table. The flag is the key with dashes for dots, the environment name is CHERRY_ plus the
@@ -127,6 +132,8 @@ var settings = []setting{
 	{"retention.deleted-days", "30", "unused since 2026-11-21: deleted avatars are kept with no expiry (deleted_avatars); the key is still accepted"},
 	{"retention.idle-token-days", "30", "days an alias token may go unused before it is pruned; the device then signs in again"},
 	{"retention.chat-days", "30", "days the chat log keeps a player's message, then the sweep deletes it; 0 keeps every message"},
+	{"retention.ledger-days", "30", "days raw ledger lines are kept once their day is rolled up into the daily totals (30 at least); 0 keeps every line"},
+	{"geo.country-url", "https://api.country.is/", "country.is batch endpoint for the staff pages' country of avatars whose client sent none (their /24 or /48 network is sent, never the address); empty = off"},
 }
 
 // identityDefaults are the limit settings' defaults in identity modes (discord, dev-fake); lab-guest keeps the table's
@@ -244,6 +251,7 @@ func parse(args []string, lookup func(string) (string, bool)) (Config, error) {
 		StaffOwner: strings.TrimSpace(values["staff.owner"]), StaffAllowlistFile: values["staff.allowlist-file"],
 		StaffRedirect: strings.TrimSpace(values["staff.discord.redirect"]),
 		TLSCert:       values["tls.cert-file"], TLSKey: values["tls.key-file"],
+		GeoCountryURL: strings.TrimSpace(values["geo.country-url"]),
 	}
 	if c.Signup == "" {
 		c.Signup = DefaultSignup(c.AuthMode)
@@ -277,7 +285,7 @@ func parse(args []string, lookup func(string) (string, bool)) (Config, error) {
 		{"limits.frame-rate", &c.FrameRate}, {"limits.frame-burst", &c.FrameBurst},
 		{"limits.max-players", &c.MaxPlayers},
 		{"retention.deleted-days", &c.DeletedDays}, {"retention.idle-token-days", &c.IdleTokenDays},
-		{"retention.chat-days", &c.ChatDays},
+		{"retention.chat-days", &c.ChatDays}, {"retention.ledger-days", &c.LedgerDays},
 	} {
 		v, err := strconv.Atoi(values[n.key])
 		if err != nil || v < 0 {

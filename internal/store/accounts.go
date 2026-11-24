@@ -196,6 +196,9 @@ func reloadOtherStoresLocked(d *DB) error {
 	if err := loadCirclesFromDB(d); err != nil {
 		return err
 	}
+	if err := loadGeoCountries(d); err != nil {
+		return err
+	}
 	return loadTreasureFromDB(d)
 }
 

@@ -2,14 +2,25 @@ package store
 
 import (
 	"database/sql"
+	"math"
 	"time"
+
+	"cherry/internal/config"
 )
 
 // Token use and pruning (PLAN 8.6b part 4). Every lookup of a token notes its last use in memory; FlushTokenUse writes
 // the pending times to tokens.last_used in one transaction (the maintenance timer runs it every few minutes), so a
 // request is never a database write. PruneIdleTokens removes the alias tokens that went unused for the retention: each
 // sign-in and checkSession mints one, and a device that has not come back for that long signs in again through
-// Discord. Own tokens (one per account, its access token) are kept.
+// Discord. In identity modes it also removes the superseded aliases: the client keeps only the newest AV_AUTH and one login
+// per account ends every other device's tokens, so beyond an account's aliasKeep newest, an alias not seen for aliasGrace is
+// never presented again (2026-11-25: ~15k aliases a day, 13 an account on average, up to 114). Own tokens (one per account,
+// its access token) are kept.
+
+const (
+	aliasKeep  = 5              // an account's newest aliases, always kept: room for a few unsaved rotations
+	aliasGrace = 24 * time.Hour // and any alias seen this recently
+)
 
 // tokenUsed is the last use of each token, by hash, that the database does not hold yet. Guarded by AccountsMu.
 var tokenUsed = map[string]time.Time{}
@@ -53,8 +64,8 @@ func flushTokenUseLocked() error {
 	return err
 }
 
-// PruneIdleTokens removes the alias tokens unused for days days or more (never the own tokens) from the database and
-// from memory, and reports how many it removed. days below 1 prunes nothing.
+// PruneIdleTokens removes the alias tokens unused for days days or more and, in identity modes, the superseded ones (never
+// the own tokens) from the database and from memory, and reports how many it removed. days below 1 prunes nothing.
 func PruneIdleTokens(now time.Time, days int) (int, error) {
 	if days < 1 {
 		return 0, nil
@@ -69,9 +80,20 @@ func PruneIdleTokens(now time.Time, days int) (int, error) {
 		return 0, err
 	}
 	cutoff := now.AddDate(0, 0, -days).UTC().Format(time.RFC3339Nano)
+	keep := math.MaxInt32 // lab-guest: several devices may share an account, so only the idle rule
+	if config.IdentityMode() {
+		keep = aliasKeep
+	}
+	grace := now.Add(-aliasGrace).UTC().Format(time.RFC3339Nano)
 	var hashes []string
 	err := d.Update(func(tx *sql.Tx) error {
-		rows, err := tx.Query(`DELETE FROM tokens WHERE kind = 'alias' AND (CASE WHEN last_used = '' THEN created ELSE last_used END) < ? RETURNING hash`, cutoff)
+		rows, err := tx.Query(`DELETE FROM tokens WHERE hash IN (
+			SELECT hash FROM (
+				SELECT hash, CASE WHEN last_used = '' THEN created ELSE last_used END AS seen,
+					ROW_NUMBER() OVER (PARTITION BY account_id ORDER BY created DESC, rowid DESC) AS rn
+				FROM tokens WHERE kind = 'alias')
+			WHERE seen < ? OR (rn > ? AND seen < ?))
+			RETURNING hash`, cutoff, keep, grace)
 		if err != nil {
 			return err
 		}

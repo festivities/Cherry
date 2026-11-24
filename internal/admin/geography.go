@@ -58,6 +58,7 @@ type geographyView struct {
 	OnlineMappedShare string
 	UnknownCount      int
 	UnknownShare      string
+	ByIPCount         int
 	OnlineCountries   []geographyCountryRow
 	Regions           []geographyRegionRow
 	NewCountries      []geographyCountryRow
@@ -109,6 +110,7 @@ func (s *Server) geographyAt() *geographyView {
 		OnlineMappedShare: formatPct(rep.OnlineMappedPct),
 		UnknownCount:      rep.UnknownCount,
 		UnknownShare:      formatPct(rep.UnknownPct),
+		ByIPCount:         rep.ByIPCount,
 		OnlineCountries:   make([]geographyCountryRow, 0, len(rep.OnlineCountries)),
 		Regions:           make([]geographyRegionRow, 0, len(rep.Regions)),
 		NewCountries:      make([]geographyCountryRow, 0, len(rep.NewCountries)),

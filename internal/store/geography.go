@@ -353,6 +353,7 @@ type GeographyReport struct {
 	OnlineMappedPct float64
 	UnknownCount    int
 	UnknownPct      float64
+	ByIPCount       int // avatars whose country was looked up from their network (geocountry.go), not sent by the client
 	New7dTotal      int
 	Regions         []GeographyRegion
 	Countries       []GeographyCountry
@@ -397,7 +398,11 @@ func GeographySummary(onlineAids map[string]bool, now time.Time) GeographyReport
 		}
 		rep.TotalAvatars++
 
-		code, name, region := CountryInfo(acc.Country)
+		raw, byIP := countryOfLocked(acc)
+		code, name, region := CountryInfo(raw)
+		if byIP {
+			rep.ByIPCount++
+		}
 		c := byCountry[code]
 		if c == nil {
 			c = &GeographyCountry{Code: code, Name: name, Region: region}

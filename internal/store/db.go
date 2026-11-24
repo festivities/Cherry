@@ -502,10 +502,42 @@ CREATE INDEX chat_log_channel ON chat_log(kind, channel, time);
 // schemaV12 lets a staff chat log page filtered by kind, or by kind and channel, read its rows newest first straight from an
 // index. SQLite ends every index with the row id (= chat_log.id), so within one kind, or one kind and channel, these two are
 // in id order: a page reads its LIMIT rows and stops, where chat_log_channel (kind, channel, time) had to sort every row of a
-// busy Square first. chat_log_channel stays for the time windows (context links, report snapshots). Only new indexes.
+// busy Square first. chat_log_channel stays for the time windows (context links, report snapshots).
+//
+// ledger_days and ledger_day_aids are the ledger rolled up by finished UTC day (ledgerdays.go): per currency and reason group
+// (ledgerGroupSQL), and per avatar and currency, each with its lines and the sums moved in (plus) and out (minus). The Economy
+// page reads finished days from them, and the retention sweep deletes raw lines only once their day is rolled up, so the
+// totals outlive the lines. geo_countries is the country of an avatar whose client sent none, looked up from its network
+// (cmd/cherry geocountry.go); staff pages only, the game never reads it. Only new objects: every v11 row carries over.
 const schemaV12 = `
 CREATE INDEX chat_log_kind ON chat_log(kind);
 CREATE INDEX chat_log_kind_channel ON chat_log(kind, channel);
+
+CREATE TABLE ledger_days (
+	day      TEXT NOT NULL,
+	currency TEXT NOT NULL,
+	grp      TEXT NOT NULL,
+	lines    INTEGER NOT NULL,
+	plus     INTEGER NOT NULL,
+	minus    INTEGER NOT NULL,
+	PRIMARY KEY (day, currency, grp)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE ledger_day_aids (
+	day      TEXT NOT NULL,
+	aid      TEXT NOT NULL,
+	currency TEXT NOT NULL,
+	lines    INTEGER NOT NULL,
+	plus     INTEGER NOT NULL,
+	minus    INTEGER NOT NULL,
+	PRIMARY KEY (day, aid, currency)
+) STRICT, WITHOUT ROWID;
+
+CREATE TABLE geo_countries (
+	aid     TEXT PRIMARY KEY,
+	country TEXT NOT NULL,
+	updated TEXT NOT NULL
+) STRICT, WITHOUT ROWID;
 `
 
 // Path is the file the database was opened from.

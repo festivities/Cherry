@@ -27,6 +27,7 @@ type onlineRow struct {
 	Name, Aid                string
 	Listener, Remote         string
 	CountryName, CountryCode string
+	CountryByIP              bool // looked up from the network: the client sent no country
 	Since, For               string
 	Rooms                    string
 }
@@ -192,7 +193,7 @@ func (s *Server) onlineAt(now time.Time) onlinePage {
 		if p, ok := players[row.Aid]; ok {
 			row.PlayerID, row.PlayerHref, row.Name = p.ID, playerPath(p.ID), p.Name
 			code, name, _ := store.CountryInfo(p.Country)
-			row.CountryCode, row.CountryName = code, name
+			row.CountryCode, row.CountryName, row.CountryByIP = code, name, p.CountryByIP
 		}
 		var names []string
 		for _, pl := range agg.places {

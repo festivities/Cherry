@@ -51,10 +51,12 @@ type Player struct {
 	Aid      string
 	Name     string
 	Identity string
-	Country  string
+	Country  string // the client's country, else the one looked up from the network (CountryByIP)
 	Gems     int64
 	Cash     int64
 	Ban      *Ban
+	// CountryByIP is true when Country was looked up from the network because the client sent none.
+	CountryByIP bool
 }
 
 // staffAudit is the audit row of one staff change, written with its save.
@@ -85,7 +87,9 @@ func playerLocked(id int64) *Account {
 
 // playerOf is the staff view of acc. Caller holds AccountsMu.
 func playerOf(acc *Account) Player {
-	return Player{ID: accountRows[acc].id, Aid: acc.Aid, Name: acc.Name, Identity: acc.Identity, Country: acc.Country, Gems: acc.Gems, Cash: acc.Cash, Ban: acc.Ban}
+	country, byIP := countryOfLocked(acc)
+	return Player{ID: accountRows[acc].id, Aid: acc.Aid, Name: acc.Name, Identity: acc.Identity, Country: country, Gems: acc.Gems,
+		Cash: acc.Cash, Ban: acc.Ban, CountryByIP: byIP}
 }
 
 // playerTarget is the audit target of an account.

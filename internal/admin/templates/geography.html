@@ -25,7 +25,7 @@
 <div class="card">
 <h2>Unset country</h2>
 <p class="big">{{.Geography.UnknownCount}}</p>
-<p class="muted small">{{.Geography.UnknownShare}} of avatars had no country code sent by the client at creation (e.g. Wi-Fi-only or no-SIM devices).</p>
+<p class="muted small">{{.Geography.UnknownShare}} of avatars have no country: their client sent none at creation (e.g. Wi-Fi-only or no-SIM devices) and they have not been online since the server began looking it up from their network. {{.Geography.ByIPCount}} more were placed that way (country.is).</p>
 </div>
 </section>
 

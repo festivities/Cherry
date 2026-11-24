@@ -112,6 +112,36 @@ func LedgerLines() ([]LedgerLine, error) {
 	return lines, err
 }
 
+// LedgerDebits returns the ledger lines in currency with a negative delta whose reason starts with prefix, in append order,
+// none when the store is memory-only. The filter runs in SQL, so the rest of the ledger is never loaded. It takes AccountsMu
+// itself: callers must not hold it.
+func LedgerDebits(currency, prefix string) ([]LedgerLine, error) {
+	AccountsMu.Lock()
+	d := database.Load()
+	AccountsMu.Unlock()
+	if d == nil {
+		return nil, nil
+	}
+	var lines []LedgerLine
+	err := d.View(func(q Querier) error {
+		rows, err := q.Query(`SELECT time, aid, currency, delta, balance, reason FROM ledger
+			WHERE currency = ? AND delta < 0 AND substr(reason, 1, ?) = ? ORDER BY id`, currency, len(prefix), prefix)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var l LedgerLine
+			if err := rows.Scan(&l.Time, &l.Aid, &l.Currency, &l.Delta, &l.Balance, &l.Reason); err != nil {
+				return err
+			}
+			lines = append(lines, l)
+		}
+		return rows.Err()
+	})
+	return lines, err
+}
+
 // AttachedDB returns the database the store saves to, or nil when it is memory-only. Tests and the lab tools use it.
 func AttachedDB() *DB {
 	AccountsMu.Lock()

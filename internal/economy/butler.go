@@ -888,10 +888,10 @@ type butlerDebit struct {
 }
 
 // butlerHireDebits reads the butler hire charges of every account from the ledger table, by
-// account and butler id. A missing ledger has none.
+// account and butler id. A missing ledger has none. Only those lines are read (a filter in SQL), never the whole ledger.
 func butlerHireDebits() (map[string]map[int64][]butlerDebit, error) {
 	out := map[string]map[int64][]butlerDebit{}
-	lines, err := store.LedgerLines()
+	lines, err := store.LedgerDebits("cash", "butler:hire:")
 	if err != nil {
 		return nil, err
 	}
@@ -936,13 +936,24 @@ func paidSince(ds []butlerDebit, begin int64) int64 {
 // as it is. An account with no retired contract is not written, so a second run refunds nothing. cmd/cherry calls it at
 // startup, after the operator data loads. A failed save restores every account and returns the error.
 func MigrateButlerRoster(now time.Time) error {
+	retired := func(id int64) bool { _, ok := ButlerByID(id); return !ok }
+	holdsRetired := func(acc *store.Account) bool {
+		return acc.Butlers != nil && (slices.ContainsFunc(acc.Butlers.Free, retired) ||
+			slices.ContainsFunc(acc.Butlers.Hired, func(h store.ButlerHire) bool { return retired(h.ID) }))
+	}
+	// The usual start: nobody holds a retired butler, so there is nothing to migrate and the ledger is not read.
+	store.AccountsMu.Lock()
+	needed := slices.ContainsFunc(store.AllAccountsLocked(), holdsRetired)
+	store.AccountsMu.Unlock()
+	if !needed {
+		return nil
+	}
 	debits, err := butlerHireDebits()
 	if err != nil {
 		return err
 	}
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
-	retired := func(id int64) bool { _, ok := ButlerByID(id); return !ok }
 	type change struct {
 		acc  *store.Account
 		prev store.Account
