@@ -137,15 +137,17 @@ func (c *lockedConn) SetDeadline(t time.Time) error {
 }
 
 type squarePlayer struct {
-	aid       uint64
-	conn      *lockedConn
-	b1        byte
-	sid       [8]byte
-	avatar    []byte // encoded _AvatarInfo; guarded by squareRoom.mu once joined
-	x, y, d   uint64 // guarded by squareRoom.mu
-	seat      []byte // encoded _player_interaction while seated (PlayerInfo.Interaction); guarded by squareRoom.mu
-	ridePetID uint64 // active mounted pet_id (0 if not riding); guarded by squareRoom.mu
-	rideState uint64 // non-zero while riding ridePetID; guarded by squareRoom.mu
+	aid            uint64
+	conn           *lockedConn
+	b1             byte
+	sid            [8]byte
+	avatar         []byte // encoded _AvatarInfo; guarded by squareRoom.mu once joined
+	x, y, d        uint64 // guarded by squareRoom.mu
+	seat           []byte // encoded _player_interaction while seated (PlayerInfo.Interaction); guarded by squareRoom.mu
+	ridePetID      uint64 // active mounted pet_id (0 if not riding); guarded by squareRoom.mu
+	rideState      uint64 // non-zero while riding ridePetID; guarded by squareRoom.mu
+	whisperStep    int32  // current eWHISPER_STEP (0..7); guarded by squareRoom.mu
+	whisperPartner uint64 // active or pending whisper peer AID (0 if none); guarded by squareRoom.mu
 }
 
 // squareRoom is one room of a Square: the players in it see each other and no one else. number is the room's number within
@@ -316,6 +318,7 @@ func (rs *squareRooms) leave(logger *log.Logger, r *squareRoom, p *squarePlayer)
 		}
 	}
 	if found {
+		r.clearWhisperLocked(p)
 		delete(r.invites, p.aid)
 	}
 	r.mu.Unlock()
@@ -491,8 +494,12 @@ func squarePositionInfo(x, y, dir uint64) []byte {
 // info encodes PlayerInfo; the caller holds the room lock (position and seat fields). A seated
 // player carries its Interaction (field 4): AddAvatarToWorld_2_0 seats the avatar on DestObjectIndex.
 func (p *squarePlayer) info() []byte {
+	avatar := p.avatar
+	if p.whisperStep != 0 {
+		avatar = pbVar(slices.Clone(avatar), 19, uint64(p.whisperStep))
+	}
 	b := pbVar(nil, 1, p.aid)
-	b = pbLen(b, 2, p.avatar)
+	b = pbLen(b, 2, avatar)
 	b = pbLen(b, 3, squarePositionInfo(p.x, p.y, p.d))
 	if p.seat != nil {
 		b = pbLen(b, 4, p.seat)
@@ -602,6 +609,7 @@ func (r *squareRoom) join(p *squarePlayer, spawnX, spawnY uint64) (roster []byte
 		}
 	}
 	if index >= 0 {
+		r.clearWhisperLocked(r.players[index])
 		r.players[index] = p
 	} else {
 		r.players = append(r.players, p)
@@ -919,7 +927,8 @@ func (s *squareSession) handleData(frame []byte) error {
 		return s.handleRideShop(frame, msgid, data)
 	case 63, 64, 65, 66, 68, 71, 72, 76, 79, 82, 86, 94: // Riding Pet race: entry, create, ready, start, positions (square_racing.go)
 		return s.handleRacing(frame, msgid, data)
-	case 10: // cr_trunk_call_req: whisper-state notification, no reply needed
+	case 10: // cr_trunk_call_req -> rc_trunk_call (13) (square_whisper.go)
+		return s.handleWhisper(frame, data)
 	default:
 		s.logger.Printf("SQUARE unknown msgid=%d bytes=%d fields=%s", msgid, len(data), pbSummary(data))
 	}
