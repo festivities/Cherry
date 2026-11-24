@@ -70,6 +70,14 @@ func AvatarAccountOf(acc *Account) StoredAccount {
 // figures). It takes no lock and is never put in the account table.
 func AccountOfRecord(s StoredAccount) *Account { return accountFromStored(s) }
 
+// avatarChatLinesQuery is every chat_log line of one avatar: sent, whispered to it, or in one of its 1:1 rooms. Every OR
+// branch has an index (chat_log_sender, chat_log_channel), so it never scans the table; a bare "target = ?" has none and
+// would scan all of chat_log under AccountsMu. Only whisper and private lines carry a target, and private lines are already
+// matched by their room (rooms are never deleted), so whisper is the one kind the target branch needs.
+const avatarChatLinesQuery = `SELECT time, kind, channel, sender, sender_name, target, target_name, text FROM chat_log
+	WHERE sender = ? OR (kind = ? AND target = ?) OR (kind = ? AND channel IN (SELECT CAST(room_id AS TEXT) FROM chat_rooms WHERE aid_a = ? OR aid_b = ?))
+	ORDER BY id`
+
 // GatherAvatarHistoryLocked fills the parts of rec that the store keeps for aid: its chat lines (the lines it sent and the
 // lines of its 1:1 rooms), its 1:1 rooms with their stored messages, its Treasure World board, its circle and its picture
 // rows. Caller holds AccountsMu and not SocialMu (the lock order is AccountsMu, CirclesMu, SocialMu). Without a database the
@@ -93,9 +101,7 @@ func GatherAvatarHistoryLocked(rec *AvatarRecord, aid string) error {
 	}
 	var rooms []ChatRoom
 	err = d.View(func(q Querier) error {
-		lines, err := q.Query(`SELECT time, kind, channel, sender, sender_name, target, target_name, text FROM chat_log
-			WHERE sender = ? OR target = ? OR (kind = ? AND channel IN (SELECT CAST(room_id AS TEXT) FROM chat_rooms WHERE aid_a = ? OR aid_b = ?))
-			ORDER BY id`, aid, aid, ChatPrivate, aid, aid)
+		lines, err := q.Query(avatarChatLinesQuery, aid, ChatWhisper, aid, ChatPrivate, aid, aid)
 		if err != nil {
 			return err
 		}

@@ -232,6 +232,22 @@ func TestGatherAvatarHistoryReadsTheStores(t *testing.T) {
 	if rec.Circle == nil || rec.Circle.ID != 77 || rec.Circle.Role != "LEADER" {
 		t.Fatalf("circle = %+v", rec.Circle)
 	}
+	// Delete Avatar runs this under AccountsMu: it must use the indexes, never scan chat_log (2026-11-25 review).
+	rows, err := d.read.Query("EXPLAIN QUERY PLAN "+avatarChatLinesQuery, "8201", ChatWhisper, "8201", ChatPrivate, "8201", "8201")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, parent, notused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &notused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		if detail == "SCAN chat_log" {
+			t.Fatalf("avatar chat lines scan chat_log")
+		}
+	}
 }
 
 // TestRemoveDeletedAvatarMedia: a picture of a deleted avatar goes with its row, its file and an audit row that names the
