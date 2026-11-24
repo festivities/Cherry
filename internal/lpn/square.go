@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"encoding/binary"
 	"log"
+	"math/rand/v2"
 	"net"
 	"slices"
 	"strconv"
@@ -23,9 +24,12 @@ const (
 	squareWriteTTL   = 5 * time.Second
 	squareMaxChatLen = 512
 
-	squareLoginResult = 131073
-	squareEnterResult = 196609
-	squareRelayResult = 196623
+	squareLoginResult      = 131073
+	squareEnterResult      = 196609
+	squareEnterFull        = 196617 // ArtsString 9245: "There are too many avatars in this square."
+	squareEnterNotInSquare = 196629 // ArtsString 9267: "The avatar who invited you isn't in the square."
+	squareEnterUnavailable = 196630 // ArtsString 9271: "Sorry! This square is not available."
+	squareRelayResult      = 196623
 	// World type 6 is Treasure Island, the Square with fishing: NaWorldManager::GetConnectedWorldType == 6 shows the
 	// book (WorldMain tag 1) and the bait/rod buttons (WorldChatNotificationBg4 tags 5/2), and makes the client ask
 	// for rods (59) and bait (91). Only this Square answers the fishing, boss and Boss Coin requests (squareGatedTheme).
@@ -45,6 +49,17 @@ const (
 	squareSpawnStepX = 40
 	squareSpawnStepY = 20
 )
+
+// squareNpcList returns the minigame NPC list for Squares that host NPCs (Treasure Island and LINE City), or nil for other Squares.
+func squareNpcList(theme uint64) []byte {
+	switch theme {
+	case squareThemeID:
+		return squareTreasureIslandNpcList()
+	case squareCityThemeID:
+		return squareLineCityNpcList()
+	}
+	return nil
+}
 
 // squareRoomEnter is rc_room_enter_res (idx 6): npcs is the NpcList field (nil = none), number the room the banner shows
 // ([0001]), theme the world type the client switches to.
@@ -68,7 +83,7 @@ func squareRoomEnter(npcs []byte, number, theme uint64, mapFile string) []byte {
 // 0x1cd4230; boss-mp-addendum 6).
 func squareThemeInfo(sq Square, count uint64) []byte {
 	theme := pbVar(nil, 1, sq.Theme)
-	theme = pbVar(theme, 2, 0)
+	theme = pbVar(theme, 2, 1)               // CodeSquredEnabled: shows BTN_SECRET key icon next to GO in NaWorldEnterThemeCell
 	theme = pbLen(theme, 7, []byte(sq.Icon)) // IconPath: the list picture (files/-relative; "" = the client default)
 	theme = pbVar(theme, 8, sq.Index)
 	theme = pbLen(theme, 9, []byte(sq.Name))
@@ -140,15 +155,17 @@ type squareRoom struct {
 	number     uint64
 	players    []*squarePlayer // join order
 	chatSerial uint64
-	bosses     []*squareBossRoom // boss lobbies and battles opened in this room, oldest first (square_boss_room.go); guarded by mu
+	bosses     []*squareBossRoom          // boss lobbies and battles opened in this room, oldest first (square_boss_room.go); guarded by mu
+	invites    map[uint64]map[uint64]bool // inviter AID -> invited AIDs for regular Square invites (square_invite.go); guarded by mu
 }
 
 // squareRooms holds the rooms of each Square (world type), by number, lowest first. Players in different rooms do not see
 // each other. A room is made when a player is placed in it and removed once its last player has left and no boss lobby is
 // open in it, so its number is free again. Each room holds up to the staff panel's cap (squareRoomCap).
 type squareRooms struct {
-	mu    sync.Mutex
-	rooms map[uint64][]*squareRoom
+	mu      sync.Mutex
+	rooms   map[uint64][]*squareRoom
+	pending map[uint64]uint64 // random shard code reserved for an empty Square between cr2 and the first cr5
 }
 
 var defaultSquares = &squareRooms{}
@@ -173,15 +190,45 @@ func (rs *squareRooms) roomLocked(theme, number uint64) *squareRoom {
 	if found {
 		return list[i]
 	}
+	delete(rs.pending, theme)
 	r := &squareRoom{theme: theme, number: number}
 	rs.rooms[theme] = slices.Insert(list, i, r)
 	return r
 }
 
+// nextCodeLocked picks a random unused 4-digit room number in 1..9999 for theme. The caller holds rs.mu.
+func (rs *squareRooms) nextCodeLocked(theme uint64) uint64 {
+	list := rs.rooms[theme]
+	used := func(n uint64) bool {
+		_, found := slices.BinarySearchFunc(list, n, func(r *squareRoom, v uint64) int { return cmp.Compare(r.number, v) })
+		return found
+	}
+	for range 64 {
+		cand := uint64(rand.IntN(9999) + 1)
+		if !used(cand) {
+			return cand
+		}
+	}
+	start := uint64(rand.IntN(9999) + 1)
+	for off := range uint64(9999) {
+		cand := (start-1+off)%9999 + 1
+		if !used(cand) {
+			return cand
+		}
+	}
+	return start
+}
+
 // chooseLocked is the room number aid enters theme in, given want (0 for none, else the number the client asked for or
-// the room a lobby master is in): aid's own room when it is in one (a re-enter keeps it); else want when that room has
-// space; else the lowest-numbered room with space; else the lowest number no room holds. aid 0 never matches a room.
-// The caller holds rs.mu.
+// the room a lobby master is in):
+//   - want == 0: aid's own room when it is in one (a re-enter keeps it); else the lowest-numbered room with space;
+//     else a random unused 4-digit code in 1..9999 (reusing pending[theme] while the Square has no rooms yet so
+//     simultaneous normal-GO entrants land in the same shard).
+//   - want != 0: want when aid is already in room want or room want has space; if room want exists and is full, fall back
+//     to the lowest-numbered room with space or a new random code; if room want does not exist yet, return want so
+//     cr5 creates the exact shard cr2 announced.
+//
+// aid 0 never matches a room. The caller holds rs.mu.
 func (rs *squareRooms) chooseLocked(theme, aid, want, limit uint64) uint64 {
 	rooms := rs.rooms[theme]
 	counts := make([]uint64, len(rooms))
@@ -190,15 +237,15 @@ func (rs *squareRooms) chooseLocked(theme, aid, want, limit uint64) uint64 {
 		counts[i] = uint64(len(r.players))
 		holds := aid != 0 && slices.ContainsFunc(r.players, func(p *squarePlayer) bool { return p.aid == aid })
 		r.mu.Unlock()
-		if holds {
+		if holds && (want == 0 || r.number == want) {
 			return r.number
 		}
 	}
-	next := uint64(1) // the lowest number no room holds: rooms are sorted by number
-	low := uint64(0)  // the lowest-numbered room with space
+	low := uint64(0) // the lowest-numbered room with space
+	wantExists := false
 	for i, r := range rooms {
-		if r.number == next {
-			next++
+		if r.number == want {
+			wantExists = true
 		}
 		if counts[i] < limit {
 			if r.number == want {
@@ -209,10 +256,48 @@ func (rs *squareRooms) chooseLocked(theme, aid, want, limit uint64) uint64 {
 			}
 		}
 	}
+	if want != 0 {
+		if !wantExists {
+			return want
+		}
+		if low != 0 {
+			return low
+		}
+		return rs.nextCodeLocked(theme)
+	}
 	if low != 0 {
 		return low
 	}
-	return next
+	if len(rooms) == 0 {
+		if code := rs.pending[theme]; code != 0 {
+			return code
+		}
+		if rs.pending == nil {
+			rs.pending = map[uint64]uint64{}
+		}
+		code := rs.nextCodeLocked(theme)
+		rs.pending[theme] = code
+		return code
+	}
+	return rs.nextCodeLocked(theme)
+}
+
+// roomStateFor reports whether room number exists in theme, and if so whether it has reached limit without holding aid.
+func (rs *squareRooms) roomStateFor(theme, aid, number, limit uint64) (exists, full bool) {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	list := rs.rooms[theme]
+	i, found := slices.BinarySearchFunc(list, number, func(r *squareRoom, n uint64) int { return cmp.Compare(r.number, n) })
+	if !found {
+		return false, false
+	}
+	r := list[i]
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if uint64(len(r.players)) < limit {
+		return true, false
+	}
+	return true, aid == 0 || !slices.ContainsFunc(r.players, func(p *squarePlayer) bool { return p.aid == aid })
 }
 
 // pick is the room number aid enters theme in (chooseLocked under the registry lock). The reply names it; the relaystart
@@ -244,6 +329,9 @@ func (rs *squareRooms) leave(logger *log.Logger, r *squareRoom, p *squarePlayer)
 			found = true
 			break
 		}
+	}
+	if found {
+		delete(r.invites, p.aid)
 	}
 	r.mu.Unlock()
 	rs.pruneLocked(r)
@@ -526,6 +614,12 @@ func (r *squareRoom) join(p *squarePlayer, spawnX, spawnY uint64) (roster []byte
 	} else {
 		r.players = append(r.players, p)
 	}
+	for inviter, invited := range r.invites {
+		delete(invited, p.aid)
+		if len(invited) == 0 {
+			delete(r.invites, inviter)
+		}
+	}
 	return roster, index >= 0, wasSeated
 }
 
@@ -615,27 +709,43 @@ func (s *squareSession) handleData(frame []byte) error {
 		body = pbVar(body, 3, 0) // result=0 [I]
 		s.logger.Printf("SQUARE themelist squares=%d", len(squaresFile.Get().listed()))
 		return s.reply(frame, 1, body)
-	case 2: // cr_room_enter_req -> rc_room_enter_res (idx6): the Square the client asked for (Theme), in the room it names (SquareCode) when that has space
+	case 2: // cr_room_enter_req -> rc_room_enter_res (idx6): the Square the client asked for (Theme), in the room it names (SquareCode) when present
 		theme, _ := protobufUintField(data, 1)
-		want, _ := protobufUintField(data, 2)
+		want, wantFound := protobufUintField(data, 2)
 		sq := squaresFile.Get().entry(theme)
+		if wantFound {
+			if want == 0 || want > 9999 {
+				s.logger.Printf("SQUARE enter code refused aid=%d theme=%d code=%d invalid", s.aid, sq.Theme, want)
+				return s.reply(frame, 6, pbVar(nil, 1, squareEnterUnavailable))
+			}
+			exists, full := s.rooms.roomStateFor(sq.Theme, s.aid, want, squareRoomCap())
+			if !exists {
+				s.logger.Printf("SQUARE enter code refused aid=%d theme=%d code=%d not found", s.aid, sq.Theme, want)
+				return s.reply(frame, 6, pbVar(nil, 1, squareEnterUnavailable))
+			}
+			if full {
+				s.logger.Printf("SQUARE enter code refused aid=%d theme=%d code=%d full", s.aid, sq.Theme, want)
+				return s.reply(frame, 6, pbVar(nil, 1, squareEnterFull))
+			}
+		}
 		s.bossLeave() // back from a boss lobby or battle: the Square is entered again
 		s.stopRacing()
-		if s.player != nil && s.square.Theme != sq.Theme { // another Square: leave the one we were in
+		if s.player != nil && (s.square.Theme != sq.Theme || (wantFound && s.roomNo != want)) { // another Square or another Square code: leave the one we were in
 			s.close()
 		}
-		s.roomNo = s.rooms.pick(sq.Theme, s.aid, want, squareRoomCap())
-		s.square, s.entered = sq, true
-		s.logger.Printf("SQUARE enter aid=%d theme=%d room=%d map=%s", s.aid, sq.Theme, s.roomNo, sq.Map)
-		MarkQuest(s.aid, "square")
-		var npcs []byte // the minigame NPCs: fishing, shop and Soff on Treasure Island, the race and Ride Point in LINE City
-		switch sq.Theme {
-		case squareThemeID:
-			npcs = squareTreasureIslandNpcList()
-		case squareCityThemeID:
-			npcs = squareLineCityNpcList()
+		if wantFound {
+			s.roomNo = want
+		} else {
+			s.roomNo = s.rooms.pick(sq.Theme, s.aid, 0, squareRoomCap())
 		}
-		return s.reply(frame, 6, squareRoomEnter(npcs, s.roomNo, sq.Theme, sq.Map))
+		s.square, s.entered = sq, true
+		if wantFound {
+			s.logger.Printf("SQUARE enter aid=%d theme=%d room=%d map=%s code=true", s.aid, sq.Theme, s.roomNo, sq.Map)
+		} else {
+			s.logger.Printf("SQUARE enter aid=%d theme=%d room=%d map=%s", s.aid, sq.Theme, s.roomNo, sq.Map)
+		}
+		MarkQuest(s.aid, "square")
+		return s.reply(frame, 6, squareRoomEnter(squareNpcList(sq.Theme), s.roomNo, sq.Theme, sq.Map))
 	case 5: // cr_room_relaystart_req -> rc_room_relaystart_res + adduser_all
 		if !s.entered {
 			s.logger.Printf("SQUARE relaystart before enter ignored")
@@ -682,8 +792,10 @@ func (s *squareSession) handleData(frame []byte) error {
 		s.report(data)
 		return nil
 	}
-	switch msgid { // boss lobby and battle requests act on the session's boss seat, so they need no Square relay (an invitee who accepts from the Garden)
-	case 35, 36, 37, 46, 47, 48, 49, 50, 55, 58, 60:
+	switch msgid { // invite requests and boss lobby/battle requests need no Square relay (an invitee accepting from Garden, or a player in a boss lobby)
+	case 35, 36, 37:
+		return s.handleSquareInvite(frame, msgid, data)
+	case 46, 47, 48, 49, 50, 55, 58, 60:
 		return s.handleBoss(frame, msgid, data)
 	}
 	if s.player == nil {
