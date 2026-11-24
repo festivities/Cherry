@@ -132,44 +132,47 @@ func (s *squareSession) squareInvitePush(to uint64) {
 	s.logger.Printf("SQUARE invite push aid=%d to=%d sent=%v", s.aid, to, sent)
 }
 
-// findPlayer locates owner in any active Square room, consuming any pending invite for invitee.
-func (rs *squareRooms) findPlayer(owner, invitee uint64) (theme, number uint64, invited, found bool) {
+// findPlayer locates owner in any active public or secret Square room, consuming any pending invite for invitee.
+func (rs *squareRooms) findPlayer(owner, invitee uint64) (theme, number uint64, secret, invited, found bool) {
 	if rs == nil {
-		return 0, 0, false, false
+		return 0, 0, false, false, false
 	}
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
-	for t, list := range rs.rooms {
-		for _, r := range list {
-			r.mu.Lock()
-			inRoom := slices.ContainsFunc(r.players, func(p *squarePlayer) bool { return p.aid == owner })
-			if inRoom {
-				if inv := r.invites[owner]; inv != nil && inv[invitee] {
-					invited = true
-					delete(inv, invitee)
-					if len(inv) == 0 {
-						delete(r.invites, owner)
+	for _, pool := range []map[uint64][]*squareRoom{rs.rooms, rs.secretRooms} {
+		for t, list := range pool {
+			for _, r := range list {
+				r.mu.Lock()
+				inRoom := slices.ContainsFunc(r.players, func(p *squarePlayer) bool { return p.aid == owner })
+				if inRoom {
+					if inv := r.invites[owner]; inv != nil && inv[invitee] {
+						invited = true
+						delete(inv, invitee)
+						if len(inv) == 0 {
+							delete(r.invites, owner)
+						}
 					}
+					number = r.number
+					secret = r.secret
+					r.mu.Unlock()
+					return t, number, secret, invited, true
 				}
-				number = r.number
 				r.mu.Unlock()
-				return t, number, invited, true
 			}
-			r.mu.Unlock()
 		}
 	}
-	return 0, 0, false, false
+	return 0, 0, false, false, false
 }
 
-// squareAccept answers cr36 for a regular Square invite: verifies the friend is in a Square room and that the
-// requester was invited or is an accepted friend, then places the requester in the friend's Square and room (falling
-// back to the next room with space if full).
+// squareAccept answers cr36 for a regular Square invite: verifies the friend is in a Square room, that the
+// requester was invited or is an accepted friend, and that the friend's room has space, then places the requester
+// in the friend's Square and room (public or secret).
 func (s *squareSession) squareAccept(frame []byte, owner uint64) []byte {
 	if owner == 0 || owner == s.aid {
 		s.logger.Printf("SQUARE invite accept refused aid=%d owner=%d", s.aid, owner)
 		return pbVar(nil, 1, 0)
 	}
-	targetTheme, targetNumber, invited, found := s.rooms.findPlayer(owner, s.aid)
+	targetTheme, targetNumber, targetSecret, invited, found := s.rooms.findPlayer(owner, s.aid)
 	if !found {
 		s.logger.Printf("SQUARE invite accept refused aid=%d owner=%d not in square", s.aid, owner)
 		return pbVar(nil, 1, squareEnterNotInSquare)
@@ -178,22 +181,22 @@ func (s *squareSession) squareAccept(frame []byte, owner uint64) []byte {
 		s.logger.Printf("SQUARE invite accept refused aid=%d owner=%d not friend", s.aid, owner)
 		return pbVar(nil, 1, 0)
 	}
+	if _, full := s.rooms.roomStateFor(targetTheme, s.aid, targetNumber, squareRoomCap(), targetSecret); full {
+		s.logger.Printf("SQUARE invite accept refused aid=%d owner=%d room=%d full", s.aid, owner, targetNumber)
+		return pbVar(nil, 1, squareEnterFull)
+	}
 	s.bossLeave()
 	s.stopRacing()
-	pickAid := uint64(0)
-	if s.player != nil && s.square.Theme == targetTheme && s.roomNo == targetNumber {
-		pickAid = s.aid
-	}
-	number := s.rooms.pick(targetTheme, pickAid, targetNumber, squareRoomCap())
-	if number != targetNumber {
-		s.logger.Printf("SQUARE invite accept aid=%d room %d full, placed in room %d", s.aid, targetNumber, number)
-	}
-	if s.player != nil && (s.square.Theme != targetTheme || number != s.roomNo) {
+	if s.player != nil && (s.square.Theme != targetTheme || s.roomSecret != targetSecret || s.roomNo != targetNumber) {
 		s.close()
 	}
 	sq := squaresFile.Get().entry(targetTheme)
-	s.roomNo, s.square, s.entered = number, sq, true
+	s.roomNo, s.roomSecret, s.square, s.entered = targetNumber, targetSecret, sq, true
 	MarkQuest(s.aid, "square")
-	s.logger.Printf("SQUARE invite accept aid=%d owner=%d theme=%d room=%d map=%s", s.aid, owner, sq.Theme, number, sq.Map)
-	return squareRoomEnter(squareNpcList(sq.Theme), number, sq.Theme, sq.Map)
+	s.logger.Printf("SQUARE invite accept aid=%d owner=%d theme=%d room=%d secret=%v map=%s", s.aid, owner, sq.Theme, targetNumber, targetSecret, sq.Map)
+	code := uint64(0)
+	if targetSecret {
+		code = targetNumber
+	}
+	return squareRoomEnter(squareNpcList(sq.Theme), code, sq.Theme, sq.Map)
 }

@@ -37,31 +37,91 @@ func TestSquareThemeListEnablesCodeSquare(t *testing.T) {
 	}
 }
 
-// TestSquareEnterByCodeJoinsFriendRoom verifies cr2 with an explicit SquareCode joins a friend's active shard
-// (both the first shard and a later overflow shard) and cr5 places both players together with adduser broadcast.
+// TestSquarePublicAndSecretPoolsSeparate verifies normal GO enters public shard 1 (rc6 omits field 3),
+// key-button SquareCode=1 enters secret shard 1 (rc6 sets field 3=1), the two pools are isolated from
+// each other, and population sums across both pools.
+func TestSquarePublicAndSecretPoolsSeparate(t *testing.T) {
+	testutil.InstallAccounts(t, withLoginAccounts(nil, 8901, 8902, 8903, 8904))
+	rooms := &squareRooms{}
+
+	pubA := newSqClientIn(t, rooms, 1)
+	if no := pubA.enterAt(8901, 3, 0); no != 1 || pubA.sess.roomSecret {
+		t.Fatalf("pubA room=(%d, secret=%v), want (1, false)", no, pubA.sess.roomSecret)
+	}
+
+	secB := newSqClientIn(t, rooms, 2)
+	if no := secB.enterAt(8902, 3, 1); no != 1 || !secB.sess.roomSecret {
+		t.Fatalf("secB room=(%d, secret=%v), want (1, true)", no, secB.sess.roomSecret)
+	}
+	if pubA.sess.room == secB.sess.room {
+		t.Fatalf("public room 1 and secret room 1 must be distinct room objects")
+	}
+	pubA.none()
+	secB.none()
+
+	// Chat in public room 1 does not reach secret room 1 and vice versa.
+	pubA.send(8, pbLen(nil, 1, []byte("public")))
+	if id, _ := pubA.read(); id != 11 {
+		t.Fatalf("pubA chat msgid = %d, want 11", id)
+	}
+	secB.none()
+
+	secB.send(8, pbLen(nil, 1, []byte("secret")))
+	if id, _ := secB.read(); id != 11 {
+		t.Fatalf("secB chat msgid = %d, want 11", id)
+	}
+	pubA.none()
+
+	// Second secret-code player joins secB in secret room 1; pubA hears nothing.
+	secC := newSqClientIn(t, rooms, 3)
+	if no := secC.enterAt(8903, 3, 1); no != 1 || !secC.sess.roomSecret {
+		t.Fatalf("secC room=(%d, secret=%v), want (1, true)", no, secC.sess.roomSecret)
+	}
+	if aid := expectAddUser(t, secB); aid != 8903 {
+		t.Fatalf("secB adduser aid = %d, want 8903", aid)
+	}
+	pubA.none()
+
+	// Second normal-GO player joins pubA in public room 1; secret players hear nothing.
+	pubD := newSqClientIn(t, rooms, 4)
+	if no := pubD.enterAt(8904, 3, 0); no != 1 || pubD.sess.roomSecret {
+		t.Fatalf("pubD room=(%d, secret=%v), want (1, false)", no, pubD.sess.roomSecret)
+	}
+	if aid := expectAddUser(t, pubA); aid != 8904 {
+		t.Fatalf("pubA adduser aid = %d, want 8904", aid)
+	}
+	secB.none()
+	secC.none()
+
+	if pop := rooms.population(3); pop != 4 {
+		t.Fatalf("population(3) = %d, want 4 across public + secret", pop)
+	}
+}
+
+// TestSquareEnterByCodeJoinsFriendRoom verifies entering a valid 4-digit SquareCode (5032) creates secret
+// shard 5032, a friend entering 5032 joins the exact same secret shard, and normal-GO players fill public
+// shards 1, 2, ... without ever landing in secret shards 0001 or 5032.
 func TestSquareEnterByCodeJoinsFriendRoom(t *testing.T) {
-	testutil.InstallAccounts(t, withLoginAccounts(nil, 8911, 8912, 8913, 8914, 8915, 8916))
+	testutil.InstallAccounts(t, withLoginAccounts(nil, 8911, 8912, 8913, 8914, 8915))
 	useRoomCap(t, 2)
 	rooms := &squareRooms{}
 
-	// Case 1: Player A opens the first shard c1 via normal GO; Player B joins c1 by code.
 	a := newSqClientIn(t, rooms, 1)
-	c1 := a.enterAt(8911, 3, 0)
-	if c1 == 0 || c1 > 9999 {
-		t.Fatalf("player A room = %d, want 1..9999", c1)
+	if no := a.enterAt(8911, 3, 5032); no != 5032 || !a.sess.roomSecret {
+		t.Fatalf("player A room=(%d, secret=%v), want (5032, true)", no, a.sess.roomSecret)
 	}
 
 	b := newSqClientIn(t, rooms, 2)
 	b.send(0, loginBody(8912))
 	b.expect(0, []byte{0x08, 0x81, 0x80, 0x08})
-	b.send(2, pbVar(pbVar(nil, 1, 3), 2, c1))
+	b.send(2, pbVar(pbVar(nil, 1, 3), 2, 5032))
 	id, enter := b.read()
 	if id != 6 {
 		t.Fatalf("player B cr2 reply = rc%d, want rc6", id)
 	}
 	b.checkEnter(enter, 3, squareTestMaps[3])
-	if code := enterRoom(enter); code != c1 {
-		t.Fatalf("player B rc6 SquareCode = %d, want %d", code, c1)
+	if code := enterRoom(enter); code != 5032 {
+		t.Fatalf("player B rc6 SquareCode = %d, want 5032", code)
 	}
 	b.send(5, nil)
 	id, roster := b.read()
@@ -78,177 +138,180 @@ func TestSquareEnterByCodeJoinsFriendRoom(t *testing.T) {
 		t.Fatalf("player A adduser aid = %d, want 8912", aid)
 	}
 
-	// Case 2: c1 is now full (2/2), so Player C opens a second shard c2; Player D joins c2 by code.
-	c := newSqClientIn(t, rooms, 3)
-	c2 := c.enterAt(8915, 3, 0)
-	if c2 == 0 || c2 > 9999 || c2 == c1 {
-		t.Fatalf("player C room = %d, want new shard != %d", c2, c1)
+	// Normal GO players fill public 1, then public 2, never landing in secret 5032.
+	p1 := newSqClientIn(t, rooms, 3)
+	p2 := newSqClientIn(t, rooms, 4)
+	p3 := newSqClientIn(t, rooms, 5)
+	if no := p1.enterAt(8913, 3, 0); no != 1 || p1.sess.roomSecret {
+		t.Fatalf("normal GO #1 room=(%d, secret=%v), want (1, false)", no, p1.sess.roomSecret)
 	}
-
-	d := newSqClientIn(t, rooms, 4)
-	d.send(0, loginBody(8916))
-	d.expect(0, []byte{0x08, 0x81, 0x80, 0x08})
-	d.send(2, pbVar(pbVar(nil, 1, 3), 2, c2))
-	id, enter = d.read()
-	if id != 6 {
-		t.Fatalf("player D cr2 reply = rc%d, want rc6", id)
+	if no := p2.enterAt(8914, 3, 0); no != 1 || p2.sess.roomSecret {
+		t.Fatalf("normal GO #2 room=(%d, secret=%v), want (1, false)", no, p2.sess.roomSecret)
 	}
-	d.checkEnter(enter, 3, squareTestMaps[3])
-	if code := enterRoom(enter); code != c2 {
-		t.Fatalf("player D rc6 SquareCode = %d, want %d", code, c2)
-	}
-	d.send(5, nil)
-	id, roster = d.read()
-	if id != 8 {
-		t.Fatalf("player D cr5 reply = rc%d, want rc8", id)
-	}
-	if aids := rosterAids(roster[len(relayResultBytes()):]); !slices.Contains(aids, uint64(8915)) {
-		t.Fatalf("player D roster = %v, want 8915", aids)
-	}
-	if id, _ := d.read(); id != squareRcHighFiveTargetList {
-		t.Fatalf("player D got msgid %d, want highfive (%d)", id, squareRcHighFiveTargetList)
-	}
-	if aid := expectAddUser(t, c); aid != 8916 {
-		t.Fatalf("player C adduser aid = %d, want 8916", aid)
+	if no := p3.enterAt(8915, 3, 0); no != 2 || p3.sess.roomSecret {
+		t.Fatalf("normal GO #3 room=(%d, secret=%v), want (2, false)", no, p3.sess.roomSecret)
 	}
 	a.none()
 	b.none()
+	if got := roomNumbers(rooms, 3); !slices.Equal(got, []uint64{1, 2}) {
+		t.Fatalf("public rooms = %v, want [1 2]", got)
+	}
 }
 
-// TestSquareEnterByCodeSwitchesRoomInSameSquare verifies sending cr2 with a different existing SquareCode in the same
-// Square leaves the old room (deluser to remaining member) and relays into the target shard.
+// TestSquareEnterByCodeSwitchesRoomInSameSquare verifies switching public -> secret, secret -> another secret,
+// and secret -> public in the same Square cleanly leaves the old room (deluser to remaining member) and enters the new one.
 func TestSquareEnterByCodeSwitchesRoomInSameSquare(t *testing.T) {
-	testutil.InstallAccounts(t, withLoginAccounts(nil, 8921, 8922, 8923))
-	useRoomCap(t, 2)
+	testutil.InstallAccounts(t, withLoginAccounts(nil, 8921, 8922))
 	rooms := &squareRooms{}
 
 	bystander := newSqClientIn(t, rooms, 1)
-	c1 := bystander.enterAt(8921, 3, 0)
+	if no := bystander.enterAt(8921, 3, 0); no != 1 {
+		t.Fatalf("bystander placed in room %d, want 1", no)
+	}
 	a := newSqClientIn(t, rooms, 2)
-	if no := a.enterAt(8922, 3, 0); no != c1 {
-		t.Fatalf("player A placed in room %d, want %d", no, c1)
+	if no := a.enterAt(8922, 3, 0); no != 1 {
+		t.Fatalf("player A placed in room %d, want 1", no)
 	}
 	if aid := expectAddUser(t, bystander); aid != 8922 {
 		t.Fatalf("bystander adduser aid = %d, want 8922", aid)
 	}
 
-	// Open a second shard c2 with space.
-	host2 := newSqClientIn(t, rooms, 3)
-	c2 := host2.enterAt(8923, 3, 0)
-	if c2 == c1 {
-		t.Fatalf("host2 reused full room %d", c1)
-	}
-
-	a.send(2, pbVar(pbVar(nil, 1, 3), 2, c2))
+	// 1) Public 1 -> Secret 1 (must leave public 1 so bystander receives deluser).
+	a.send(2, pbVar(pbVar(nil, 1, 3), 2, 1))
 	id, enter := a.read()
 	if id != 6 {
-		t.Fatalf("switch cr2 reply = rc%d, want rc6", id)
+		t.Fatalf("public->secret cr2 reply = rc%d, want rc6", id)
 	}
 	a.checkEnter(enter, 3, squareTestMaps[3])
-	if code := enterRoom(enter); code != c2 {
-		t.Fatalf("switch rc6 SquareCode = %d, want %d", code, c2)
+	if code := enterRoom(enter); code != 1 {
+		t.Fatalf("public->secret rc6 SquareCode = %d, want 1", code)
 	}
-
-	// Bystander in c1 receives deluser for player A immediately.
 	if id, body := bystander.read(); id != 3 || squareUint(t, body, 1) != 8922 {
 		t.Fatalf("bystander got msgid=%d body=%x, want deluser (3) for 8922", id, body)
 	}
-
 	a.send(5, nil)
 	id, roster := a.read()
 	if id != 8 {
-		t.Fatalf("switch cr5 reply = rc%d, want rc8", id)
+		t.Fatalf("public->secret cr5 reply = rc%d, want rc8", id)
 	}
-	aids := rosterAids(roster[len(relayResultBytes()):])
-	if len(aids) != 2 || !slices.Contains(aids, uint64(8922)) || !slices.Contains(aids, uint64(8923)) {
-		t.Fatalf("c2 roster = %v, want [8922 8923]", aids)
+	if aids := rosterAids(roster[len(relayResultBytes()):]); !slices.Equal(aids, []uint64{8922}) {
+		t.Fatalf("secret room 1 roster = %v, want [8922]", aids)
+	}
+	if !a.sess.roomSecret || a.sess.roomNo != 1 {
+		t.Fatalf("after public->secret room=(%d, secret=%v), want (1, true)", a.sess.roomNo, a.sess.roomSecret)
+	}
+
+	// 2) Secret 1 -> Secret 5032 (secret 1 is pruned).
+	a.send(2, pbVar(pbVar(nil, 1, 3), 2, 5032))
+	id, enter = a.read()
+	if id != 6 {
+		t.Fatalf("secret->secret cr2 reply = rc%d, want rc6", id)
+	}
+	a.checkEnter(enter, 3, squareTestMaps[3])
+	if code := enterRoom(enter); code != 5032 {
+		t.Fatalf("secret->secret rc6 SquareCode = %d, want 5032", code)
+	}
+	a.send(5, nil)
+	if id, _ := a.read(); id != 8 {
+		t.Fatalf("secret->secret cr5 reply = rc%d, want rc8", id)
+	}
+	if !a.sess.roomSecret || a.sess.roomNo != 5032 {
+		t.Fatalf("after secret->secret room=(%d, secret=%v), want (5032, true)", a.sess.roomNo, a.sess.roomSecret)
+	}
+
+	// 3) Secret 5032 -> Public 1 via normal GO (rc6 omits field 3, bystander gets adduser).
+	a.send(2, pbVar(nil, 1, 3))
+	id, enter = a.read()
+	if id != 6 {
+		t.Fatalf("secret->public cr2 reply = rc%d, want rc6", id)
+	}
+	a.checkEnter(enter, 3, squareTestMaps[3])
+	if code := enterRoom(enter); code != 0 {
+		t.Fatalf("secret->public rc6 SquareCode = %d, want 0 (omitted)", code)
+	}
+	a.send(5, nil)
+	if id, _ := a.read(); id != 8 {
+		t.Fatalf("secret->public cr5 reply = rc%d, want rc8", id)
 	}
 	if id, _ := a.read(); id != squareRcHighFiveTargetList {
-		t.Fatalf("player A got msgid %d, want highfive (%d)", id, squareRcHighFiveTargetList)
+		t.Fatalf("secret->public got msgid %d, want highfive (%d)", id, squareRcHighFiveTargetList)
 	}
-	if aid := expectAddUser(t, host2); aid != 8922 {
-		t.Fatalf("host2 adduser aid = %d, want 8922", aid)
+	if a.sess.roomSecret || a.sess.roomNo != 1 {
+		t.Fatalf("after secret->public room=(%d, secret=%v), want (1, false)", a.sess.roomNo, a.sess.roomSecret)
 	}
-	want := []uint64{c1, c2}
-	slices.Sort(want)
-	if got := roomNumbers(rooms, 3); !slices.Equal(got, want) {
-		t.Fatalf("rooms = %v, want %v", got, want)
+	if aid := expectAddUser(t, bystander); aid != 8922 {
+		t.Fatalf("bystander adduser after return = %d, want 8922", aid)
 	}
 }
 
-// TestSquareEnterByCodeRefusals verifies SquareCode 0, >=10000, and non-existent 4-digit codes return
-// squareEnterUnavailable without disturbing an active session or creating a room, a full target room returns
-// squareEnterFull, and a member already in that full room may re-enter.
+// TestSquareEnterByCodeRefusals verifies SquareCode 0 and >=10000 return squareEnterUnavailable without disturbing
+// an active session, a full secret shard returns squareEnterFull, and a member already in that full shard may re-enter.
 func TestSquareEnterByCodeRefusals(t *testing.T) {
 	testutil.InstallAccounts(t, withLoginAccounts(nil, 8931, 8932, 8933, 8934, 8935))
 	useRoomCap(t, 2)
 	rooms := &squareRooms{}
 
 	a := newSqClientIn(t, rooms, 1)
-	c1 := a.enterAt(8931, squareThemeID, 0)
+	if no := a.enterAt(8931, squareThemeID, 0); no != 1 {
+		t.Fatalf("player A room = %d, want 1", no)
+	}
 	roommate := newSqClientIn(t, rooms, 2)
-	if no := roommate.enterAt(8932, squareThemeID, 0); no != c1 {
-		t.Fatalf("roommate room = %d, want %d", no, c1)
+	if no := roommate.enterAt(8932, squareThemeID, 0); no != 1 {
+		t.Fatalf("roommate room = %d, want 1", no)
 	}
 	if aid := expectAddUser(t, a); aid != 8932 {
 		t.Fatalf("player A adduser aid = %d, want 8932", aid)
 	}
 
-	// Second shard c2 is full (cap 2).
+	// Secret shard 2 is full (cap 2).
 	r2a := newSqClientIn(t, rooms, 3)
 	r2b := newSqClientIn(t, rooms, 4)
-	c2 := r2a.enterAt(8933, squareThemeID, 0)
-	if no := r2b.enterAt(8934, squareThemeID, 0); no != c2 {
-		t.Fatalf("r2b room = %d, want %d", no, c2)
+	if no := r2a.enterAt(8933, squareThemeID, 2); no != 2 || !r2a.sess.roomSecret {
+		t.Fatalf("r2a room=(%d, secret=%v), want (2, true)", no, r2a.sess.roomSecret)
+	}
+	if no := r2b.enterAt(8934, squareThemeID, 2); no != 2 || !r2b.sess.roomSecret {
+		t.Fatalf("r2b room=(%d, secret=%v), want (2, true)", no, r2b.sess.roomSecret)
 	}
 	if aid := expectAddUser(t, r2a); aid != 8934 {
 		t.Fatalf("r2a adduser aid = %d, want 8934", aid)
 	}
 
-	missing := uint64(4242)
-	for missing == c1 || missing == c2 {
-		missing++
-	}
-
-	// SquareCode = 0 ("0000"), 10000, and non-existent code 4242 are refused with squareEnterUnavailable and leave A intact.
-	for _, bad := range []uint64{0, 10000, missing} {
+	// SquareCode = 0 ("0000") and 10000 are refused with squareEnterUnavailable and leave A's session intact.
+	for _, bad := range []uint64{0, 10000} {
 		a.send(2, pbVar(pbVar(nil, 1, squareThemeID), 2, bad))
 		id, body := a.read()
 		if id != 6 || squareUint(t, body, 1) != squareEnterUnavailable {
 			t.Fatalf("bad code %d: cr2 reply = rc%d/%x, want rc6 Result=%d", bad, id, body, squareEnterUnavailable)
 		}
-		if a.sess.roomNo != c1 || a.sess.player == nil {
-			t.Fatalf("bad code %d disturbed session: roomNo=%d player=%v", bad, a.sess.roomNo, a.sess.player)
+		if a.sess.roomNo != 1 || a.sess.roomSecret || a.sess.player == nil {
+			t.Fatalf("bad code %d disturbed session: roomNo=%d secret=%v player=%v", bad, a.sess.roomNo, a.sess.roomSecret, a.sess.player)
 		}
 		roommate.none()
 	}
-	if slices.Contains(roomNumbers(rooms, squareThemeID), missing) {
-		t.Fatalf("non-existent code %d must not create a room", missing)
-	}
-	// Player A is still active in c1 (cr24 player list still works).
+	// Player A is still active in public room 1 (cr24 player list still works).
 	a.send(24, nil)
 	if id, body := a.read(); id != 24 || squareUint(t, body, 1) != 2 {
 		t.Fatalf("playerlist after refused code = rc%d/%x, want rc24 count=2", id, body)
 	}
 
-	// Outsider requesting full room c2 is refused with squareEnterFull.
+	// Outsider requesting full secret room 2 is refused with squareEnterFull.
 	outsider := newSqClientIn(t, rooms, 5)
 	outsider.send(0, loginBody(8935))
 	outsider.expect(0, []byte{0x08, 0x81, 0x80, 0x08})
-	outsider.send(2, pbVar(pbVar(nil, 1, squareThemeID), 2, c2))
+	outsider.send(2, pbVar(pbVar(nil, 1, squareThemeID), 2, 2))
 	if id, body := outsider.read(); id != 6 || squareUint(t, body, 1) != squareEnterFull {
-		t.Fatalf("full room cr2 reply = rc%d/%x, want rc6 Result=%d", id, body, squareEnterFull)
+		t.Fatalf("full secret room cr2 reply = rc%d/%x, want rc6 Result=%d", id, body, squareEnterFull)
 	}
 
-	// Player already inside full room c2 re-entering SquareCode = c2 is allowed.
-	r2a.send(2, pbVar(pbVar(nil, 1, squareThemeID), 2, c2))
+	// Player already inside full secret room 2 re-entering SquareCode = 2 is allowed.
+	r2a.send(2, pbVar(pbVar(nil, 1, squareThemeID), 2, 2))
 	id, enter := r2a.read()
 	if id != 6 {
 		t.Fatalf("member re-enter cr2 reply = rc%d, want rc6", id)
 	}
 	r2a.checkEnter(enter, squareThemeID, squareTestMaps[squareThemeID])
-	if code := enterRoom(enter); code != c2 {
-		t.Fatalf("member re-enter SquareCode = %d, want %d", code, c2)
+	if code := enterRoom(enter); code != 2 {
+		t.Fatalf("member re-enter SquareCode = %d, want 2", code)
 	}
 	r2a.send(5, nil)
 	id, roster := r2a.read()
@@ -260,94 +323,5 @@ func TestSquareEnterByCodeRefusals(t *testing.T) {
 	}
 	if id, _ := r2a.read(); id != squareRcHighFiveTargetList {
 		t.Fatalf("member re-enter got msgid %d, want highfive (%d)", id, squareRcHighFiveTargetList)
-	}
-}
-
-// TestSquareShardCodesRandomized verifies newly opened shards get valid 4-digit codes in 1..9999, distinct across
-// open shards, not hardcoded to 1, 2, 3..., and shared via pending when two players enter an empty Square concurrently.
-func TestSquareShardCodesRandomized(t *testing.T) {
-	testutil.InstallAccounts(t, withLoginAccounts(nil, 8941, 8942, 8943, 8944, 8945, 8946, 8947, 8948))
-
-	firstCodes := make([]uint64, 0, 8)
-	allOnes := true
-	for i := range 8 {
-		rooms := &squareRooms{}
-		c := newSqClientIn(t, rooms, byte(i+1))
-		code := c.enterAt(8941, 3, 0)
-		if code < 1 || code > 9999 {
-			t.Fatalf("fresh registry %d gave code %d, want 1..9999", i, code)
-		}
-		if code != 1 {
-			allOnes = false
-		}
-		firstCodes = append(firstCodes, code)
-	}
-	if allOnes {
-		t.Fatalf("all 8 fresh registries returned hardcoded code 1: %v", firstCodes)
-	}
-
-	// Multiple shards in one registry (cap 2, 8 players -> 4 shards) get distinct 4-digit codes not fixed to 1..4.
-	useRoomCap(t, 2)
-	rooms := &squareRooms{}
-	seen := map[uint64]bool{}
-	opened := make([]uint64, 0, 4)
-	for i := 0; i < 8; i += 2 {
-		p1 := newSqClientIn(t, rooms, byte(i+1))
-		p2 := newSqClientIn(t, rooms, byte(i+2))
-		code := p1.enterAt(uint64(8941+i), 3, 0)
-		if n := p2.enterAt(uint64(8942+i), 3, 0); n != code {
-			t.Fatalf("pair %d second player room = %d, want %d", i/2, n, code)
-		}
-		if code < 1 || code > 9999 {
-			t.Fatalf("shard %d code = %d, want 1..9999", i/2, code)
-		}
-		if seen[code] {
-			t.Fatalf("duplicate shard code %d across open shards %v", code, opened)
-		}
-		seen[code] = true
-		opened = append(opened, code)
-	}
-	if slices.Equal(opened, []uint64{1, 2, 3, 4}) {
-		t.Fatalf("opened shard codes = %v, want randomized codes", opened)
-	}
-
-	// Two players tapping normal GO on an empty Square before either relays in land in the same random shard.
-	useRoomCap(t, 2)
-	emptyRooms := &squareRooms{}
-	p1 := newSqClientIn(t, emptyRooms, 10)
-	p2 := newSqClientIn(t, emptyRooms, 11)
-	p1.send(0, loginBody(8941))
-	p1.expect(0, []byte{0x08, 0x81, 0x80, 0x08})
-	p2.send(0, loginBody(8942))
-	p2.expect(0, []byte{0x08, 0x81, 0x80, 0x08})
-
-	p1.send(2, pbVar(nil, 1, 3))
-	id1, enter1 := p1.read()
-	p2.send(2, pbVar(nil, 1, 3))
-	id2, enter2 := p2.read()
-	if id1 != 6 || id2 != 6 {
-		t.Fatalf("concurrent cr2 replies = rc%d / rc%d, want rc6", id1, id2)
-	}
-	code1, code2 := enterRoom(enter1), enterRoom(enter2)
-	if code1 < 1 || code1 > 9999 || code1 != code2 {
-		t.Fatalf("concurrent normal-GO codes = %d and %d, want matching 1..9999", code1, code2)
-	}
-	p1.send(5, nil)
-	if id, _ := p1.read(); id != 8 {
-		t.Fatalf("p1 cr5 reply = rc%d, want rc8", id)
-	}
-	p2.send(5, nil)
-	id, roster := p2.read()
-	if id != 8 {
-		t.Fatalf("p2 cr5 reply = rc%d, want rc8", id)
-	}
-	if aids := rosterAids(roster[len(relayResultBytes()):]); !slices.Contains(aids, uint64(8941)) {
-		t.Fatalf("p2 roster = %v, want 8941 in same shard", aids)
-	}
-	if id, _ := p2.read(); id != squareRcHighFiveTargetList {
-		t.Fatalf("p2 got msgid %d, want highfive (%d)", id, squareRcHighFiveTargetList)
-	}
-	if aid := expectAddUser(t, p1); aid != 8942 {
-		t.Fatalf("p1 adduser aid = %d, want 8942", aid)
 	}
 }

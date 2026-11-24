@@ -177,18 +177,18 @@ func TestSquareInviteSendAndPush(t *testing.T) {
 }
 
 // TestSquareInviteAcceptFromGardenAndShard verifies cr36 from outside any Square (Garden/logged in only) enters
-// the friend's exact theme and shard room (including room 2 and LINE City with NPCs), and subsequent cr5
-// places both players in the same room with adduser broadcast.
+// the friend's exact theme and shard room (both public room 2 with SquareCode omitted and secret room 5032 with
+// SquareCode=5032, plus LINE City with NPCs), and subsequent cr5 places both players in the same room.
 func TestSquareInviteAcceptFromGardenAndShard(t *testing.T) {
-	testutil.InstallAccounts(t, withLoginAccounts(nil, 8821, 8822, 8823, 8824))
+	testutil.InstallAccounts(t, withLoginAccounts(nil, 8821, 8822, 8823, 8824, 8825, 8826))
 	useRoomCap(t, 2)
-	setAvatarFriends(t, [2]string{"8823", "8824"})
+	setAvatarFriends(t, [2]string{"8823", "8824"}, [2]string{"8825", "8826"})
 
 	rooms := &squareRooms{}
 	f1 := newSqClientIn(t, rooms, 1)
 	f2 := newSqClientIn(t, rooms, 2)
 	c1 := f1.enterAt(8821, 3, 0)
-	if no := f2.enterAt(8822, 3, 0); no != c1 { // room c1 now full (2/2)
+	if no := f2.enterAt(8822, 3, 0); no != c1 { // public room 1 now full (2/2)
 		t.Fatalf("f2 placed in room %d, want %d", no, c1)
 	}
 	if aid := expectAddUser(t, f1); aid != 8822 {
@@ -197,8 +197,8 @@ func TestSquareInviteAcceptFromGardenAndShard(t *testing.T) {
 
 	friend := newSqClientIn(t, rooms, 3)
 	friendRoom := friend.enterAt(8823, 3, 0)
-	if friendRoom == 0 || friendRoom == c1 {
-		t.Fatalf("friend placed in room %d, want a new shard != %d", friendRoom, c1)
+	if friendRoom != 2 {
+		t.Fatalf("friend placed in room %d, want 2", friendRoom)
 	}
 	friend.send(35, pbVar(nil, 1, 8824))
 	if id, _ := friend.read(); id != 45 {
@@ -218,8 +218,8 @@ func TestSquareInviteAcceptFromGardenAndShard(t *testing.T) {
 	if hasNpc := invitee.checkEnter(enter, 3, squareTestMaps[3]); hasNpc {
 		t.Fatalf("LINE Café enter unexpectedly carried NpcList")
 	}
-	if code := enterRoom(enter); code != friendRoom {
-		t.Fatalf("cr36 SquareCode = %d, want %d", code, friendRoom)
+	if code := enterRoom(enter); code != 0 {
+		t.Fatalf("public cr36 SquareCode = %d, want 0 (omitted)", code)
 	}
 
 	invitee.send(5, nil)
@@ -233,20 +233,62 @@ func TestSquareInviteAcceptFromGardenAndShard(t *testing.T) {
 	if id, _ := invitee.read(); id != squareRcHighFiveTargetList {
 		t.Fatalf("invitee got msgid %d, want highfive (%d)", id, squareRcHighFiveTargetList)
 	}
+	if invitee.sess.roomNo != friendRoom || invitee.sess.roomSecret {
+		t.Fatalf("invitee room=(%d, secret=%v), want (%d, false)", invitee.sess.roomNo, invitee.sess.roomSecret, friendRoom)
+	}
 
-	// Friend in room 2 gets adduser for invitee; room 1 players hear nothing.
+	// Friend in public room 2 gets adduser for invitee; room 1 players hear nothing.
 	if aid := expectAddUser(t, friend); aid != 8824 {
 		t.Fatalf("adduser aid = %d, want 8824", aid)
 	}
 	f1.none()
 	f2.none()
 
+	// Inviting into a private secret shard (5032): rc6 carries SquareCode=5032 and cr5 joins secret room 5032.
+	secretHost := newSqClientIn(t, rooms, 5)
+	if no := secretHost.enterAt(8825, 3, 5032); no != 5032 || !secretHost.sess.roomSecret {
+		t.Fatalf("secretHost room=(%d, secret=%v), want (5032, true)", no, secretHost.sess.roomSecret)
+	}
+	secretHost.send(35, pbVar(nil, 1, 8826))
+	if id, _ := secretHost.read(); id != 45 {
+		t.Fatalf("secret cr35 reply = rc%d, want rc45", id)
+	}
+	secretInvitee := newSqClientIn(t, rooms, 6)
+	secretInvitee.send(0, loginBody(8826))
+	secretInvitee.expect(0, []byte{0x08, 0x81, 0x80, 0x08})
+	secretInvitee.send(36, pbVar(nil, 1, 8825))
+	id, enter = secretInvitee.read()
+	if id != 6 {
+		t.Fatalf("secret cr36 reply = rc%d, want rc6", id)
+	}
+	secretInvitee.checkEnter(enter, 3, squareTestMaps[3])
+	if code := enterRoom(enter); code != 5032 {
+		t.Fatalf("secret cr36 SquareCode = %d, want 5032", code)
+	}
+	secretInvitee.send(5, nil)
+	id, roster = secretInvitee.read()
+	if id != 8 {
+		t.Fatalf("secret cr5 reply = rc%d, want rc8", id)
+	}
+	if aids := rosterAids(roster[len(relayResultBytes()):]); !slices.Contains(aids, uint64(8825)) {
+		t.Fatalf("secretInvitee roster = %v, want 8825", aids)
+	}
+	if id, _ := secretInvitee.read(); id != squareRcHighFiveTargetList {
+		t.Fatalf("secretInvitee got msgid %d, want highfive (%d)", id, squareRcHighFiveTargetList)
+	}
+	if !secretInvitee.sess.roomSecret || secretInvitee.sess.roomNo != 5032 {
+		t.Fatalf("secretInvitee room=(%d, secret=%v), want (5032, true)", secretInvitee.sess.roomNo, secretInvitee.sess.roomSecret)
+	}
+	if aid := expectAddUser(t, secretHost); aid != 8826 {
+		t.Fatalf("secretHost adduser aid = %d, want 8826", aid)
+	}
+
 	// Also verify LINE City (theme 1) cr36 includes its NpcList.
 	cityRooms := &squareRooms{}
-	cityFriend := newSqClientIn(t, cityRooms, 5)
+	cityFriend := newSqClientIn(t, cityRooms, 7)
 	cityFriend.enterAt(8821, squareCityThemeID, 0)
 	setAvatarFriends(t, [2]string{"8821", "8822"})
-	cityInvitee := newSqClientIn(t, cityRooms, 6)
+	cityInvitee := newSqClientIn(t, cityRooms, 8)
 	cityInvitee.send(0, loginBody(8822))
 	cityInvitee.expect(0, []byte{0x08, 0x81, 0x80, 0x08})
 	cityInvitee.send(36, pbVar(nil, 1, 8821))
@@ -293,9 +335,10 @@ func TestSquareInviteAcceptSwitchesSquare(t *testing.T) {
 		t.Fatalf("cr36 reply = rc%d, want rc6", id)
 	}
 	invitee.checkEnter(enter, 3, squareTestMaps[3])
-	if enterRoom(enter) != friendCode {
-		t.Fatalf("cr36 SquareCode = %d, want %d", enterRoom(enter), friendCode)
+	if enterRoom(enter) != 0 {
+		t.Fatalf("public cr36 SquareCode = %d, want 0 (omitted)", enterRoom(enter))
 	}
+	_ = friendCode
 
 	// Bystander on Treasure Island received deluser for invitee.
 	if id, body := bystander.read(); id != 3 || squareUint(t, body, 1) != 8832 {
@@ -356,48 +399,39 @@ func TestSquareInviteAcceptRefusals(t *testing.T) {
 	}
 }
 
-// TestSquareInviteAcceptRoomFullFallback verifies that when a friend's room reaches squareRoomCap before the
-// invitee accepts cr36, the invitee is placed in the next available room.
-func TestSquareInviteAcceptRoomFullFallback(t *testing.T) {
+// TestSquareInviteAcceptRoomFullRefused verifies that when a friend's room reaches squareRoomCap before the
+// invitee accepts cr36, cr36 returns rc6 Result=squareEnterFull (196617) instead of placing the invitee elsewhere.
+func TestSquareInviteAcceptRoomFullRefused(t *testing.T) {
 	testutil.InstallAccounts(t, withLoginAccounts(nil, 8851, 8852, 8853))
 	useRoomCap(t, 2)
 	setAvatarFriends(t, [2]string{"8851", "8853"})
 
 	rooms := &squareRooms{}
 	friend := newSqClientIn(t, rooms, 1)
-	c1 := friend.enterAt(8851, 3, 0) // room c1 (1/2)
+	if no := friend.enterAt(8851, 3, 0); no != 1 { // room 1 (1/2)
+		t.Fatalf("friend placed in room %d, want 1", no)
+	}
 
 	friend.send(35, pbVar(nil, 1, 8853))
 	if id, _ := friend.read(); id != 45 {
 		t.Fatalf("cr35 reply = rc%d, want rc45", id)
 	}
 
-	// Another player fills room c1 (2/2) before invitee accepts.
+	// Another player fills room 1 (2/2) before invitee accepts.
 	filler := newSqClientIn(t, rooms, 2)
-	if no := filler.enterAt(8852, 3, 0); no != c1 {
-		t.Fatalf("filler placed in room %d, want %d", no, c1)
+	if no := filler.enterAt(8852, 3, 0); no != 1 {
+		t.Fatalf("filler placed in room %d, want 1", no)
 	}
 
 	invitee := newSqClientIn(t, rooms, 3)
 	invitee.send(0, loginBody(8853))
 	invitee.expect(0, []byte{0x08, 0x81, 0x80, 0x08})
 	invitee.send(36, pbVar(nil, 1, 8851))
-	id, enter := invitee.read()
-	if id != 6 {
-		t.Fatalf("cr36 reply = rc%d, want rc6", id)
+	id, body := invitee.read()
+	if id != 6 || squareUint(t, body, 1) != squareEnterFull {
+		t.Fatalf("cr36 reply = rc%d/%x, want rc6 Result=%d", id, body, squareEnterFull)
 	}
-	invitee.checkEnter(enter, 3, squareTestMaps[3])
-	c2 := enterRoom(enter)
-	if c2 == 0 || c2 > 9999 || c2 == c1 {
-		t.Fatalf("cr36 fallback SquareCode = %d, want valid shard != %d", c2, c1)
-	}
-	invitee.send(5, nil)
-	if id, _ := invitee.read(); id != 8 {
-		t.Fatalf("cr5 reply = rc%d, want rc8", id)
-	}
-	want := []uint64{c1, c2}
-	slices.Sort(want)
-	if got := roomNumbers(rooms, 3); !slices.Equal(got, want) {
-		t.Fatalf("rooms = %v, want %v", got, want)
+	if got := roomNumbers(rooms, 3); !slices.Equal(got, []uint64{1}) {
+		t.Fatalf("rooms = %v, want [1] (no fallback room created)", got)
 	}
 }

@@ -29,8 +29,9 @@ func enterRoom(enter []byte) uint64 {
 	return code
 }
 
-// enterAt logs c in as aid, enters theme asking for room want (0 for none) and relays in. It returns the room number
-// the banner shows; the relaystart reply is consumed.
+// enterAt logs c in as aid, enters theme asking for room want (0 for normal GO, else secret SquareCode) and relays in.
+// It verifies rc6 omits field 3 for normal GO and sets field 3 == want for an explicit SquareCode, and returns the
+// actual joined room number from c.sess.roomNo.
 func (c *sqClient) enterAt(aid, theme, want uint64) uint64 {
 	c.t.Helper()
 	c.send(0, loginBody(aid))
@@ -45,6 +46,9 @@ func (c *sqClient) enterAt(aid, theme, want uint64) uint64 {
 		c.t.Fatalf("room enter msgid = %d", id)
 	}
 	c.checkEnter(enter, theme, squareTestMaps[theme])
+	if gotCode := enterRoom(enter); gotCode != want {
+		c.t.Fatalf("rc6 SquareCode = %d, want %d", gotCode, want)
+	}
 	c.send(5, nil)
 	id, body := c.read()
 	if id != 8 {
@@ -61,7 +65,7 @@ func (c *sqClient) enterAt(aid, theme, want uint64) uint64 {
 			c.t.Fatalf("highfive push msgid = %d, want %d", pid, squareRcHighFiveTargetList)
 		}
 	}
-	return enterRoom(enter)
+	return c.sess.roomNo
 }
 
 // roomNumbers is the numbers of the rooms of theme, lowest first.
@@ -75,7 +79,7 @@ func roomNumbers(rs *squareRooms, theme uint64) []uint64 {
 	return out
 }
 
-// A room holds the cap: the third player of a two-player room opens a second shard, and the banner shows the room codes.
+// A room holds the cap: the third player of a two-player room opens room 2, and the banner shows the room numbers.
 func TestSquareRoomFillsThenOpensNext(t *testing.T) {
 	testutil.InstallAccounts(t, withLoginAccounts(nil, 11, 22, 33))
 	useRoomCap(t, 2)
@@ -83,27 +87,23 @@ func TestSquareRoomFillsThenOpensNext(t *testing.T) {
 	a := newSqClientIn(t, rooms, 1)
 	b := newSqClientIn(t, rooms, 2)
 	c := newSqClientIn(t, rooms, 3)
-	c1 := a.enterAt(11, squareThemeID, 0)
-	if c1 == 0 || c1 > 9999 {
-		t.Fatalf("first player room %d, want 1..9999", c1)
+	if n := a.enterAt(11, squareThemeID, 0); n != 1 {
+		t.Fatalf("first player in room %d, want 1", n)
 	}
-	if n := b.enterAt(22, squareThemeID, 0); n != c1 {
-		t.Fatalf("second player in room %d, want %d", n, c1)
+	if n := b.enterAt(22, squareThemeID, 0); n != 1 {
+		t.Fatalf("second player in room %d, want 1", n)
 	}
-	c2 := c.enterAt(33, squareThemeID, 0)
-	if c2 == 0 || c2 > 9999 || c2 == c1 {
-		t.Fatalf("third player in room %d, want a new shard != %d", c2, c1)
+	if n := c.enterAt(33, squareThemeID, 0); n != 2 {
+		t.Fatalf("third player in room %d, want 2 (room 1 holds 2)", n)
 	}
-	want := []uint64{c1, c2}
-	slices.Sort(want)
-	if got := roomNumbers(rooms, squareThemeID); !slices.Equal(got, want) {
-		t.Fatalf("rooms = %v, want %v", got, want)
+	if got := roomNumbers(rooms, squareThemeID); !slices.Equal(got, []uint64{1, 2}) {
+		t.Fatalf("rooms = %v, want [1 2]", got)
 	}
 }
 
-// A player who leaves frees its space for the next entry, and a room with no players is removed.
+// A player who leaves frees its space for the next entry, and a room with no players is removed, so its number is free.
 func TestSquareLeaveFreesRoomAndPrunes(t *testing.T) {
-	testutil.InstallAccounts(t, withLoginAccounts(nil, 11, 22, 33, 44, 55, 66))
+	testutil.InstallAccounts(t, withLoginAccounts(nil, 11, 22, 33, 44, 55))
 	useRoomCap(t, 2)
 	rooms := &squareRooms{}
 	a := newSqClientIn(t, rooms, 1)
@@ -111,42 +111,25 @@ func TestSquareLeaveFreesRoomAndPrunes(t *testing.T) {
 	c := newSqClientIn(t, rooms, 3)
 	d := newSqClientIn(t, rooms, 4)
 	e := newSqClientIn(t, rooms, 5)
-	f := newSqClientIn(t, rooms, 6)
-	c1 := a.enterAt(11, squareThemeID, 0)
+	a.enterAt(11, squareThemeID, 0)
 	b.enterAt(22, squareThemeID, 0)
-	c2 := c.enterAt(33, squareThemeID, 0)
-	if c2 == c1 {
-		t.Fatalf("second shard reused %d", c1)
-	}
-	if n := d.enterAt(44, squareThemeID, 0); n != c2 {
-		t.Fatalf("fourth player in room %d, want %d", n, c2)
-	}
-	if aid := expectAddUser(t, c); aid != 44 {
-		t.Fatalf("c adduser aid = %d, want 44", aid)
-	}
-	b.send(4, nil) // c1 has space again while c2 is full
+	c.enterAt(33, squareThemeID, 0) // room 2
+	b.send(4, nil)                  // room 1 has space again
 	if id, _ := b.read(); id != 4 {
 		t.Fatalf("exit msgid = %d", id)
 	}
-	if n := e.enterAt(55, squareThemeID, 0); n != c1 {
-		t.Fatalf("newcomer in room %d, want the freed room %d", n, c1)
+	if n := d.enterAt(44, squareThemeID, 0); n != 1 {
+		t.Fatalf("newcomer in room %d, want the freed room 1", n)
 	}
-	c.send(4, nil)
+	c.send(4, nil) // room 2 is empty now: it is removed
 	if id, _ := c.read(); id != 4 {
 		t.Fatalf("exit msgid = %d", id)
 	}
-	if id, _ := d.read(); id != 3 { // deluser for c
-		t.Fatalf("d deluser msgid = %d, want 3", id)
+	if got := roomNumbers(rooms, squareThemeID); !slices.Equal(got, []uint64{1}) {
+		t.Fatalf("rooms after room 2 emptied = %v, want [1]", got)
 	}
-	d.send(4, nil) // c2 is empty now: it is removed
-	if id, _ := d.read(); id != 4 {
-		t.Fatalf("exit msgid = %d", id)
-	}
-	if got := roomNumbers(rooms, squareThemeID); !slices.Equal(got, []uint64{c1}) {
-		t.Fatalf("rooms after c2 emptied = %v, want [%d]", got, c1)
-	}
-	if c3 := f.enterAt(66, squareThemeID, 0); c3 == 0 || c3 > 9999 || c3 == c1 {
-		t.Fatalf("c1 is full, so the next player opened %d, want a new shard != %d", c3, c1)
+	if n := e.enterAt(55, squareThemeID, 0); n != 2 {
+		t.Fatalf("room 1 is full, so the next player opens room %d, want the freed 2", n)
 	}
 }
 
@@ -158,70 +141,54 @@ func TestSquareRejoinKeepsRoom(t *testing.T) {
 	a := newSqClientIn(t, rooms, 1)
 	b := newSqClientIn(t, rooms, 2)
 	c := newSqClientIn(t, rooms, 3)
-	c1 := a.enterAt(11, squareThemeID, 0)
+	a.enterAt(11, squareThemeID, 0)
 	b.enterAt(22, squareThemeID, 0)
-	c2 := c.enterAt(33, squareThemeID, 0)
-	b.send(4, nil) // c1 has space
+	c.enterAt(33, squareThemeID, 0) // room 2
+	b.send(4, nil)                  // room 1 has space
 	b.read()
-	if n := c.enterAt(33, squareThemeID, 0); n != c2 {
-		t.Fatalf("re-enter in room %d, want its room %d", n, c2)
+	if n := c.enterAt(33, squareThemeID, 0); n != 2 {
+		t.Fatalf("re-enter in room %d, want its room 2", n)
 	}
-	want := []uint64{c1, c2}
-	slices.Sort(want)
-	if got := roomNumbers(rooms, squareThemeID); !slices.Equal(got, want) {
-		t.Fatalf("rooms = %v, want %v", got, want)
+	if got := roomNumbers(rooms, squareThemeID); !slices.Equal(got, []uint64{1, 2}) {
+		t.Fatalf("rooms = %v, want [1 2]", got)
 	}
 }
 
-// Explicit SquareCode requests honour existing rooms with space and refuse non-existent or full rooms on cr2;
-// chooseLocked/pick still falls back to a room with space or a new random code when a full room is requested directly (e.g. relaystart race or invite accept).
+// Explicit SquareCode requests enter secretRooms (isolated from public shards) and refuse full secret rooms on cr2;
+// chooseLocked/pick on the public pool still falls back to firstAvailableLocked when a full public room is requested directly (e.g. relaystart race or bossAccept).
 func TestSquareRequestedRoomHonoured(t *testing.T) {
-	testutil.InstallAccounts(t, withLoginAccounts(nil, 11, 22, 33, 44, 55))
+	testutil.InstallAccounts(t, withLoginAccounts(nil, 11, 22, 33, 44, 55, 66))
 	useRoomCap(t, 2)
 	rooms := &squareRooms{}
-	var c [5]*sqClient
+	var c [6]*sqClient
 	for i := range c {
 		c[i] = newSqClientIn(t, rooms, byte(i+1))
 	}
-	c1 := c[0].enterAt(11, squareThemeID, 0)
-	if n := c[1].enterAt(22, squareThemeID, 0); n != c1 { // c1 is full
-		t.Fatalf("second player in room %d, want %d", n, c1)
+	if n := c[0].enterAt(11, squareThemeID, 0); n != 1 {
+		t.Fatalf("first player in room %d, want 1", n)
+	}
+	c[1].enterAt(22, squareThemeID, 0) // public room 1 is full
+	if n := c[2].enterAt(33, squareThemeID, 0); n != 2 {
+		t.Fatalf("third normal-GO player in room %d, want 2", n)
 	}
 
-	// Asking for full room c1 via cr2 refuses with squareEnterFull; normal GO opens c2.
-	c[2].send(0, loginBody(33))
-	c[2].expect(0, []byte{0x08, 0x81, 0x80, 0x08})
-	c[2].send(2, pbVar(pbVar(nil, 1, squareThemeID), 2, c1))
-	if id, body := c[2].read(); id != 6 || squareUint(t, body, 1) != squareEnterFull {
-		t.Fatalf("asked for full room %d = rc%d/%x, want rc6 Result=%d", c1, id, body, squareEnterFull)
+	// Asking for SquareCode = 2 enters secret room 2 (separate from public room 2).
+	if n := c[3].enterAt(44, squareThemeID, 2); n != 2 || !c[3].sess.roomSecret {
+		t.Fatalf("asked for secret room 2, got %d secret=%v", n, c[3].sess.roomSecret)
 	}
-	c2 := c[2].enterAt(33, squareThemeID, 0)
-	if c2 == c1 {
-		t.Fatalf("normal GO after refusal reused full room %d", c1)
+	if n := c[4].enterAt(55, squareThemeID, 2); n != 2 || !c[4].sess.roomSecret {
+		t.Fatalf("second player in secret room 2, got %d secret=%v", n, c[4].sess.roomSecret)
 	}
-	// pick fallback while c2 has space returns c2.
-	if n := rooms.pick(squareThemeID, 77, c1, 2); n != c2 {
-		t.Fatalf("pick fallback while %d has space = %d, want %d", c2, n, c2)
+	// Secret room 2 is now full: a third player asking for SquareCode = 2 is refused with squareEnterFull.
+	c[5].send(0, loginBody(66))
+	c[5].expect(0, []byte{0x08, 0x81, 0x80, 0x08})
+	c[5].send(2, pbVar(pbVar(nil, 1, squareThemeID), 2, 2))
+	if id, body := c[5].read(); id != 6 || squareUint(t, body, 1) != squareEnterFull {
+		t.Fatalf("asked for full secret room 2 = rc%d/%x, want rc6 Result=%d", id, body, squareEnterFull)
 	}
-	if n := c[3].enterAt(44, squareThemeID, c2); n != c2 {
-		t.Fatalf("asked for room %d with space, got %d", c2, n)
-	}
-
-	// Asking for a non-existent 4-digit code via cr2 refuses with squareEnterUnavailable.
-	missing := uint64(4242)
-	for missing == c1 || missing == c2 {
-		missing++
-	}
-	c[4].send(0, loginBody(55))
-	c[4].expect(0, []byte{0x08, 0x81, 0x80, 0x08})
-	c[4].send(2, pbVar(pbVar(nil, 1, squareThemeID), 2, missing))
-	if id, body := c[4].read(); id != 6 || squareUint(t, body, 1) != squareEnterUnavailable {
-		t.Fatalf("asked for missing room %d = rc%d/%x, want rc6 Result=%d", missing, id, body, squareEnterUnavailable)
-	}
-
-	// pick fallback when all existing rooms (c1 and c2) are full opens a new random shard code.
-	if c3 := rooms.pick(squareThemeID, 77, c1, 2); c3 == 0 || c3 > 9999 || c3 == c1 || c3 == c2 {
-		t.Fatalf("pick fallback when all rooms full = %d, want new shard != %d,%d", c3, c1, c2)
+	// Public pick fallback for full public room 1 returns public room 2 (1/2 players).
+	if n := rooms.pick(squareThemeID, 77, 1, 2); n != 2 {
+		t.Fatalf("pick fallback while public room 2 has space = %d, want 2", n)
 	}
 }
 

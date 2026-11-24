@@ -67,8 +67,10 @@ func (s *squareSession) bossSeatFor(frame []byte, sq *squareRoom) *squareBossSea
 func (rs *squareRooms) bossLobbyOf(owner uint64) *squareRoom {
 	rs.mu.Lock()
 	var rooms []*squareRoom
-	for _, list := range rs.rooms {
-		rooms = append(rooms, list...)
+	for _, pool := range []map[uint64][]*squareRoom{rs.rooms, rs.secretRooms} {
+		for _, list := range pool {
+			rooms = append(rooms, list...)
+		}
 	}
 	rs.mu.Unlock()
 	for _, sq := range rooms {
@@ -228,7 +230,16 @@ func (s *squareSession) bossJoinLobby(frame []byte) {
 	var seat *squareBossSeat
 	var others []*squareBossSeat
 	var body []byte
-	for _, sq := range s.rooms.rooms[own.theme] {
+	var candidates []*squareRoom
+	candidates = append(candidates, own)
+	for _, pool := range []map[uint64][]*squareRoom{s.rooms.rooms, s.rooms.secretRooms} {
+		for _, sq := range pool[own.theme] {
+			if sq != own {
+				candidates = append(candidates, sq)
+			}
+		}
+	}
+	for _, sq := range candidates {
 		sq.mu.Lock()
 		if r := sq.bossLobbyLocked(seats); r != nil {
 			seat = s.bossSeatFor(frame, sq)
@@ -513,14 +524,25 @@ func (s *squareSession) bossAccept(frame []byte, owner uint64) []byte {
 	// The invitee goes to the master's room when it has space, else to the normal placement (logged). The accept is the
 	// invitee's Square enter (it sends no cr2): its cr10 and relaystart (cr5) follow at once and join the number chosen
 	// here. The invitee leaves its own room only when the number changes, so an accept in the same room keeps its avatar.
-	number := s.rooms.pick(squareThemeID, 0, sq.number, squareRoomCap())
-	if number != sq.number {
-		s.logger.Printf("SQUARE fishing boss accept aid=%d room %d full, placed in room %d", s.aid, sq.number, number)
+	var number uint64
+	var targetSecret bool
+	if sq.secret {
+		if _, full := s.rooms.roomStateFor(squareThemeID, s.aid, sq.number, squareRoomCap(), true); !full {
+			number, targetSecret = sq.number, true
+		} else {
+			number = s.rooms.pick(squareThemeID, 0, 0, squareRoomCap())
+			s.logger.Printf("SQUARE fishing boss accept aid=%d secret room %d full, placed in room %d", s.aid, sq.number, number)
+		}
+	} else {
+		number = s.rooms.pick(squareThemeID, 0, sq.number, squareRoomCap())
+		if number != sq.number {
+			s.logger.Printf("SQUARE fishing boss accept aid=%d room %d full, placed in room %d", s.aid, sq.number, number)
+		}
 	}
-	if s.player != nil && (s.square.Theme != squareThemeID || number != s.roomNo) {
+	if s.player != nil && (s.square.Theme != squareThemeID || s.roomSecret != targetSecret || number != s.roomNo) {
 		s.close()
 	}
-	s.roomNo, s.square, s.entered = number, squaresFile.Get().entry(squareThemeID), true
+	s.roomNo, s.roomSecret, s.square, s.entered = number, targetSecret, squaresFile.Get().entry(squareThemeID), true
 	s.boss = seat
 	s.logger.Printf("SQUARE fishing boss accept aid=%d owner=%d members=%d left=%d", s.aid, owner, len(others)+1, left)
 	pushMembers(s.logger, others, 70, body)

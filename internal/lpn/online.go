@@ -2,6 +2,7 @@ package lpn
 
 import (
 	"cmp"
+	"fmt"
 	"net"
 	"slices"
 	"strconv"
@@ -85,11 +86,18 @@ func placesByAid() map[uint64][]Place {
 	for _, list := range defaultSquares.rooms {
 		rooms = append(rooms, list...)
 	}
+	for _, list := range defaultSquares.secretRooms {
+		rooms = append(rooms, list...)
+	}
 	defaultSquares.mu.Unlock()
 	for _, r := range rooms {
 		r.mu.Lock()
+		roomLabel := strconv.FormatUint(r.number, 10)
+		if r.secret {
+			roomLabel = fmt.Sprintf("[%04d]", r.number)
+		}
 		for _, p := range r.players {
-			out[p.aid] = append(out[p.aid], Place{Kind: "square", ID: strconv.FormatUint(r.theme, 10), Room: strconv.FormatUint(r.number, 10)})
+			out[p.aid] = append(out[p.aid], Place{Kind: "square", ID: strconv.FormatUint(r.theme, 10), Room: roomLabel})
 		}
 		r.mu.Unlock()
 	}
