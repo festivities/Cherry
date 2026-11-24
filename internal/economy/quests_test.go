@@ -43,7 +43,7 @@ func TestQuestCatalogTotalsOneHundredFifty(t *testing.T) {
 	now := jstAt(11, 12, 0) // no season: the daily rows only
 	total := int64(0)
 	for _, def := range QuestCatalog(now) {
-		if !def.Display { // the hearts row's 30 Gems are HeartSend's, not the quest machinery's
+		if !def.Display { // the hearts row's Cash reward is HeartSend's, not the quest machinery's
 			total += def.Gems
 		}
 	}
@@ -215,7 +215,7 @@ func TestQuestMarkCreditsLegacyDoneRecord(t *testing.T) {
 }
 
 // TestHeartRowNeverPaysThroughQuests: the hearts row is display-only. MarkQuest and ClaimQuest
-// refuse it, and five HeartSend hearts credit its 30 Gems once, as one heart:<day> ledger line.
+// refuse it, and five HeartSend hearts credit its Cash once, as one heart:<day> ledger line.
 func TestHeartRowNeverPaysThroughQuests(t *testing.T) {
 	questAccount(t, "9701")
 	dir := questStore(t)
@@ -230,13 +230,17 @@ func TestHeartRowNeverPaysThroughQuests(t *testing.T) {
 	if gems, code := ClaimQuest("9701", HeartQuest().ID, now); gems != 0 || code != questErrRejected {
 		t.Fatalf("claim after hearts = %d/%d, want refused", gems, code)
 	}
-	if got := questGems(t, "9701"); got != HeartRewardGems() {
-		t.Fatalf("gems = %d, want %d from HeartSend only", got, HeartRewardGems())
+	store.AccountsMu.Lock()
+	acc := store.AccountByAidLocked("9701")
+	gotGems, gotCash := acc.Gems, acc.Cash
+	store.AccountsMu.Unlock()
+	if gotCash != HeartRewardCash() || gotGems != 0 {
+		t.Fatalf("cash/gems = %d/%d, want %d/0 from HeartSend only", gotCash, gotGems, HeartRewardCash())
 	}
 	if rec := QuestProgress("9701", now); len(rec.Done) != 0 || len(rec.Claimed) != 0 {
 		t.Fatalf("quest record marked the hearts row: %+v", rec)
 	}
-	if lines := gachaLedger(t, dir); len(lines) != 1 || lines[0].Reason != "heart:20261011" {
-		t.Fatalf("ledger = %+v, want one heart:20261011 line", lines)
+	if lines := gachaLedger(t, dir); len(lines) != 1 || lines[0].Currency != "cash" || lines[0].Delta != HeartRewardCash() || lines[0].Reason != "heart:20261011" {
+		t.Fatalf("ledger = %+v, want one cash +%d heart:20261011 line", lines, HeartRewardCash())
 	}
 }

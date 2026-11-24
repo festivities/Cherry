@@ -456,8 +456,8 @@ func TestTLUPQuestListBodyAndGatewaySeed(t *testing.T) {
 		if err := json.Unmarshal([]byte(mParams), &parsed); err != nil {
 			t.Fatalf("aid %d: params JSON %q err=%v", tc.aid, mParams, err)
 		}
-		if parsed.DisplayVer != 0 || parsed.CompletedGem != 100 || parsed.ResetHour != 0 {
-			t.Fatalf("aid %d: parsed params = %+v, want display_ver=0 completed_gem=100 reset_hour=0", tc.aid, parsed)
+		if parsed.DisplayVer != 0 || parsed.CompletedGem != economy.HighFiveRewardGems || parsed.ResetHour != 0 {
+			t.Fatalf("aid %d: parsed params = %+v, want display_ver=0 completed_gem=%d reset_hour=0", tc.aid, parsed, economy.HighFiveRewardGems)
 		}
 
 		var uQid, uTarget uint64

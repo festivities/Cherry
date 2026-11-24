@@ -1,0 +1,31 @@
+{{define "page"}}<h1>Broadcast announcement</h1>
+<p class="muted">Owner only. Sends an announcement to every player currently connected on a live game session. Online sessions now: {{.Broadcast.OnlineSessions}}</p>
+
+<form method="post" action="/broadcast/send" class="card stack">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<fieldset class="stack">
+<legend class="label">Announcement type</legend>
+<label><input type="radio" name="kind" value="banner"{{if eq .Broadcast.Form.Kind "banner"}} checked{{end}}> In-game banner (non-blocking) — slides down at the top of the screen with a chime across all scenes; tapping dismisses safely.</label>
+<label><input type="radio" name="kind" value="maint"{{if eq .Broadcast.Form.Kind "maint"}} checked{{end}}> Maintenance popup (blocking) — opens the full-screen "Maintenance in progress." modal with a "Close App" button until the duration ends.</label>
+</fieldset>
+<label><span class="label">Message</span>
+<textarea name="message" rows="4" maxlength="400" required>{{.Broadcast.Form.Message}}</textarea>
+<small class="help">1 to 400 characters.</small></label>
+<label><span class="label">Duration (minutes)</span>
+<input type="text" name="duration" value="{{.Broadcast.Form.Duration}}" inputmode="numeric" maxlength="4">
+<small class="help">1 to 1440 minutes. Applies to the Maintenance popup only.</small></label>
+<label><span class="label">Reason</span>
+<input type="text" name="reason" value="{{.Broadcast.Form.Reason}}" maxlength="200" required>
+<small class="help">Written to the audit trail. 1 to 200 characters.</small></label>
+<div class="actions"><button type="submit">Send announcement</button></div>
+</form>
+
+<h2>Recent broadcasts</h2>
+<div class="scroll"><table>
+<thead><tr><th>When (UTC)</th><th>By</th><th>Action</th><th>Detail</th></tr></thead>
+<tbody>
+{{range .Broadcast.Recent}}<tr><td>{{.When}}</td><td>{{.By}}</td><td>{{.Action}}</td><td class="detail">{{.Detail}}</td></tr>
+{{else}}<tr class="empty"><td colspan="4">No broadcasts sent yet.</td></tr>{{end}}
+</tbody>
+</table></div>
+{{end}}

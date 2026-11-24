@@ -60,6 +60,7 @@ type EventQuest struct {
 type HeartRules struct {
 	Base       int64 `json:"base"`
 	RewardGems int64 `json:"reward_gems"`
+	RewardCash int64 `json:"reward_cash"`
 	FromLimit  int   `json:"from_limit"`
 }
 
@@ -107,6 +108,8 @@ func checkRewards(r *Rewards) error {
 		return errors.New("hearts.base must be at least 1")
 	case r.Hearts.RewardGems < 0:
 		return errors.New("hearts.reward_gems must not be negative")
+	case r.Hearts.RewardCash < 0:
+		return errors.New("hearts.reward_cash must not be negative")
 	case r.Hearts.FromLimit < 1:
 		return errors.New("hearts.from_limit must be at least 1")
 	case r.Mail.Sender == "":
@@ -143,8 +146,11 @@ func checkRewards(r *Rewards) error {
 				return fmt.Errorf("quest %d: the hearts row has no key", q.ID)
 			case q.Gems != 0:
 				return fmt.Errorf("quest %d: the hearts row pays hearts.reward_gems, remove gems", q.ID)
+			case q.Cash != 0:
+				return fmt.Errorf("quest %d: the hearts row pays hearts.reward_cash, remove cash", q.ID)
 			}
 			q.Gems = r.Hearts.RewardGems
+			q.Cash = r.Hearts.RewardCash
 			continue
 		}
 		if q.Key == "" || keys[q.Key] {

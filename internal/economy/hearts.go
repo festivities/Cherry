@@ -20,6 +20,9 @@ func HeartBase() int64 { return ActiveRewards().Hearts.Base }
 // HeartRewardGems is the Gems credited once a day with the HeartBase-th heart.
 func HeartRewardGems() int64 { return ActiveRewards().Hearts.RewardGems }
 
+// HeartRewardCash is the Cash credited once a day with the HeartBase-th heart.
+func HeartRewardCash() int64 { return ActiveRewards().Hearts.RewardCash }
+
 // heartRecord returns acc's heart record for day. A record from another day keeps only the
 // lifetime Received count.
 func heartRecord(acc *store.Account, day int64) store.Hearts {
@@ -80,9 +83,9 @@ func HeartSend(sender, target string, now time.Time) bool {
 	rec.Sent++
 	acc.Hearts = &rec
 	var lines []store.LedgerLine
-	if rec.Sent == HeartBase() {
+	if rec.Sent == HeartBase() && (HeartRewardGems() != 0 || HeartRewardCash() != 0) {
 		var err error
-		lines, err = store.SpendLocked(acc, store.LedgerDeltas{Gems: HeartRewardGems()}, "heart:"+questDate(day))
+		lines, err = store.SpendLocked(acc, store.LedgerDeltas{Gems: HeartRewardGems(), Cash: HeartRewardCash()}, "heart:"+questDate(day))
 		if err != nil {
 			restore()
 			log.Printf("cherry: heart reward failed aid=%s err=%v", sender, err)

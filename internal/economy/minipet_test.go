@@ -122,9 +122,11 @@ func TestMiniPetCallVisitArrangeAndCooldown(t *testing.T) {
 	clock := miniPetClock(t, time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC))
 	id := strconv.FormatInt(room.MiniPetVisitID("7001", "PUPE0000G"), 10)
 
+	wantRemainMs := strconv.FormatInt(int64(ActivePets().Minipet.FreeCallMinutes)*60*1000, 10)
 	res := miniPetResult(t, miniPetReq(t, "mp-owner", http.MethodGet, "room/call/"+id, ""))
-	if res["resultCode"] != float64(0) || res["groundLevel"] != "LEVEL_1" || res["purchasedCallFlag"] != false {
-		t.Fatalf("free call reply %v", res)
+	if res["resultCode"] != float64(0) || res["groundLevel"] != "LEVEL_1" || res["purchasedCallFlag"] != false ||
+		res["callPayCode"] != "GEM" || res["defaultCallRemainTimestamp"] != wantRemainMs {
+		t.Fatalf("free call reply %v (want remain %s)", res, wantRemainMs)
 	}
 	if status, code := miniPetErr(t, miniPetReq(t, "mp-owner", http.MethodGet, "room/call/"+id, "")); status != http.StatusBadRequest || code != errPetCooldown {
 		t.Fatalf("second free call: %d %s, want %s", status, code, errPetCooldown)
@@ -141,7 +143,8 @@ func TestMiniPetCallVisitArrangeAndCooldown(t *testing.T) {
 	}
 	row := arranged.Result.List[0]
 	want := map[string]any{"itemCode": "RUPI00007", "skinCode": "PUPE0000G", "petId": id, "avatarId": "7001",
-		"exposureYn": true, "petTouchableYn": true, "defaultCallYn": false, "exp": float64(0), "maxExp": float64(100),
+		"exposureYn": true, "petTouchableYn": true, "defaultCallYn": false, "callPayCode": "GEM",
+		"defaultCallRemainTimestamp": wantRemainMs, "exp": float64(0), "maxExp": float64(100),
 		"groundLevel": "LEVEL_1", "finalLevelYn": false}
 	for k, v := range want {
 		if row[k] != v {
@@ -149,11 +152,17 @@ func TestMiniPetCallVisitArrangeAndCooldown(t *testing.T) {
 		}
 	}
 
-	// A paid call (Gems only) starts the next visit at once, 30 Gems.
+	// A paid call (Gems only, accepting "GEM" or "") starts the next visit at once, 30 Gems.
 	body := `{"language":"en","deviceType":"x","cpId":"avtplay","coinUnit":"GEM","price":30,"petId":"` + id + `"}`
 	res = miniPetResult(t, miniPetReq(t, "mp-owner", http.MethodPost, "book/prch/call", body))
-	if res["balance"] != float64(70) || res["purchasedCallFlag"] != true {
+	if res["balance"] != float64(70) || res["purchasedCallFlag"] != true ||
+		res["callPayCode"] != "GEM" || res["defaultCallRemainTimestamp"] != wantRemainMs {
 		t.Fatalf("paid call reply %v", res)
+	}
+	emptyUnit := `{"coinUnit":"","petId":"` + id + `"}`
+	res = miniPetResult(t, miniPetReq(t, "mp-owner", http.MethodPost, "book/prch/call", emptyUnit))
+	if res["balance"] != float64(40) || res["purchasedCallFlag"] != true {
+		t.Fatalf("empty coinUnit paid call reply %v", res)
 	}
 	cash := `{"coinUnit":"CASH","petId":"` + id + `"}`
 	if status, _ := miniPetErr(t, miniPetReq(t, "mp-owner", http.MethodPost, "book/prch/call", cash)); status != http.StatusBadRequest {
@@ -290,63 +299,89 @@ func TestMiniPetBookStateAndDetail(t *testing.T) {
 
 	udog := bookList("mp-book", "UDOG")
 	g := findRow(udog, "PUPE0000G")
-	if g["interiorOwnYn"] != true || g["arrangedYn"] != true || g["exposureYn"] != false || g["defaultCallYn"] != true || g["level"] != float64(0) {
+	if g["interiorOwnYn"] != true || g["arrangedYn"] != true || g["exposureYn"] != false ||
+		g["defaultCallYn"] != true || g["level"] != float64(0) || g["callPayCode"] != "GEM" {
 		t.Fatalf("owned+placed UDOG before visit = %v", g)
 	}
 	unowned := findRow(udog, "PUPE0000I")
-	if unowned["interiorOwnYn"] != false || unowned["skinSerial"] != "" || unowned["exposureYn"] != true {
+	if unowned["interiorOwnYn"] != false || unowned["skinSerial"] != "" || unowned["exposureYn"] != true || unowned["callPayCode"] != "GEM" {
 		t.Fatalf("unowned UDOG = %v", unowned)
 	}
 
 	// 2. Start visit -> exposureYn: true, defaultCallYn: false; detail returns single PetBookRow object.
+	wantFullRemain := strconv.FormatInt(int64(ActivePets().Minipet.FreeCallMinutes)*60*1000, 10)
 	miniPetResult(t, miniPetReq(t, "mp-book", http.MethodGet, "room/call/"+visitID, ""))
 	g = findRow(bookList("mp-book", "UDOG"), "PUPE0000G")
-	if g["exposureYn"] != true || g["defaultCallYn"] != false || g["interiorOwnYn"] != true || g["arrangedYn"] != true || g["level"] != float64(0) {
+	if g["exposureYn"] != true || g["defaultCallYn"] != false || g["interiorOwnYn"] != true ||
+		g["arrangedYn"] != true || g["level"] != float64(0) || g["callPayCode"] != "GEM" ||
+		g["defaultCallRemainTimestamp"] != wantFullRemain {
 		t.Fatalf("UDOG during visit = %v", g)
 	}
 	detailVisit := miniPetResult(t, miniPetReq(t, "mp-book", http.MethodGet, "book/race/detail?petId="+visitID, ""))
-	if detailVisit["petId"] != visitID || detailVisit["exposureYn"] != true || detailVisit["defaultCallYn"] != false || detailVisit["level"] != float64(0) {
+	if detailVisit["petId"] != visitID || detailVisit["exposureYn"] != true || detailVisit["defaultCallYn"] != false ||
+		detailVisit["level"] != float64(0) || detailVisit["callPayCode"] != "GEM" ||
+		detailVisit["defaultCallRemainTimestamp"] != wantFullRemain {
 		t.Fatalf("detail visited pet = %v", detailVisit)
 	}
 
-	// 3. Visit ends while still on free-call cooldown -> exposureYn: false, defaultCallYn: false, remain > 0.
-	*clock = clock.Add(time.Duration(ActivePets().Minipet.VisitMinutes+1) * time.Minute)
+	// 3. Visit ends while still on free-call cooldown -> exposureYn: false, defaultCallYn: false, remain in ms.
+	elapsedMin := ActivePets().Minipet.VisitMinutes + 1
+	*clock = clock.Add(time.Duration(elapsedMin) * time.Minute)
+	wantRemain := int64(ActivePets().Minipet.FreeCallMinutes-elapsedMin) * 60 * 1000
 	g = findRow(bookList("mp-book", "UDOG"), "PUPE0000G")
 	remain, err := strconv.ParseInt(g["defaultCallRemainTimestamp"].(string), 10, 64)
-	if err != nil || remain <= 0 || g["defaultCallYn"] != false || g["exposureYn"] != false {
-		t.Fatalf("UDOG on cooldown = %v (remain %d, err %v)", g, remain, err)
+	if err != nil || remain != wantRemain || g["defaultCallYn"] != false || g["exposureYn"] != false || g["callPayCode"] != "GEM" {
+		t.Fatalf("UDOG on cooldown = %v (remain %d, want %d, err %v)", g, remain, wantRemain, err)
 	}
 
-	// 4. MYPET and detail for owned pets (paired and unpaired).
+	// 4. MYPET and detail for owned pets (paired and unpaired), including other player's pet lookup and zeroed cooldown.
 	const ownedPairedID, ownedUnpairedID = "700801", "700802"
 	accOwned := miniPetOwner("7008", 100, true)
 	accOwned.Pets = []store.PetItem{
 		{ID: 700801, Cd: "PUPE0000G", Name: "Mixed Breed", Rep: true},
 		{ID: 700802, Cd: room.PetItemCode(1), Name: "Legacy Pet", Room: "LEVEL_1"},
 	}
-	testutil.InstallAccounts(t, map[string]*store.Account{"mp-owned": accOwned})
+	accOwned.MiniPets = []store.MiniPetState{{Cd: "PUPE0000G", NextCall: clock.Add(2 * time.Hour).Unix(), Exp: 100}}
+	accViewer := miniPetOwner("7009", 0, false)
+	testutil.InstallAccounts(t, map[string]*store.Account{"mp-owned": accOwned, "mp-viewer": accViewer})
 	testutil.SetLab(t, "7008", false)
+	testutil.SetLab(t, "7009", false)
 
 	mine := bookList("mp-owned", "MYPET")
 	if len(mine) != 2 {
 		t.Fatalf("MYPET len = %d, want 2", len(mine))
 	}
 	for _, r := range mine {
-		if r["interiorOwnYn"] != true || r["level"] != float64(1) {
-			t.Fatalf("MYPET row missing interiorOwnYn/level: %v", r)
+		if r["interiorOwnYn"] != true || r["level"] != float64(1) || r["callPayCode"] != "GEM" || r["defaultCallRemainTimestamp"] != "0" {
+			t.Fatalf("MYPET row bad fields: %v", r)
 		}
 	}
 	pRow := findRow(mine, "PUPE0000G")
 	if pRow["itemCode"] != "RUPI00007" || pRow["arrangedYn"] != true || pRow["exposureYn"] != true || pRow["representYn"] != true {
 		t.Fatalf("MYPET paired row = %v", pRow)
 	}
+	ownedUdog := findRow(bookList("mp-owned", "UDOG"), "PUPE0000G")
+	if ownedUdog["defaultCallRemainTimestamp"] != "0" || ownedUdog["defaultCallYn"] != false || ownedUdog["callPayCode"] != "GEM" {
+		t.Fatalf("owned UDOG with pre-adoption NextCall = %v", ownedUdog)
+	}
+	arrRes := miniPetResult(t, miniPetReq(t, "mp-owned", http.MethodGet, "room/arrange/list/7008/LEVEL_1", ""))
+	arrList := arrRes["list"].([]any)
+	arrPaired := arrList[0].(map[string]any)
+	if arrPaired["defaultCallRemainTimestamp"] != "0" || arrPaired["defaultCallYn"] != false || arrPaired["callPayCode"] != "GEM" {
+		t.Fatalf("owned arrange row with pre-adoption NextCall = %v", arrPaired)
+	}
 	detailOwned := miniPetResult(t, miniPetReq(t, "mp-owned", http.MethodGet, "book/race/detail?petId="+ownedPairedID, ""))
-	if detailOwned["petId"] != ownedPairedID || detailOwned["interiorOwnYn"] != true || detailOwned["level"] != float64(1) {
+	if detailOwned["petId"] != ownedPairedID || detailOwned["interiorOwnYn"] != true || detailOwned["level"] != float64(1) || detailOwned["callPayCode"] != "GEM" {
 		t.Fatalf("detail owned paired = %v", detailOwned)
 	}
 	detailLegacy := miniPetResult(t, miniPetReq(t, "mp-owned", http.MethodGet, "book/race/detail?petId="+ownedUnpairedID, ""))
-	if detailLegacy["petId"] != ownedUnpairedID || detailLegacy["interiorOwnYn"] != true || detailLegacy["itemCode"] != room.PetItemCode(1) {
+	if detailLegacy["petId"] != ownedUnpairedID || detailLegacy["interiorOwnYn"] != true || detailLegacy["itemCode"] != room.PetItemCode(1) || detailLegacy["callPayCode"] != "GEM" {
 		t.Fatalf("detail owned unpaired = %v", detailLegacy)
+	}
+	detailOther := miniPetResult(t, miniPetReq(t, "mp-viewer", http.MethodGet, "book/race/detail?petId="+ownedPairedID, ""))
+	if detailOther["petId"] != ownedPairedID || detailOther["avatarId"] != "7008" || detailOther["skinCode"] != "PUPE0000G" ||
+		detailOther["interiorOwnYn"] != true || detailOther["callPayCode"] != "GEM" {
+		t.Fatalf("detail other player's pet = %v", detailOther)
 	}
 
 	// 5. Detail error cases: 400 for unknown/missing petId, 404 without session.

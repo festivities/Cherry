@@ -28,6 +28,7 @@ type QuestDef struct {
 	Name    string `json:"name"`
 	Desc    string `json:"desc"`
 	Gems    int64  `json:"gems"`
+	Cash    int64  `json:"cash,omitempty"`
 	Display bool   `json:"display"` // credited by another handler (hearts); MarkQuest and ClaimQuest refuse it
 }
 

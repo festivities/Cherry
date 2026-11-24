@@ -121,7 +121,7 @@ func TestRecordHighFiveDailyQuestRewardAndPersistence(t *testing.T) {
 		t.Fatalf("at 19: HighFive = %+v", snap.HighFive)
 	}
 
-	// 20th unique high-five pays +100 Gems once and writes ledger entry highfive:<day>.
+	// 20th unique high-five pays +4000 Gems once and writes ledger entry highfive:<day>.
 	count, paid, ok := RecordHighFive("100", "220")
 	if !ok || count != 20 || paid != HighFiveRewardGems {
 		t.Fatalf("20th highfive = (%d, %d, %v), want (20, %d, true)", count, paid, ok, HighFiveRewardGems)
@@ -181,7 +181,7 @@ func TestRecordHighFiveDailyQuestRewardAndPersistence(t *testing.T) {
 		t.Fatalf("post-reload 22nd = (%d, %d, %v), want (22, 0, true)", c, p, ok)
 	}
 
-	// Next game day resets Claimed so 20 more high-fives can earn another 100 Gems.
+	// Next game day resets Claimed so 20 more high-fives can earn another 4000 Gems.
 	*now = now.Add(24 * time.Hour)
 	for i := 1; i <= HighFiveDailyGoal; i++ {
 		target := strconv.Itoa(200 + i)

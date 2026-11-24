@@ -183,12 +183,17 @@ func startVisit(st store.MiniPetState, now time.Time) store.MiniPetState {
 	return st
 }
 
+// remainMillis returns the remaining cooldown in milliseconds until nextCall, clamped to 0.
+func remainMillis(nextCall int64, now time.Time) int64 {
+	return max(nextCall-now.Unix(), 0) * 1000
+}
+
 // miniPetCallReply is the reply of a call (ResPetFreeCall / ResPetCall shape).
-func miniPetCallReply(acc *store.Account, level string, paid bool, price, remain int64) map[string]any {
+func miniPetCallReply(acc *store.Account, level string, paid bool, price, remainMs int64) map[string]any {
 	return map[string]any{
 		"resultCode": 0, "balance": acc.Gems, "balanceUnit": "GEM", "purchasedCallFlag": paid,
-		"defaultCallRemainTimestamp": strconv.FormatInt(max(remain, 0), 10), "exposureYn": true, "firstVisitYn": false,
-		"callPayCode": "", "callPrice": price, "groundLevel": level,
+		"defaultCallRemainTimestamp": strconv.FormatInt(max(remainMs, 0), 10), "exposureYn": true, "firstVisitYn": false,
+		"callPayCode": "GEM", "callPrice": price, "groundLevel": level,
 	}
 }
 
@@ -236,7 +241,7 @@ func miniPetCall(w http.ResponseWriter, r *http.Request, id string) bool {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return true
 	}
-	writeMiniPetResult(w, miniPetCallReply(acc, level, false, 0, st.NextCall-now.Unix()))
+	writeMiniPetResult(w, miniPetCallReply(acc, level, false, 0, remainMillis(st.NextCall, now)))
 	return true
 }
 
@@ -272,7 +277,7 @@ func miniPetPaidCall(w http.ResponseWriter, r *http.Request) {
 		shopError(w, r, raw, errPetNotPlaced, "pet room item has not been placed")
 		return
 	}
-	if req.CoinUnit != "GEM" {
+	if req.CoinUnit != "GEM" && req.CoinUnit != "" {
 		shopError(w, r, raw, errUnknown, "gems only")
 		return
 	}
@@ -292,7 +297,7 @@ func miniPetPaidCall(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
 	}
-	writeMiniPetResult(w, miniPetCallReply(acc, level, true, rules.PaidCallGems, st.NextCall-now.Unix()))
+	writeMiniPetResult(w, miniPetCallReply(acc, level, true, rules.PaidCallGems, remainMillis(st.NextCall, now)))
 }
 
 // miniPetRows are the arrange rows of the Minipets placed on level in owner's room. exposureYn is true for an owned pet
@@ -309,11 +314,14 @@ func miniPetRows(owner *store.Account, level string, now time.Time) []map[string
 		_, owned := ownedPet(owner, pet)
 		visit := st.VisitEnd > now.Unix()
 		maxExp := miniPetMaxExp(pet)
-		remain := max(st.NextCall-now.Unix(), 0)
+		remain := int64(0)
+		if !owned {
+			remain = remainMillis(st.NextCall, now)
+		}
 		rows = append(rows, room.MiniPetArrangeRow(room.MiniPetArrange{
 			Aid: owner.Aid, Item: item, Level: level, Pet: pet, Name: PetDisplayName(pet), PetID: minipetID(owner, pet),
 			Exp: st.Exp, MaxExp: maxExp, CallRemain: remain, Exposed: owned || visit,
-			Touchable: visit && !st.Petted, CanCall: remain == 0, Final: st.Exp >= maxExp,
+			Touchable: visit && !st.Petted, CanCall: !owned && remain == 0, Final: st.Exp >= maxExp,
 		}))
 	}
 	return rows
@@ -581,6 +589,7 @@ func miniPetOwnedBookRow(acc *store.Account, p store.PetItem, sp *room.PetSpecie
 		Level:                      1,
 		RepresentYn:                p.Rep,
 		InteriorOwnYn:              true,
+		CallPayCode:                "GEM",
 		CallPrice:                  int(rules.PaidCallGems),
 		MaxPaidCallCount:           10,
 		DefaultCallRemainTimestamp: "0",
@@ -617,7 +626,10 @@ func miniPetSpeciesBookRow(acc *store.Account, sp room.PetSpecies, ownedItems ma
 		if ownsItem || arranged || owned || st.Exp > 0 || st.VisitEnd > 0 || st.NextCall > 0 {
 			petID := strconv.FormatInt(minipetID(acc, sp.Code), 10)
 			visit := st.VisitEnd > now.Unix()
-			remain := max(st.NextCall-now.Unix(), 0)
+			remain := int64(0)
+			if !owned {
+				remain = remainMillis(st.NextCall, now)
+			}
 			exposure := owned || visit
 			level := 0
 			if owned {
@@ -636,6 +648,7 @@ func miniPetSpeciesBookRow(acc *store.Account, sp room.PetSpecies, ownedItems ma
 				SkinID:                     int(sp.ID),
 				SkinCode:                   sp.Code,
 				LinkScale:                  100,
+				CallPayCode:                "GEM",
 				InteriorOwnYn:              ownsItem || owned,
 				ArrangedYn:                 arranged || (owned && ownedPetRow.Room != ""),
 				ExposureYn:                 exposure,
@@ -652,16 +665,17 @@ func miniPetSpeciesBookRow(acc *store.Account, sp room.PetSpecies, ownedItems ma
 		}
 	}
 	return room.PetBookRow{
-		RaceID:     int(sp.ID),
-		CatgCd:     sp.Catg,
-		ItemCode:   itemCode,
-		LocaleCd:   "en",
-		RaceNm:     sp.Name,
-		ExposureYn: true,
-		MaxExp:     int(sp.MaxExp),
-		SkinID:     int(sp.ID),
-		SkinCode:   sp.Code,
-		LinkScale:  100,
+		RaceID:      int(sp.ID),
+		CatgCd:      sp.Catg,
+		ItemCode:    itemCode,
+		LocaleCd:    "en",
+		RaceNm:      sp.Name,
+		CallPayCode: "GEM",
+		ExposureYn:  true,
+		MaxExp:      int(sp.MaxExp),
+		SkinID:      int(sp.ID),
+		SkinCode:    sp.Code,
+		LinkScale:   100,
 	}
 }
 
@@ -724,17 +738,29 @@ func miniPetBookDetail(w http.ResponseWriter, r *http.Request) {
 	all := PetSpecies()
 	byCode := speciesMap(all)
 	rules := ActivePets().Minipet
+	speciesOf := func(cd string) *room.PetSpecies {
+		if s, ok := byCode[cd]; ok {
+			return &s
+		}
+		return nil
+	}
 	if i := slices.IndexFunc(acc.Pets, func(p store.PetItem) bool { return p.ID == id }); i >= 0 {
 		p := acc.Pets[i]
-		var sp *room.PetSpecies
-		if s, ok := byCode[p.Cd]; ok {
-			sp = &s
-		}
-		writeMiniPetResult(w, miniPetOwnedBookRow(acc, p, sp, rules))
+		writeMiniPetResult(w, miniPetOwnedBookRow(acc, p, speciesOf(p.Cd), rules))
 		return
 	}
 	pet, ok := minipetByID(acc, id)
 	if !ok {
+		for _, other := range store.AllAccountsLocked() {
+			if other == acc {
+				continue
+			}
+			if i := slices.IndexFunc(other.Pets, func(p store.PetItem) bool { return p.ID == id }); i >= 0 {
+				p := other.Pets[i]
+				writeMiniPetResult(w, miniPetOwnedBookRow(other, p, speciesOf(p.Cd), rules))
+				return
+			}
+		}
 		httpx.WriteJSON(w, http.StatusBadRequest, `{"errorCode":"400"}`)
 		return
 	}

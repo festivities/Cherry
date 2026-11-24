@@ -46,7 +46,7 @@ func TestQuestStatusHeartBlock(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("body %s: %v", rec.Body.String(), err)
 	}
-	wantNumbers := map[string]float64{"heart": 5, "heartBase": 5, "heartRewardCoin": 30}
+	wantNumbers := map[string]float64{"heart": 5, "heartBase": 5, "heartRewardCoin": 600}
 	for k, want := range wantNumbers {
 		if v, ok := got.Result[k].(float64); !ok || v != want {
 			t.Fatalf("%s = %#v, want number %v (body %s)", k, got.Result[k], want, rec.Body.String())

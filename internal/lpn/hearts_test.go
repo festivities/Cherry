@@ -128,10 +128,11 @@ func TestRecordTLUPEvents(t *testing.T) {
 		t.Fatalf("received = %d, want %d", got, economy.HeartBase())
 	}
 	store.AccountsMu.Lock()
-	gems := store.AccountByAidLocked("9711").Gems
+	acc := store.AccountByAidLocked("9711")
+	cash, gems := acc.Cash, acc.Gems
 	store.AccountsMu.Unlock()
-	if gems != economy.HeartRewardGems() {
-		t.Fatalf("sender gems = %d, want %d", gems, economy.HeartRewardGems())
+	if cash != economy.HeartRewardCash() || gems != 0 {
+		t.Fatalf("sender cash/gems = %d/%d, want %d/0", cash, gems, economy.HeartRewardCash())
 	}
 	if notes := takeQuestNotices(9711); len(notes) != 1 || notes[0].ID != economy.HeartQuest().ID {
 		t.Fatalf("notices = %+v, want one hearts notice", notes)

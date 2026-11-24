@@ -164,7 +164,7 @@ func MiniPetArrangeRow(a MiniPetArrange) map[string]any {
 		"skinSerial": id, "skinId": PetSkinID(a.Pet), "skinCode": a.Pet,
 		"linkPosX": 0, "linkPosY": 0, "linkScale": 100, "exposureYn": a.Exposed,
 		"exp": a.Exp, "maxExp": a.MaxExp, "level": 1, "petTouchableYn": a.Touchable,
-		"callPayCode": "", "callPrice": 0, "defaultCallYn": a.CanCall,
+		"callPayCode": "GEM", "callPrice": 0, "defaultCallYn": a.CanCall,
 		"defaultCallRemainTimestamp": strconv.FormatInt(a.CallRemain, 10),
 		"petSleepingYn":              false, "finalLevelYn": a.Final, "groundLevel": a.Level,
 	}

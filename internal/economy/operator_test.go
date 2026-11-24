@@ -188,6 +188,8 @@ func TestRewardsFileRefusals(t *testing.T) {
 		{mutateDefault(t, raw, `"display": true}`, `"display": true}, {"id": 9006, "key": "", "name": "Second", "desc": "", "display": true}`), "quests need exactly one hearts row"},
 		{mutateDefault(t, raw, `"key": "square"`, `"key": "diary"`), `quest 9004: key "diary" must be unique`},
 		{mutateDefault(t, raw, `"display": true}`, `"display": true, "gems": 5}`), "the hearts row pays hearts.reward_gems"},
+		{mutateDefault(t, raw, `"display": true}`, `"display": true, "cash": 5}`), "the hearts row pays hearts.reward_cash"},
+		{mutateDefault(t, raw, `"reward_cash": 600`, `"reward_cash": -1`), "hearts.reward_cash must not be negative"},
 		{mutateDefault(t, raw, `"max_rows": 100`, `"max_rows": 0`), "mail.max_rows must be at least 1"},
 	}
 	for _, c := range cases {

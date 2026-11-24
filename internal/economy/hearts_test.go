@@ -63,27 +63,27 @@ func TestHeartSendCapsAtBase(t *testing.T) {
 	}
 }
 
-// TestHeartRewardOncePerDay: the HeartBase()-th heart credits HeartRewardGems() once; the next game
+// TestHeartRewardOncePerDay: the HeartBase()-th heart credits HeartRewardCash() once; the next game
 // day can earn it again.
 func TestHeartRewardOncePerDay(t *testing.T) {
 	heartAccounts(t, "9803", "9804")
 	day1 := jstAt(22, 12, 0)
 	sendHearts(t, "9803", "9804", int(HeartBase()-1), day1)
-	if got := heartAccount(t, "9803").Gems; got != 0 {
-		t.Fatalf("gems before the base heart = %d, want 0", got)
+	if acc := heartAccount(t, "9803"); acc.Cash != 0 || acc.Gems != 0 {
+		t.Fatalf("balances before the base heart = cash %d gems %d, want 0/0", acc.Cash, acc.Gems)
 	}
 	sendHearts(t, "9803", "9804", 1, day1)
-	if got := heartAccount(t, "9803").Gems; got != HeartRewardGems() {
-		t.Fatalf("gems after base heart = %d, want %d", got, HeartRewardGems())
+	if acc := heartAccount(t, "9803"); acc.Cash != HeartRewardCash() || acc.Gems != 0 {
+		t.Fatalf("balances after base heart = cash %d gems %d, want %d/0", acc.Cash, acc.Gems, HeartRewardCash())
 	}
 	HeartSend("9803", "9804", day1) // refused: already at base, no second reward
-	if got := heartAccount(t, "9803").Gems; got != HeartRewardGems() {
-		t.Fatalf("gems after refused heart = %d, want %d", got, HeartRewardGems())
+	if acc := heartAccount(t, "9803"); acc.Cash != HeartRewardCash() || acc.Gems != 0 {
+		t.Fatalf("balances after refused heart = cash %d gems %d, want %d/0", acc.Cash, acc.Gems, HeartRewardCash())
 	}
 	day2 := jstAt(23, 12, 0)
 	sendHearts(t, "9803", "9804", int(HeartBase()), day2)
-	if got := heartAccount(t, "9803").Gems; got != 2*HeartRewardGems() {
-		t.Fatalf("gems after day 2 = %d, want %d", got, 2*HeartRewardGems())
+	if acc := heartAccount(t, "9803"); acc.Cash != 2*HeartRewardCash() || acc.Gems != 0 {
+		t.Fatalf("balances after day 2 = cash %d gems %d, want %d/0", acc.Cash, acc.Gems, 2*HeartRewardCash())
 	}
 }
 
@@ -160,7 +160,7 @@ func TestHeartSendersBounded(t *testing.T) {
 	}
 }
 
-// TestHeartLedgerLine: the reward writes one gems line with reason heart:<yyyymmdd>.
+// TestHeartLedgerLine: the reward writes one cash line with reason heart:<yyyymmdd>.
 func TestHeartLedgerLine(t *testing.T) {
 	heartAccounts(t, "9830", "9831")
 	testutil.UseDatabase(t)
@@ -169,8 +169,8 @@ func TestHeartLedgerLine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(lines) != 1 || lines[0].Aid != "9830" || lines[0].Currency != "gems" || lines[0].Delta != HeartRewardGems() || lines[0].Reason != "heart:20261022" {
-		t.Fatalf("ledger = %+v, want one gems +%d heart:20261022 line", lines, HeartRewardGems())
+	if len(lines) != 1 || lines[0].Aid != "9830" || lines[0].Currency != "cash" || lines[0].Delta != HeartRewardCash() || lines[0].Reason != "heart:20261022" {
+		t.Fatalf("ledger = %+v, want one cash +%d heart:20261022 line", lines, HeartRewardCash())
 	}
 }
 
@@ -186,8 +186,8 @@ func TestHeartSaveFailureRollsBack(t *testing.T) {
 	if HeartSend("9840", "9841", jstAt(22, 12, 0)) {
 		t.Fatal("heart counted despite a failed save")
 	}
-	if got := heartAccount(t, "9840"); got.Hearts != nil || got.Gems != 0 {
-		t.Fatalf("sender changed: hearts=%+v gems=%d", got.Hearts, got.Gems)
+	if got := heartAccount(t, "9840"); got.Hearts != nil || got.Gems != 0 || got.Cash != 0 {
+		t.Fatalf("sender changed: hearts=%+v gems=%d cash=%d", got.Hearts, got.Gems, got.Cash)
 	}
 	if got := HeartsReceived("9841"); got != 0 {
 		t.Fatalf("target received = %d after failed save", got)

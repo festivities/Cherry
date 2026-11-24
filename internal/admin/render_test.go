@@ -84,7 +84,7 @@ func TestPagesHaveNoInlineMarkup(t *testing.T) {
 		"/circles", "/circles/999999",
 		"/photos", "/photos?kind=diary&player=7101",
 		"/online", "/online?notice=kicked", "/economy", "/economy?window=7d", "/activity",
-		"/mail", "/mail?player=" + strconv.FormatInt(id, 10), "/mail/sent", "/search?q=render", "/search",
+		"/mail", "/mail?player=" + strconv.FormatInt(id, 10), "/mail/sent", "/balances", "/broadcast", "/search?q=render", "/search",
 		"/settings", "/settings?notice=staff-added", "/settings?notice=chat-days-saved",
 		base + "?window=7d", base + "?window=all", base + "/avatar/move", base + "/avatar/move?to=dev-other",
 		"/players/deleted/999999/restore",

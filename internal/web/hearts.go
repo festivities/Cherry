@@ -33,10 +33,14 @@ func handleQuestStatus(w http.ResponseWriter, r *http.Request) {
 	if left == 0 {
 		progress = "COMPLETED"
 	}
+	rewardCoin := economy.HeartRewardGems()
+	if economy.HeartRewardCash() > 0 && economy.HeartRewardGems() == 0 {
+		rewardCoin = economy.HeartRewardCash()
+	}
 	body, _ := json.Marshal(map[string]any{"result": map[string]any{
 		"heart":           left,
 		"heartBase":       economy.HeartBase(),
-		"heartRewardCoin": economy.HeartRewardGems(),
+		"heartRewardCoin": rewardCoin,
 		"questProgress":   progress,
 		"toExpire":        strconv.FormatInt(economy.HeartResetSeconds(now), 10),
 	}})

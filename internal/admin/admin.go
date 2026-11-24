@@ -59,10 +59,13 @@ type Server struct {
 	rate rateRing      // the request counter's recent readings (the dashboard's requests per minute)
 	stop chan struct{} // closed by Shutdown: ends sampleLoop
 
-	// The Insights (insights.go, online.go): the live connections and the kick's close are fields, so tests can supply their own.
-	online   func() []lpn.Connection // lpn.Online
-	closeAid func(aid string)        // lpn.CloseAid: ends an account's live connections (the kick)
-	memo     memo                    // the Insights aggregates, kept for insightsTTL
+	// The Insights (insights.go, online.go) and Broadcast (broadcast.go): live-session hooks, so tests can supply their own.
+	online          func() []lpn.Connection                                 // lpn.Online
+	closeAid        func(aid string)                                        // lpn.CloseAid: ends an account's live connections (the kick)
+	sessionCount    func() int                                              // lpn.SessionCount
+	broadcastBanner func(message string) (int, int)                         // lpn.BroadcastBanner
+	broadcastMaint  func(message string, duration time.Duration) (int, int) // lpn.BroadcastMaintPopup
+	memo            memo                                                    // the Insights aggregates, kept for insightsTTL
 
 	srv *http.Server
 }
@@ -95,13 +98,16 @@ func New(cfg config.Config, logger *log.Logger) (*Server, error) {
 	}
 	s := &Server{
 		cfg: cfg, logger: logger, now: time.Now, port: port,
-		logins:   map[[32]byte]*loginState{},
-		sessions: map[[32]byte]*session{},
-		blocked:  map[string]time.Time{},
-		stop:     make(chan struct{}),
-		online:   lpn.Online,
-		closeAid: lpn.CloseAid,
-		memo:     memo{items: map[string]memoItem{}},
+		logins:          map[[32]byte]*loginState{},
+		sessions:        map[[32]byte]*session{},
+		blocked:         map[string]time.Time{},
+		stop:            make(chan struct{}),
+		online:          lpn.Online,
+		closeAid:        lpn.CloseAid,
+		sessionCount:    lpn.SessionCount,
+		broadcastBanner: lpn.BroadcastBanner,
+		broadcastMaint:  lpn.BroadcastMaintPopup,
+		memo:            memo{items: map[string]memoItem{}},
 		limits: limits{
 			loginMinute:    auth.NewLimiter(10, time.Minute),
 			loginHour:      auth.NewLimiter(60, time.Hour),
@@ -239,6 +245,8 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /balances", s.page(s.handleBalances))
 	mux.HandleFunc("POST /balances/review", s.action(true, maxBodySmall, s.handleBalancesReview))
 	mux.HandleFunc("POST /balances/apply", s.action(true, maxBodySmall, s.handleBalancesApply))
+	mux.HandleFunc("GET /broadcast", s.page(s.handleBroadcast))
+	mux.HandleFunc("POST /broadcast/send", s.action(true, maxBodySmall, s.handleBroadcastSend))
 	mux.HandleFunc("GET /search", s.page(s.handleSearch))
 	mux.HandleFunc("GET /online", s.page(s.handleOnline))
 	mux.HandleFunc("GET /economy", s.page(s.handleEconomy))

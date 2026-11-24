@@ -15,7 +15,7 @@ const (
 
 	// HighFiveRewardGems is the daily completion reward credited once per game day
 	// when HighFiveDailyGoal is reached.
-	HighFiveRewardGems int64 = 100
+	HighFiveRewardGems int64 = 4000
 )
 
 // HighFiveProgress returns aid's Square high-five progress for the current 06:00 JST

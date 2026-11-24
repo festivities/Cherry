@@ -30,7 +30,7 @@ type navGroup struct {
 
 var navGroups = []navGroup{
 	{"Overview", []link{{Href: "/", Label: "Dashboard"}}},
-	{"Players", []link{{Href: "/players", Label: "Players"}, {Href: "/players/deleted", Label: "Deleted avatars"}, {Href: "/mail", Label: "Mail"}, {Href: "/balances", Label: "All balances"}}},
+	{"Players", []link{{Href: "/players", Label: "Players"}, {Href: "/players/deleted", Label: "Deleted avatars"}, {Href: "/mail", Label: "Mail"}, {Href: "/balances", Label: "All balances"}, {Href: "/broadcast", Label: "Broadcast"}}},
 	{"Moderation", []link{{Href: "/reports", Label: "Reports"}, {Href: "/chat", Label: "Chat log"}, {Href: "/diary", Label: "Diary entries"}, {Href: "/circles", Label: "Circles"}, {Href: "/photos", Label: "Photos"}}},
 	{"Insights", []link{{Href: "/online", Label: "Online now"}, {Href: "/economy", Label: "Economy"}, {Href: "/activity", Label: "Activity"}, {Href: "/geography", Label: "Geography"}}},
 	{"Content", []link{{Href: "/docs", Label: "Documents"}}},
@@ -83,6 +83,7 @@ var notices = map[string]string{
 	"circle-edited":             "The circle details are saved. The audit trail has the line and your reason.",
 	"circle-member-removed":     "The member is removed from the circle. The audit trail has the line and your reason.",
 	"circle-disbanded":          "The circle is disbanded. Its members are removed and the audit trail has the line.",
+	"broadcast-sent":            "The announcement was sent to all currently online players. The audit trail has the line.",
 }
 
 // check is a validation result shown on a version page, or next to the draft editor when a draft just saved was refused
@@ -164,12 +165,13 @@ type view struct {
 	Geography *geographyView
 	Summary   insightsSummary // the dashboard's row
 
-	// the player page (playerpage.go), mail (mail.go), balances (balances.go), search (search.go), settings (settings.go)
-	Page     playerPage
-	Mail     mailPage
-	Balances balancesPage
-	Search   searchPage
-	Settings settingsPage
+	// the player page (playerpage.go), mail (mail.go), balances (balances.go), broadcast (broadcast.go), search (search.go), settings (settings.go)
+	Page      playerPage
+	Mail      mailPage
+	Balances  balancesPage
+	Broadcast *broadcastPage
+	Search    searchPage
+	Settings  settingsPage
 
 	// deleted avatars (deleted.go): the list rows and one record
 	DeletedRows   []deletedRow
@@ -242,8 +244,8 @@ func whoOf(sess session) string {
 	return id
 }
 
-// ownerLinks are the sidebar entries the owner alone sees (Settings, and the balances of every player).
-var ownerLinks = []string{"/settings", "/balances"}
+// ownerLinks are the sidebar entries the owner alone sees (Settings, Broadcast, and the balances of every player).
+var ownerLinks = []string{"/settings", "/balances", "/broadcast"}
 
 // navFor copies the sidebar and marks the entry of the area p is in ("/players/5" is in "/players"). The owner's entries are
 // left out of the copy for anyone else.

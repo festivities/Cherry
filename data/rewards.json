@@ -20,7 +20,7 @@
     {"id": 9302, "key": "atelier-craft", "season": "newyear", "name": "New Year: Craft in the Atelier", "desc": "Make one item in the Atelier today.", "gems": 15},
     {"id": 9303, "key": "square-fish", "season": "newyear", "name": "New Year: Catch a fish in Square", "desc": "Land one fish in Square fishing today.", "gems": 15}
   ],
-  "hearts": {"base": 5, "reward_gems": 30, "from_limit": 50},
+  "hearts": {"base": 5, "reward_gems": 0, "reward_cash": 600, "from_limit": 50},
   "mail": {"sender": "Cherry Staff", "default_days": 30, "max_amount": 1000000, "max_rows": 100},
   "birthday": {"claim_days": 7, "gacha_discount_percent": 30, "discount_days": 7}
 }

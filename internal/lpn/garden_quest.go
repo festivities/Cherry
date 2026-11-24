@@ -15,7 +15,8 @@ import (
 // complete 18, reject 19. Replies: list 21, info 22, accept 24, complete 25, reject 26.
 // Field numbers and required bits come from quests.md section 10.
 const (
-	gardenQuestGemView    = 4  // ItemViewType/ViewType of the Gem icon [I]; 3 draws the rainbow C coin (device), quests.md 10.4
+	gardenQuestCashView   = 3  // ItemViewType/ViewType of the rainbow C coin (device), quests.md 10.4
+	gardenQuestGemView    = 4  // ItemViewType/ViewType of the Gem icon [I]
 	gardenQuestRewardType = 11 // EVENT_REWARD.RewardType that opens the reward popup [I]
 )
 
@@ -53,8 +54,12 @@ func gardenQuestInfo(def economy.QuestDef, status, current, complete uint64) []b
 	detail := pbVar(nil, 1, 1)          // QuestDetail.Index
 	detail = pbVar(detail, 3, current)  // CurrentCount
 	detail = pbVar(detail, 4, complete) // CompleteCount
-	reward := pbVar(nil, 1, gardenQuestGemView)
-	reward = pbVar(reward, 3, uint64(def.Gems)) // ItemCount, the amount the cell shows
+	view, count := uint64(gardenQuestGemView), uint64(def.Gems)
+	if def.Cash > 0 && def.Gems == 0 {
+		view, count = gardenQuestCashView, uint64(def.Cash)
+	}
+	reward := pbVar(nil, 1, view)
+	reward = pbVar(reward, 3, count) // ItemCount, the amount the cell shows
 	info := pbVar(nil, 1, uint64(def.ID))
 	info = pbLen(info, 2, []byte(def.Name))
 	info = pbLen(info, 5, detail)
