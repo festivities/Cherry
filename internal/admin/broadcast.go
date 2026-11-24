@@ -15,7 +15,7 @@ import (
 )
 
 // Online announcement broadcast (owner only): pushes either a non-blocking top notification banner
-// (catg "notice", pType "PBO") or a blocking maintenance popup (catg "maint", displayType "POPUP")
+// (catg "postbox", pType "PBO") or a blocking maintenance popup (catg "maint", displayType "POPUP")
 // to every currently connected :10123 session, then writes an audit row.
 
 const (

@@ -92,7 +92,7 @@ func TestBroadcastBannerAndMaintPopup(t *testing.T) {
 		if m.op != loOpPush || m.txn != 0 {
 			t.Fatalf("banner op=%#02x txn=%d, want 0x1b txn 0", m.op, m.txn)
 		}
-		assertPushNotiJSON(t, m.payload, "notice", "1732450000123", "0", "Server restarting soon!", "PBO", 0, nil)
+		assertPushNotiJSON(t, m.payload, "postbox", "1732450000123", "0", "Server restarting soon!", "PBO", 0, nil)
 	}
 	if res := <-done; res.sent != 2 || res.failed != 0 {
 		t.Fatalf("BroadcastBanner = (%d, %d), want (2, 0)", res.sent, res.failed)

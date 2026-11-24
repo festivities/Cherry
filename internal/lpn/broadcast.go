@@ -63,13 +63,14 @@ func broadcastLOFrame(frame []byte) (sent, failed int) {
 }
 
 // BroadcastBanner sends a non-blocking in-game top notification banner and chime
-// (catg "notice", params.pType "PBO", ShowPushMessage) to every live :10123 session.
+// (catg "postbox" -> PushNotiType=4, params.pType "PBO" is a no-op on tap, ShowPushMessage)
+// to every live :10123 session.
 func BroadcastBanner(message string) (sent, failed int) {
 	if strings.TrimSpace(message) == "" {
 		return 0, 0
 	}
 	payload, err := json.Marshal(pushNotiPayload{
-		Catg:          "notice",
+		Catg:          "postbox",
 		MsgID:         strconv.FormatInt(economy.NowFunc().UnixMilli(), 10),
 		Sender:        "0",
 		Content:       message,
