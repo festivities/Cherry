@@ -121,13 +121,15 @@ func (c *lockedConn) SetDeadline(t time.Time) error {
 }
 
 type squarePlayer struct {
-	aid     uint64
-	conn    *lockedConn
-	b1      byte
-	sid     [8]byte
-	avatar  []byte // encoded _AvatarInfo
-	x, y, d uint64 // guarded by squareRoom.mu
-	seat    []byte // encoded _player_interaction while seated (PlayerInfo.Interaction); guarded by squareRoom.mu
+	aid       uint64
+	conn      *lockedConn
+	b1        byte
+	sid       [8]byte
+	avatar    []byte // encoded _AvatarInfo; guarded by squareRoom.mu once joined
+	x, y, d   uint64 // guarded by squareRoom.mu
+	seat      []byte // encoded _player_interaction while seated (PlayerInfo.Interaction); guarded by squareRoom.mu
+	ridePetID uint64 // active mounted pet_id (0 if not riding); guarded by squareRoom.mu
+	rideState uint64 // non-zero while riding ridePetID; guarded by squareRoom.mu
 }
 
 // squareRoom is one room of a Square: the players in it see each other and no one else. number is the room's number within
@@ -431,6 +433,10 @@ func squareSex(gender string) uint64 {
 }
 
 func squareAvatarInfo(aid uint64) []byte {
+	return squareAvatarInfoWithRide(aid, 0, 0)
+}
+
+func squareAvatarInfoWithRide(aid, ridePetID, rideState uint64) []byte {
 	id := strconv.FormatUint(aid, 10)
 	acc, ok := store.AccountByAvatarID(id)
 	if !ok {
@@ -447,6 +453,9 @@ func squareAvatarInfo(aid uint64) []byte {
 	b = pbVar(b, 4, squareSex(acc.Gender))
 	b = pbLen(b, 6, []byte(acc.Country))
 	b = pbLen(b, 10, []byte(acc.Skin))
+	if pet := squareFollowPetBaseInfo(aid, ridePetID, rideState); pet != nil {
+		b = pbLen(b, 23, pet) // SQUARE::_AvatarInfo.pet (repeated PetBaseInfo)
+	}
 	for _, code := range acc.ItemCodes {
 		if n, ok := SquareNumericItem(code); ok {
 			b = pbLen(b, 24, pbVar(nil, 1, n))
@@ -787,6 +796,8 @@ func (s *squareSession) handleData(frame []byte) error {
 		return s.reply(frame, 24, body)
 	case 25, 26, 27, 28, 29, 30, 59, 87, 88, 89, 90, 91: // fishing: cast, book, shop, bag, gear (square_fishing.go)
 		return s.handleFishing(frame, msgid, data)
+	case 38, 39, 40, 92: // follow/ride pets in Square: action, interaction, move, ride (square_pets.go)
+		return s.handleSquarePet(frame, msgid, data)
 	case 45, 54, 56, 57: // boss try, banner and book (square_boss.go); the lobby and battle requests are handled above the relay gate
 		return s.handleBoss(frame, msgid, data)
 	case 52, 53: // Boss Coin exchange office: list, buy (square_exchange.go)

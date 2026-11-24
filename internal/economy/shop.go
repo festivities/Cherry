@@ -320,6 +320,15 @@ func petCategory(kind string, n int64, ride bool) string {
 	return "UTOY"
 }
 
+// PetCategoryCode returns the client pet category code ("UDOG", "UCAT", "UTOY", "URIDE") for a pet skin code,
+// defaulting to "UTOY" when the catalog does not list it.
+func PetCategoryCode(code string) string {
+	if it := loadCatalog().byCode[code]; it != nil && it.Catg != "" {
+		return it.Catg
+	}
+	return "UTOY"
+}
+
 func scanCatalog(archive *assets.Store) *shopCatalog {
 	c := &shopCatalog{archive: archive, originals: archive.Items(), generated: assets.GeneratedItems(), gardens: gardensFile.Get(), byCode: map[string]*shopItem{}, animated: map[string]bool{}, petItems: map[string]*shopItem{}}
 	for _, sub := range []string{"custom", "dress", "interior", "tile", "pet"} {
