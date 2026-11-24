@@ -133,14 +133,30 @@ func TestSquareHighFiveJoinAndAchieve(t *testing.T) {
 	}
 	p2.none()
 
-	// Symmetric dedup: p2 -> p1 on the same game day ALSO fails (p2 count=0), p1 gets nothing.
+	// One-way dedup: p2 -> p1 on the same game day succeeds once for p2's own count (count=1),
+	// broadcasting result=1 to both p2 and p1; repeat p2 -> p1 then fails.
+	p2.send(squareCrHighFiveAchieve, pbVar(nil, 1, 101))
+	for _, tc := range []struct {
+		name string
+		c    *sqClient
+	}{{"p2", p2}, {"p1", p1}} {
+		id, body := tc.c.read()
+		if id != squareRcHighFiveAchieve {
+			t.Fatalf("%s reverse achieve msgid = %d, want %d", tc.name, id, squareRcHighFiveAchieve)
+		}
+		got := decodeHighFiveAchieve(t, body)
+		if !got.hasResult || got.result != 1 || got.myAid != 202 || got.targetAid != 101 || got.count != 1 || got.hasSerial {
+			t.Fatalf("%s reverse achieve = %+v, want result=1 my=202 target=101 count=1 serial=false", tc.name, got)
+		}
+	}
+
 	p2.send(squareCrHighFiveAchieve, pbVar(nil, 1, 101))
 	if id, body := p2.read(); id != squareRcHighFiveAchieve {
-		t.Fatalf("reverse p2 msgid = %d, want %d", id, squareRcHighFiveAchieve)
+		t.Fatalf("repeat p2 msgid = %d, want %d", id, squareRcHighFiveAchieve)
 	} else {
 		got := decodeHighFiveAchieve(t, body)
-		if !got.hasResult || got.result != 0 || got.myAid != 202 || got.targetAid != 101 || got.count != 0 || got.hasSerial {
-			t.Fatalf("reverse p2 achieve = %+v, want result=0 my=202 target=101 count=0 serial=false", got)
+		if !got.hasResult || got.result != 0 || got.myAid != 202 || got.targetAid != 101 || got.count != 1 || got.hasSerial {
+			t.Fatalf("repeat p2 achieve = %+v, want result=0 my=202 target=101 count=1 serial=false", got)
 		}
 	}
 	p1.none()
@@ -171,7 +187,7 @@ func TestSquareHighFiveJoinAndAchieve(t *testing.T) {
 	p1.none()
 	p2.none()
 
-	// Rejoin by p2 after p1 -> p2: p1 is NOT pushed in msgid 26 to p2 either (symmetric).
+	// Rejoin by p2 after p2 -> p1: p1 is NOT pushed in msgid 26 to p2 either.
 	p2.send(2, pbVar(nil, 1, squareThemeID))
 	if id, _ := p2.read(); id != 6 {
 		t.Fatalf("p2 rejoin enter msgid = %d, want 6", id)
@@ -229,6 +245,20 @@ func TestSquareHighFiveRejoinFiltersDoneOnlyAndResetsOnNewDay(t *testing.T) {
 	p1.read() // 8
 	if id, body := p1.read(); id != squareRcHighFiveTargetList || !slices.Equal(decodeHighFiveTargets(t, body), []uint64{303}) {
 		t.Fatalf("p1 rejoin push = msgid %d targets %v, want [303]", id, decodeHighFiveTargets(t, body))
+	}
+	p1.none()
+	p2.none()
+	p3.none()
+
+	// p2 rejoins: p1 -> p2 did NOT mark p2's Targets, so p2 still receives both [101, 303].
+	p2.send(2, pbVar(nil, 1, squareThemeID))
+	p2.read() // 6
+	p2.send(5, nil)
+	p2.read() // 8
+	if id, body := p2.read(); id != squareRcHighFiveTargetList {
+		t.Fatalf("p2 rejoin push msgid = %d, want %d", id, squareRcHighFiveTargetList)
+	} else if got := decodeHighFiveTargets(t, body); len(got) != 2 || !slices.Contains(got, 101) || !slices.Contains(got, 303) {
+		t.Fatalf("p2 rejoin push targets = %v, want [101 303]", got)
 	}
 	p1.none()
 	p2.none()

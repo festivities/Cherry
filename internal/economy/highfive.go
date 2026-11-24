@@ -29,11 +29,12 @@ func HighFiveProgress(aid string) (count int, targets []string, goal int, reward
 	return snap.HighFive.Count, snap.HighFive.Targets, HighFiveDailyGoal, HighFiveRewardGems
 }
 
-// RecordHighFive records a symmetric player-to-player Square high-five from aid to
-// targetAid on the current 06:00 JST game day. Neither aid -> targetAid nor
-// targetAid -> aid can repeat on the same game day. Reaching HighFiveDailyGoal
-// credits HighFiveRewardGems once per game day via an atomic ledger+account save.
-// There is no hard cap on additional unique high-fives after the goal is reached.
+// RecordHighFive records a one-way player-to-player Square high-five from aid to
+// targetAid on the current 06:00 JST game day. Each initiator can high-five a given
+// target once per 06:00 JST game day (A -> B is deduplicated for A, while B -> A
+// remains allowed for B's own quest). Reaching HighFiveDailyGoal credits
+// HighFiveRewardGems once per game day via an atomic ledger+account save. There is
+// no hard cap on additional unique high-fives after the goal is reached.
 func RecordHighFive(aid, targetAid string) (count int, paidGems int64, ok bool) {
 	if aid == "" || targetAid == "" || aid == targetAid {
 		return 0, 0, false
@@ -52,24 +53,17 @@ func RecordHighFive(aid, targetAid string) (count int, paidGems int64, ok bool) 
 	if curAcc.Day != day {
 		curAcc = store.HighFiveDay{Day: day}
 	}
-	curTarget := target.HighFive
-	if curTarget.Day != day {
-		curTarget = store.HighFiveDay{Day: day}
-	}
 
-	if slices.Contains(curAcc.Targets, targetAid) || slices.Contains(curTarget.Targets, aid) {
+	if slices.Contains(curAcc.Targets, targetAid) {
 		return curAcc.Count, 0, false
 	}
 
 	prevAcc := *acc
-	prevTarget := *target
 	prevCount := curAcc.Count
 
 	curAcc.Targets = append(slices.Clone(curAcc.Targets), targetAid)
 	curAcc.Count++
-	curTarget.Targets = append(slices.Clone(curTarget.Targets), aid)
 	acc.HighFive = curAcc
-	target.HighFive = curTarget
 
 	var lines []store.LedgerLine
 	if acc.HighFive.Count >= HighFiveDailyGoal && !acc.HighFive.Claimed {
@@ -78,16 +72,14 @@ func RecordHighFive(aid, targetAid string) (count int, paidGems int64, ok bool) 
 		lines, err = store.SpendLocked(acc, store.LedgerDeltas{Gems: HighFiveRewardGems}, fmt.Sprintf("highfive:%d", day))
 		if err != nil {
 			*acc = prevAcc
-			*target = prevTarget
 			log.Printf("cherry: highfive reward failed aid=%s err=%v", aid, err)
 			return prevCount, 0, false
 		}
 		paidGems = HighFiveRewardGems
 	}
 
-	if err := store.SaveLocked(lines, acc, target); err != nil {
+	if err := store.SaveLocked(lines, acc); err != nil {
 		*acc = prevAcc
-		*target = prevTarget
 		log.Printf("cherry: highfive save failed aid=%s target=%s err=%v", aid, targetAid, err)
 		return prevCount, 0, false
 	}

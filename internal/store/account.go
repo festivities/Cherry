@@ -166,7 +166,7 @@ type Account struct {
 // HighFiveDay holds one game day (06:00 JST boundary) of Square high-five state.
 type HighFiveDay struct {
 	Day     int64    `json:"day,omitempty"`
-	Targets []string `json:"targets,omitempty"` // other aids high-fived today (symmetric A <-> B)
+	Targets []string `json:"targets,omitempty"` // other aids high-fived today (one-way per initiator, 06:00 JST game day)
 	Count   int      `json:"count,omitempty"`   // high-fives initiated by this account today
 	Claimed bool     `json:"claimed,omitempty"` // daily 100-Gem quest reward paid today
 }

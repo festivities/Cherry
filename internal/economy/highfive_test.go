@@ -34,7 +34,7 @@ func pinEconomyClock(t *testing.T, initial time.Time) *time.Time {
 	return &now
 }
 
-func TestRecordHighFiveSymmetricAndRollover(t *testing.T) {
+func TestRecordHighFiveOneWayAndRollover(t *testing.T) {
 	installHighFiveAccounts(t, "101", "202")
 	// 05:59 JST on Nov 24 -> before 06:00 JST rollover.
 	now := pinEconomyClock(t, time.Date(2026, 11, 24, 5, 59, 0, 0, jst))
@@ -50,10 +50,18 @@ func TestRecordHighFiveSymmetricAndRollover(t *testing.T) {
 		t.Fatalf("repeat 101->202 = (%d, %d, %v), want (1, 0, false)", count, paid, ok)
 	}
 
-	// Reverse B -> A on the same game day ALSO fails (symmetric A <-> B dedup).
+	// Target B's state was untouched by A -> B, so B -> A succeeds once for B's own quest.
+	if c, tgs, _, _ := HighFiveProgress("202"); c != 0 || tgs != nil {
+		t.Fatalf("target 202 progress after 101->202 = (%d, %v), want (0, nil)", c, tgs)
+	}
 	count, paid, ok = RecordHighFive("202", "101")
-	if ok || count != 0 || paid != 0 {
-		t.Fatalf("reverse 202->101 = (%d, %d, %v), want (0, 0, false)", count, paid, ok)
+	if !ok || count != 1 || paid != 0 {
+		t.Fatalf("reverse 202->101 = (%d, %d, %v), want (1, 0, true)", count, paid, ok)
+	}
+	// Repeat B -> A on the same game day fails.
+	count, paid, ok = RecordHighFive("202", "101")
+	if ok || count != 1 || paid != 0 {
+		t.Fatalf("repeat 202->101 = (%d, %d, %v), want (1, 0, false)", count, paid, ok)
 	}
 
 	// Self, empty, and unknown accounts fail.
@@ -63,7 +71,7 @@ func TestRecordHighFiveSymmetricAndRollover(t *testing.T) {
 		}
 	}
 
-	// Cross 06:00 JST boundary: both A -> B and (if on a third day) B -> A reset.
+	// Cross 06:00 JST boundary: both A -> B and B -> A reset independently.
 	*now = time.Date(2026, 11, 24, 6, 0, 0, 0, jst)
 	if c, tgs, goal, reward := HighFiveProgress("101"); c != 0 || tgs != nil || goal != HighFiveDailyGoal || reward != HighFiveRewardGems {
 		t.Fatalf("rolled-over progress = (%d, %v, %d, %d), want (0, nil, %d, %d)", c, tgs, goal, reward, HighFiveDailyGoal, HighFiveRewardGems)
@@ -72,10 +80,14 @@ func TestRecordHighFiveSymmetricAndRollover(t *testing.T) {
 	if !ok || count != 1 || paid != 0 {
 		t.Fatalf("new-day 202->101 = (%d, %d, %v), want (1, 0, true)", count, paid, ok)
 	}
-	// Now 101 -> 202 is blocked for the rest of this new game day.
+	// 101 -> 202 succeeds on the new game day, then blocks repeat until next 06:00 JST rollover.
 	count, paid, ok = RecordHighFive("101", "202")
-	if ok || count != 0 || paid != 0 {
-		t.Fatalf("new-day reverse 101->202 = (%d, %d, %v), want (0, 0, false)", count, paid, ok)
+	if !ok || count != 1 || paid != 0 {
+		t.Fatalf("new-day 101->202 = (%d, %d, %v), want (1, 0, true)", count, paid, ok)
+	}
+	count, paid, ok = RecordHighFive("101", "202")
+	if ok || count != 1 || paid != 0 {
+		t.Fatalf("new-day repeat 101->202 = (%d, %d, %v), want (1, 0, false)", count, paid, ok)
 	}
 	// Next 06:00 JST boundary lets 101 -> 202 succeed again.
 	*now = time.Date(2026, 11, 25, 6, 0, 0, 0, jst)
@@ -157,9 +169,12 @@ func TestRecordHighFiveDailyQuestRewardAndPersistence(t *testing.T) {
 		t.Fatalf("reloaded account gems=%d claimed=%v, want %d true", gems, claimed, HighFiveRewardGems)
 	}
 
-	// Previously paired target 201 -> 100 is still blocked after restart.
-	if c, p, ok := RecordHighFive("201", "100"); ok || c != 0 || p != 0 {
-		t.Fatalf("post-reload reverse 201->100 = (%d, %d, %v), want (0, 0, false)", c, p, ok)
+	// Target 201 -> 100 succeeds once for 201's own quest after restart, then blocks repeat 201 -> 100.
+	if c, p, ok := RecordHighFive("201", "100"); !ok || c != 1 || p != 0 {
+		t.Fatalf("post-reload reverse 201->100 = (%d, %d, %v), want (1, 0, true)", c, p, ok)
+	}
+	if c, p, ok := RecordHighFive("201", "100"); ok || c != 1 || p != 0 {
+		t.Fatalf("post-reload repeat 201->100 = (%d, %d, %v), want (1, 0, false)", c, p, ok)
 	}
 	// New target 222 still succeeds with no double payment.
 	if c, p, ok := RecordHighFive("100", "222"); !ok || c != 22 || p != 0 {
@@ -185,7 +200,7 @@ func TestRecordHighFiveDailyQuestRewardAndPersistence(t *testing.T) {
 	if gemsDay2 != 2*HighFiveRewardGems {
 		t.Fatalf("gems after day2 = %d, want %d", gemsDay2, 2*HighFiveRewardGems)
 	}
-	if !slices.Contains(func() []string { _, tgs, _, _ := HighFiveProgress("201"); return tgs }(), "100") {
-		t.Fatal("expected target 201 to record symmetric 100 on day 2")
+	if c, tgs, _, _ := HighFiveProgress("201"); c != 0 || slices.Contains(tgs, "100") {
+		t.Fatalf("target 201 progress on day2 = (%d, %v), want (0, without 100)", c, tgs)
 	}
 }
