@@ -1,11 +1,18 @@
 package lpn
 
 import (
+	"bytes"
+	"encoding/binary"
+	"encoding/json"
+	"log"
+	"net"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
 	"cherry/internal/economy"
+	"cherry/internal/store"
 	"cherry/internal/testutil"
 )
 
@@ -72,8 +79,6 @@ func pinHighFiveClock(t *testing.T, now time.Time) {
 }
 
 func TestSquareHighFiveJoinAndAchieve(t *testing.T) {
-	resetSquareHighFives()
-	t.Cleanup(resetSquareHighFives)
 	pinHighFiveClock(t, time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC))
 	testutil.InstallAccounts(t, withLoginAccounts(nil, 101, 202))
 
@@ -128,21 +133,17 @@ func TestSquareHighFiveJoinAndAchieve(t *testing.T) {
 	}
 	p2.none()
 
-	// Direction-independent: p2 -> p1 still succeeds (p2 count=1).
+	// Symmetric dedup: p2 -> p1 on the same game day ALSO fails (p2 count=0), p1 gets nothing.
 	p2.send(squareCrHighFiveAchieve, pbVar(nil, 1, 101))
-	for _, tc := range []struct {
-		name string
-		c    *sqClient
-	}{{"p2", p2}, {"p1", p1}} {
-		id, body := tc.c.read()
-		if id != squareRcHighFiveAchieve {
-			t.Fatalf("%s reverse achieve msgid = %d, want %d", tc.name, id, squareRcHighFiveAchieve)
-		}
+	if id, body := p2.read(); id != squareRcHighFiveAchieve {
+		t.Fatalf("reverse p2 msgid = %d, want %d", id, squareRcHighFiveAchieve)
+	} else {
 		got := decodeHighFiveAchieve(t, body)
-		if !got.hasResult || got.result != 1 || got.myAid != 202 || got.targetAid != 101 || got.count != 1 || got.hasSerial {
-			t.Fatalf("%s reverse achieve = %+v, want result=1 my=202 target=101 count=1 serial=false", tc.name, got)
+		if !got.hasResult || got.result != 0 || got.myAid != 202 || got.targetAid != 101 || got.count != 0 || got.hasSerial {
+			t.Fatalf("reverse p2 achieve = %+v, want result=0 my=202 target=101 count=0 serial=false", got)
 		}
 	}
+	p1.none()
 
 	// Self-target and absent target fail with result=0 and do not change count.
 	for _, bad := range []uint64{0, 101, 999} {
@@ -169,12 +170,21 @@ func TestSquareHighFiveJoinAndAchieve(t *testing.T) {
 	}
 	p1.none()
 	p2.none()
+
+	// Rejoin by p2 after p1 -> p2: p1 is NOT pushed in msgid 26 to p2 either (symmetric).
+	p2.send(2, pbVar(nil, 1, squareThemeID))
+	if id, _ := p2.read(); id != 6 {
+		t.Fatalf("p2 rejoin enter msgid = %d, want 6", id)
+	}
+	p2.send(5, nil)
+	if id, _ := p2.read(); id != 8 {
+		t.Fatalf("p2 rejoin relaystart msgid = %d, want 8", id)
+	}
+	p2.none()
+	p1.none()
 }
 
 func TestSquareHighFiveRejoinFiltersDoneOnlyAndResetsOnNewDay(t *testing.T) {
-	resetSquareHighFives()
-	t.Cleanup(resetSquareHighFives)
-
 	day1 := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
 	prev := economy.NowFunc
 	now := day1
@@ -238,9 +248,61 @@ func TestSquareHighFiveRejoinFiltersDoneOnlyAndResetsOnNewDay(t *testing.T) {
 	p2.read()
 }
 
+func TestSquareHighFiveGoalStopsRc26Push(t *testing.T) {
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	pinHighFiveClock(t, now)
+
+	aids := []uint64{101, 202, 303}
+	for i := 1; i <= economy.HighFiveDailyGoal; i++ {
+		aids = append(aids, uint64(500+i))
+	}
+	testutil.InstallAccounts(t, withLoginAccounts(nil, aids...))
+
+	// Pre-fill p1 (101) to 20 high-fives today via RecordHighFive.
+	for i := 1; i <= economy.HighFiveDailyGoal; i++ {
+		if _, _, ok := economy.RecordHighFive("101", strconv.Itoa(500+i)); !ok {
+			t.Fatalf("prefill highfive %d failed", i)
+		}
+	}
+
+	room := &squareRoom{}
+	p1 := newSqClient(t, room, 1)
+	p2 := newSqClient(t, room, 2)
+	p3 := newSqClient(t, room, 3)
+
+	// p2 joins first, then p1 (already at 20/20):
+	// p1 should get NO rc26 (at goal), while p2 gets adduser + rc26 [101] (p2 is at 0/20).
+	highFiveJoin(t, p2, 202, squareThemeID)
+	p2.none()
+
+	highFiveJoin(t, p1, 101, squareThemeID)
+	p1.none()
+	if id, _ := p2.read(); id != 2 {
+		t.Fatalf("p2 adduser msgid = %d, want 2", id)
+	}
+	if id, body := p2.read(); id != squareRcHighFiveTargetList || !slices.Equal(decodeHighFiveTargets(t, body), []uint64{101}) {
+		t.Fatalf("p2 push = msgid %d targets %v, want [101]", id, decodeHighFiveTargets(t, body))
+	}
+	p2.none()
+
+	// p3 joins: p3 gets [202, 101], p2 gets adduser + [303], p1 gets ONLY adduser (NO rc26!).
+	highFiveJoin(t, p3, 303, squareThemeID)
+	if id, body := p3.read(); id != squareRcHighFiveTargetList {
+		t.Fatalf("p3 push msgid = %d, want %d", id, squareRcHighFiveTargetList)
+	} else if got := decodeHighFiveTargets(t, body); len(got) != 2 || !slices.Contains(got, 101) || !slices.Contains(got, 202) {
+		t.Fatalf("p3 push targets = %v, want [101 202]", got)
+	}
+	p2.read() // adduser
+	if id, body := p2.read(); id != squareRcHighFiveTargetList || !slices.Equal(decodeHighFiveTargets(t, body), []uint64{303}) {
+		t.Fatalf("p2 push = msgid %d targets %v, want [303]", id, decodeHighFiveTargets(t, body))
+	}
+	if id, _ := p1.read(); id != 2 {
+		t.Fatalf("p1 adduser msgid = %d, want 2", id)
+	}
+	p1.none()
+}
+
 func TestSquareHighFiveSkippedInBossAndRacing(t *testing.T) {
-	resetSquareHighFives()
-	t.Cleanup(resetSquareHighFives)
 	testutil.InstallAccounts(t, withLoginAccounts(nil, 101, 202))
 
 	for _, tc := range []struct {
@@ -280,5 +342,164 @@ func TestSquareHighFiveSkippedInBossAndRacing(t *testing.T) {
 			p2.sess.boss = nil
 			p2.sess.stopRacing()
 		})
+	}
+}
+
+func TestTLUPQuestListBodyAndGatewaySeed(t *testing.T) {
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	pinHighFiveClock(t, now)
+
+	day := economy.AttendDayKey(now)
+	entries := withLoginAccounts(nil, 101, 202, 303)
+	entries["lt-101"].HighFive = store.HighFiveDay{Day: day, Count: 5, Targets: []string{"1", "2", "3", "4", "5"}}
+	entries["lt-202"].HighFive = store.HighFiveDay{Day: day, Count: 25, Targets: make([]string, 25)}
+	entries["lt-303"].HighFive = store.HighFiveDay{Day: day - 1, Count: 12, Targets: make([]string, 12)}
+	testutil.InstallAccounts(t, entries)
+
+	for _, tc := range []struct {
+		aid      uint64
+		wantUser uint64
+	}{
+		{aid: 101, wantUser: 5},
+		{aid: 202, wantUser: 20}, // clamped to BaseCount=20
+		{aid: 303, wantUser: 0},  // previous game day -> 0
+	} {
+		raw := tlupQuestListBody(tc.aid)
+		var ts uint64
+		var questBytes []byte
+		if !pbScan(raw, func(f, v uint64, d []byte) {
+			if f == 1 {
+				ts = v
+			} else if f == 2 {
+				questBytes = d
+			}
+		}) {
+			t.Fatalf("aid %d: malformed tc_questlist_res", tc.aid)
+		}
+		if ts != uint64(now.Unix()) {
+			t.Fatalf("aid %d: server_timestamp = %d, want %d", tc.aid, ts, now.Unix())
+		}
+
+		var qid uint64
+		var masterBytes, userBytes []byte
+		if !pbScan(questBytes, func(f, v uint64, d []byte) {
+			switch f {
+			case 1:
+				qid = v
+			case 2:
+				masterBytes = d
+			case 3:
+				userBytes = d
+			}
+		}) {
+			t.Fatalf("aid %d: malformed QuestInfo", tc.aid)
+		}
+		if qid != 7 {
+			t.Fatalf("aid %d: QuestInfo.questid = %d, want 7", tc.aid, qid)
+		}
+
+		var mQid, mTarget uint64
+		var mParams string
+		var hasGroupID bool
+		if !pbScan(masterBytes, func(f, v uint64, d []byte) {
+			switch f {
+			case 1:
+				mQid = v
+			case 13:
+				mTarget = v
+			case 21:
+				mParams = string(d)
+			case 23:
+				hasGroupID = true
+			}
+		}) {
+			t.Fatalf("aid %d: malformed MasterQuestInfo", tc.aid)
+		}
+		if mQid != 7 || mTarget != 20 || hasGroupID {
+			t.Fatalf("aid %d: master qid=%d target=%d hasGroupID=%v, want 7, 20, false", tc.aid, mQid, mTarget, hasGroupID)
+		}
+		var parsed struct {
+			DisplayVer   int   `json:"display_ver"`
+			CompletedGem int64 `json:"completed_gem"`
+			ResetHour    int   `json:"reset_hour"`
+		}
+		if err := json.Unmarshal([]byte(mParams), &parsed); err != nil {
+			t.Fatalf("aid %d: params JSON %q err=%v", tc.aid, mParams, err)
+		}
+		if parsed.DisplayVer != 0 || parsed.CompletedGem != 100 || parsed.ResetHour != 0 {
+			t.Fatalf("aid %d: parsed params = %+v, want display_ver=0 completed_gem=100 reset_hour=0", tc.aid, parsed)
+		}
+
+		var uQid, uTarget uint64
+		if !pbScan(userBytes, func(f, v uint64, _ []byte) {
+			switch f {
+			case 1:
+				uQid = v
+			case 8:
+				uTarget = v
+			}
+		}) {
+			t.Fatalf("aid %d: malformed UserQuestInfo", tc.aid)
+		}
+		if uQid != 7 || uTarget != tc.wantUser {
+			t.Fatalf("aid %d: user qid=%d targetcount=%d, want 7, %d", tc.aid, uQid, uTarget, tc.wantUser)
+		}
+	}
+
+	// End-to-end via observeConn: Square login binds viewer=101, then TLUP msgid 0 returns seeded tc_questlist_res.
+	server, client := net.Pipe()
+	cleared := make(chan struct{}, 1)
+	var output bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		observeConn(deadlineRecordingConn{server, cleared}, GatewayAddr, log.New(&output, "", 0))
+		close(done)
+	}()
+	defer func() {
+		client.Close()
+		<-done
+	}()
+	if banner := readFullDeadline(t, client, len(sessionBanner)); !bytes.Equal(banner, sessionBanner) {
+		t.Fatalf("gateway banner = %x", banner)
+	}
+
+	// Login on Square (agent 7 -> b1 = (7-1)<<3 | 0 = 0x30), msgid 0.
+	sqPayload := loginBody(101)
+	sqFrame := make([]byte, 12+len(sqPayload))
+	sqFrame[0], sqFrame[1] = 'G', (squareAgent-1)<<3
+	copy(sqFrame[2:10], []byte{1, 2, 3, 4, 5, 6, 7, 8})
+	binary.BigEndian.PutUint16(sqFrame[10:12], 0)
+	copy(sqFrame[12:], sqPayload)
+	sqWire := make([]byte, 4+len(sqFrame))
+	binary.BigEndian.PutUint32(sqWire[:4], uint32(len(sqFrame)))
+	copy(sqWire[4:], sqFrame)
+	if _, err := client.Write(sqWire); err != nil {
+		t.Fatalf("square login write: %v", err)
+	}
+	var hdr [4]byte
+	if _, err := client.Read(hdr[:]); err != nil {
+		t.Fatalf("square login reply hdr: %v", err)
+	}
+	sqLen := binary.BigEndian.Uint32(hdr[:])
+	_ = readFullDeadline(t, client, int(sqLen))
+
+	// Send TLUP ct_questlist_req (agent 5, msgid 0).
+	reqBody := []byte{0x10, 0x00, 0x18, 0x00}
+	tlupFrame := []byte{'D', 0, 0, 1, 0, 1, 0, 0x6f, 0, 0, 5, 0, 0, 0, 0x42, 0, 0, 0}
+	tlupFrame = append(tlupFrame, reqBody...)
+	tlupWire := append([]byte{0, 0, 0, byte(len(tlupFrame))}, tlupFrame...)
+	if _, err := client.Write(tlupWire); err != nil {
+		t.Fatalf("questlist write: %v", err)
+	}
+	if _, err := client.Read(hdr[:]); err != nil {
+		t.Fatalf("questlist reply hdr: %v", err)
+	}
+	replyLen := binary.BigEndian.Uint32(hdr[:])
+	reply := readFullDeadline(t, client, int(replyLen))
+	if reply[0] != 'D' || reply[10] != 5 || binary.BigEndian.Uint16(reply[16:18]) != 0 {
+		t.Fatalf("unexpected TLUP header: %x", reply[:18])
+	}
+	if got, want := reply[18:], tlupQuestListBody(101); !bytes.Equal(got, want) {
+		t.Fatalf("gateway tc_questlist_res body = %x, want %x", got, want)
 	}
 }

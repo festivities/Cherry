@@ -153,14 +153,15 @@ func heartEnterGarden(t *testing.T, client net.Conn, tunnel [8]byte, viewer, own
 
 // expectTLUPReply sends a session-only TLUP request and checks the next bytes are its reply. Any
 // push that the server wrote before it would show up here instead.
-func expectTLUPReply(t *testing.T, client net.Conn) {
+func expectTLUPReply(t *testing.T, client net.Conn, viewer uint64) {
 	t.Helper()
 	req := tlupDFrame(heartTestSession, 0, nil)
 	if _, err := client.Write(req); err != nil {
 		t.Fatalf("tlup write: %v", err)
 	}
-	if got := readFullDeadline(t, client, len(req)); !bytes.Equal(got, req) {
-		t.Fatalf("next bytes = %x, want the TLUP reply %x (no push expected)", got, req)
+	want := tlupDFrame(heartTestSession, 0, tlupQuestListBody(viewer))
+	if got := readSessionFrame(t, client); !bytes.Equal(got, want) {
+		t.Fatalf("next bytes = %x, want the TLUP reply %x (no push expected)", got, want)
 	}
 }
 
@@ -239,13 +240,14 @@ func TestRoomHeartButtonFlow(t *testing.T) {
 		if _, err := client.Write(sessionReq); err != nil {
 			t.Fatalf("session write: %v", err)
 		}
-		if got := readFullDeadline(t, client, len(sessionReq)); !bytes.Equal(got, sessionReq) {
-			t.Fatalf("request reply = %x, want %x", got, sessionReq)
+		wantQuestReply := tlupDFrame(heartTestSession, 0, tlupQuestListBody(9741))
+		if got := readSessionFrame(t, client); !bytes.Equal(got, wantQuestReply) {
+			t.Fatalf("request reply = %x, want %x", got, wantQuestReply)
 		}
 		if got := readFullDeadline(t, client, len(wantShow)); !bytes.Equal(got, wantShow) {
 			t.Fatalf("show push = %x, want %x", got, wantShow)
 		}
-		expectTLUPReply(t, client) // the show is sent once per visit
+		expectTLUPReply(t, client, 9741) // the show is sent once per visit
 		other := tlupDFrame(heartTestSession, 1, tlupClientEvent(9741, 0x2a, heartEvent(9743)))
 		if _, err := client.Write(other); err != nil {
 			t.Fatalf("heart write: %v", err)
@@ -264,7 +266,7 @@ func TestRoomHeartButtonFlow(t *testing.T) {
 		if got := readFullDeadline(t, client, len(wantHide)); !bytes.Equal(got, wantHide) {
 			t.Fatalf("hide push = %x, want %x", got, wantHide)
 		}
-		expectTLUPReply(t, client) // the visit ended with the hide
+		expectTLUPReply(t, client, 9741) // the visit ended with the hide
 		if got := economy.HeartsReceived("9742"); got != 1 {
 			t.Fatalf("owner received = %d, want 1", got)
 		}
@@ -276,7 +278,7 @@ func TestRoomHeartButtonFlow(t *testing.T) {
 		rpLogin(t, client, 9744)
 		roomLoad(t, "hv-4", "/v4/room/enter/9742/LEVEL_1")
 		roomLoad(t, "hv-4", "/v4/room/myroom/LEVEL_1")
-		expectTLUPReply(t, client)
+		expectTLUPReply(t, client, 9744)
 	})
 
 	t.Run("capped viewer pushes nothing", func(t *testing.T) {
@@ -287,7 +289,7 @@ func TestRoomHeartButtonFlow(t *testing.T) {
 		defer stop()
 		rpLogin(t, client, 9745)
 		roomLoad(t, "hv-5", "/v4/room/enter/9742/LEVEL_1")
-		expectTLUPReply(t, client)
+		expectTLUPReply(t, client, 9745)
 	})
 
 	t.Run("garden load drops a pending show", func(t *testing.T) {
@@ -295,13 +297,13 @@ func TestRoomHeartButtonFlow(t *testing.T) {
 		defer stop()
 		roomLoad(t, "hv-6", "/v4/room/enter/9742/LEVEL_1")
 		heartEnterGarden(t, client, tunnel, 9746, 9742) // the Garden login names the connection's viewer
-		expectTLUPReply(t, client)
+		expectTLUPReply(t, client, 9746)
 	})
 
 	t.Run("garden relay-start pushes nothing", func(t *testing.T) {
 		client, stop := heartGateway(t)
 		defer stop()
 		heartEnterGarden(t, client, tunnel, 9743, 9742)
-		expectTLUPReply(t, client)
+		expectTLUPReply(t, client, 9743)
 	})
 }

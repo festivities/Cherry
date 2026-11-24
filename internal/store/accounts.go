@@ -85,6 +85,7 @@ type StoredAccount struct {
 	StyleNextID     int64                 `json:"styleNextId,omitempty"`
 	Remodel         *RoomRemodel          `json:"remodel,omitempty"`
 	GardenStats     *GardenStats          `json:"gardenStats,omitempty"`
+	HighFive        *HighFiveDay          `json:"highFive,omitempty"`
 }
 
 // accountFile is the account part of a legacy accounts.json, parsed without touching the store. Only cmd/cherry-import
@@ -474,6 +475,11 @@ func StoredFrom(acc *Account) StoredAccount {
 		copied := acc.GardenStats.clone()
 		gs = &copied
 	}
+	var hf *HighFiveDay
+	if !acc.HighFive.isZero() {
+		copied := acc.HighFive.clone()
+		hf = &copied
+	}
 	return StoredAccount{
 		SessionKey: sessionKeyOnDisk(acc), SessionSalt: acc.SessionSalt, SessionEpoch: acc.SessionEpoch,
 		LegacyKeyHash: acc.LegacyKeyHash, Mid: acc.Mid,
@@ -494,6 +500,7 @@ func StoredFrom(acc *Account) StoredAccount {
 		Identity:       acc.Identity, CodeHashes: acc.CodeHashes, Ban: acc.Ban,
 		StyleSlots: acc.StyleSlots, StyleBought: acc.StyleBought, StyleNextID: acc.StyleNextID, Remodel: acc.Remodel,
 		GardenStats: gs,
+		HighFive:    hf,
 	}
 }
 
@@ -525,7 +532,15 @@ func accountFromStored(saved StoredAccount) *Account {
 		GuestCode:      saved.GuestCode, Identity: saved.Identity, CodeHashes: saved.CodeHashes, Ban: saved.Ban,
 		StyleSlots: saved.StyleSlots, StyleBought: max(saved.StyleBought, 0), StyleNextID: saved.StyleNextID, Remodel: saved.Remodel,
 		GardenStats: derefGardenStats(saved.GardenStats),
+		HighFive:    derefHighFive(saved.HighFive),
 	}
+}
+
+func derefHighFive(h *HighFiveDay) HighFiveDay {
+	if h == nil {
+		return HighFiveDay{}
+	}
+	return h.clone()
 }
 
 func derefGardenStats(g *GardenStats) GardenStats {

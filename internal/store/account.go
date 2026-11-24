@@ -33,6 +33,7 @@ type AccountSnapshot struct {
 	BirthdayClaims map[int]int64 // birthday reward claims by avatar turn (economy/birthday.go); replaced, never edited in place
 	Remodel        *RoomRemodel  // unlocked floors and per-floor tile sizes (economy/remodel.go); replaced, never edited in place
 	GardenStats    GardenStats
+	HighFive       HighFiveDay
 }
 
 func AccountInventoryCodes(acc *Account) []string {
@@ -83,6 +84,7 @@ func AccountByAvatarID(id string) (AccountSnapshot, bool) {
 				DyeColors:      acc.DyeColors,
 				Remodel:        acc.Remodel,
 				GardenStats:    acc.GardenStats.clone(),
+				HighFive:       acc.HighFive.clone(),
 			}, true
 		}
 	}
@@ -158,6 +160,24 @@ type Account struct {
 	StyleNextID     int64                 // last styling slot id handed out; ids are never reused
 	Remodel         *RoomRemodel          // unlocked floors and per-floor tile sizes (economy/remodel.go); replaced, never edited in place
 	GardenStats     GardenStats           // persistent Garden level, visit counters, and planet element
+	HighFive        HighFiveDay           // Square high-five daily targets, count, and reward claim (economy/highfive.go)
+}
+
+// HighFiveDay holds one game day (06:00 JST boundary) of Square high-five state.
+type HighFiveDay struct {
+	Day     int64    `json:"day,omitempty"`
+	Targets []string `json:"targets,omitempty"` // other aids high-fived today (symmetric A <-> B)
+	Count   int      `json:"count,omitempty"`   // high-fives initiated by this account today
+	Claimed bool     `json:"claimed,omitempty"` // daily 100-Gem quest reward paid today
+}
+
+func (h HighFiveDay) clone() HighFiveDay {
+	h.Targets = slices.Clone(h.Targets)
+	return h
+}
+
+func (h HighFiveDay) isZero() bool {
+	return h.Day == 0 && len(h.Targets) == 0 && h.Count == 0 && !h.Claimed
 }
 
 // GardenStats holds an account's persistent Garden level, visit counters, and planet element.
@@ -727,6 +747,7 @@ func accountForToken(token string) (AccountSnapshot, bool) {
 		InventoryCodes: append([]string(nil), AccountInventoryCodes(acc)...),
 		BirthdayClaims: acc.BirthdayClaims, ProfileImage: acc.ProfileImage, Remodel: acc.Remodel,
 		GardenStats: acc.GardenStats.clone(),
+		HighFive:    acc.HighFive.clone(),
 	}
 	AccountsMu.Unlock()
 	return snapshot, true

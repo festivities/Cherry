@@ -190,6 +190,11 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 			var body []byte
 			var sender uint64
 			var hearted, pets []uint64
+			if msgid == 0 {
+				if viewer := gatewayLoginAid(rp, sq, gardenLoginAid); viewer != 0 {
+					body = tlupQuestListBody(viewer)
+				}
+			}
 			if msgid == 1 {
 				packetNo, ok := clientEventPacketNo(frame[18:])
 				if !ok {

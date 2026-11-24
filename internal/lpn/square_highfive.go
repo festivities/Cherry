@@ -1,7 +1,9 @@
 package lpn
 
 import (
-	"sync"
+	"fmt"
+	"slices"
+	"strconv"
 
 	"cherry/internal/economy"
 )
@@ -10,34 +12,30 @@ const (
 	squareCrHighFiveAchieve    = 18
 	squareRcHighFiveTargetList = 26
 	squareRcHighFiveAchieve    = 27
+
+	tlupSquareHighFiveQuestID = 7
 )
 
-// squareHighFives tracks player-to-player Square high-fives in memory per game day
-// (06:00 JST, economy.AttendDayKey), mapping initiatorAid -> set of targetAids.
-var squareHighFives = struct {
-	mu   sync.Mutex
-	day  int64
-	done map[uint64]map[uint64]struct{}
-}{}
+// tlupQuestListBody encodes TLUP::tc_questlist_res (msgid 0, agent 5) seeding
+// TLUP::QuestId = 7 (eQUEST_CODE = 106, Square daily high-five quest) with
+// viewer's current game-day progress.
+func tlupQuestListBody(viewer uint64) []byte {
+	count, _, goal, reward := economy.HighFiveProgress(strconv.FormatUint(viewer, 10))
+	params := fmt.Sprintf(`{"display_ver":0,"completed_gem":%d,"reset_hour":0}`, reward)
 
-func squareHighFiveDay() int64 {
-	return economy.AttendDayKey(economy.NowFunc())
-}
+	master := pbVar(nil, 1, tlupSquareHighFiveQuestID)
+	master = pbVar(master, 13, uint64(goal))
+	master = pbLen(master, 21, []byte(params))
 
-// ensureSquareHighFiveDayLocked resets squareHighFives when the game day rolls over.
-// Caller must hold squareHighFives.mu.
-func ensureSquareHighFiveDayLocked(day int64) {
-	if squareHighFives.done == nil || squareHighFives.day != day {
-		squareHighFives.day = day
-		squareHighFives.done = make(map[uint64]map[uint64]struct{})
-	}
-}
+	user := pbVar(nil, 1, tlupSquareHighFiveQuestID)
+	user = pbVar(user, 8, uint64(max(0, min(count, goal))))
 
-func resetSquareHighFives() {
-	squareHighFives.mu.Lock()
-	defer squareHighFives.mu.Unlock()
-	squareHighFives.day = 0
-	squareHighFives.done = nil
+	quest := pbVar(nil, 1, tlupSquareHighFiveQuestID)
+	quest = pbLen(quest, 2, master)
+	quest = pbLen(quest, 3, user)
+
+	res := pbVar(nil, 1, uint64(economy.NowFunc().Unix()))
+	return pbLen(res, 2, quest)
 }
 
 // squareHighFiveTargetList encodes SQUARE::rc_highfive_target_list_res (msgid 26)
@@ -79,9 +77,8 @@ func (s *squareSession) pushHighFiveTargets(rejoined bool) {
 		return
 	}
 
-	day := squareHighFiveDay()
-	squareHighFives.mu.Lock()
-	ensureSquareHighFiveDayLocked(day)
+	joinerAidStr := strconv.FormatUint(s.aid, 10)
+	jCount, jDone, goal, _ := economy.HighFiveProgress(joinerAidStr)
 
 	var forJoiner []uint64
 	var notifyOthers []*squarePlayer
@@ -89,16 +86,17 @@ func (s *squareSession) pushHighFiveTargets(rejoined bool) {
 		if other.aid == s.aid {
 			continue
 		}
-		if _, done := squareHighFives.done[s.aid][other.aid]; !done {
+		otherAidStr := strconv.FormatUint(other.aid, 10)
+		if jCount < goal && !slices.Contains(jDone, otherAidStr) {
 			forJoiner = append(forJoiner, other.aid)
 		}
 		if !rejoined {
-			if _, done := squareHighFives.done[other.aid][s.aid]; !done {
+			oCount, oDone, oGoal, _ := economy.HighFiveProgress(otherAidStr)
+			if oCount < oGoal && !slices.Contains(oDone, joinerAidStr) {
 				notifyOthers = append(notifyOthers, other)
 			}
 		}
 	}
-	squareHighFives.mu.Unlock()
 
 	if len(forJoiner) > 0 {
 		s.player.send(s.logger, squareRcHighFiveTargetList, squareHighFiveTargetList(forJoiner))
@@ -133,27 +131,19 @@ func (s *squareSession) handleHighFive(frame, data []byte) error {
 		s.room.mu.Unlock()
 	}
 
-	day := squareHighFiveDay()
-	squareHighFives.mu.Lock()
-	ensureSquareHighFiveDayLocked(day)
-	curCount := uint64(len(squareHighFives.done[s.aid]))
+	aidStr := strconv.FormatUint(s.aid, 10)
 	if targetPlayer == nil {
-		squareHighFives.mu.Unlock()
-		return s.reply(frame, squareRcHighFiveAchieve, squareHighFiveAchieveRes(false, s.aid, targetAid, curCount))
+		curCount, _, _, _ := economy.HighFiveProgress(aidStr)
+		return s.reply(frame, squareRcHighFiveAchieve, squareHighFiveAchieveRes(false, s.aid, targetAid, uint64(curCount)))
 	}
-	if _, already := squareHighFives.done[s.aid][targetAid]; already {
-		squareHighFives.mu.Unlock()
-		return s.reply(frame, squareRcHighFiveAchieve, squareHighFiveAchieveRes(false, s.aid, targetAid, curCount))
-	}
-	if squareHighFives.done[s.aid] == nil {
-		squareHighFives.done[s.aid] = make(map[uint64]struct{})
-	}
-	squareHighFives.done[s.aid][targetAid] = struct{}{}
-	count := uint64(len(squareHighFives.done[s.aid]))
-	squareHighFives.mu.Unlock()
 
-	s.logger.Printf("SQUARE highfive aid=%d target=%d count=%d", s.aid, targetAid, count)
-	res := squareHighFiveAchieveRes(true, s.aid, targetAid, count)
+	count, paidGems, ok := economy.RecordHighFive(aidStr, strconv.FormatUint(targetAid, 10))
+	if !ok {
+		return s.reply(frame, squareRcHighFiveAchieve, squareHighFiveAchieveRes(false, s.aid, targetAid, uint64(count)))
+	}
+
+	s.logger.Printf("SQUARE highfive aid=%d target=%d count=%d gems=%d", s.aid, targetAid, count, paidGems)
+	res := squareHighFiveAchieveRes(true, s.aid, targetAid, uint64(count))
 	if err := s.reply(frame, squareRcHighFiveAchieve, res); err != nil {
 		return err
 	}

@@ -104,3 +104,72 @@ func TestGardenStatsLevelAndClone(t *testing.T) {
 		t.Fatalf("StoredFrom zero GardenStats = %+v, want nil", empty.GardenStats)
 	}
 }
+
+func TestHighFiveDayCloneAndRoundTrip(t *testing.T) {
+	orig := &Account{
+		AccessToken: "hf-tok",
+		SessionKey:  "sk",
+		Aid:         "9111",
+		HighFive: HighFiveDay{
+			Day:     20500,
+			Targets: []string{"9112", "9113"},
+			Count:   2,
+			Claimed: true,
+		},
+	}
+	stored := StoredFrom(orig)
+	if stored.HighFive == nil {
+		t.Fatal("StoredFrom dropped non-zero HighFive")
+	}
+	stored.HighFive.Targets[0] = "mutated"
+	if orig.HighFive.Targets[0] != "9112" {
+		t.Fatal("StoredFrom aliased HighFive.Targets")
+	}
+	stored.HighFive.Targets[0] = "9112"
+
+	raw, err := json.Marshal(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back StoredAccount
+	if err := json.Unmarshal(raw, &back); err != nil {
+		t.Fatal(err)
+	}
+	restored := accountFromStored(back)
+	if restored.HighFive.Day != 20500 || restored.HighFive.Count != 2 || !restored.HighFive.Claimed ||
+		!slices.Equal(restored.HighFive.Targets, []string{"9112", "9113"}) {
+		t.Fatalf("round-trip HighFive = %+v", restored.HighFive)
+	}
+	back.HighFive.Targets[0] = "mutated2"
+	if restored.HighFive.Targets[0] != "9112" {
+		t.Fatal("accountFromStored aliased HighFive.Targets")
+	}
+
+	if empty := StoredFrom(&Account{Aid: "9114"}); empty.HighFive != nil {
+		t.Fatalf("StoredFrom zero HighFive = %+v, want nil", empty.HighFive)
+	}
+
+	restore, err := SwapAccountsForTest(map[string]*Account{"hf-tok": orig})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restore()
+
+	snap, ok := AccountByAvatarID("9111")
+	if !ok {
+		t.Fatal("AccountByAvatarID missing 9111")
+	}
+	snap.HighFive.Targets[0] = "mutated3"
+	if orig.HighFive.Targets[0] != "9112" {
+		t.Fatal("AccountByAvatarID aliased HighFive.Targets")
+	}
+
+	tokSnap, ok := accountForToken("hf-tok")
+	if !ok {
+		t.Fatal("accountForToken missing hf-tok")
+	}
+	tokSnap.HighFive.Targets[0] = "mutated4"
+	if orig.HighFive.Targets[0] != "9112" {
+		t.Fatal("accountForToken aliased HighFive.Targets")
+	}
+}
