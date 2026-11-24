@@ -15,11 +15,23 @@ func TestCreditGardenVisitNeedsAnAvatar(t *testing.T) {
 		"viewer": {AccessToken: "viewer", Aid: "21", Name: "Viv"},
 		"owner":  {AccessToken: "owner", Aid: "22", Name: "Owe"},
 	})
+	testutil.UseDatabase(t)
 	if creditGardenVisit(21, 999) {
 		t.Fatal("a visit to an aid with no account counted")
 	}
 	if !creditGardenVisit(21, 22) {
 		t.Fatal("a visit to an existing avatar did not count")
+	}
+	// Repeat visit on same game day is deduplicated; self-visit does not add footprints.
+	if !creditGardenVisit(21, 22) {
+		t.Fatal("repeat visit returned false")
+	}
+	if !creditGardenVisit(22, 22) {
+		t.Fatal("self visit returned false")
+	}
+	snap, ok := store.AccountByAvatarID("22")
+	if !ok || snap.GardenStats.Footprints != 1 || snap.GardenStats.TodayVisits != 1 {
+		t.Fatalf("owner stats after creditGardenVisit = %+v (ok=%v), want footprints=1 todayVisits=1", snap.GardenStats, ok)
 	}
 }
 

@@ -7,7 +7,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"cherry/internal/economy"
 	"cherry/internal/store"
 	"cherry/internal/testutil"
 )
@@ -278,5 +280,164 @@ func TestProfilePicturesAcrossSocialRoutes(t *testing.T) {
 	pr := pinDoc.Result.PinList[0]
 	if pr.ProfileImageURL != "/lineplay/pr/9802_1" || pr.ObsProfileImageURL != "/lineplay/pr/9802_1" || pr.ProfileBgURL != "profilebg/14.jpg" {
 		t.Fatalf("pin row = %+v", pr)
+	}
+}
+
+// TestAvatarInfoProfilePicture verifies GET /v4/avatar/<aid> serves profile, obsProfileImagePath, and
+// obsWholeBodyProfileImagePath (falling back to Image), while intentionally omitting bg (spec §2.2),
+// and omitting all three keys when the account has no saved profile picture.
+func TestAvatarInfoProfilePicture(t *testing.T) {
+	installSocialTestAccounts(t, map[string]*store.Account{
+		"av-full": {
+			AccessToken: "av-full", Aid: "9811", Name: "Full", Country: "JP",
+			ProfileImage: store.ProfileImage{Image: "/lineplay/pr/9811_1", WholeBody: "/lineplay/pr/9811_2", Bg: "profilebg/14.jpg"},
+		},
+		"av-fallback": {
+			AccessToken: "av-fallback", Aid: "9812", Name: "Fallback", Country: "JP",
+			ProfileImage: store.ProfileImage{Image: "/lineplay/pr/9812_1"},
+		},
+		"av-plain": {
+			AccessToken: "av-plain", Aid: "9813", Name: "Plain", Country: "JP",
+		},
+	})
+
+	getAvatar := func(aid string) map[string]any {
+		t.Helper()
+		rec := decorReq(t, "", http.MethodGet, "/v4/avatar/"+aid, "")
+		var doc struct {
+			Result map[string]any `json:"result"`
+		}
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &doc) != nil {
+			t.Fatalf("GET /v4/avatar/%s = %d %s", aid, rec.Code, rec.Body.String())
+		}
+		return doc.Result
+	}
+
+	full := getAvatar("9811")
+	if full["profile"] != "/lineplay/pr/9811_1" ||
+		full["obsProfileImagePath"] != "/lineplay/pr/9811_1" ||
+		full["obsWholeBodyProfileImagePath"] != "/lineplay/pr/9811_2" {
+		t.Fatalf("full avatar profile fields = %+v", full)
+	}
+	if _, hasBg := full["bg"]; hasBg {
+		t.Fatalf("GET /v4/avatar/9811 must intentionally omit bg, got %+v", full)
+	}
+
+	fb := getAvatar("9812")
+	if fb["profile"] != "/lineplay/pr/9812_1" ||
+		fb["obsProfileImagePath"] != "/lineplay/pr/9812_1" ||
+		fb["obsWholeBodyProfileImagePath"] != "/lineplay/pr/9812_1" {
+		t.Fatalf("fallback avatar profile fields = %+v", fb)
+	}
+	if _, hasBg := fb["bg"]; hasBg {
+		t.Fatalf("GET /v4/avatar/9812 must intentionally omit bg, got %+v", fb)
+	}
+
+	plain := getAvatar("9813")
+	for _, k := range []string{"profile", "obsProfileImagePath", "obsWholeBodyProfileImagePath", "bg"} {
+		if _, ok := plain[k]; ok {
+			t.Fatalf("plain avatar must omit %s, got %+v", k, plain)
+		}
+	}
+}
+
+// TestProfileMiniPopupStats verifies friendsCount, heartCount, myGardenAvatarInfo on GET /v4/profile/<aid>,
+// and todayVisitor/totalVisitor on GET /v4/diary2/intro/<aid>.
+func TestProfileMiniPopupStats(t *testing.T) {
+	now := time.Date(2026, time.November, 24, 1, 0, 0, 0, time.UTC)
+	prevNow := economy.NowFunc
+	economy.NowFunc = func() time.Time { return now }
+	t.Cleanup(func() { economy.NowFunc = prevNow })
+
+	today := economy.AttendDayKey(now)
+	installSocialTestAccounts(t, map[string]*store.Account{
+		"p-viewer": {AccessToken: "p-viewer", Aid: "9821", Name: "Viewer"},
+		"p-target": {
+			AccessToken: "p-target", Aid: "9822", Name: "Target",
+			ProfileImage: store.ProfileImage{Image: "/lineplay/pr/9822_1"},
+			Hearts:       &store.Hearts{Day: today, Received: 7},
+			GardenStats: store.GardenStats{
+				Exp:         250, // level 3
+				Footprints:  12,
+				TodayDay:    today,
+				TodayVisits: 4,
+				TodaySeen:   []string{"9821"},
+				UserPlanet:  2,
+			},
+		},
+		"p-stale": {
+			AccessToken: "p-stale", Aid: "9823", Name: "Stale",
+			GardenStats: store.GardenStats{
+				Footprints:  5,
+				TodayDay:    today - 1,
+				TodayVisits: 3,
+			},
+		},
+	})
+	store.ResetSocial()
+	t.Cleanup(store.ResetSocial)
+	store.SocialMu.Lock()
+	store.Friendships = []store.Friendship{
+		{A: "9821", B: "9822", State: "accepted"},
+		{A: "9822", B: "9823", State: "accepted"},
+		{A: "9822", B: "9824", State: "pending"},
+		{A: "9825", B: "9822", State: "removed"},
+	}
+	store.SocialMu.Unlock()
+
+	getMap := func(path string) map[string]any {
+		t.Helper()
+		rec := decorReq(t, "p-viewer", http.MethodGet, path, "")
+		var doc struct {
+			Result map[string]any `json:"result"`
+		}
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &doc) != nil {
+			t.Fatalf("GET %s = %d %s", path, rec.Code, rec.Body.String())
+		}
+		return doc.Result
+	}
+
+	prof := getMap("/v4/profile/9822?deviceType=Android")
+	// 2 accepted friendships + 1 for synthetic Friend (100000) = 3.
+	if prof["friendsCount"] != float64(3) {
+		t.Fatalf("friendsCount = %v, want 3", prof["friendsCount"])
+	}
+	if prof["heartCount"] != float64(7) {
+		t.Fatalf("heartCount = %v, want 7", prof["heartCount"])
+	}
+	if prof["obsWholeBodyProfileImagePath"] != "/lineplay/pr/9822_1" || prof["bg"] != store.DefaultProfileBg {
+		t.Fatalf("profile image fields = %+v", prof)
+	}
+	garden, ok := prof["myGardenAvatarInfo"].(map[string]any)
+	if !ok || garden["level"] != float64(3) || garden["footprintCount"] != float64(12) || garden["userPlanet"] != float64(2) {
+		t.Fatalf("myGardenAvatarInfo = %#v", prof["myGardenAvatarInfo"])
+	}
+
+	// Synthetic Friend 100000 gets default myGardenAvatarInfo (level 1) and does not self-count.
+	friendProf := getMap("/v4/profile/100000?deviceType=Android")
+	if friendProf["friendsCount"] != float64(0) {
+		t.Fatalf("100000 friendsCount = %v, want 0", friendProf["friendsCount"])
+	}
+	fg, ok := friendProf["myGardenAvatarInfo"].(map[string]any)
+	if !ok || fg["level"] != float64(1) || fg["footprintCount"] != float64(0) || fg["userPlanet"] != float64(0) {
+		t.Fatalf("100000 myGardenAvatarInfo = %#v", friendProf["myGardenAvatarInfo"])
+	}
+
+	// Removing Friend drops friendsCount from 3 to 2 for real accounts.
+	store.SocialMu.Lock()
+	store.FriendRemoved = true
+	store.SocialMu.Unlock()
+	if got := getMap("/v4/profile/9822")["friendsCount"]; got != float64(2) {
+		t.Fatalf("friendsCount after FriendRemoved = %v, want 2", got)
+	}
+
+	// diary2/intro/<aid> wires todayVisitor and totalVisitor.
+	intro := getMap("/v4/diary2/intro/9822")
+	if intro["todayVisitor"] != float64(4) || intro["totalVisitor"] != float64(12) {
+		t.Fatalf("9822 diary intro visitors = (%v, %v), want (4, 12)", intro["todayVisitor"], intro["totalVisitor"])
+	}
+	staleIntro := getMap("/v4/diary2/intro/9823")
+	if staleIntro["todayVisitor"] != float64(0) || staleIntro["totalVisitor"] != float64(5) {
+		t.Fatalf("9823 stale diary intro visitors = (%v, %v), want (0, 5)", staleIntro["todayVisitor"], staleIntro["totalVisitor"])
 	}
 }

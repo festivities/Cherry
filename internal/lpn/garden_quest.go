@@ -216,6 +216,9 @@ func creditGardenVisit(viewer, owner uint64) bool {
 		return false
 	}
 	gardenQuestVisit(viewer, owner)
+	if viewer != 0 && owner != 0 && viewer != owner {
+		economy.RecordGardenVisit(strconv.FormatUint(viewer, 10), strconv.FormatUint(owner, 10))
+	}
 	return true
 }
 

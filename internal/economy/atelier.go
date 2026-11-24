@@ -494,6 +494,7 @@ func AtelierMakeMaterial(aid string, design, count int64, now time.Time) (int64,
 	cur, at := atelierStamina(acc, a, now)
 	acc.GardenBag = bag
 	acc.Atelier = atelierRecord(acc, cur-d.Stamina*count, at)
+	acc.GardenStats.Exp += 25
 	if err := store.SaveLocked(nil, acc); err != nil {
 		*acc = prev
 		return AtelierSave, snap
@@ -536,6 +537,7 @@ func AtelierMakeClothes(aid string, design int64, now time.Time) (int64, Atelier
 		*acc = prev
 		return AtelierInvalid, snap
 	}
+	acc.GardenStats.Exp += 25
 	if err := store.SaveLocked(nil, acc); err != nil {
 		*acc = prev
 		return AtelierSave, snap

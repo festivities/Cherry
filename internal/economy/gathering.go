@@ -3,6 +3,7 @@ package economy
 import (
 	"errors"
 	"fmt"
+	"log"
 	"maps"
 	"net/http"
 	"slices"
@@ -263,11 +264,48 @@ func GatherCredit(aid, owner string, kind GatherKind, item int64, now time.Time)
 	}
 	acc.Gather = &next
 	acc.GardenBag = gardenBagChange(acc.GardenBag, item, 1, now)
+	acc.GardenStats.Exp += 10
 	if err := store.SaveLocked(lines, acc); err != nil {
 		*acc = prev
 		return lim, 0, false
 	}
 	return gatherLimitOf(next, owner, own), gems, true
+}
+
+// RecordGardenVisit records one Garden visit by viewerAid to ownerAid: at most once per
+// visitor per game day (06:00 JST boundary), incrementing owner's TodayVisits and lifetime Footprints.
+func RecordGardenVisit(viewerAid, ownerAid string) {
+	if viewerAid == "" || ownerAid == "" || viewerAid == ownerAid {
+		return
+	}
+	store.AccountsMu.Lock()
+	defer store.AccountsMu.Unlock()
+	owner := store.AccountByAidLocked(ownerAid)
+	if owner == nil {
+		return
+	}
+	day := AttendDayKey(NowFunc())
+	stats := owner.GardenStats
+	if stats.TodayDay != day {
+		stats.TodayDay = day
+		stats.TodayVisits = 0
+		stats.TodaySeen = nil
+	}
+	if slices.Contains(stats.TodaySeen, viewerAid) {
+		return
+	}
+	prev := *owner
+	seen := make([]string, len(stats.TodaySeen)+1)
+	copy(seen, stats.TodaySeen)
+	seen[len(stats.TodaySeen)] = viewerAid
+	stats.TodaySeen = seen
+	stats.TodayVisits++
+	stats.Footprints++
+	owner.GardenStats = stats
+	if err := store.SaveLocked(nil, owner); err != nil {
+		*owner = prev
+		log.Printf("garden visit save aid=%s err=%v", ownerAid, err)
+	}
 }
 
 // gardenBagChange returns bag with delta more of item (fewer when negative). A stack that reaches

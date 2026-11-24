@@ -32,6 +32,7 @@ type AccountSnapshot struct {
 	DyeColors      map[string][]DyeColor
 	BirthdayClaims map[int]int64 // birthday reward claims by avatar turn (economy/birthday.go); replaced, never edited in place
 	Remodel        *RoomRemodel  // unlocked floors and per-floor tile sizes (economy/remodel.go); replaced, never edited in place
+	GardenStats    GardenStats
 }
 
 func AccountInventoryCodes(acc *Account) []string {
@@ -81,6 +82,7 @@ func AccountByAvatarID(id string) (AccountSnapshot, bool) {
 				DiaryProfile:   acc.DiaryProfile,
 				DyeColors:      acc.DyeColors,
 				Remodel:        acc.Remodel,
+				GardenStats:    acc.GardenStats.clone(),
 			}, true
 		}
 	}
@@ -155,6 +157,38 @@ type Account struct {
 	StyleBought     int64                 // extra styling slots bought (economy/styling.go)
 	StyleNextID     int64                 // last styling slot id handed out; ids are never reused
 	Remodel         *RoomRemodel          // unlocked floors and per-floor tile sizes (economy/remodel.go); replaced, never edited in place
+	GardenStats     GardenStats           // persistent Garden level, visit counters, and planet element
+}
+
+// GardenStats holds an account's persistent Garden level, visit counters, and planet element.
+type GardenStats struct {
+	Exp         int64    `json:"exp,omitempty"`
+	Footprints  int64    `json:"footprints,omitempty"`
+	TodayDay    int64    `json:"todayDay,omitempty"`
+	TodayVisits int64    `json:"todayVisits,omitempty"`
+	TodaySeen   []string `json:"todaySeen,omitempty"`
+	UserPlanet  int      `json:"userPlanet,omitempty"`
+}
+
+// Level returns the Garden level from Exp: 1 + int(Exp/100), clamped to [1, 99].
+func (g GardenStats) Level() int {
+	if g.Exp <= 0 {
+		return 1
+	}
+	lv := 1 + g.Exp/100
+	if lv >= 99 {
+		return 99
+	}
+	return int(lv)
+}
+
+func (g GardenStats) clone() GardenStats {
+	g.TodaySeen = slices.Clone(g.TodaySeen)
+	return g
+}
+
+func (g GardenStats) isZero() bool {
+	return g.Exp == 0 && g.Footprints == 0 && g.TodayDay == 0 && g.TodayVisits == 0 && len(g.TodaySeen) == 0 && g.UserPlanet == 0
 }
 
 // Room remodeling defaults: 1F and 2F are free at 12x12 (legacy default); 3F and larger sizes unlock via Remodeling Shop.
@@ -692,6 +726,7 @@ func accountForToken(token string) (AccountSnapshot, bool) {
 		Country: acc.Country, ItemCodes: append([]string(nil), acc.ItemCodes...),
 		InventoryCodes: append([]string(nil), AccountInventoryCodes(acc)...),
 		BirthdayClaims: acc.BirthdayClaims, ProfileImage: acc.ProfileImage, Remodel: acc.Remodel,
+		GardenStats: acc.GardenStats.clone(),
 	}
 	AccountsMu.Unlock()
 	return snapshot, true

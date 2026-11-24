@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"slices"
 	"testing"
 )
@@ -39,5 +40,67 @@ func TestAnimalBaseItems(t *testing.T) {
 		if got := IsAvatarBaseItem(tc.gender, tc.code); got != tc.want {
 			t.Errorf("IsAvatarBaseItem(%s, %s) = %v, want %v", tc.gender, tc.code, got, tc.want)
 		}
+	}
+}
+
+func TestGardenStatsLevelAndClone(t *testing.T) {
+	for _, tc := range []struct {
+		exp  int64
+		want int
+	}{
+		{-5, 1},
+		{0, 1},
+		{99, 1},
+		{100, 2},
+		{250, 3},
+		{9799, 98},
+		{9800, 99},
+		{50000, 99},
+	} {
+		if got := (GardenStats{Exp: tc.exp}).Level(); got != tc.want {
+			t.Errorf("GardenStats{Exp: %d}.Level() = %d, want %d", tc.exp, got, tc.want)
+		}
+	}
+
+	orig := &Account{
+		Aid: "9101",
+		GardenStats: GardenStats{
+			Exp:         120,
+			Footprints:  5,
+			TodayDay:    20500,
+			TodayVisits: 2,
+			TodaySeen:   []string{"9102", "9103"},
+			UserPlanet:  2,
+		},
+	}
+	stored := StoredFrom(orig)
+	if stored.GardenStats == nil {
+		t.Fatal("StoredFrom dropped non-zero GardenStats")
+	}
+	stored.GardenStats.TodaySeen[0] = "mutated"
+	if orig.GardenStats.TodaySeen[0] != "9102" {
+		t.Fatal("StoredFrom aliased TodaySeen slice")
+	}
+	stored.GardenStats.TodaySeen[0] = "9102"
+	raw, err := json.Marshal(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back StoredAccount
+	if err := json.Unmarshal(raw, &back); err != nil {
+		t.Fatal(err)
+	}
+	restored := accountFromStored(back)
+	if restored.GardenStats.Exp != 120 || restored.GardenStats.Footprints != 5 || restored.GardenStats.TodayDay != 20500 ||
+		restored.GardenStats.TodayVisits != 2 || restored.GardenStats.UserPlanet != 2 ||
+		!slices.Equal(restored.GardenStats.TodaySeen, []string{"9102", "9103"}) {
+		t.Fatalf("round-trip GardenStats = %+v", restored.GardenStats)
+	}
+	back.GardenStats.TodaySeen[0] = "mutated2"
+	if restored.GardenStats.TodaySeen[0] != "9102" {
+		t.Fatal("accountFromStored aliased TodaySeen slice")
+	}
+	if empty := StoredFrom(&Account{Aid: "9104"}); empty.GardenStats != nil {
+		t.Fatalf("StoredFrom zero GardenStats = %+v, want nil", empty.GardenStats)
 	}
 }

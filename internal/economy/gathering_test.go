@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -324,5 +325,75 @@ func TestGatherPersistRoundTrip(t *testing.T) {
 	}
 	if rec == nil || rec.Day != 20470 || rec.Own != 7 || rec.Gardens["7001"] != 2 || rec.Gems != 14 {
 		t.Fatalf("reloaded record = %+v", rec)
+	}
+}
+
+// TestGatherExpAndRecordGardenVisit checks that GatherCredit grants +10 Exp, RecordGardenVisit
+// deduplicates visitors per game day, resets todayVisits across the 06:00 JST boundary, ignores
+// self/unknown visits, and persists cleanly to SQLite.
+func TestGatherExpAndRecordGardenVisit(t *testing.T) {
+	testutil.InstallAccounts(t, map[string]*store.Account{
+		"v1":    {AccessToken: "v1", SessionKey: "sk", Aid: "9911", Name: "Visitor1"},
+		"v2":    {AccessToken: "v2", SessionKey: "sk", Aid: "9912", Name: "Visitor2"},
+		"owner": {AccessToken: "owner", SessionKey: "sk", Aid: "9913", Name: "Owner", GardenStats: store.GardenStats{UserPlanet: 2}},
+	})
+	testutil.SetLab(t, "9911", false)
+	testutil.SetLab(t, "9912", false)
+	testutil.SetLab(t, "9913", false)
+	testutil.UseDatabase(t)
+
+	// 2026-11-24 10:00 JST (01:00 UTC)
+	now := time.Date(2026, time.November, 24, 1, 0, 0, 0, time.UTC)
+	prevNow := NowFunc
+	NowFunc = func() time.Time { return now }
+	t.Cleanup(func() { NowFunc = prevNow })
+
+	if _, _, ok := GatherCredit("9913", "9913", GatherEssence, 210000, now); !ok {
+		t.Fatal("GatherCredit failed")
+	}
+	for range 9 {
+		if _, _, ok := GatherCredit("9913", "9913", GatherOre, 310000, now); !ok {
+			t.Fatal("GatherCredit repeat failed")
+		}
+	}
+	// Self-visit, empty aid, unknown owner are ignored.
+	RecordGardenVisit("9913", "9913")
+	RecordGardenVisit("", "9913")
+	RecordGardenVisit("9911", "")
+	RecordGardenVisit("9911", "99999")
+
+	// First visit by 9911, duplicate by 9911, then visit by 9912 on the same game day.
+	RecordGardenVisit("9911", "9913")
+	RecordGardenVisit("9911", "9913")
+	RecordGardenVisit("9912", "9913")
+
+	snap, ok := store.AccountByAvatarID("9913")
+	if !ok {
+		t.Fatal("owner missing")
+	}
+	if snap.GardenStats.Exp != 100 || snap.GardenStats.Level() != 2 ||
+		snap.GardenStats.Footprints != 2 || snap.GardenStats.TodayVisits != 2 ||
+		!slices.Equal(snap.GardenStats.TodaySeen, []string{"9911", "9912"}) ||
+		snap.GardenStats.UserPlanet != 2 {
+		t.Fatalf("same-day stats = %+v", snap.GardenStats)
+	}
+
+	// Next game day (after 06:00 JST): TodayVisits resets to 1, Footprints keeps accumulating.
+	now = now.Add(24 * time.Hour)
+	RecordGardenVisit("9911", "9913")
+
+	if err := store.ReloadAccounts(); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, ok := store.AccountByAvatarID("9913")
+	if !ok {
+		t.Fatal("owner missing after reload")
+	}
+	if reloaded.GardenStats.Exp != 100 || reloaded.GardenStats.Level() != 2 ||
+		reloaded.GardenStats.Footprints != 3 || reloaded.GardenStats.TodayVisits != 1 ||
+		reloaded.GardenStats.TodayDay != AttendDayKey(now) ||
+		!slices.Equal(reloaded.GardenStats.TodaySeen, []string{"9911"}) ||
+		reloaded.GardenStats.UserPlanet != 2 {
+		t.Fatalf("reloaded next-day stats = %+v", reloaded.GardenStats)
 	}
 }

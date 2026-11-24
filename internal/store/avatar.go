@@ -111,10 +111,12 @@ func AvatarInfoForAccount(acc AccountSnapshot) AvatarInfoResult {
 	if skin == "" {
 		skin = "1"
 	}
+	img, wb, _ := acc.ProfileImage.Fields()
 	return AvatarInfoResult{
 		AvatarID: acc.Aid, Name: acc.Name, Gender: gender, SType: "NORMAL", Skin: skin,
 		Country: acc.Country, Items: avatarItemsFromInventory(AppearanceItemCodes(gender, acc.ItemCodes), acc.InventoryCodes, acc.DyeColors),
 		PetProfiles: []string{},
+		Profile:     img, ObsProfileImagePath: img, ObsWholeBodyProfileImagePath: wb,
 	}
 }
 
@@ -233,4 +235,11 @@ type AvatarInfoResult struct {
 	Country     string       `json:"country"`
 	Items       []AvatarItem `json:"items"`
 	PetProfiles []string     `json:"petProfiles"`
+	// Omit bg intentionally (square-profile-20261124/spec.md §2.2): NaProfileMiniPopupLayer::SetupTopUI
+	// (0x211c82c) passes sDataAvatar.bg to SetPNGImageWithURL on parent node 43 (IMG_AVATAR), which hides
+	// node 43 (and its child 44 IMG_NO_AVATAR) permanently if /img/read/profilebg/<n>.jpg 404s; omitting
+	// bg keeps node 43 visible while node 44 loads obsProfileImagePath.
+	Profile                      string `json:"profile,omitempty"`
+	ObsProfileImagePath          string `json:"obsProfileImagePath,omitempty"`
+	ObsWholeBodyProfileImagePath string `json:"obsWholeBodyProfileImagePath,omitempty"`
 }

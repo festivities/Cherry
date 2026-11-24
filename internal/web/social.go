@@ -182,17 +182,17 @@ func handleProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	if acc, ok := store.AccountByAvatarID(aid); ok {
 		body := profileBodyFor(aid, acc.Name, true, viewer, viewerOK)
-		if pi := acc.ProfileImage; pi.Image != "" {
+		if img, wb, bg := acc.ProfileImage.Fields(); img != "" {
 			// Home MENU "Profile" cell (profilecell-spec.md, 2026-11-22): NaHomeMoreViewCell::SetProfileImage 0x16a2114
 			// draws the photo only with result.profile and a non-empty result.bg (sDataProfileWithAvatarID::ParseJson
-			// 0x1b6f000 keys). profilebg/12.jpg is a Cherry-chosen fallback for a picture without its own background;
-			// the client draws a background texture only when it has the file.
-			bg := pi.Bg
-			if bg == "" {
-				bg = "profilebg/12.jpg"
-			}
-			body["obsProfileImagePath"], body["obsWholeBodyProfileImagePath"], body["bg"] = pi.Image, pi.WholeBody, bg
-			body["profile"] = pi.Image
+			// 0x1b6f000 keys). Fields() defaults empty bg to DefaultProfileBg (profilebg/12.jpg) and empty wb to img.
+			body["obsProfileImagePath"], body["obsWholeBodyProfileImagePath"], body["bg"] = img, wb, bg
+			body["profile"] = img
+		}
+		body["myGardenAvatarInfo"] = map[string]any{
+			"level":          acc.GardenStats.Level(),
+			"footprintCount": acc.GardenStats.Footprints,
+			"userPlanet":     acc.GardenStats.UserPlanet,
 		}
 		body["intro"] = profileIntro(acc) // ParseJson (0x1b6f000) reads result.intro as the Status Message
 		// "Avatar Birthday" (NaProfilePopup::SetBirthday 0x21de278): result.created read asString, epoch ms, shown at GMT+9;
@@ -220,12 +220,22 @@ func profileBodyFor(aid, name string, hasGarden bool, viewer store.AccountSnapsh
 			guestbookCount++
 		}
 	}
+	friendsCount := 0
+	for _, f := range store.Friendships {
+		if f.State == "accepted" && (f.A == aid || f.B == aid) {
+			friendsCount++
+		}
+	}
+	if aid != store.FriendAID && !store.FriendRemoved {
+		friendsCount++
+	}
 	store.SocialMu.Unlock()
 	body := map[string]any{
 		"avatarId": aid, "name": name, "nickname": name, "diaryName": name,
 		"newbie": false, "friendStatus": friendStatus, "friendApplyYn": true, "hasGarden": hasGarden,
 		"showGuestBook": true, "showCmt": true, "showProfile": true,
-		"diaryCount": diaryCount, "guestBookCount": guestbookCount,
+		"diaryCount": diaryCount, "guestBookCount": guestbookCount, "friendsCount": friendsCount,
+		"myGardenAvatarInfo": map[string]any{"level": 1, "footprintCount": int64(0), "userPlanet": 0},
 	}
 	for k, v := range heartProfileFields(viewer.Aid, aid) {
 		body[k] = v
@@ -420,7 +430,7 @@ func diaryIntroTextOK(s string) bool {
 }
 
 // diaryIntroResult builds the SetDiaryIntroduceData result map for aid. Acquires and releases store.SocialMu.
-func diaryIntroResult(aid, nickname string, pi store.ProfileImage, dp store.DiaryProfile, viewer store.AccountSnapshot, viewerOK bool) map[string]any {
+func diaryIntroResult(aid, nickname string, pi store.ProfileImage, dp store.DiaryProfile, gs store.GardenStats, viewer store.AccountSnapshot, viewerOK bool) map[string]any {
 	store.SocialMu.Lock()
 	count := 0
 	for _, post := range store.DiaryPosts {
@@ -440,6 +450,10 @@ func diaryIntroResult(aid, nickname string, pi store.ProfileImage, dp store.Diar
 	if diaryName == "" {
 		diaryName = nickname
 	}
+	var todayVisitor int64
+	if gs.TodayDay == economy.AttendDayKey(economy.NowFunc()) {
+		todayVisitor = gs.TodayVisits
+	}
 	img, _, bg := pi.Fields()
 	return map[string]any{
 		"avatarId": aid, "nickname": nickname, "diaryName": diaryName,
@@ -448,7 +462,7 @@ func diaryIntroResult(aid, nickname string, pi store.ProfileImage, dp store.Diar
 		"sex": shown(dp.Sex, dp.SexSecret), "sexSecret": dp.SexSecret,
 		"bloodType": shown(dp.BloodType, dp.BloodTypeSecret), "bloodTypeSecret": dp.BloodTypeSecret,
 		"job": shown(dp.Job, dp.JobSecret), "jobSecret": dp.JobSecret,
-		"created": true, "diaryCount": count, "todayVisitor": 0, "totalVisitor": 0,
+		"created": true, "diaryCount": count, "todayVisitor": todayVisitor, "totalVisitor": gs.Footprints,
 		"profile": img, "bg": bg, "obsProfileImagePath": img,
 		"showGuestBook": true, "showCmt": true, "useCmtTagBrandAvatarOnly": false, "showProfile": true,
 	}
@@ -468,6 +482,7 @@ func handleDiaryIntro(w http.ResponseWriter, r *http.Request) {
 	nickname := "guest"
 	var pi store.ProfileImage
 	var dp store.DiaryProfile
+	var gs store.GardenStats
 	if aid == store.FriendAID {
 		nickname = store.FriendName()
 	} else if acc, ok := store.AccountByAvatarID(aid); ok {
@@ -478,8 +493,9 @@ func handleDiaryIntro(w http.ResponseWriter, r *http.Request) {
 		if acc.DiaryProfile != nil {
 			dp = *acc.DiaryProfile
 		}
+		gs = acc.GardenStats
 	}
-	body, err := json.Marshal(map[string]any{"result": diaryIntroResult(aid, nickname, pi, dp, viewer, viewerOK)})
+	body, err := json.Marshal(map[string]any{"result": diaryIntroResult(aid, nickname, pi, dp, gs, viewer, viewerOK)})
 	if err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
@@ -558,9 +574,10 @@ func handleDiaryIntroSave(w http.ResponseWriter, r *http.Request) {
 	}
 	pi := acc.ProfileImage
 	dp := next
+	gs := acc.GardenStats
 	store.AccountsMu.Unlock()
 
-	result := diaryIntroResult(aid, nickname, pi, dp, store.AccountSnapshot{Aid: aid}, true)
+	result := diaryIntroResult(aid, nickname, pi, dp, gs, store.AccountSnapshot{Aid: aid}, true)
 	body, err := json.Marshal(map[string]any{"result": result})
 	if err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)

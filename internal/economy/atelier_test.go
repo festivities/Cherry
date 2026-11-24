@@ -249,16 +249,28 @@ func TestAtelierMakeMaterialIsAllOrNothing(t *testing.T) {
 		t.Fatalf("bag after make = %v", bag)
 	}
 	store.AccountsMu.Lock()
-	if _, has := atelierBagIndex(store.AccountByAidLocked("9603").GardenBag, 210000); has {
+	acc9603 := store.AccountByAidLocked("9603")
+	if _, has := atelierBagIndex(acc9603.GardenBag, 210000); has {
+		store.AccountsMu.Unlock()
 		t.Fatal("empty stack was kept")
 	}
+	expAfterMake := acc9603.GardenStats.Exp
 	store.AccountsMu.Unlock()
+	if expAfterMake != 25 {
+		t.Fatalf("exp after material make = %d, want 25", expAfterMake)
+	}
 
 	store.AccountsMu.Lock()
 	store.AccountByAidLocked("9603").Atelier = &store.AtelierState{Stamina: 4, StaminaAt: atelierNow.UnixMilli()}
 	store.AccountsMu.Unlock()
 	if code, s := AtelierMakeMaterial("9603", 101201, 1, atelierNow); code != AtelierStamina || s.Stamina != 4 {
 		t.Fatalf("short stamina = %d, %+v", code, s)
+	}
+	store.AccountsMu.Lock()
+	expAfterRefusal := store.AccountByAidLocked("9603").GardenStats.Exp
+	store.AccountsMu.Unlock()
+	if expAfterRefusal != 25 {
+		t.Fatalf("exp changed on refused material make = %d, want 25", expAfterRefusal)
 	}
 }
 
@@ -290,9 +302,10 @@ func TestAtelierMakeClothesNeedsBlueprintAndRefusesOwned(t *testing.T) {
 	acc := store.AccountByAidLocked("9604")
 	owned := slices.Contains(store.AccountOwnedCodes(acc), "CUAH0066I")
 	gems := acc.Gems
+	expAfterClothes := acc.GardenStats.Exp
 	store.AccountsMu.Unlock()
-	if !owned || gems != 0 {
-		t.Fatalf("owned = %v gems = %d after the make", owned, gems)
+	if !owned || gems != 0 || expAfterClothes != 25 {
+		t.Fatalf("owned = %v gems = %d exp = %d after the make", owned, gems, expAfterClothes)
 	}
 
 	store.AccountsMu.Lock()
