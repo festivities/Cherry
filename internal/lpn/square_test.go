@@ -456,7 +456,7 @@ func TestSquarePlayerListAndSpawn(t *testing.T) {
 	a.read() // adduser for 22
 	a.expect(squareRcHighFiveTargetList, squareHighFiveTargetList([]uint64{22}))
 	room.mu.Lock()
-	if p := room.players; p[0].x != 5400 || p[0].y != 2960 || p[1].x != 5440 || p[1].y != 2940 { // Treasure Island's spawn (73,98)
+	if p := room.players; p[0].x != 5400 || p[0].y != 2960 || p[1].x != 5400 || p[1].y != 2960 { // both on Treasure Island's spawn (73,98): a stepped spawn can be a blocked tile
 		t.Fatalf("spawns = (%d,%d) (%d,%d)", p[0].x, p[0].y, p[1].x, p[1].y)
 	}
 	room.mu.Unlock()

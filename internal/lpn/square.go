@@ -42,8 +42,8 @@ const (
 	squareDefaultCountry  = "JP"
 )
 
-// Each Square's spawn tile (AVATAR_START, data/squares.json) is converted by Square.spawnPx. Square never
-// reads the map's table itself; each later player steps one tile along x (+40,-20).
+// Each Square's spawn tile (AVATAR_START, data/squares.json) is converted by Square.spawnPx; every Square joiner
+// starts there (squareRoom.join). Circle still steps its joiners one tile along x (+40,-20) on its own small map.
 const (
 	squareSpawnStepX = 40
 	squareSpawnStepY = 20
@@ -598,9 +598,10 @@ func (r *squareRoom) join(p *squarePlayer, spawnX, spawnY uint64) (roster []byte
 		}
 	}
 	if index < 0 {
-		n := uint64(len(r.players) % 30) // ponytail: wraps after 30 so the steps stay on the spawn row
-		p.x = spawnX + n*squareSpawnStepX
-		p.y = spawnY - n*squareSpawnStepY
+		// Everyone starts on AVATAR_START, the one tile the map guarantees walkable. Stepping one tile per player put
+		// the 7th and 8th joiner of LINE Café and LINE Park on blocked tiles, where the client cannot path out and
+		// every tap is ignored (production 2026-11-25: 54-66% of those sessions never moved, 2-5% otherwise).
+		p.x, p.y = spawnX, spawnY
 	}
 	roster = pbLen(nil, 2, p.info())
 	for i, o := range r.players {
