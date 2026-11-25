@@ -591,3 +591,24 @@ func TestSquareReenterStandsUpSeat(t *testing.T) {
 	b.expect(9, pbLen(pbVar(nil, 1, 11), 2, squarePositionInfo(5400, 2960, 0))) // Treasure Island's spawn
 	b.none()
 }
+
+// TestLockedConnClosesOnWriteError: after one failed write the connection is closed (its read loop ends and runs the
+// leave) and later writes fail at once instead of waiting squareWriteTTL each.
+func TestLockedConnClosesOnWriteError(t *testing.T) {
+	ours, peer := net.Pipe()
+	peer.Close()
+	c := &lockedConn{Conn: ours}
+	if _, err := c.Write([]byte("x")); err == nil {
+		t.Fatal("write to a closed peer succeeded")
+	}
+	if c.broken == nil {
+		t.Fatal("failed write not remembered")
+	}
+	if _, err := c.Write([]byte("y")); err != c.broken {
+		t.Fatalf("second write err=%v, want the first error %v", err, c.broken)
+	}
+	// A closed local end reads io.ErrClosedPipe; a merely closed peer would read io.EOF.
+	if _, err := ours.Read(make([]byte, 1)); err != io.ErrClosedPipe {
+		t.Fatalf("read after a failed write: %v, want our end closed", err)
+	}
+}

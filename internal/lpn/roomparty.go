@@ -676,7 +676,7 @@ func (s *roomPartySession) relayStart(frame, data []byte) error {
 	// rejoin (a fresh scene has no avatars); it MUST include the joiner itself: AddInviteUser's self branch (aid == hero) is the only
 	// place that calls SetJoinRoomParty(true) on the hero, and AvActor::MoveNextActor posts the
 	// move message 12638 -> RoomPartyService::SendMove only for such a hero (else walking is local).
-	// The self row also repositions the hero (setPosition cur f1,f2): that is the spawn separation.
+	// The self row also repositions the hero (setPosition cur f1,f2): it places the hero on the spawn tile.
 	for _, p := range all {
 		if p.aid != m.aid {
 			m.send(s.logger, 1, pbLen(nil, 1, partyPlayerInfo(p.aid, p.move)))

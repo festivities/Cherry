@@ -117,13 +117,27 @@ type lockedConn struct {
 	listener string
 	remote   string
 	since    time.Time
+	broken   error // the first write error; guarded by mu
 }
 
+// Write sends b within squareWriteTTL. The first failed write closes the connection and every later write fails at
+// once: other players' goroutines broadcast through here, and a peer that stopped reading used to cost each of them
+// the full TTL per message, so whole Squares fell minutes behind ("Connection unstable due to heavy traffic", dead
+// avatars kept in rooms; production 2026-11-25). Closing also ends the peer's own read loop, which runs its leave. A
+// timed-out write may have sent part of a frame, so the stream is unusable anyway.
 func (c *lockedConn) Write(b []byte) (int, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.broken != nil {
+		return 0, c.broken
+	}
 	_ = c.Conn.SetWriteDeadline(time.Now().Add(squareWriteTTL))
-	return c.Conn.Write(b)
+	n, err := c.Conn.Write(b)
+	if err != nil {
+		c.broken = err
+		_ = c.Conn.Close()
+	}
+	return n, err
 }
 
 func (c *lockedConn) SetDeadline(t time.Time) error {
