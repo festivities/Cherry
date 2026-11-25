@@ -223,6 +223,55 @@ func TestDocumentLifecycle(t *testing.T) {
 	}
 }
 
+// TestDiscardDraft: a draft is deleted and audited; a published or retired version is refused with its row kept; a missing
+// version is ErrNoVersion. Only the accepted discard writes an audit row.
+func TestDiscardDraft(t *testing.T) {
+	docStore(t)
+	if err := LoadOperatorData(); err != nil {
+		t.Fatal(err)
+	}
+	good1 := profilesWith(t, `"friend_name": "Friend"`, `"friend_name": "Pal"`)
+	good2 := profilesWith(t, `"friend_name": "Friend"`, `"friend_name": "Kin"`)
+	for _, body := range [][]byte{good1, good2} {
+		if _, err := SaveDraft("profiles.json", body, "tester", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, v := range []int{1, 2} {
+		if _, err := Publish("profiles.json", v, "loopback"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := DiscardDraft("profiles.json", 1, "loopback"); !errors.Is(err, ErrDocumentState) {
+		t.Fatalf("a retired version was discarded: %v", err)
+	}
+	if err := DiscardDraft("profiles.json", 2, "loopback"); !errors.Is(err, ErrDocumentState) {
+		t.Fatalf("the published version was discarded: %v", err)
+	}
+	if err := DiscardDraft("profiles.json", 9, "loopback"); !errors.Is(err, ErrNoVersion) {
+		t.Fatalf("a missing version: %v", err)
+	}
+
+	if _, err := SaveDraft("profiles.json", good1, "tester", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := DiscardDraft("profiles.json", 3, "loopback"); err != nil {
+		t.Fatalf("discard draft 3: %v", err)
+	}
+	if _, _, err := Get("profiles.json", 3); !errors.Is(err, ErrNoVersion) {
+		t.Fatalf("the discarded draft is still stored: %v", err)
+	}
+	if d := liveOf(t, "profiles.json"); d.Published != 2 || d.Versions != 2 {
+		t.Fatalf("live after discard = %+v, want v2 published and two versions kept", d)
+	}
+
+	d, _ := docDB()
+	var audited int
+	if err := d.write.QueryRow("SELECT COUNT(*) FROM audit WHERE action = 'doc-discard' AND target = 'profiles.json' AND detail = ?", `{"version":3}`).Scan(&audited); err != nil || audited != 1 {
+		t.Fatalf("doc-discard rows = %d (err %v), want exactly the accepted discard", audited, err)
+	}
+}
+
 // TestDocumentsNeedADatabase: without an attached database nothing is stored or published, and the status still
 // reads (every document shows its source, nothing published).
 func TestDocumentsNeedADatabase(t *testing.T) {

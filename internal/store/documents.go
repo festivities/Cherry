@@ -191,6 +191,32 @@ func SaveDraft(name string, body []byte, actor, note string) (DocVersion, error)
 	return v, err
 }
 
+// DiscardDraft deletes version of document name when it is a draft: the row and its body are gone for good. A published or
+// retired version is refused (ErrDocumentState) and its row kept; a missing one is ErrNoVersion. The row and the audit row
+// are written in one transaction, so a refused call writes nothing.
+func DiscardDraft(name string, version int, actor string) error {
+	d, err := docDB()
+	if err != nil {
+		return err
+	}
+	if err := checkDocName(name); err != nil {
+		return err
+	}
+	return d.Update(func(tx *sql.Tx) error {
+		v, _, err := docRow(tx, name, version)
+		if err != nil {
+			return err
+		}
+		if v.State != "draft" {
+			return fmt.Errorf("%w: %s v%d is %s, only a draft can be discarded", ErrDocumentState, name, version, v.State)
+		}
+		if _, err := tx.Exec("DELETE FROM documents WHERE name = ? AND version = ? AND state = 'draft'", name, version); err != nil {
+			return err
+		}
+		return auditTx(tx, actor, "doc-discard", name, map[string]any{"version": version})
+	})
+}
+
 // Validate runs the document's validator on a stored version and changes nothing.
 func Validate(name string, version int) (artSkipped bool, err error) {
 	d, err := docDB()

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"cherry/internal/opdata"
 	"cherry/internal/store"
 )
 
@@ -88,7 +89,12 @@ func TestDestructiveFormsAskFirst(t *testing.T) {
 	if n := strings.Count(page, `data-confirm="`); n < 2 {
 		t.Errorf("the player page has %d confirmed forms, want the ban and the removal", n)
 	}
-	expect(t, c.post("/docs/cherrytips.json/draft", url.Values{"csrf": {c.csrf()}, "body": {"{}"}, "note": {"n"}}), http.StatusSeeOther)
+	def, _ := opdata.Embedded("cherrytips.json")
+	expect(t, c.post("/docs/cherrytips.json/draft", url.Values{"csrf": {c.csrf()}, "body": {string(def)}, "note": {"n"}}), http.StatusSeeOther)
+	if !strings.Contains(c.get("/docs/cherrytips.json/1").body, `data-confirm="Discard cherrytips.json v1?`) {
+		t.Error("the draft page does not confirm the discard")
+	}
+	expect(t, c.post("/docs/cherrytips.json/1/publish", url.Values{"csrf": {c.csrf()}}), http.StatusOK)
 	if !strings.Contains(c.get("/docs/cherrytips.json/1").body, `data-confirm="Roll cherrytips.json back`) {
 		t.Error("the version page does not confirm the roll-back")
 	}

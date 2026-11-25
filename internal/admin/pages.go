@@ -41,6 +41,7 @@ var navGroups = []navGroup{
 // map shows nothing, so no text from the query ever reaches a page.
 var notices = map[string]string{
 	"draft-saved":       "The draft is saved as a new version. Validate it, then publish it.",
+	"draft-discarded":   "The draft is deleted and cannot be restored. The audit trail has the line.",
 	"avatar-moved":      "The avatar is moved to the identity. The account it left has no avatar now; every login of the moved avatar has ended, so the device that had it is signed out.",
 	"avatar-restored":   "The avatar is restored to the identity. Its posts, guestbook entries, comments, likes and friendships are back where their numbers were free; the audit row lists what was skipped.",
 	"granted":           "The change is saved. The audit trail has the line; a currency change has its ledger line too.",
@@ -541,6 +542,20 @@ func (s *Server) handleRollback(w http.ResponseWriter, r *http.Request, sess ses
 		v.Notice = fmt.Sprintf("%s v%d is published again (v%d was rolled back). The change applies at the next restart.", name, res.Version, res.Replaces)
 	}
 	s.render(w, http.StatusOK, "result", v)
+}
+
+// handleDiscard: POST /docs/{name}/{version}/discard deletes a draft version. The store refuses a published or retired one.
+// The history page shows the notice.
+func (s *Server) handleDiscard(w http.ResponseWriter, r *http.Request, sess session) {
+	name, ver, ok := s.docArgs(w, r)
+	if !ok {
+		return
+	}
+	if err := store.DiscardDraft(name, ver, sess.identity); err != nil {
+		s.storeError(w, err)
+		return
+	}
+	redirect(w, http.StatusSeeOther, fmt.Sprintf("/docs/%s?notice=draft-discarded", url.PathEscape(name)))
 }
 
 // auditFilterOf reads the audit filter of a query. It returns the problem to show when a value is not usable.

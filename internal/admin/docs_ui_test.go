@@ -130,6 +130,60 @@ func TestVersionPageShowsTheDiff(t *testing.T) {
 	}
 }
 
+// TestVersionPageButtonsByState: a version shows only the actions its state allows. A draft has Publish and Discard, no
+// Roll back; a published version has Roll back only; a retired one has Publish, no Roll back. Discard deletes the draft,
+// and the store refuses it for the published and retired versions.
+func TestVersionPageButtonsByState(t *testing.T) {
+	fx := newFixture(t, devConfig())
+	c := fx.client()
+	c.signInDev("owner")
+	def, _ := opdata.Embedded("cherrytips.json")
+	const doc = "/docs/cherrytips.json"
+	form := func(extra url.Values) url.Values {
+		if extra == nil {
+			extra = url.Values{}
+		}
+		extra.Set("csrf", c.csrf())
+		return extra
+	}
+	has := func(body, action string) bool { return strings.Contains(body, `action="`+action+`"`) }
+
+	expect(t, c.post(doc+"/draft", form(url.Values{"body": {string(def)}})), http.StatusSeeOther) // v1
+	expect(t, c.post(doc+"/draft", form(url.Values{"body": {string(def)}})), http.StatusSeeOther) // v2
+	draft := c.get(doc + "/1").body
+	if !has(draft, doc+"/1/discard") || !has(draft, doc+"/1/publish") || has(draft, doc+"/rollback") {
+		t.Error("draft page: want Publish and Discard, no Roll back")
+	}
+	expect(t, c.post(doc+"/1/publish", form(nil)), http.StatusOK)
+	expect(t, c.post(doc+"/2/publish", form(nil)), http.StatusOK) // v1 becomes retired
+
+	published := c.get(doc + "/2").body
+	if !has(published, doc+"/rollback") || has(published, doc+"/2/publish") || has(published, doc+"/2/discard") {
+		t.Error("published page: want Roll back only")
+	}
+	retired := c.get(doc + "/1").body
+	if !has(retired, doc+"/1/publish") || has(retired, doc+"/rollback") || has(retired, doc+"/1/discard") {
+		t.Error("retired page: want Publish, no Roll back, no Discard")
+	}
+
+	expect(t, c.post(doc+"/1/discard", form(nil)), http.StatusConflict)
+	expect(t, c.post(doc+"/2/discard", form(nil)), http.StatusConflict)
+	draftNew := c.post(doc+"/draft", form(url.Values{"body": {string(def)}}))
+	expect(t, draftNew, http.StatusSeeOther) // v3
+	discarded := c.post(doc+"/3/discard", form(nil))
+	expect(t, discarded, http.StatusSeeOther)
+	if loc := discarded.Header.Get("Location"); loc != doc+"?notice=draft-discarded" {
+		t.Fatalf("discard redirects to %q", loc)
+	}
+	expect(t, c.get(doc+"/3"), http.StatusNotFound)
+	if page := c.get(doc + "?notice=draft-discarded").body; !strings.Contains(page, notices["draft-discarded"]) {
+		t.Error("the history page does not show the discard notice")
+	}
+	if !hasAudit(auditRows(t), "dev-owner", "doc-discard", "") {
+		t.Error("the discard is not in the audit trail with its actor")
+	}
+}
+
 // TestDocsListFields: each document shows its live version, when and by whom it was published, a newer draft, whether it
 // has art checks, its origin and the first line of its note, and links to Edit and History.
 func TestDocsListFields(t *testing.T) {

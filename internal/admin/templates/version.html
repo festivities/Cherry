@@ -22,8 +22,9 @@
 
 <div class="actions">
 <form method="post" action="/docs/{{.DocName}}/{{.Version.Version}}/validate"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" class="ghost">Validate</button></form>
-<form method="post" action="/docs/{{.DocName}}/{{.Version.Version}}/publish" data-confirm="Publish {{.DocName}} v{{.Version.Version}}? It applies at the next restart."><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Publish</button></form>
-<form method="post" action="/docs/{{.DocName}}/rollback" data-confirm="Roll {{.DocName}} back to the version it replaced? It applies at the next restart."><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" class="danger">Roll back</button></form>
+{{if ne .Version.State "published"}}<form method="post" action="/docs/{{.DocName}}/{{.Version.Version}}/publish" data-confirm="Publish {{.DocName}} v{{.Version.Version}}? It applies at the next restart."><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Publish</button></form>{{end}}
+{{if eq .Version.State "published"}}<form method="post" action="/docs/{{.DocName}}/rollback" data-confirm="Roll {{.DocName}} back to the version it replaced? It applies at the next restart."><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" class="danger">Roll back</button></form>{{end}}
+{{if eq .Version.State "draft"}}<form method="post" action="/docs/{{.DocName}}/{{.Version.Version}}/discard" data-confirm="Discard {{.DocName}} v{{.Version.Version}}? The draft is deleted and cannot be restored."><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit" class="danger">Discard</button></form>{{end}}
 </div>
-<p class="muted small">Publish and roll back need a Discord sign-in in the last five minutes. A published version applies at the next restart.</p>
+<p class="muted small">{{if eq .Version.State "published"}}Roll back needs{{else}}Publish needs{{end}} a Discord sign-in in the last five minutes. A published version applies at the next restart.{{if eq .Version.State "draft"}} Discard deletes this draft for good.{{end}}</p>
 {{end}}
