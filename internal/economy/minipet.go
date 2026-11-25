@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"cherry/internal/httpx"
 	"cherry/internal/room"
@@ -411,7 +412,7 @@ func MiniPetStroke(aid string, petID int64) (MiniPetStrokeReply, bool) {
 	if _, owned := ownedPet(acc, pet); reply.Final && !owned {
 		name := PetDisplayName(pet)
 		present := rules.Presents[presentPick(len(rules.Presents))]
-		acc.Pets = append(slices.Clone(acc.Pets), store.PetItem{ID: petID, Cd: pet, Name: name})
+		acc.Pets = append(slices.Clone(acc.Pets), store.PetItem{ID: petID, Cd: pet, Name: name, Memo: st.Memo})
 		acc.InventoryCodes = store.AppendUniqueItemCodes(store.AccountInventoryCodes(acc), []string{present})
 		reply.LevelUp = true
 		reply.Gift = &MiniPetGift{Item: present, ItemName: ItemName(present), Grade: "NORMAL", Pet: pet, PetName: name}
@@ -534,6 +535,9 @@ func HandlePet(w http.ResponseWriter, r *http.Request) {
 	case get && path == "book/race/detail":
 		miniPetBookDetail(w, r)
 		return
+	case r.Method == http.MethodPost && path == "book/change/memo":
+		miniPetChangeMemo(w, r)
+		return
 	}
 	room.HandlePet(w, r)
 }
@@ -580,6 +584,7 @@ func miniPetOwnedBookRow(acc *store.Account, p store.PetItem, sp *room.PetSpecie
 		LocaleCd:                   "en",
 		RaceNm:                     raceNm,
 		PetID:                      petID,
+		PetMemo:                    p.Memo,
 		AvatarID:                   acc.Aid,
 		PetName:                    p.Name,
 		SkinSerial:                 petID,
@@ -597,6 +602,9 @@ func miniPetOwnedBookRow(acc *store.Account, p store.PetItem, sp *room.PetSpecie
 	}
 	if item, ok := MiniPetItem(p.Cd); ok {
 		st := minipetState(acc, p.Cd)
+		if row.PetMemo == "" {
+			row.PetMemo = st.Memo
+		}
 		placed := placedLevel(acc, item) != ""
 		row.ItemCode = item
 		row.ArrangedYn = placed
@@ -635,6 +643,10 @@ func miniPetSpeciesBookRow(acc *store.Account, sp room.PetSpecies, ownedItems ma
 			if owned {
 				level = 1
 			}
+			memo := st.Memo
+			if owned && ownedPetRow.Memo != "" {
+				memo = ownedPetRow.Memo
+			}
 			return room.PetBookRow{
 				RaceID:                     int(sp.ID),
 				CatgCd:                     sp.Catg,
@@ -642,6 +654,7 @@ func miniPetSpeciesBookRow(acc *store.Account, sp room.PetSpecies, ownedItems ma
 				LocaleCd:                   "en",
 				RaceNm:                     sp.Name,
 				PetID:                      petID,
+				PetMemo:                    memo,
 				AvatarID:                   acc.Aid,
 				PetName:                    sp.Name,
 				SkinSerial:                 petID,
@@ -723,6 +736,28 @@ func HandlePetBook(w http.ResponseWriter, r *http.Request) {
 	writeMiniPetResult(w, map[string]any{"list": list})
 }
 
+func petSpeciesFor(byCode map[string]room.PetSpecies, pet string) room.PetSpecies {
+	if sp, ok := byCode[pet]; ok {
+		return sp
+	}
+	item, _ := MiniPetItem(pet)
+	catg := ""
+	if it := loadCatalog().byCode[pet]; it != nil {
+		catg = it.Catg
+	}
+	return room.PetSpecies{
+		Code: pet, ID: int64(room.PetSkinID(pet)), Catg: catg,
+		Item: item, Name: PetDisplayName(pet), MaxExp: miniPetMaxExp(pet),
+	}
+}
+
+func hasMiniPetActivity(acc *store.Account, pet, item string, ownedItems map[string]bool) bool {
+	ownsItem := item != "" && ownedItems[item]
+	arranged := item != "" && placedLevel(acc, item) != ""
+	st := minipetState(acc, pet)
+	return ownsItem || arranged || st.Exp > 0 || st.VisitEnd > 0 || st.NextCall > 0
+}
+
 // miniPetBookDetail serves GET /v4/pet/book/race/detail?petId=<id>.
 func miniPetBookDetail(w http.ResponseWriter, r *http.Request) {
 	acc := minipetAccount(w, r)
@@ -749,32 +784,92 @@ func miniPetBookDetail(w http.ResponseWriter, r *http.Request) {
 		writeMiniPetResult(w, miniPetOwnedBookRow(acc, p, speciesOf(p.Cd), rules))
 		return
 	}
-	pet, ok := minipetByID(acc, id)
-	if !ok {
-		for _, other := range store.AllAccountsLocked() {
-			if other == acc {
-				continue
-			}
-			if i := slices.IndexFunc(other.Pets, func(p store.PetItem) bool { return p.ID == id }); i >= 0 {
-				p := other.Pets[i]
-				writeMiniPetResult(w, miniPetOwnedBookRow(other, p, speciesOf(p.Cd), rules))
-				return
-			}
-		}
-		httpx.WriteJSON(w, http.StatusBadRequest, `{"errorCode":"400"}`)
+	if pet, ok := minipetByID(acc, id); ok {
+		writeMiniPetResult(w, miniPetSpeciesBookRow(acc, petSpeciesFor(byCode, pet), ownedRoomItemSet(acc), rules, NowFunc()))
 		return
 	}
-	sp, ok := byCode[pet]
-	if !ok {
-		item, _ := MiniPetItem(pet)
-		catg := ""
-		if it := loadCatalog().byCode[pet]; it != nil {
-			catg = it.Catg
+	for _, other := range store.AllAccountsLocked() {
+		if other == acc {
+			continue
 		}
-		sp = room.PetSpecies{
-			Code: pet, ID: int64(room.PetSkinID(pet)), Catg: catg,
-			Item: item, Name: PetDisplayName(pet), MaxExp: miniPetMaxExp(pet),
+		if i := slices.IndexFunc(other.Pets, func(p store.PetItem) bool { return p.ID == id }); i >= 0 {
+			p := other.Pets[i]
+			writeMiniPetResult(w, miniPetOwnedBookRow(other, p, speciesOf(p.Cd), rules))
+			return
 		}
 	}
-	writeMiniPetResult(w, miniPetSpeciesBookRow(acc, sp, ownedRoomItemSet(acc), rules, NowFunc()))
+	if id >= 1_000_000_000_000_000 {
+		ownerAid := strconv.FormatInt((id-1_000_000_000_000_000)/100_000_000, 10)
+		if other := store.AccountByAidLocked(ownerAid); other != nil && other != acc {
+			if pet, ok := minipetByID(other, id); ok {
+				ownedItems := ownedRoomItemSet(other)
+				sp := petSpeciesFor(byCode, pet)
+				if hasMiniPetActivity(other, pet, sp.Item, ownedItems) {
+					writeMiniPetResult(w, miniPetSpeciesBookRow(other, sp, ownedItems, rules, NowFunc()))
+					return
+				}
+			}
+		}
+	}
+	httpx.WriteJSON(w, http.StatusBadRequest, `{"errorCode":"400"}`)
+}
+
+// miniPetChangeMemo serves POST /v4/pet/book/change/memo to update the owner's Pet Book memo.
+func miniPetChangeMemo(w http.ResponseWriter, r *http.Request) {
+	raw, err := httpx.ReadNativeBody(r)
+	var req struct {
+		PetID   json.RawMessage `json:"petId"`
+		PetMemo string          `json:"petMemo"`
+	}
+	if err == nil {
+		_, err = httpx.UnmarshalNativeJSON(raw, &req)
+	}
+	if err != nil {
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
+	id, err := strconv.ParseInt(strings.Trim(string(req.PetID), `"`), 10, 64)
+	if err != nil || id <= 0 {
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
+	memo := strings.NewReplacer("\r", "", "\n", "").Replace(req.PetMemo)
+	if utf8.RuneCountInString(memo) > 50 {
+		httpx.WriteJSON(w, http.StatusBadRequest, `{"errorCode":"400","errorMessage":"memo too long"}`)
+		return
+	}
+	acc := minipetAccount(w, r)
+	if acc == nil {
+		return
+	}
+	defer store.AccountsMu.Unlock()
+	prev := *acc
+	if i := slices.IndexFunc(acc.Pets, func(p store.PetItem) bool { return p.ID == id }); i >= 0 {
+		pets := slices.Clone(acc.Pets)
+		pets[i].Memo = memo
+		acc.Pets = pets
+		if _, paired := MiniPetItem(pets[i].Cd); paired {
+			st := minipetState(acc, pets[i].Cd)
+			st.Memo = memo
+			setMiniPetState(acc, st)
+		}
+	} else if pet, ok := minipetByID(acc, id); ok {
+		item, _ := MiniPetItem(pet)
+		if !hasMiniPetActivity(acc, pet, item, ownedRoomItemSet(acc)) {
+			httpx.WriteJSON(w, http.StatusBadRequest, `{"errorCode":"600101","errorMessage":"pet not found"}`)
+			return
+		}
+		st := minipetState(acc, pet)
+		st.Memo = memo
+		setMiniPetState(acc, st)
+	} else {
+		httpx.WriteJSON(w, http.StatusBadRequest, `{"errorCode":"600101","errorMessage":"pet not found"}`)
+		return
+	}
+	if err := store.SaveLocked(nil, acc); err != nil {
+		*acc = prev
+		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
+		return
+	}
+	writeMiniPetResult(w, true)
 }

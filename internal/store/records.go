@@ -64,6 +64,7 @@ type PetItem struct {
 	ID   int64  `json:"id"`
 	Cd   string `json:"cd"`
 	Name string `json:"name"`
+	Memo string `json:"memo,omitempty"`
 	Rep  bool   `json:"rep,omitempty"`  // follows the owner (Garden, My Room)
 	Room string `json:"room,omitempty"` // "LEVEL_n" when arranged on that My Room floor
 }
@@ -88,6 +89,7 @@ type MiniPetState struct {
 	NextCall int64  `json:"nextCall,omitempty"` // unix seconds the next free call is allowed (0 = at once)
 	VisitEnd int64  `json:"visitEnd,omitempty"` // unix seconds the current visit ends (0 = no visit)
 	Petted   bool   `json:"petted,omitempty"`   // petted during the current visit
+	Memo     string `json:"memo,omitempty"`     // owner's Pet Book memo
 }
 
 type RoomPlaced struct {

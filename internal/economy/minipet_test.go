@@ -395,3 +395,183 @@ func TestMiniPetBookStateAndDetail(t *testing.T) {
 		t.Fatalf("no-session detail status %d, want 404", rec.Code)
 	}
 }
+
+// TestMiniPetMemoAndCrossPlayerVisitDetail verifies POST /v4/pet/book/change/memo, petMemo in Pet Book
+// responses and adoption preservation, and cross-player visiting pet detail lookups.
+func TestMiniPetMemoAndCrossPlayerVisitDetail(t *testing.T) {
+	root := shopFixture(t, map[string][]string{
+		"interior/122900007": {"dp.png"}, // RUPI00007 -> PUPE0000G
+		"interior/122900012": {"dp.png"}, // RUPI0000C -> PUPE0000I
+		"pet/326400016":      {"skeleton.xml", "dp.png", "behavior.xml"},
+		"pet/326400018":      {"skeleton.xml", "dp.png", "behavior.xml"},
+	})
+	for _, id := range []string{"326400016", "326400018"} {
+		if err := os.WriteFile(filepath.Join(root, "pet", id, "behavior.xml"), []byte(`{"sndindex":215}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	clock := miniPetClock(t, time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC))
+	prevPick := presentPick
+	presentPick = func(int) int { return 0 }
+	t.Cleanup(func() { presentPick = prevPick })
+
+	accOwner := miniPetOwner("7010", 100, true)
+	accOther := miniPetOwner("7011", 0, true)
+	accOther.Pets = []store.PetItem{
+		{ID: 701101, Cd: room.PetItemCode(1), Name: "Other Legacy", Memo: "legacy"},
+	}
+	testutil.InstallAccounts(t, map[string]*store.Account{
+		"mp-memo-owner": accOwner,
+		"mp-memo-other": accOther,
+	})
+	testutil.SetLab(t, "7010", false)
+	testutil.SetLab(t, "7011", false)
+
+	postMemo := func(tok, petID, memo string) *httptest.ResponseRecorder {
+		t.Helper()
+		payload, err := json.Marshal(map[string]string{"petId": petID, "petMemo": memo})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return miniPetReq(t, tok, http.MethodPost, "book/change/memo", string(payload)+"\x00")
+	}
+	assertMemoOK := func(rec *httptest.ResponseRecorder) {
+		t.Helper()
+		if rec.Code != http.StatusOK {
+			t.Fatalf("change/memo status %d: %s", rec.Code, rec.Body)
+		}
+		var env struct {
+			Result bool `json:"result"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil || !env.Result {
+			t.Fatalf("change/memo reply = %s (err %v), want {\"result\":true}", rec.Body, err)
+		}
+	}
+	bookList := func(tok, cat string) []map[string]any {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/v4/pet/book/race/list/"+cat, nil)
+		req.AddCookie(&http.Cookie{Name: "AV_AUTH", Value: tok})
+		HandlePetBook(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("HandlePetBook(%s) status %d: %s", cat, rec.Code, rec.Body)
+		}
+		var env struct {
+			Result struct {
+				List []map[string]any `json:"list"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+			t.Fatalf("decode %s: %v", rec.Body, err)
+		}
+		return env.Result.List
+	}
+	findRow := func(rows []map[string]any, skin string) map[string]any {
+		t.Helper()
+		for _, r := range rows {
+			if r["skinCode"] == skin {
+				return r
+			}
+		}
+		t.Fatalf("missing skinCode %s in %v", skin, rows)
+		return nil
+	}
+
+	visitID := strconv.FormatInt(room.MiniPetVisitID("7010", "PUPE0000G"), 10)
+	unownedVisitID := strconv.FormatInt(room.MiniPetVisitID("7010", "PUPE0000I"), 10)
+	otherVisitID := strconv.FormatInt(room.MiniPetVisitID("7011", "PUPE0000G"), 10)
+	otherUnownedVisitID := strconv.FormatInt(room.MiniPetVisitID("7011", "PUPE0000I"), 10)
+	missingAidVisitID := strconv.FormatInt(room.MiniPetVisitID("9999", "PUPE0000G"), 10)
+
+	// 1. Validation & auth failures on book/change/memo.
+	if rec := miniPetReq(t, "mp-memo-owner", http.MethodPost, "book/change/memo", "{bad"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad json status %d, want 400", rec.Code)
+	}
+	if status, code := miniPetErr(t, postMemo("mp-memo-owner", "0", "hi")); status != http.StatusBadRequest || code != "400" {
+		t.Fatalf("zero petId: %d %s, want 400", status, code)
+	}
+	if status, code := miniPetErr(t, postMemo("mp-memo-owner", visitID, strings.Repeat("a", 51))); status != http.StatusBadRequest || code != "400" {
+		t.Fatalf("51-rune memo: %d %s, want 400", status, code)
+	}
+	if rec := postMemo("", visitID, "hi"); rec.Code != http.StatusNotFound {
+		t.Fatalf("no session status %d, want 404", rec.Code)
+	}
+
+	// 2. Unowned/other-player pets are rejected with 600101.
+	for _, badID := range []string{unownedVisitID, otherVisitID, "701101", "999999"} {
+		if status, code := miniPetErr(t, postMemo("mp-memo-owner", badID, "nope")); status != http.StatusBadRequest || code != "600101" {
+			t.Fatalf("unowned/other petId %s: %d %s, want 400 600101", badID, status, code)
+		}
+	}
+
+	// 3. Edit memo on un-adopted paired pet (newline stripping + 50 multi-byte runes allowed).
+	assertMemoOK(postMemo("mp-memo-owner", visitID, "loves\r\nbones"))
+	if got := findRow(bookList("mp-memo-owner", "UDOG"), "PUPE0000G")["petMemo"]; got != "lovesbones" {
+		t.Fatalf("UDOG petMemo = %v, want lovesbones", got)
+	}
+	if got := miniPetResult(t, miniPetReq(t, "mp-memo-owner", http.MethodGet, "book/race/detail?petId="+visitID, ""))["petMemo"]; got != "lovesbones" {
+		t.Fatalf("detail petMemo = %v, want lovesbones", got)
+	}
+
+	fiftyRunes := strings.Repeat("犬", 50)
+	assertMemoOK(postMemo("mp-memo-owner", visitID, fiftyRunes+"\n"))
+	if got := miniPetResult(t, miniPetReq(t, "mp-memo-owner", http.MethodGet, "book/race/detail?petId="+visitID, ""))["petMemo"]; got != fiftyRunes {
+		t.Fatalf("50-rune petMemo = %v, want %q", got, fiftyRunes)
+	}
+
+	// 4. Cross-player GET /v4/pet/book/race/detail for visiting MiniPetVisitID.
+	miniPetResult(t, miniPetReq(t, "mp-memo-owner", http.MethodGet, "room/call/"+visitID, ""))
+	cross := miniPetResult(t, miniPetReq(t, "mp-memo-other", http.MethodGet, "book/race/detail?petId="+visitID, ""))
+	if cross["petId"] != visitID || cross["avatarId"] != "7010" || cross["skinCode"] != "PUPE0000G" ||
+		cross["petMemo"] != fiftyRunes || cross["exposureYn"] != true || cross["interiorOwnYn"] != true {
+		t.Fatalf("cross-player visiting detail = %v", cross)
+	}
+	for _, unknownVisit := range []string{otherUnownedVisitID, missingAidVisitID} {
+		if rec := miniPetReq(t, "mp-memo-owner", http.MethodGet, "book/race/detail?petId="+unknownVisit, ""); rec.Code != http.StatusBadRequest {
+			t.Fatalf("cross-player unowned/missing visiting id %s status %d, want 400", unknownVisit, rec.Code)
+		}
+	}
+
+	// 5. Memo is preserved on adoption (MiniPetStroke).
+	assertMemoOK(postMemo("mp-memo-owner", visitID, "keep-me"))
+	visitNum := room.MiniPetVisitID("7010", "PUPE0000G")
+	for range 10 {
+		if _, ok := MiniPetStroke("7010", visitNum); !ok {
+			t.Fatal("MiniPetStroke failed before adoption")
+		}
+		*clock = clock.Add(4 * time.Hour)
+		miniPetResult(t, miniPetReq(t, "mp-memo-owner", http.MethodGet, "room/call/"+visitID, ""))
+	}
+	if got := findRow(bookList("mp-memo-owner", "MYPET"), "PUPE0000G")["petMemo"]; got != "keep-me" {
+		t.Fatalf("MYPET petMemo after adoption = %v, want keep-me", got)
+	}
+	if got := findRow(bookList("mp-memo-owner", "UDOG"), "PUPE0000G")["petMemo"]; got != "keep-me" {
+		t.Fatalf("UDOG petMemo after adoption = %v, want keep-me", got)
+	}
+
+	// 6. Edit and clear memo on adopted pet (updates MYPET, UDOG, and detail).
+	assertMemoOK(postMemo("mp-memo-owner", visitID, "adopted memo"))
+	if got := findRow(bookList("mp-memo-owner", "MYPET"), "PUPE0000G")["petMemo"]; got != "adopted memo" {
+		t.Fatalf("MYPET petMemo after edit = %v", got)
+	}
+	if got := miniPetResult(t, miniPetReq(t, "mp-memo-owner", http.MethodGet, "book/race/detail?petId="+visitID, ""))["petMemo"]; got != "adopted memo" {
+		t.Fatalf("detail petMemo after edit = %v", got)
+	}
+	assertMemoOK(postMemo("mp-memo-owner", visitID, ""))
+	if got := findRow(bookList("mp-memo-owner", "MYPET"), "PUPE0000G")["petMemo"]; got != "" {
+		t.Fatalf("MYPET petMemo after clear = %q, want empty", got)
+	}
+	if got := findRow(bookList("mp-memo-owner", "UDOG"), "PUPE0000G")["petMemo"]; got != "" {
+		t.Fatalf("UDOG petMemo after clear = %q, want empty", got)
+	}
+	if got := miniPetResult(t, miniPetReq(t, "mp-memo-owner", http.MethodGet, "book/race/detail?petId="+visitID, ""))["petMemo"]; got != "" {
+		t.Fatalf("detail petMemo after clear = %q, want empty", got)
+	}
+
+	// 7. Edit and clear memo on an unpaired/legacy adopted pet.
+	assertMemoOK(postMemo("mp-memo-other", "701101", "old pal"))
+	if got := miniPetResult(t, miniPetReq(t, "mp-memo-other", http.MethodGet, "book/race/detail?petId=701101", ""))["petMemo"]; got != "old pal" {
+		t.Fatalf("legacy adopted petMemo = %v, want old pal", got)
+	}
+}
