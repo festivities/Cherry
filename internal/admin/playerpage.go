@@ -31,6 +31,7 @@ var grantKinds = []grantKind{
 	{"bossCoins", "Boss Coins"},
 	{"ridePoints", "Ride points"},
 	{"raceTickets", "Race tickets back (today)"},
+	{"extraHearts", "Extra hearts (to send)"},
 	{"material", "Garden material (the item list)"},
 }
 
@@ -211,6 +212,8 @@ func grantOf(kind, item string, delta int64) (economy.StaffGrant, error) {
 		g.RidePoints = delta
 	case "raceTickets":
 		g.RaceTickets = delta
+	case "extraHearts":
+		g.ExtraHearts = delta
 	case "material":
 		code, err := strconv.ParseInt(item, 10, 64)
 		if err != nil {

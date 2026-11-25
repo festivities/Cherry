@@ -1,16 +1,17 @@
 {{define "page"}}<h1>Every player's balances</h1>
-<p class="muted">Owner only. One change sets or adds to the balances of every account at once. Review shows how many players would change before anything is saved, and the change is saved once, however often the button is pressed. Each change is one audit row; Gems, Cash, face tickets and Smiles changes also get a ledger line for each account.</p>
+<p class="muted">Owner only. One change sets, adds to or takes away from the balances of every account at once. Review shows how many players would change before anything is saved, and the change is saved once, however often the button is pressed. Each change is one audit row; Gems, Cash, face tickets and Smiles changes also get a ledger line for each account.</p>
 <form method="post" action="/balances/review" class="card stack">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
 <fieldset class="stack">
 <legend class="label">Change</legend>
 <label><input type="radio" name="mode" value="add"{{if eq .Balances.Form.Mode "add"}} checked{{end}}> Add this amount to every player (a balance stops at the cap)</label>
 <label><input type="radio" name="mode" value="set"{{if eq .Balances.Form.Mode "set"}} checked{{end}}> Set every player to this value (0 is a reset)</label>
+<label><input type="radio" name="mode" value="take"{{if eq .Balances.Form.Mode "take"}} checked{{end}}> Take this amount away from every player (a balance stops at 0)</label>
 </fieldset>
 {{range .Balances.Fields}}<label><span class="label">{{.Label}}</span>
 <input type="text" name="{{.Name}}" value="{{index $.Balances.Form.Values .Name}}" inputmode="numeric" maxlength="20">
 </label>
-{{end}}<small class="help">Leave a balance empty to keep it as it is. Add: a whole number from 1 to 1000000. Set: a whole number from 0 to 1073741824.</small>
+{{end}}<small class="help">Leave a balance empty to keep it as it is. Add and take away: a whole number from 1 to 1000000. Set: a whole number from 0 to 1073741824.</small>
 <label><span class="label">Reason</span>
 <input type="text" name="reason" value="{{.Balances.Form.Reason}}" maxlength="200" required>
 <small class="help">Written to the audit trail and to every ledger line of the change. 1 to 200 characters.</small></label>

@@ -22,8 +22,9 @@ import (
 //	                  the season (a calendars.json name) is the calendar in force (season.go, /admin/season
 //	                  included). Ids are unique across both lists. A key may repeat across seasons, but not
 //	                  within one season or against quests[].
-//	hearts            base: hearts per game day that count toward the quest; reward_gems: Gems credited
-//	                  once a day with the base-th heart; from_limit: sender aids kept per receiver per day
+//	hearts            base: hearts a sender may send per game day (the daily allowance); quest: hearts sent in
+//	                  one game day that pay the reward (0 = base, else 1 to base); reward_gems and reward_cash:
+//	                  credited once a day with the quest-th heart; from_limit: sender aids kept per receiver per day
 //	mail              sender: the name on staff mail; default_days: expiry when a staff grant gives none;
 //	                  max_amount: largest Gem, Cash or ticket amount per mail row; max_rows: mailbox size
 //	birthday          claim_days: days from the avatar's birthday on which its reward can be claimed;
@@ -56,9 +57,11 @@ type EventQuest struct {
 	Gems   int64  `json:"gems"`
 }
 
-// HeartRules are the hearts-quest numbers (rewards.json hearts).
+// HeartRules are the hearts-quest numbers (rewards.json hearts). checkRewards sets Quest to Base when the file
+// leaves it out, so callers read the effective value.
 type HeartRules struct {
 	Base       int64 `json:"base"`
+	Quest      int64 `json:"quest"`
 	RewardGems int64 `json:"reward_gems"`
 	RewardCash int64 `json:"reward_cash"`
 	FromLimit  int   `json:"from_limit"`
@@ -101,11 +104,16 @@ func checkRewards(r *Rewards) error {
 	if err := r.CheckOrigin("cherry"); err != nil {
 		return err
 	}
+	if r.Hearts.Quest == 0 { // an override file from before hearts.quest keeps its meaning: quest = base
+		r.Hearts.Quest = r.Hearts.Base
+	}
 	switch {
 	case r.WelcomeGems < 0:
 		return errors.New("welcome_gems must not be negative")
 	case r.Hearts.Base < 1:
 		return errors.New("hearts.base must be at least 1")
+	case r.Hearts.Quest < 1 || r.Hearts.Quest > r.Hearts.Base:
+		return errors.New("hearts.quest must be from 1 to hearts.base (or left out, which means hearts.base)")
 	case r.Hearts.RewardGems < 0:
 		return errors.New("hearts.reward_gems must not be negative")
 	case r.Hearts.RewardCash < 0:

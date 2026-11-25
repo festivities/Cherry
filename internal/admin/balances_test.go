@@ -137,6 +137,40 @@ func TestBalancesReviewThenApply(t *testing.T) {
 	}
 }
 
+// TestBalancesTakeStopsAtZero: take away removes the amount from every player and a balance stops at 0; the review says so and the
+// audit row names the mode.
+func TestBalancesTakeStopsAtZero(t *testing.T) {
+	fx := newFixture(t, devConfig())
+	c := fx.client()
+	c.signInDev("owner")
+	a := seedPlayer(t, "dev-bal5", "6105", "Kim", 100)
+	b := seedPlayer(t, "dev-bal6", "6106", "Lee", 30)
+	n := totalMailboxes(t)
+
+	review := c.post("/balances/review", balanceForm(c.csrf(), "take", "clean up", map[string]string{"gems": "50"}))
+	expect(t, review, http.StatusOK)
+	for _, want := range []string{"Every player loses 50 Gems (a balance stops at 0).", "Take away from every player"} {
+		if !strings.Contains(review.body, want) {
+			t.Fatalf("the review does not show %q: %.300s", want, review.body)
+		}
+	}
+	if playerOf(t, a).Gems != 100 || playerOf(t, b).Gems != 30 {
+		t.Fatal("the review changed balances")
+	}
+
+	apply := c.post("/balances/apply", withSend(balanceForm(c.csrf(), "take", "clean up", map[string]string{"gems": "50"}), hiddenValue(t, review.body, "send"), n))
+	expect(t, apply, http.StatusSeeOther)
+	if got := playerOf(t, a).Gems; got != 50 {
+		t.Errorf("Kim's gems = %d, want 50 (100 less the 50 taken away)", got)
+	}
+	if got := playerOf(t, b).Gems; got != 0 {
+		t.Errorf("Lee's gems = %d, want 0 (stopped at 0)", got)
+	}
+	if !hasAudit(auditRows(t), "dev-owner", "grant-all", `"mode":"take"`) {
+		t.Error("no take audit row with the reason")
+	}
+}
+
 // TestBalancesSetResetsAndReplayChangesNothing: a reset to 0 takes every player's Gems down; a second post of the same send, after
 // a player has gems again, changes nothing and says so.
 func TestBalancesSetResetsAndReplayChangesNothing(t *testing.T) {

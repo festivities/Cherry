@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -46,7 +47,7 @@ func TestQuestStatusHeartBlock(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("body %s: %v", rec.Body.String(), err)
 	}
-	wantNumbers := map[string]float64{"heart": 5, "heartBase": 5, "heartRewardCoin": 600}
+	wantNumbers := map[string]float64{"heart": float64(economy.HeartBase()), "heartBase": float64(economy.HeartBase()), "heartRewardCoin": 600}
 	for k, want := range wantNumbers {
 		if v, ok := got.Result[k].(float64); !ok || v != want {
 			t.Fatalf("%s = %#v, want number %v (body %s)", k, got.Result[k], want, rec.Body.String())
@@ -59,11 +60,23 @@ func TestQuestStatusHeartBlock(t *testing.T) {
 	if !ok || !regexp.MustCompile(`^[0-9]+$`).MatchString(expire) || expire != "64800" {
 		t.Fatalf("toExpire = %#v, want decimal string 64800 (18 h to the 06:00 JST reset)", got.Result["toExpire"])
 	}
-	for range economy.HeartBase() {
-		if !economy.HeartSend("9901", "9902", heartTestNow()) {
-			t.Fatal("heart refused")
+	sendTo := func(n int64) {
+		t.Helper()
+		for range n {
+			if sent, _ := economy.HeartSend("9901", "9902", heartTestNow()); !sent {
+				t.Fatal("heart refused")
+			}
 		}
 	}
+	sendTo(economy.HeartQuestCount() - 1)
+	if rec := socialTestRequestAs(t, "hq-tok", http.MethodGet, "/v4/quest/status", ""); !strings.Contains(rec.Body.String(), `"questProgress":"ONGOING"`) {
+		t.Fatalf("one heart short of the quest: %s", rec.Body.String())
+	}
+	sendTo(1)
+	if rec := socialTestRequestAs(t, "hq-tok", http.MethodGet, "/v4/quest/status", ""); !strings.Contains(rec.Body.String(), `"questProgress":"COMPLETED"`) {
+		t.Fatalf("at the quest count: %s", rec.Body.String())
+	}
+	sendTo(economy.HeartBase() - economy.HeartQuestCount())
 	rec = socialTestRequestAs(t, "hq-tok", http.MethodGet, "/v4/quest/status", "")
 	if want := `"heart":0`; !regexp.MustCompile(want).MatchString(rec.Body.String()) {
 		t.Fatalf("after cap: %s", rec.Body.String())
@@ -172,7 +185,7 @@ func TestProfileHeartFields(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatalf("profile body %s: %v", rec.Body.String(), err)
 	}
-	for k, want := range map[string]float64{"heartCount": 1, "haveHeartBalance": 4, "haveExtraHeartBalance": 0} {
+	for k, want := range map[string]float64{"heartCount": 1, "haveHeartBalance": float64(economy.HeartBase() - 1), "haveExtraHeartBalance": 0} {
 		if v, ok := got.Result[k].(float64); !ok || v != want {
 			t.Fatalf("%s = %#v, want number %v", k, got.Result[k], want)
 		}

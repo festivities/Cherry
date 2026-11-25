@@ -7,10 +7,11 @@ import (
 	"cherry/internal/store"
 )
 
-// Every player's balances (owner only, staff panel): one change sets or adds to chosen currencies on every account in one save.
-// Set makes each chosen balance the value (0 is a reset); add gives each chosen balance the value, stopping at store.MaxBalance.
-// Each account's change goes through GrantLocked, so Gems, Cash, face tickets and Smiles get ledger lines that carry the staff
-// reason, as a single grant does. Boss Coins and ride points have no ledger in a single grant either: they show in the audit row.
+// Every player's balances (owner only, staff panel): one change sets, adds to or takes away chosen currencies on every account in one
+// save. Set makes each chosen balance the value (0 is a reset); add gives each chosen balance the value, stopping at store.MaxBalance;
+// take removes the value from each chosen balance, stopping at 0. Each account's change goes through GrantLocked, so Gems, Cash, face
+// tickets and Smiles get ledger lines that carry the staff reason, as a single grant does. Boss Coins, ride points and extra hearts
+// have no ledger in a single grant either: they show in the audit row.
 
 // balancesAction is the audit action of a change to every account; its target is store.AllPlayersTarget, as the mail to every
 // account has.
@@ -32,15 +33,17 @@ var balanceCurrencies = []balanceCurrency{
 	{"smiles", func(a *store.Account) int64 { return a.Smiles }, func(g *StaffGrant) *int64 { return &g.Smiles }},
 	{"bossCoins", func(a *store.Account) int64 { return a.BossCoins }, func(g *StaffGrant) *int64 { return &g.BossCoins }},
 	{"ridePoints", ridePointsLocked, func(g *StaffGrant) *int64 { return &g.RidePoints }},
+	{"extraHearts", heartExtra, func(g *StaffGrant) *int64 { return &g.ExtraHearts }},
 }
 
 // StaffBalances is one change to every account. Set: each chosen balance becomes its value (0 to store.MaxBalance). Add: each chosen
-// balance gains its value (1 to store.MaxGrant), up to store.MaxBalance. Values is keyed by currency name ("gems", "cash",
-// "faceTickets", "smiles", "bossCoins", "ridePoints"); a currency not in it is untouched, and at least one must be. Expect is the
-// accounts the reviewer was shown; SendID is the send the change is kept under.
+// balance gains its value (1 to store.MaxGrant), up to store.MaxBalance. Take: each chosen balance loses its value (1 to
+// store.MaxGrant), down to 0. Set, Take and neither (add) are exclusive. Values is keyed by currency name ("gems", "cash",
+// "faceTickets", "smiles", "bossCoins", "ridePoints", "extraHearts"); a currency not in it is untouched, and at least one must be.
+// Expect is the accounts the reviewer was shown; SendID is the send the change is kept under.
 type StaffBalances struct {
 	SendID        string
-	Set           bool
+	Set, Take     bool
 	Values        map[string]int64
 	Expect        int
 	Actor, Reason string
@@ -48,6 +51,9 @@ type StaffBalances struct {
 
 // check validates b and returns the reason as it is kept (trimmed, 1 to 200 characters). Refusals are store.ErrBadInput.
 func (b StaffBalances) check() (string, error) {
+	if b.Set && b.Take {
+		return "", fmt.Errorf("%w: the change is set, take or add", store.ErrBadInput)
+	}
 	if len(b.Values) == 0 {
 		return "", fmt.Errorf("%w: choose at least one balance", store.ErrBadInput)
 	}
@@ -62,7 +68,7 @@ func (b StaffBalances) check() (string, error) {
 			return "", fmt.Errorf("%w: a balance is set to a whole number from 0 to %d", store.ErrBadInput, store.MaxBalance)
 		}
 		if !b.Set && (v < 1 || v > store.MaxGrant) {
-			return "", fmt.Errorf("%w: the amount added is a whole number from 1 to %d", store.ErrBadInput, store.MaxGrant)
+			return "", fmt.Errorf("%w: the amount is a whole number from 1 to %d", store.ErrBadInput, store.MaxGrant)
 		}
 	}
 	if known != len(b.Values) {
@@ -72,7 +78,7 @@ func (b StaffBalances) check() (string, error) {
 }
 
 // balanceGrant is the change acc takes under b: each chosen currency moves to its value (set), or gains its value up to
-// store.MaxBalance (add; a balance already above the cap gains nothing).
+// store.MaxBalance (add; a balance already above the cap gains nothing), or loses its value down to 0 (take).
 func balanceGrant(acc *store.Account, b StaffBalances) StaffGrant {
 	var g StaffGrant
 	for _, c := range balanceCurrencies {
@@ -82,7 +88,10 @@ func balanceGrant(acc *store.Account, b StaffBalances) StaffGrant {
 		}
 		cur := c.balance(acc)
 		d := v - cur
-		if !b.Set {
+		switch {
+		case b.Take:
+			d = -min(v, cur)
+		case !b.Set:
 			d = max(0, min(v, store.MaxBalance-cur))
 		}
 		*c.delta(&g) = d
@@ -163,8 +172,11 @@ func StaffBalancesAll(b StaffBalances, now time.Time) (changed int, applied bool
 		return 0, false, fmt.Errorf("%w: no player's balance would change", store.ErrBadInput)
 	}
 	mode := "add"
-	if b.Set {
+	switch {
+	case b.Set:
 		mode = "set"
+	case b.Take:
+		mode = "take"
 	}
 	detail := map[string]any{"send": b.SendID, "mode": mode, "values": b.Values, "accounts": len(targets), "changed": len(moved),
 		"reason": reason}

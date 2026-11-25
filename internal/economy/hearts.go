@@ -8,31 +8,44 @@ import (
 	"cherry/internal/store"
 )
 
-// Hearts quest (Economy Phase D leftover). An avatar sends hearts over TLUP event 102 (the Garden
-// heart button, profile, diary and ranking buttons). The first hearts.base hearts a sender sends on
-// one game day (06:00 JST, like the quests) count, and hearts.reward_gems is credited once, with the
-// base-th heart (rewards.json). Repeats to one target count. Wire notes:
-// %TEMP%\opencode\cherry\phaseDE-20261022\hearts.md.
+// Hearts (Economy Phase D leftover). An avatar sends hearts over TLUP event 102 (the Garden
+// heart button, profile, diary and ranking buttons). A sender may send hearts.base hearts on one
+// game day (06:00 JST, like the quests); past that each extra heart it holds (Extra, staff grants)
+// is spent for one more. The hearts.quest-th heart of the day completes the hearts quest (row 9005)
+// and credits hearts.reward_gems and hearts.reward_cash once (rewards.json). Repeats to one target
+// count. Wire notes: %TEMP%\opencode\cherry\phaseDE-20261022\hearts.md.
 
-// HeartBase is hearts per game day that count toward the quest.
+// HeartBase is the hearts a sender may send per game day without extra hearts.
 func HeartBase() int64 { return ActiveRewards().Hearts.Base }
 
-// HeartRewardGems is the Gems credited once a day with the HeartBase-th heart.
+// HeartQuestCount is the hearts sent in one game day that complete the hearts quest (checkRewards keeps
+// it from 1 to HeartBase).
+func HeartQuestCount() int64 { return ActiveRewards().Hearts.Quest }
+
+// HeartRewardGems is the Gems credited once a day with the HeartQuestCount-th heart.
 func HeartRewardGems() int64 { return ActiveRewards().Hearts.RewardGems }
 
-// HeartRewardCash is the Cash credited once a day with the HeartBase-th heart.
+// HeartRewardCash is the Cash credited once a day with the HeartQuestCount-th heart.
 func HeartRewardCash() int64 { return ActiveRewards().Hearts.RewardCash }
 
 // heartRecord returns acc's heart record for day. A record from another day keeps only the
-// lifetime Received count.
+// lifetime Received and Extra counts.
 func heartRecord(acc *store.Account, day int64) store.Hearts {
 	if acc.Hearts == nil {
 		return store.Hearts{Day: day}
 	}
 	if acc.Hearts.Day != day {
-		return store.Hearts{Day: day, Received: acc.Hearts.Received}
+		return store.Hearts{Day: day, Received: acc.Hearts.Received, Extra: acc.Hearts.Extra}
 	}
 	return *acc.Hearts
+}
+
+// heartExtra is acc's extra hearts to send (a lifetime count, 0 for none).
+func heartExtra(acc *store.Account) int64 {
+	if acc.Hearts == nil {
+		return 0
+	}
+	return acc.Hearts.Extra
 }
 
 // heartTargetLocked finds a heart target: an existing account (nil account for the synthetic
@@ -44,23 +57,28 @@ func heartTargetLocked(aid string) (*store.Account, bool) {
 	return nil, aid == store.FriendAID
 }
 
-// HeartSend counts one heart from sender to target at now. It returns false and changes nothing
-// for an unknown sender, an unknown target, a self-target, or a sender already at HeartBase today.
-// A counted heart bumps the target's received total and sender list (real accounts only). The
-// HeartBase-th heart of the day credits HeartRewardGems once. A failed save or ledger change rolls
+// HeartSend counts one heart from sender to target at now. sent is whether it counted; questDone is
+// whether it was the day's HeartQuestCount-th heart, which completes the hearts quest. It returns
+// false, false and changes nothing for an unknown sender, an unknown target, a self-target, or a
+// sender with no daily heart and no extra heart left today. Past HeartBase a heart spends one extra
+// heart. A counted heart bumps the target's received total and sender list (real accounts only). The
+// HeartQuestCount-th heart of the day credits the reward once. A failed save or ledger change rolls
 // both accounts back.
-func HeartSend(sender, target string, now time.Time) bool {
+func HeartSend(sender, target string, now time.Time) (sent, questDone bool) {
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
 	acc := store.AccountByAidLocked(sender)
 	tgt, valid := heartTargetLocked(target)
 	if acc == nil || !valid || sender == target {
-		return false
+		return false, false
 	}
 	day := AttendDayKey(now)
 	rec := heartRecord(acc, day)
 	if rec.Sent >= HeartBase() {
-		return false
+		if rec.Extra == 0 {
+			return false, false
+		}
+		rec.Extra--
 	}
 	prevAcc := *acc
 	var prevTgt store.Account
@@ -82,14 +100,15 @@ func HeartSend(sender, target string, now time.Time) bool {
 	}
 	rec.Sent++
 	acc.Hearts = &rec
+	questDone = rec.Sent == HeartQuestCount()
 	var lines []store.LedgerLine
-	if rec.Sent == HeartBase() && (HeartRewardGems() != 0 || HeartRewardCash() != 0) {
+	if questDone && (HeartRewardGems() != 0 || HeartRewardCash() != 0) {
 		var err error
 		lines, err = store.SpendLocked(acc, store.LedgerDeltas{Gems: HeartRewardGems(), Cash: HeartRewardCash()}, "heart:"+questDate(day))
 		if err != nil {
 			restore()
 			log.Printf("cherry: heart reward failed aid=%s err=%v", sender, err)
-			return false
+			return false, false
 		}
 	}
 	named := []*store.Account{acc}
@@ -99,14 +118,14 @@ func HeartSend(sender, target string, now time.Time) bool {
 	if err := store.SaveLocked(lines, named...); err != nil {
 		restore()
 		log.Printf("cherry: heart save failed aid=%s to=%s err=%v", sender, target, err)
-		return false
+		return false, false
 	}
 	log.Printf("cherry: heart sent aid=%s to=%s sent=%d", sender, target, rec.Sent)
-	return true
+	return true, questDone
 }
 
-// HeartsLeft returns how many hearts aid may still send today (HeartBase minus sent, at least 0).
-// ok is false for an unknown account.
+// HeartsLeft returns how many hearts aid may still send today: the daily allowance left (HeartBase
+// minus sent, at least 0) plus its extra hearts. ok is false for an unknown account.
 func HeartsLeft(aid string, now time.Time) (int64, bool) {
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
@@ -114,7 +133,20 @@ func HeartsLeft(aid string, now time.Time) (int64, bool) {
 	if acc == nil {
 		return 0, false
 	}
-	return max(HeartBase()-heartRecord(acc, AttendDayKey(now)).Sent, 0), true
+	rec := heartRecord(acc, AttendDayKey(now))
+	return max(HeartBase()-rec.Sent, 0) + rec.Extra, true
+}
+
+// HeartsSentToday returns how many hearts aid has sent today, daily and extra. ok is false for an
+// unknown account (0 sent).
+func HeartsSentToday(aid string, now time.Time) (int64, bool) {
+	store.AccountsMu.Lock()
+	defer store.AccountsMu.Unlock()
+	acc := store.AccountByAidLocked(aid)
+	if acc == nil {
+		return 0, false
+	}
+	return heartRecord(acc, AttendDayKey(now)).Sent, true
 }
 
 // HeartsReceived returns aid's lifetime received-heart total (0 for an unknown account).
@@ -138,7 +170,7 @@ func HeartSenders(aid string, now time.Time) []string {
 	return slices.Clone(heartRecord(acc, AttendDayKey(now)).From)
 }
 
-// HaveHeart is the heart/haveHeart answer: viewer may still send hearts today (under HeartBase).
+// HaveHeart is the heart/haveHeart answer: viewer may still send hearts today (a daily or an extra one).
 func HaveHeart(viewer string, now time.Time) bool {
 	left, ok := HeartsLeft(viewer, now)
 	return ok && left > 0

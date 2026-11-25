@@ -104,8 +104,8 @@ func TestTLUPClientEvents(t *testing.T) {
 	}
 }
 
-// TestRecordTLUPEvents: five counted hearts pay the sender once through the economy and queue one
-// hearts notice; a sixth heart counts nothing. Each event logs its ids and ParamData names only.
+// TestRecordTLUPEvents: the daily allowance of hearts counts, pays the sender's quest reward once through the economy
+// and queues one hearts notice; the heart past the allowance counts nothing. Each event logs its ids and ParamData names only.
 func TestRecordTLUPEvents(t *testing.T) {
 	testutil.InstallAccounts(t, map[string]*store.Account{
 		"rtok-9711": {AccessToken: "rtok-9711", SessionKey: "sk", Aid: "9711", Name: "S"},

@@ -593,8 +593,14 @@ func recordTLUPEvents(logger *log.Logger, data []byte, bound uint64) (uint64, []
 	var hearted []uint64
 	for _, ev := range events {
 		logger.Printf("cherry: tlup event aid=%d service=%d event=%d params=%q", sender, ev.serviceID, ev.eventID, ev.names)
-		if ev.isHeart() && economy.HeartSend(strconv.FormatUint(sender, 10), strconv.FormatUint(ev.target, 10), economy.NowFunc()) {
-			heartQuestNotice(sender, economy.NowFunc())
+		if !ev.isHeart() {
+			continue
+		}
+		sent, questDone := economy.HeartSend(strconv.FormatUint(sender, 10), strconv.FormatUint(ev.target, 10), economy.NowFunc())
+		if questDone {
+			heartQuestNotice(sender)
+		}
+		if sent {
 			hearted = append(hearted, ev.target)
 		}
 	}

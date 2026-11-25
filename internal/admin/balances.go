@@ -18,6 +18,7 @@ import (
 const (
 	balancesModeSet    = "set"
 	balancesModeAdd    = "add"
+	balancesModeTake   = "take"
 	balancesNoticeDone = "balances-changed" // ?notice= code: the count is in ?n=, and the flash names it
 )
 
@@ -32,6 +33,7 @@ var balanceFields = []balanceField{
 	{"smiles", "Smiles"},
 	{"bossCoins", "Boss Coins"},
 	{"ridePoints", "Ride points"},
+	{"extraHearts", "Extra hearts (to send)"},
 }
 
 // balancesForm is the form's values, as typed or as the review carried them: the mode, each balance's text (a blank one is
@@ -74,16 +76,18 @@ func balancesFormOf(r *http.Request) balancesForm {
 	return f
 }
 
-// balancesOf turns the form into the change the economy checks: set or add, and each filled balance a whole number. A refusal is a
-// store.ErrBadInput.
+// balancesOf turns the form into the change the economy checks: set, take or add, and each filled balance a whole number. A refusal
+// is a store.ErrBadInput.
 func balancesOf(f balancesForm, actor string) (economy.StaffBalances, error) {
 	b := economy.StaffBalances{Actor: actor, Reason: f.Reason, Values: map[string]int64{}}
 	switch f.Mode {
 	case balancesModeSet:
 		b.Set = true
+	case balancesModeTake:
+		b.Take = true
 	case balancesModeAdd:
 	default:
-		return b, fmt.Errorf("%w: the change is set or add", store.ErrBadInput)
+		return b, fmt.Errorf("%w: the change is set, take or add", store.ErrBadInput)
 	}
 	for _, fd := range balanceFields {
 		text, ok := f.Values[fd.Name]
@@ -107,9 +111,12 @@ func balanceLines(b economy.StaffBalances) []string {
 		if !ok {
 			continue
 		}
-		if b.Set {
+		switch {
+		case b.Set:
 			out = append(out, fmt.Sprintf("Every player's %s becomes %d.", fd.Label, v))
-		} else {
+		case b.Take:
+			out = append(out, fmt.Sprintf("Every player loses %d %s (a balance stops at 0).", v, fd.Label))
+		default:
 			out = append(out, fmt.Sprintf("Every player gets %d %s (a balance stops at %d).", v, fd.Label, store.MaxBalance))
 		}
 	}

@@ -1,7 +1,7 @@
 {{define "page"}}<h1>Review the change</h1>
 <p class="flash warn" role="note">Nothing is changed yet. Check the change and the number of players. A saved change cannot be undone from the panel.</p>
 <dl class="facts card">
-<dt>Mode</dt><dd>{{if eq .Balances.Form.Mode "set"}}Set every player to the value{{else}}Add to every player{{end}}</dd>
+<dt>Mode</dt><dd>{{if eq .Balances.Form.Mode "set"}}Set every player to the value{{else if eq .Balances.Form.Mode "take"}}Take away from every player{{else}}Add to every player{{end}}</dd>
 {{range .Balances.Lines}}<dt>Balance</dt><dd>{{.}}</dd>
 {{end}}<dt>Players</dt><dd><strong>{{.Balances.Changing}}</strong> of {{.Balances.Accounts}} {{if eq .Balances.Accounts 1}}account{{else}}accounts{{end}} would change</dd>
 <dt>Reason</dt><dd>{{.Balances.Form.Reason}}</dd>

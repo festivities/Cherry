@@ -306,8 +306,9 @@ func handleAdminGuestCode(w http.ResponseWriter, r *http.Request) {
 //	curl -X POST http://127.0.0.1:8099/admin/grant -d "{\"aid\":\"1002\",\"gems\":500,\"cash\":10,\"faceTickets\":3,\"reason\":\"test\"}"
 //
 // smiles, bossCoins (Square boss fishing, spent at the exchange office), ridePoints (racing store points,
-// spent at the Ride Point shop), raceTickets (today's race tickets back, up to the daily maximum) and materials (Garden Bag item id -> count delta, gathering drops or
-// Atelier goods) work the same way:
+// spent at the Ride Point shop), raceTickets (today's race tickets back, up to the daily maximum), extraHearts (extra hearts to send,
+// spent past the daily heart allowance) and materials (Garden Bag item id -> count delta, gathering drops or Atelier goods) work the
+// same way:
 //
 //	curl -X POST http://127.0.0.1:8099/admin/grant -d "{\"aid\":\"1001\",\"smiles\":50,\"materials\":{\"110000\":6}}"
 func NewAdminMux() *http.ServeMux {
@@ -369,6 +370,7 @@ func handleAdminGrant(w http.ResponseWriter, r *http.Request) {
 		BossCoins   int64           `json:"bossCoins"`
 		RidePoints  int64           `json:"ridePoints"`
 		RaceTickets int64           `json:"raceTickets"` // tickets back for today (a delta on the tickets left)
+		ExtraHearts int64           `json:"extraHearts"` // extra hearts to send (a delta on the lifetime count)
 		Materials   map[int64]int64 `json:"materials"`   // Garden Bag item id -> count delta
 		Reason      string          `json:"reason"`
 	}
@@ -395,7 +397,7 @@ func handleAdminGrant(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now()
 	g := clampLoopbackGrant(acc, StaffGrant{Gems: req.Gems, Cash: req.Cash, FaceTickets: req.FaceTickets, Smiles: req.Smiles,
-		BossCoins: req.BossCoins, RidePoints: req.RidePoints, RaceTickets: req.RaceTickets, Materials: req.Materials}, now)
+		BossCoins: req.BossCoins, RidePoints: req.RidePoints, RaceTickets: req.RaceTickets, ExtraHearts: req.ExtraHearts, Materials: req.Materials}, now)
 	prev := *acc
 	lines, err := GrantLocked(acc, g, reason, now)
 	if err == nil {
@@ -411,7 +413,7 @@ func handleAdminGrant(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
 		return
 	}
-	body, _ := json.Marshal(map[string]any{"aid": acc.Aid, "gems": acc.Gems, "cash": acc.Cash, "faceTickets": acc.FaceTickets, "smiles": acc.Smiles, "bossCoins": acc.BossCoins, "ridePoints": ridePointsLocked(acc), "raceTickets": raceStatus(acc, now).Tickets, "bag": acc.GardenBag})
+	body, _ := json.Marshal(map[string]any{"aid": acc.Aid, "gems": acc.Gems, "cash": acc.Cash, "faceTickets": acc.FaceTickets, "smiles": acc.Smiles, "bossCoins": acc.BossCoins, "ridePoints": ridePointsLocked(acc), "raceTickets": raceStatus(acc, now).Tickets, "extraHearts": heartExtra(acc), "bag": acc.GardenBag})
 	httpx.WriteJSON(w, http.StatusOK, string(body))
 }
 

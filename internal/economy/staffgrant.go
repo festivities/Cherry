@@ -13,15 +13,16 @@ import (
 )
 
 // Staff grants (PLAN Roadmap 8, staff panel phase 5): one rule set for the loopback /admin/grant tool and the staff panel. A
-// grant is a set of deltas: gems, cash, face tickets, Smiles, Boss Coins, ride points, race tickets back and Garden Bag
-// materials. A take-away that would take a balance below zero refuses the whole grant (the panel), except that the loopback tool
-// stops what it takes away at the balance, as it always has (clampLoopbackGrant).
+// grant is a set of deltas: gems, cash, face tickets, Smiles, Boss Coins, ride points, race tickets back, extra hearts and Garden
+// Bag materials. A take-away that would take a balance below zero refuses the whole grant (the panel), except that the loopback
+// tool stops what it takes away at the balance, as it always has (clampLoopbackGrant).
 
 // StaffGrant is one staff change. Every currency field is a delta (negative takes away). RaceTickets is tickets back for today
-// (a delta on the tickets spent). Materials maps a Garden Bag item id to its count delta.
+// (a delta on the tickets spent). ExtraHearts is a delta on the extra hearts to send (economy/hearts.go). Materials maps a Garden
+// Bag item id to its count delta.
 type StaffGrant struct {
-	Gems, Cash, FaceTickets, Smiles, BossCoins, RidePoints, RaceTickets int64
-	Materials                                                           map[int64]int64
+	Gems, Cash, FaceTickets, Smiles, BossCoins, RidePoints, RaceTickets, ExtraHearts int64
+	Materials                                                                        map[int64]int64
 }
 
 // GrantLocked applies g to acc at now and returns the ledger lines of its currency deltas, each with reason. On a refusal acc is
@@ -43,6 +44,14 @@ func grantLocked(acc *store.Account, g StaffGrant, reason string, now time.Time)
 			return nil, fmt.Errorf("%w: the Boss Coins cannot go below 0", store.ErrBadInput)
 		}
 		acc.BossCoins += g.BossCoins
+	}
+	if g.ExtraHearts != 0 {
+		rec := heartRecord(acc, AttendDayKey(now))
+		if rec.Extra+g.ExtraHearts < 0 {
+			return nil, fmt.Errorf("%w: the extra hearts cannot go below 0", store.ErrBadInput)
+		}
+		rec.Extra += g.ExtraHearts
+		acc.Hearts = &rec
 	}
 	if g.RidePoints != 0 {
 		points := ridePointsLocked(acc) + g.RidePoints
@@ -89,11 +98,15 @@ func bagHeld(bag []store.GardenBagStack, item int64) int64 {
 	return 0
 }
 
-// clampLoopbackGrant is the loopback tool's rule, kept as it was: Boss Coins, ride points, race tickets and Garden Bag counts
-// that a grant takes away stop at what the account holds. Gems, cash, face tickets and Smiles are not clamped; a take-away of
-// them below zero is refused by the store (BalanceError).
+// clampLoopbackGrant is the loopback tool's rule, kept as it was: Boss Coins, extra hearts, ride points, race tickets and Garden Bag
+// counts that a grant takes away stop at what the account holds. Gems, cash, face tickets and Smiles are not clamped; a take-away
+// of them below zero is refused by the store (BalanceError).
 func clampLoopbackGrant(acc *store.Account, g StaffGrant, now time.Time) StaffGrant {
 	g.BossCoins = max(acc.BossCoins+g.BossCoins, 0) - acc.BossCoins
+	if g.ExtraHearts != 0 {
+		cur := heartExtra(acc)
+		g.ExtraHearts = max(cur+g.ExtraHearts, 0) - cur
+	}
 	if g.RidePoints != 0 {
 		cur := ridePointsLocked(acc)
 		g.RidePoints = max(cur+g.RidePoints, 0) - cur
@@ -148,7 +161,7 @@ func StaffGrantPlayer(id int64, g StaffGrant, reason, actor string, now time.Tim
 
 // checkStaffAmounts: every amount a whole number within ±store.MaxGrant, and at least one not zero.
 func checkStaffAmounts(g StaffGrant) error {
-	amounts := []int64{g.Gems, g.Cash, g.FaceTickets, g.Smiles, g.BossCoins, g.RidePoints, g.RaceTickets}
+	amounts := []int64{g.Gems, g.Cash, g.FaceTickets, g.Smiles, g.BossCoins, g.RidePoints, g.RaceTickets, g.ExtraHearts}
 	for _, n := range g.Materials {
 		amounts = append(amounts, n)
 	}
@@ -171,7 +184,7 @@ func checkStaffAmounts(g StaffGrant) error {
 func grantDetail(aid string, g StaffGrant, reason string, lines []store.LedgerLine) map[string]any {
 	changes := map[string]int64{}
 	for name, n := range map[string]int64{"gems": g.Gems, "cash": g.Cash, "faceTickets": g.FaceTickets, "smiles": g.Smiles,
-		"bossCoins": g.BossCoins, "ridePoints": g.RidePoints, "raceTickets": g.RaceTickets} {
+		"bossCoins": g.BossCoins, "ridePoints": g.RidePoints, "raceTickets": g.RaceTickets, "extraHearts": g.ExtraHearts} {
 		if n != 0 {
 			changes[name] = n
 		}

@@ -29,8 +29,9 @@ func handleQuestStatus(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusOK, questStatusBody)
 		return
 	}
+	sent, _ := economy.HeartsSentToday(acc.Aid, now)
 	progress := "ONGOING"
-	if left == 0 {
+	if sent >= economy.HeartQuestCount() {
 		progress = "COMPLETED"
 	}
 	rewardCoin := economy.HeartRewardGems()

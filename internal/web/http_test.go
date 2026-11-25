@@ -1522,8 +1522,8 @@ func TestCreateComplete(t *testing.T) {
 	if got := string(raw.Result["status"]); got != "true" {
 		t.Fatalf("result.status = %s, want JSON bool true", got)
 	}
-	if got := string(raw.Result["rewardCoin"]); got != "300" {
-		t.Fatalf("result.rewardCoin = %s, want JSON number 300", got)
+	if got := string(raw.Result["rewardCoin"]); got != "5000" {
+		t.Fatalf("result.rewardCoin = %s, want JSON number 5000", got)
 	}
 
 	notPost := serveRequest(t, httptest.NewRequest(http.MethodGet, "/v4/create/complete", nil))

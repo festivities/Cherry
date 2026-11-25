@@ -215,7 +215,7 @@ func TestQuestMarkCreditsLegacyDoneRecord(t *testing.T) {
 }
 
 // TestHeartRowNeverPaysThroughQuests: the hearts row is display-only. MarkQuest and ClaimQuest
-// refuse it, and five HeartSend hearts credit its Cash once, as one heart:<day> ledger line.
+// refuse it, and the hearts sent to the quest count credit its Cash once, as one heart:<day> ledger line.
 func TestHeartRowNeverPaysThroughQuests(t *testing.T) {
 	questAccount(t, "9701")
 	dir := questStore(t)

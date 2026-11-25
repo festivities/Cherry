@@ -254,3 +254,48 @@ func TestStaffBalancesFailureRestoresEveryAccount(t *testing.T) {
 		t.Fatalf("the refused change wrote %d audit rows", n)
 	}
 }
+
+// TestStaffBalancesExtraHeartsAndTake: extra hearts are a balance of every account (an add gives each account the value). A grant
+// that takes away more than an account holds is refused and changes nothing. A take removes the value from each chosen balance and
+// stops at 0, so an account with none of it does not change; the ledger carries the staff reason for Gems only.
+func TestStaffBalancesExtraHeartsAndTake(t *testing.T) {
+	balancesFixture(t)
+	a := balanceAccount(t, 10, 0, 0, 0, 0, 0)
+	b := balanceAccount(t, 500, 0, 0, 0, 0, 0)
+	c := balanceAccount(t, 0, 0, 0, 0, 0, 0)
+	total := balanceTotal(t)
+	now := jstAt(22, 12, 0)
+
+	if changed, applied, err := StaffBalancesAll(StaffBalances{SendID: "extra-send-0001", Values: map[string]int64{"extraHearts": 5},
+		Expect: total, Actor: "dev-owner", Reason: "event"}, now); err != nil || !applied || changed != 3 {
+		t.Fatalf("add: changed %d, applied %v, err %v; want 3 accounts", changed, applied, err)
+	}
+	store.AccountsMu.Lock()
+	_, refusal := GrantLocked(a, StaffGrant{ExtraHearts: -6}, "staff:dev-owner:too many", now)
+	extras := [3]int64{heartExtra(a), heartExtra(b), heartExtra(c)}
+	store.AccountsMu.Unlock()
+	if !errors.Is(refusal, store.ErrBadInput) || extras != [3]int64{5, 5, 5} {
+		t.Fatalf("a take-away below 0: err %v, extra hearts %v; want ErrBadInput and 5 each", refusal, extras)
+	}
+
+	changed, applied, err := StaffBalancesAll(StaffBalances{SendID: "extra-send-0002", Take: true,
+		Values: map[string]int64{"extraHearts": 9, "gems": 50}, Expect: total, Actor: "dev-owner", Reason: "clean up"}, now)
+	if err != nil || !applied || changed != 3 {
+		t.Fatalf("take: changed %d, applied %v, err %v; want 3 accounts", changed, applied, err)
+	}
+	store.AccountsMu.Lock()
+	got := [5]int64{a.Gems, b.Gems, c.Gems, heartExtra(a), heartExtra(b)}
+	store.AccountsMu.Unlock()
+	if want := [5]int64{0, 450, 0, 0, 0}; got != want {
+		t.Fatalf("after the take: gems a/b/c and extra a/b = %v, want %v (gems stop at 0, extra hearts go to 0)", got, want)
+	}
+	if lines := ledgerWithReason(t, "staff:dev-owner:clean up"); len(lines) != 2 || lines[0].Currency != "gems" || lines[1].Currency != "gems" ||
+		lines[0].Delta+lines[1].Delta != -60 {
+		t.Fatalf("ledger lines = %+v, want the two gems take-aways (-10 and -50 in all) and no extra hearts line", lines)
+	}
+
+	if changed, applied, err = StaffBalancesAll(StaffBalances{SendID: "extra-send-0003", Take: true, Values: map[string]int64{"gems": 50},
+		Expect: total, Actor: "dev-owner", Reason: "clean up again"}, now); err != nil || !applied || changed != 1 {
+		t.Fatalf("second take: changed %d, applied %v, err %v; want only the account that still holds Gems", changed, applied, err)
+	}
+}

@@ -29,7 +29,7 @@ func pbFields(t *testing.T, data []byte) (vars map[uint64]uint64, msgs map[uint6
 
 // TestGardenQuestListEncoding checks hc_quest_list_res field numbers, the required error_code,
 // and each row's status, progress and Gem reward (quests.md section 10). The hearts row shows
-// the hearts sent today (2 of 5 here) and is not claimable.
+// the hearts sent today (2 of the quest count here) and is not claimable.
 func TestGardenQuestListEncoding(t *testing.T) {
 	testutil.InstallAccounts(t, map[string]*store.Account{"qlist": {AccessToken: "qlist", SessionKey: "sk", Aid: "9716", Name: "List"}})
 	testutil.SetLab(t, "9716", false)
@@ -57,7 +57,7 @@ func TestGardenQuestListEncoding(t *testing.T) {
 		9002: {1, 0, 1}, // in progress
 		9003: {2, 1, 1}, // claimed
 		9004: {1, 0, 1},
-		9005: {1, 2, uint64(economy.HeartBase())}, // hearts: 2 of 5 sent
+		9005: {1, 2, uint64(economy.HeartQuestCount())}, // hearts: 2 of the quest count sent
 	}
 	for i, def := range economy.QuestCatalog(now) {
 		qv, qm := pbFields(t, msgs[2][i])
@@ -133,9 +133,9 @@ func TestGardenQuestCompleteAndInfoReplies(t *testing.T) {
 		}
 	}
 
-	// The hearts row is display-only: five hearts show it claimed (status 2, 5 of 5), and a claim
-	// is refused with no reward row, because HeartSend already paid the 600 Cash.
-	for range uint64(economy.HeartBase()) {
+	// The hearts row is display-only: the quest count of hearts shows it claimed (status 2, the quest
+	// count sent), and a claim is refused with no reward row, because HeartSend already paid the 600 Cash.
+	for range uint64(economy.HeartQuestCount()) {
 		economy.HeartSend("9711", store.FriendAID, now)
 	}
 	msgid, body = gardenQuestReply(16, 9711, pbVar(nil, 1, uint64(economy.HeartQuest().ID)), now, logger)
@@ -145,8 +145,8 @@ func TestGardenQuestCompleteAndInfoReplies(t *testing.T) {
 	}
 	iv, im := pbFields(t, getBytes(t, msgs[3]))
 	dv, _ := pbFields(t, getBytes(t, im[5]))
-	if iv[7] != 2 || dv[3] != uint64(economy.HeartBase()) || dv[4] != uint64(economy.HeartBase()) {
-		t.Fatalf("hearts row status/current/complete = %d/%d/%d, want 2/5/5", iv[7], dv[3], dv[4])
+	if q := uint64(economy.HeartQuestCount()); iv[7] != 2 || dv[3] != q || dv[4] != q {
+		t.Fatalf("hearts row status/current/complete = %d/%d/%d, want 2/%d/%d", iv[7], dv[3], dv[4], q, q)
 	}
 	rv, _ = pbFields(t, getBytes(t, im[6]))
 	if rv[1] != gardenQuestCashView || rv[3] != 600 {

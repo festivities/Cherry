@@ -116,7 +116,7 @@ func TestIdentityModeNoTokenActsOnNoAccount(t *testing.T) {
 			t.Fatalf("a token-less request moved the identity's account: gems %d tickets %d welcomed %v", acc.Gems, acc.FaceTickets, acc.Welcomed)
 		}
 	})
-	if rec := decorReq(t, tok, http.MethodPost, "/v4/create/complete", "{}"); !strings.Contains(rec.Body.String(), `"rewardCoin":300`) {
+	if rec := decorReq(t, tok, http.MethodPost, "/v4/create/complete", "{}"); !strings.Contains(rec.Body.String(), `"rewardCoin":5000`) {
 		t.Fatalf("the owner's own welcome gift = %d %s", rec.Code, rec.Body.String())
 	}
 }
@@ -164,7 +164,7 @@ func recycleCloset(t *testing.T, token, code string) (balance float64) {
 }
 
 // TestDeleteAvatarMakesANewPlayer: a recreated avatar on a Discord identity that played before is a new player (user, 2026-11-21):
-// the welcome gift (300 Gems) and the free butler hire come again, as the creation items and the starter room do (gifts worth 0).
+// the welcome gift (5000 Gems) and the free butler hire come again, as the creation items and the starter room do (gifts worth 0).
 // The old tokens end with the delete (AV_AUTH, the own token and the sign-in alias); the same identity signs in again to a
 // fresh avatar, reaching the same identity record.
 func TestDeleteAvatarMakesANewPlayer(t *testing.T) {
@@ -185,7 +185,7 @@ func TestDeleteAvatarMakesANewPlayer(t *testing.T) {
 	withAccount(t, tok, func(acc *store.Account) { ownToken = acc.AccessToken })
 	av := avAuthValue(t, createSession(t, tok))
 	first := createAvatarID(t, av, `{"name":"Ida","avatarType":"FEMALE","nationCode":"JP","skinColor":"1","itemCodes":["CUON00164"]}`)
-	if rec := decorReq(t, av, http.MethodPost, "/v4/create/complete", "{}"); !strings.Contains(rec.Body.String(), `"rewardCoin":300`) {
+	if rec := decorReq(t, av, http.MethodPost, "/v4/create/complete", "{}"); !strings.Contains(rec.Body.String(), `"rewardCoin":5000`) {
 		t.Fatalf("first welcome gift = %d %s", rec.Code, rec.Body.String())
 	}
 	// Ophelia (data/butlers.json) is the first butler; her free hire is the account's first.
@@ -240,7 +240,7 @@ func TestDeleteAvatarMakesANewPlayer(t *testing.T) {
 		t.Fatalf("the fresh avatar's aid = %s (the deleted one was %s)", second, first)
 	}
 
-	if rec := decorReq(t, av2, http.MethodPost, "/v4/create/complete", "{}"); !strings.Contains(rec.Body.String(), `"rewardCoin":300`) || gemsOf(t, tok2) != 300 {
+	if rec := decorReq(t, av2, http.MethodPost, "/v4/create/complete", "{}"); !strings.Contains(rec.Body.String(), `"rewardCoin":5000`) || gemsOf(t, tok2) != 5000 {
 		t.Fatalf("the recreated avatar got no welcome gift: %d %s, gems %d", rec.Code, rec.Body.String(), gemsOf(t, tok2))
 	}
 	if got, err := economy.HireButler(second, ophelia, economy.ButlerCoinCash, economy.ActiveButlers().FreeDays, true, time.Now()); err != nil || !got.Free {
@@ -252,8 +252,8 @@ func TestDeleteAvatarMakesANewPlayer(t *testing.T) {
 		}
 	})
 	freshGiftsWorthNothing(t, tok2, "CUON001CH")
-	if balance := recycleCloset(t, tok2, "CUON001CH"); balance != 300 { // the balance is the welcome gift alone: the item sells for nothing
-		t.Fatalf("selling a re-granted creation item left the balance at %v, want the welcome gift's 300", balance)
+	if balance := recycleCloset(t, tok2, "CUON001CH"); balance != 5000 { // the balance is the welcome gift alone: the item sells for nothing
+		t.Fatalf("selling a re-granted creation item left the balance at %v, want the welcome gift's 5000", balance)
 	}
 	welcome := 0
 	for _, line := range readLedger(t) {

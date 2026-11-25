@@ -19,6 +19,7 @@ type PlayerBook struct {
 	RidePoints           int64    // Riding Pet Race store points
 	Smiles, FaceTickets  int64    // Smiles (Garden gathering) and Face Shop tickets
 	BossCoins            int64    // Square boss coins
+	ExtraHearts          int64    // extra hearts to send (economy/hearts.go)
 	Owned                int      // item codes the account owns
 	NewestCodes          []string // at most staffCodesNewest of them, newest first
 	RoomItems            int      // room items placed or stored
@@ -69,7 +70,7 @@ func PlayerBookOf(id int64, now time.Time) (PlayerBook, bool) {
 func BookOfAccount(acc *store.Account, now time.Time) PlayerBook {
 	st := raceStatus(acc, now)
 	book := PlayerBook{RaceTickets: st.Tickets, RaceMax: st.MaxTickets, RidePoints: ridePointsLocked(acc), RoomItems: len(acc.RoomItems),
-		Smiles: acc.Smiles, FaceTickets: acc.FaceTickets, BossCoins: acc.BossCoins}
+		Smiles: acc.Smiles, FaceTickets: acc.FaceTickets, BossCoins: acc.BossCoins, ExtraHearts: heartExtra(acc)}
 	codes := store.AccountOwnedCodes(acc)
 	book.Owned = len(codes)
 	for i := len(codes) - 1; i >= 0 && len(book.NewestCodes) < staffCodesNewest; i-- {

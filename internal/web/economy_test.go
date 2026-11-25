@@ -240,7 +240,7 @@ func TestWelcomeGiftOnce(t *testing.T) {
 	acc, _ := ecoSetup(t, 0, 0, 0)
 	_, out := ecoGet(t, "POST", "/v4/create/complete", `{"inviteCode":""}`)
 	r := out["result"].(map[string]any)
-	if r["status"] != true || r["rewardCoin"] != float64(300) || len(r) != 2 {
+	if r["status"] != true || r["rewardCoin"] != float64(5000) || len(r) != 2 {
 		t.Fatalf("first %v", r)
 	}
 	_, out = ecoGet(t, "POST", "/v4/create/complete", `{"inviteCode":""}`)
@@ -251,10 +251,10 @@ func TestWelcomeGiftOnce(t *testing.T) {
 	store.AccountsMu.Lock()
 	g := acc.Gems
 	store.AccountsMu.Unlock()
-	if g != 300 {
+	if g != 5000 {
 		t.Fatalf("gems %d", g)
 	}
-	if l := readLedger(t); len(l) != 1 || l[0].Reason != "welcome gift" || l[0].Delta != 300 {
+	if l := readLedger(t); len(l) != 1 || l[0].Reason != "welcome gift" || l[0].Delta != 5000 {
 		t.Fatalf("ledger %+v", l)
 	}
 	if rec := decorReq(t, "etok", "GET", "/v4/create/complete", ""); rec.Code != 404 {

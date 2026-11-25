@@ -24,17 +24,15 @@ const (
 func gardenQuestMsg(msgid uint16) bool { return msgid >= 15 && msgid <= 19 }
 
 // gardenQuestRow returns def's status and counts on the Garden list at now. Status 1 is in
-// progress, 3 claimable, 2 claimed. The hearts row counts hearts sent today out of the base and
-// shows claimed once none are left: HeartSend already paid it, so it is never claimable.
+// progress, 3 claimable, 2 claimed. The hearts row counts hearts sent today out of the quest count and
+// shows claimed once that many are sent: HeartSend already paid it, so it is never claimable.
 func gardenQuestRow(def economy.QuestDef, rec store.QuestDay, sid string, now time.Time) (status, current, complete uint64) {
 	if def.Display {
-		left, ok := economy.HeartsLeft(sid, now)
-		if !ok {
-			left = economy.HeartBase()
-		}
-		complete = uint64(economy.HeartBase())
-		current = uint64(economy.HeartBase() - left)
-		if left == 0 {
+		sent, _ := economy.HeartsSentToday(sid, now)
+		goal := economy.HeartQuestCount()
+		complete = uint64(goal)
+		current = uint64(min(sent, goal))
+		if sent >= goal {
 			return 2, complete, complete
 		}
 		return 1, current, complete
@@ -173,15 +171,10 @@ func queueQuestNotice(aid uint64, def economy.QuestDef) {
 	questNotices.Unlock()
 }
 
-// heartQuestNotice queues the hearts row's notice after a counted heart, once none are left today.
-// HeartSend already credited the Gems.
-// ponytail: HeartsLeft is read after the send, so two connections of one sender could queue it
-// twice. Exact fix: have HeartSend return the completion flag.
-func heartQuestNotice(aid uint64, now time.Time) {
-	left, ok := economy.HeartsLeft(strconv.FormatUint(aid, 10), now)
-	if def := economy.HeartQuest(); ok && left == 0 {
-		queueQuestNotice(aid, def)
-	}
+// heartQuestNotice queues the hearts row's notice for the heart that completed the quest (HeartSend's
+// questDone). HeartSend already credited the Gems.
+func heartQuestNotice(aid uint64) {
+	queueQuestNotice(aid, economy.HeartQuest())
 }
 
 // takeQuestNotices returns and clears aid's queued notices.

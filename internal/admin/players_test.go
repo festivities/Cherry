@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"cherry/internal/economy"
 	"cherry/internal/store"
 )
 
@@ -141,6 +142,35 @@ func TestGrantWritesBalanceLedgerAndAudit(t *testing.T) {
 	page := c.get(playerURL(id)).body
 	if !strings.Contains(page, "staff:dev-owner:welcome back") || !strings.Contains(page, "500") {
 		t.Fatal("the player page does not show the grant")
+	}
+}
+
+// TestGrantExtraHearts: the grant form gives extra hearts (a balance: one audit row, no ledger line), a take-away below zero is
+// refused and changes nothing, and the player page shows the count.
+func TestGrantExtraHearts(t *testing.T) {
+	fx := newFixture(t, devConfig())
+	c := fx.client()
+	c.signInDev("owner")
+	id := seedPlayer(t, "dev-g2", "5002", "Hana", 0)
+	form := func(delta string) url.Values {
+		return url.Values{"csrf": {c.csrf()}, "currency": {"extraHearts"}, "delta": {delta}, "reason": {"event"}}
+	}
+	expect(t, c.post(playerURL(id)+"/grant", form("3")), http.StatusSeeOther)
+	if book, ok := economy.PlayerBookOf(id, time.Now()); !ok || book.ExtraHearts != 3 {
+		t.Fatalf("extra hearts after the grant = %d (found %v), want 3", book.ExtraHearts, ok)
+	}
+	expect(t, c.post(playerURL(id)+"/grant", form("-4")), http.StatusBadRequest)
+	if book, _ := economy.PlayerBookOf(id, time.Now()); book.ExtraHearts != 3 {
+		t.Fatalf("a refused take-away left extra hearts at %d, want 3", book.ExtraHearts)
+	}
+	if lines, err := store.PlayerLedger(id, 20); err != nil || len(lines) != 0 {
+		t.Fatalf("ledger = %+v, err %v; extra hearts write no ledger line", lines, err)
+	}
+	if !hasAudit(auditRows(t), "dev-owner", "grant", `"extraHearts":3`) {
+		t.Fatal("no grant audit row for the extra hearts")
+	}
+	if page := c.get(playerURL(id)).body; !strings.Contains(page, "Extra hearts (to send)") {
+		t.Fatal("the player page does not show the extra hearts")
 	}
 }
 

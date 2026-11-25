@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"cherry/data"
 	"cherry/internal/store"
 	"cherry/internal/testutil"
 )
@@ -37,20 +38,20 @@ func heartAccount(t *testing.T, aid string) store.Account {
 func sendHearts(t *testing.T, from, to string, n int, now time.Time) {
 	t.Helper()
 	for i := range n {
-		if !HeartSend(from, to, now) {
+		if sent, _ := HeartSend(from, to, now); !sent {
 			t.Fatalf("heart %d from %s to %s refused", i+1, from, to)
 		}
 	}
 }
 
-// TestHeartSendCapsAtBase: repeats to one target count, the sixth heart of the day is refused
+// TestHeartSendCapsAtBase: repeats to one target count, the heart past the daily allowance is refused
 // and changes nothing, and the target's received total follows the counted hearts only.
 func TestHeartSendCapsAtBase(t *testing.T) {
 	heartAccounts(t, "9801", "9802")
 	now := jstAt(22, 12, 0)
 	sendHearts(t, "9801", "9802", int(HeartBase()), now)
-	if HeartSend("9801", "9802", now) {
-		t.Fatal("sixth heart counted")
+	if sent, _ := HeartSend("9801", "9802", now); sent {
+		t.Fatal("heart past the daily allowance counted")
 	}
 	if left, _ := HeartsLeft("9801", now); left != 0 {
 		t.Fatalf("left = %d, want 0", left)
@@ -63,27 +64,90 @@ func TestHeartSendCapsAtBase(t *testing.T) {
 	}
 }
 
-// TestHeartRewardOncePerDay: the HeartBase()-th heart credits HeartRewardCash() once; the next game
-// day can earn it again.
+// TestHeartRewardOncePerDay: the HeartQuestCount()-th heart credits HeartRewardCash() once, and the
+// hearts after it up to the daily allowance do not pay again; the next game day can earn it again.
 func TestHeartRewardOncePerDay(t *testing.T) {
 	heartAccounts(t, "9803", "9804")
 	day1 := jstAt(22, 12, 0)
-	sendHearts(t, "9803", "9804", int(HeartBase()-1), day1)
+	sendHearts(t, "9803", "9804", int(HeartQuestCount()-1), day1)
 	if acc := heartAccount(t, "9803"); acc.Cash != 0 || acc.Gems != 0 {
-		t.Fatalf("balances before the base heart = cash %d gems %d, want 0/0", acc.Cash, acc.Gems)
+		t.Fatalf("balances before the quest heart = cash %d gems %d, want 0/0", acc.Cash, acc.Gems)
 	}
 	sendHearts(t, "9803", "9804", 1, day1)
 	if acc := heartAccount(t, "9803"); acc.Cash != HeartRewardCash() || acc.Gems != 0 {
-		t.Fatalf("balances after base heart = cash %d gems %d, want %d/0", acc.Cash, acc.Gems, HeartRewardCash())
+		t.Fatalf("balances after quest heart = cash %d gems %d, want %d/0", acc.Cash, acc.Gems, HeartRewardCash())
 	}
-	HeartSend("9803", "9804", day1) // refused: already at base, no second reward
+	sendHearts(t, "9803", "9804", int(HeartBase()-HeartQuestCount()), day1)
 	if acc := heartAccount(t, "9803"); acc.Cash != HeartRewardCash() || acc.Gems != 0 {
-		t.Fatalf("balances after refused heart = cash %d gems %d, want %d/0", acc.Cash, acc.Gems, HeartRewardCash())
+		t.Fatalf("balances after the rest of the allowance = cash %d gems %d, want %d/0", acc.Cash, acc.Gems, HeartRewardCash())
 	}
 	day2 := jstAt(23, 12, 0)
-	sendHearts(t, "9803", "9804", int(HeartBase()), day2)
+	sendHearts(t, "9803", "9804", int(HeartQuestCount()), day2)
 	if acc := heartAccount(t, "9803"); acc.Cash != 2*HeartRewardCash() || acc.Gems != 0 {
 		t.Fatalf("balances after day 2 = cash %d gems %d, want %d/0", acc.Cash, acc.Gems, 2*HeartRewardCash())
+	}
+}
+
+// TestHeartExtraHearts: the quest heart pays once; the heart past the daily allowance is refused without extra
+// hearts; with three extra hearts (a staff grant) the next two are sent and one is left; the left-over extra
+// heart survives the game day while the daily count resets, and the last one is spent after the allowance.
+func TestHeartExtraHearts(t *testing.T) {
+	heartAccounts(t, "9860", "9861")
+	if HeartQuestCount() >= HeartBase() {
+		t.Fatal("this test needs hearts.quest below hearts.base")
+	}
+	day1, day2 := jstAt(22, 12, 0), jstAt(23, 12, 0)
+	sendHearts(t, "9860", "9861", int(HeartBase()), day1)
+	if sent, _ := HeartSend("9860", "9861", day1); sent {
+		t.Fatal("heart past the allowance counted without extra hearts")
+	}
+	grantExtra(t, "9860", 3, day1)
+	if left, _ := HeartsLeft("9860", day1); left != 3 {
+		t.Fatalf("left after the grant = %d, want 3", left)
+	}
+	sendHearts(t, "9860", "9861", 2, day1)
+	if acc := heartAccount(t, "9860"); acc.Hearts.Extra != 1 || acc.Hearts.Sent != HeartBase()+2 || acc.Cash != HeartRewardCash() {
+		t.Fatalf("after the extras: hearts %+v cash %d, want extra 1, sent %d, cash %d", *acc.Hearts, acc.Cash, HeartBase()+2, HeartRewardCash())
+	}
+	if left, _ := HeartsLeft("9860", day2); left != HeartBase()+1 {
+		t.Fatalf("day 2 left = %d, want the allowance and the extra heart (%d)", left, HeartBase()+1)
+	}
+	sendHearts(t, "9860", "9861", int(HeartBase())+1, day2)
+	if sent, _ := HeartSend("9860", "9861", day2); sent {
+		t.Fatal("heart past the extra hearts counted")
+	}
+	if acc := heartAccount(t, "9860"); acc.Hearts.Sent != HeartBase()+1 || acc.Hearts.Extra != 0 || acc.Cash != 2*HeartRewardCash() {
+		t.Fatalf("day 2 hearts %+v cash %d, want sent %d, extra 0, cash %d", *acc.Hearts, acc.Cash, HeartBase()+1, 2*HeartRewardCash())
+	}
+}
+
+// TestHeartQuestRules: hearts.quest is from 1 to hearts.base, and an override that leaves it out means hearts.base, so
+// an operator file written before the field existed loads and keeps its meaning.
+func TestHeartQuestRules(t *testing.T) {
+	t.Cleanup(resetOperatorData)
+	raw := data.RewardsJSON
+	refuseFile(t, rewardsFile.LoadFrom, "rewards.json", mutateDefault(t, raw, `"quest": 20`, `"quest": 31`), "hearts.quest must be from 1 to hearts.base")
+	refuseFile(t, rewardsFile.LoadFrom, "rewards.json", mutateDefault(t, raw, `"quest": 20`, `"quest": -1`), "hearts.quest must be from 1 to hearts.base")
+	path := filepath.Join(t.TempDir(), "rewards.json")
+	if err := os.WriteFile(path, []byte(mutateDefault(t, raw, `"quest": 20, `, ``)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := rewardsFile.LoadFrom(path); err != nil || HeartQuestCount() != HeartBase() {
+		t.Fatalf("override without hearts.quest: err %v, quest %d, base %d", err, HeartQuestCount(), HeartBase())
+	}
+}
+
+// grantExtra gives aid n extra hearts through the staff grant path (GrantLocked) at now.
+func grantExtra(t *testing.T, aid string, n int64, now time.Time) {
+	t.Helper()
+	store.AccountsMu.Lock()
+	defer store.AccountsMu.Unlock()
+	acc := store.AccountByAidLocked(aid)
+	if _, err := GrantLocked(acc, StaffGrant{ExtraHearts: n}, "test", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveLocked(nil, acc); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -95,11 +159,11 @@ func TestHeartSelfUnknownAndSynthetic(t *testing.T) {
 	for _, c := range []struct{ from, to string }{
 		{"9805", "9805"}, {"9805", "9999"}, {"9999", "9805"},
 	} {
-		if HeartSend(c.from, c.to, now) {
+		if sent, _ := HeartSend(c.from, c.to, now); sent {
 			t.Errorf("heart %s -> %s counted", c.from, c.to)
 		}
 	}
-	if !HeartSend("9805", store.FriendAID, now) {
+	if sent, _ := HeartSend("9805", store.FriendAID, now); !sent {
 		t.Fatal("heart to synthetic Friend refused")
 	}
 	if left, _ := HeartsLeft("9805", now); left != HeartBase()-1 {
@@ -146,7 +210,7 @@ func TestHeartSendersBounded(t *testing.T) {
 	heartAccounts(t, append(aids, "9822")...)
 	now := jstAt(22, 12, 0)
 	for _, from := range aids[:11] { // 11 senders x 5 hearts = 55 counted, keep the newest 50
-		sendHearts(t, from, "9822", int(HeartBase()), now)
+		sendHearts(t, from, "9822", 5, now)
 	}
 	senders := HeartSenders("9822", now)
 	if len(senders) != ActiveRewards().Hearts.FromLimit {
@@ -164,7 +228,7 @@ func TestHeartSendersBounded(t *testing.T) {
 func TestHeartLedgerLine(t *testing.T) {
 	heartAccounts(t, "9830", "9831")
 	testutil.UseDatabase(t)
-	sendHearts(t, "9830", "9831", int(HeartBase()), jstAt(22, 12, 0))
+	sendHearts(t, "9830", "9831", int(HeartQuestCount()), jstAt(22, 12, 0))
 	lines, err := store.LedgerLines()
 	if err != nil {
 		t.Fatal(err)
@@ -183,7 +247,7 @@ func TestHeartSaveFailureRollsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	testutil.FailSaves(t)
-	if HeartSend("9840", "9841", jstAt(22, 12, 0)) {
+	if sent, _ := HeartSend("9840", "9841", jstAt(22, 12, 0)); sent {
 		t.Fatal("heart counted despite a failed save")
 	}
 	if got := heartAccount(t, "9840"); got.Hearts != nil || got.Gems != 0 || got.Cash != 0 {
