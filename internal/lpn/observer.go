@@ -190,6 +190,7 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 			var body []byte
 			var sender uint64
 			var hearted, pets []uint64
+			var questDetails []int64
 			if msgid == 0 {
 				if viewer := gatewayLoginAid(rp, sq, gardenLoginAid); viewer != 0 {
 					body = tlupQuestListBody(viewer)
@@ -203,6 +204,9 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 				}
 				sender, hearted = recordTLUPEvents(logger, frame[18:], gatewayLoginAid(rp, sq, gardenLoginAid))
 				pets = tlupPetStrokes(frame[18:], sender)
+				if sender != 0 {
+					questDetails = tlupQuestDetailRequests(frame[18:])
+				}
 				body = binary.AppendUvarint([]byte{0x08}, packetNo)
 			}
 			reply := make([]byte, 22+len(body))
@@ -239,6 +243,13 @@ func observeGatewayFrames(conn *lockedConn, addr, remote string, logger *log.Log
 				}
 				if err := petStrokePush(conn, tlupSession, reply, logger); err != nil {
 					logger.Printf("OBS %s minipet-stroke remote=%s err=%v", addr, remote, err)
+					return
+				}
+			}
+			// Popup 43 (NaFashionBuffPopupLayer) detail request (service=119 event=1) answers with QuestActionCommand 157.
+			for _, qid := range questDetails {
+				if err := tlupQuestDetailPush(conn, tlupSession, sender, qid, economy.NowFunc(), logger); err != nil {
+					logger.Printf("OBS %s quest-detail remote=%s err=%v", addr, remote, err)
 					return
 				}
 			}
@@ -549,6 +560,7 @@ type tlupEvent struct {
 	names              []string // ParamData names in order; values are never logged
 	target             uint64   // youraid Intvalue, 0 when absent
 	pet                uint64   // target_pet Intvalue (a petting, ServiceId 101 Eventid 4), 0 when absent
+	questID            int64    // quest_id Intvalue (ServiceId 119 Eventid 1), 0 when absent
 }
 
 // tlupPetStrokes returns the pets a verified numbered TLUP request pets (ServiceId 101, Eventid 4, target_pet). sender
@@ -568,6 +580,22 @@ func tlupPetStrokes(data []byte, sender uint64) []uint64 {
 		}
 	}
 	return pets
+}
+
+// tlupQuestDetailRequests extracts quest_id (ParamData.#2 int_val) from any verified event
+// with service == 119 && event == 1 (Popup 43 NaFashionBuffPopupLayer).
+func tlupQuestDetailRequests(body []byte) []int64 {
+	_, events, ok := tlupClientEvents(body)
+	if !ok {
+		return nil
+	}
+	var ids []int64
+	for _, ev := range events {
+		if ev.serviceID == 119 && ev.eventID == 1 && ev.questID > 0 {
+			ids = append(ids, ev.questID)
+		}
+	}
+	return ids
 }
 
 // isHeart reports whether ev sends a heart to a target. The avatar buttons (Garden, profile,
@@ -668,6 +696,8 @@ func tlupEventRequest(data []byte) (tlupEvent, bool) {
 				ev.target = value
 			case "target_pet":
 				ev.pet = value
+			case "quest_id":
+				ev.questID = int64(value)
 			}
 		}
 	})

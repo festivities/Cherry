@@ -2,6 +2,7 @@ package lpn
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"log"
 	"strconv"
 	"sync"
@@ -100,6 +101,49 @@ func petStrokePush(conn *lockedConn, session [8]byte, reply economy.MiniPetStrok
 		return err
 	}
 	logger.Printf("cherry: minipet stroke pet=%d exp=%d/%d adopted=%t", reply.PetID, reply.Exp, reply.MaxExp, reply.Gift != nil)
+	return nil
+}
+
+// tlupQuestCommandDetail is QuestActionCommand Id 157 (0x9D, NaQuestManager::HandleQuestDetailInfo)
+// for Popup 43 (NaFashionBuffPopupLayer, QuestId 71).
+const tlupQuestCommandDetail = 157
+
+// tlupQuestDetailBody encodes TLUP::tc_questevent_push (msgid 5) with QuestActionCommand id=157
+// and ParamData entries quest_id (int_val) and quest (JSON array string).
+func tlupQuestDetailBody(questID int64, now time.Time) []byte {
+	nextResetSec := economy.QuestResetMillis(now) / 1000
+	items := []struct {
+		ID        int    `json:"id"`
+		Status    bool   `json:"status"`
+		StartDate int64  `json:"start_date"`
+		EndDate   int64  `json:"end_date"`
+		ItemGrade string `json:"item_grade"`
+		ItemCode  string `json:"item_code"`
+		ShopCode  string `json:"shop_code"`
+		Link      string `json:"link"`
+	}{{
+		ID:        1,
+		Status:    false,
+		StartDate: 0,
+		EndDate:   nextResetSec,
+		ItemGrade: "NORMAL",
+		ItemCode:  "CUAH0067V",
+		ShopCode:  "90001",
+		Link:      "SQUARE",
+	}}
+	rawJSON, _ := json.Marshal(items)
+	command := pbVar(nil, 2, tlupQuestCommandDetail)
+	command = pbLen(command, 3, tlupParamInt("quest_id", questID))
+	command = pbLen(command, 3, tlupParamStr("quest", string(rawJSON)))
+	return pbLen(nil, 1, pbLen(nil, 1, command))
+}
+
+// tlupQuestDetailPush sends QuestActionCommand 157 on the client's TLUP session (msgid 5).
+func tlupQuestDetailPush(conn *lockedConn, session [8]byte, aid uint64, questID int64, now time.Time, logger *log.Logger) error {
+	if _, err := conn.Write(tlupDFrame(session, tlupQuestEventMsg, tlupQuestDetailBody(questID, now))); err != nil {
+		return err
+	}
+	logger.Printf("cherry: tlup quest detail push aid=%d quest_id=%d", aid, questID)
 	return nil
 }
 

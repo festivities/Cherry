@@ -14,11 +14,12 @@ const (
 	squareRcHighFiveAchieve    = 27
 
 	tlupSquareHighFiveQuestID = 7
+	tlupFindMagicQuestID      = 71 // eQUEST_CODE = 113 ("Find specific magic items in the Square!")
 )
 
 // tlupQuestListBody encodes TLUP::tc_questlist_res (msgid 0, agent 5) seeding
 // TLUP::QuestId = 7 (eQUEST_CODE = 106, Square daily high-five quest) with
-// viewer's current game-day progress.
+// viewer's current game-day progress, and TLUP::QuestId = 71 (eQUEST_CODE = 113).
 func tlupQuestListBody(viewer uint64) []byte {
 	count, _, goal, reward := economy.HighFiveProgress(strconv.FormatUint(viewer, 10))
 	params := fmt.Sprintf(`{"display_ver":0,"completed_gem":%d,"reset_hour":0}`, reward)
@@ -34,8 +35,21 @@ func tlupQuestListBody(viewer uint64) []byte {
 	quest = pbLen(quest, 2, master)
 	quest = pbLen(quest, 3, user)
 
+	master71 := pbVar(nil, 1, tlupFindMagicQuestID)
+	master71 = pbVar(master71, 13, 1)
+	master71 = pbLen(master71, 21, []byte(`{"display_ver":9,"completed_gem":300,"reset_hour":0}`))
+	master71 = pbVar(master71, 23, 0)
+
+	user71 := pbVar(nil, 1, tlupFindMagicQuestID)
+	user71 = pbVar(user71, 8, 0)
+
+	quest71 := pbVar(nil, 1, tlupFindMagicQuestID)
+	quest71 = pbLen(quest71, 2, master71)
+	quest71 = pbLen(quest71, 3, user71)
+
 	res := pbVar(nil, 1, uint64(economy.NowFunc().Unix()))
-	return pbLen(res, 2, quest)
+	res = pbLen(res, 2, quest)
+	return pbLen(res, 2, quest71)
 }
 
 // squareHighFiveTargetList encodes SQUARE::rc_highfive_target_list_res (msgid 26)

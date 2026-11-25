@@ -28,6 +28,7 @@ type QuestDef struct {
 	Key     string `json:"key"` // progress key passed to MarkQuest
 	Name    string `json:"name"`
 	Desc    string `json:"desc"`
+	Icon    string `json:"icon,omitempty"`
 	Gems    int64  `json:"gems"`
 	Cash    int64  `json:"cash,omitempty"`
 	Display bool   `json:"display"` // credited by another handler (hearts); MarkQuest and ClaimQuest refuse it
@@ -47,7 +48,7 @@ func QuestCatalog(now time.Time) []QuestDef {
 	season := scheduleAt(now).Name
 	for _, e := range r.EventQuests {
 		if e.Season == season {
-			out = append(out, QuestDef{ID: e.ID, Key: e.Key, Name: e.Name, Desc: e.Desc, Gems: e.Gems})
+			out = append(out, QuestDef{ID: e.ID, Key: e.Key, Name: e.Name, Desc: e.Desc, Icon: e.Icon, Gems: e.Gems})
 		}
 	}
 	return out

@@ -3,6 +3,7 @@ package lpn
 import (
 	"io"
 	"log"
+	"strings"
 	"testing"
 	"time"
 
@@ -57,22 +58,27 @@ func TestGardenQuestListEncoding(t *testing.T) {
 	}
 	// 9402 ("square") got progress from MarkQuest("9716", "square", now) above -> status 3.
 	r2v, r2m := pbFields(t, msgs[3][1])
-	r2d, _ := pbFields(t, getBytes(t, r2m[5]))
+	r2d, r2dm := pbFields(t, getBytes(t, r2m[5]))
+	r2itemV, r2itemM := pbFields(t, getBytes(t, r2dm[2]))
 	if r2v[1] != 9402 || r2v[7] != 3 || r2d[3] != 1 || r2d[4] != 1 {
 		t.Fatalf("repeat 9402 = id %d status %d cur/comp %d/%d", r2v[1], r2v[7], r2d[3], r2d[4])
+	}
+	if r2itemV[1] != 15 || !strings.HasSuffix(string(getBytes(t, r2itemM[2])), ".png") || string(getBytes(t, r2m[9])) == "" {
+		t.Fatalf("repeat 9402 icons = view %d code %q npc %q", r2itemV[1], r2itemM[2], r2m[9])
 	}
 	// Episode: 9501 unlocked (status 3 from "garden-own"), 9502 locked with quest_prerequire.
 	if len(msgs[4]) != 2 {
 		t.Fatalf("story_quest_info = %d, want 2", len(msgs[4]))
 	}
-	e1v, _ := pbFields(t, msgs[4][0])
-	if e1v[1] != 9501 || e1v[7] != 3 {
-		t.Fatalf("episode 1 = id %d status %d, want 9501/3", e1v[1], e1v[7])
+	e1v, e1m := pbFields(t, msgs[4][0])
+	if e1v[1] != 9501 || e1v[7] != 3 || string(getBytes(t, e1m[9])) != "cherry/quest/anniv_cherry_1.png" {
+		t.Fatalf("episode 1 = id %d status %d npc %q, want 9501/3", e1v[1], e1v[7], e1m[9])
 	}
 	e2v, e2m := pbFields(t, msgs[4][1])
 	preV, preM := pbFields(t, getBytes(t, e2m[3]))
-	if e2v[1] != 9502 || string(getBytes(t, preM[1])) != "Complete: Episode 1: Home Sweet Garden" || preV[2] != 0 || preV[3] != 1 {
-		t.Fatalf("episode 2 prereq = id %d title %q cur/max %d/%d", e2v[1], preM[1], preV[2], preV[3])
+	if e2v[1] != 9502 || string(getBytes(t, preM[1])) != "Clear Ep. 1: My Garden" ||
+		string(getBytes(t, preM[4])) != "cherry/quest/common_quest_today_quest_icon.png" || preV[2] != 0 || preV[3] != 1 {
+		t.Fatalf("episode 2 prereq = id %d title %q img %q cur/max %d/%d", e2v[1], preM[1], preM[4], preV[2], preV[3])
 	}
 	if want := uint64(economy.QuestResetMillis(now)); vars[12] != want {
 		t.Fatalf("reset = %d, want %d", vars[12], want)
@@ -92,17 +98,22 @@ func TestGardenQuestListEncoding(t *testing.T) {
 		if qv[7] != want[uint64(def.ID)].status {
 			t.Fatalf("quest %d status = %d, want %d", def.ID, qv[7], want[uint64(def.ID)].status)
 		}
-		dv, _ := pbFields(t, getBytes(t, qm[5]))
+		dv, dm := pbFields(t, getBytes(t, qm[5]))
 		if dv[3] != want[uint64(def.ID)].current || dv[4] != want[uint64(def.ID)].complete {
 			t.Fatalf("quest %d detail current/complete = %d/%d", def.ID, dv[3], dv[4])
 		}
-		rv, _ := pbFields(t, getBytes(t, qm[6]))
-		wantView, wantCount := uint64(gardenQuestGemView), uint64(def.Gems)
-		if def.ID == 9005 {
-			wantView, wantCount = gardenQuestCashView, 600
+		iv, im := pbFields(t, getBytes(t, dm[2]))
+		if iv[1] != 15 || string(getBytes(t, im[2])) != economy.QuestIcon(def) ||
+			string(getBytes(t, im[6])) != def.Name || string(getBytes(t, im[7])) != def.Desc {
+			t.Fatalf("quest %d item_info = view %d code %q name %q desc %q", def.ID, iv[1], im[2], im[6], im[7])
 		}
-		if rv[1] != wantView || rv[3] != wantCount {
-			t.Fatalf("quest %d reward view/count = %d/%d, want %d/%d", def.ID, rv[1], rv[3], wantView, wantCount)
+		rv, rm := pbFields(t, getBytes(t, qm[6]))
+		wantView, wantCount, wantName := uint64(gardenQuestGemView), uint64(def.Gems), "Gems"
+		if def.ID == 9005 {
+			wantView, wantCount, wantName = gardenQuestCashView, 600, "Cash"
+		}
+		if rv[1] != wantView || rv[3] != wantCount || string(getBytes(t, rm[6])) != wantName || string(getBytes(t, rm[7])) != "Quest reward" {
+			t.Fatalf("quest %d reward view/count/name = %d/%d/%q, want %d/%d/%q", def.ID, rv[1], rv[3], rm[6], wantView, wantCount, wantName)
 		}
 	}
 }
@@ -133,15 +144,21 @@ func TestGardenQuestCompleteAndInfoReplies(t *testing.T) {
 		t.Fatalf("unknown complete reply = msgid %d vars %v rewards %d", msgid, vars, len(msgs[4]))
 	}
 
-	// Gem reward shape for a successful claim: RewardType 11 and coin rows.
+	// Gem reward shape for a successful claim: RewardType 11, subtitle/headline #5/#7, and coin rows with #3 name.
 	rv, rm := pbFields(t, gardenQuestReward(30, 0))
-	item, _ := pbFields(t, getBytes(t, rm[6]))
-	if rv[1] != gardenQuestRewardType || item[1] != gardenQuestGemView || item[4] != 30 {
-		t.Fatalf("reward = type %d item %v, want type %d coin %d count 30", rv[1], item, gardenQuestRewardType, gardenQuestGemView)
+	item, itemM := pbFields(t, getBytes(t, rm[6]))
+	if rv[1] != gardenQuestRewardType || string(getBytes(t, rm[5])) != "You got rewards!" ||
+		string(getBytes(t, rm[7])) != "Quest Complete!" || item[1] != gardenQuestGemView ||
+		string(getBytes(t, itemM[3])) != "Gems" || item[4] != 30 {
+		t.Fatalf("reward = type %d sub %q head %q item %v name %q", rv[1], rm[5], rm[7], item, itemM[3])
 	}
 	_, rmBoth := pbFields(t, gardenQuestReward(10, 50))
 	if len(rmBoth[6]) != 2 {
 		t.Fatalf("both gem+cash reward items = %d, want 2", len(rmBoth[6]))
+	}
+	_, cashItemM := pbFields(t, rmBoth[6][1])
+	if string(getBytes(t, cashItemM[3])) != "Cash" {
+		t.Fatalf("cash reward item name = %q, want Cash", cashItemM[3])
 	}
 
 	// Info for an unknown id still carries QuestInfo (required) with error 1.
@@ -267,11 +284,24 @@ func TestGardenQuestNPCCallAndTabsLPN(t *testing.T) {
 		t.Fatalf("invalid info pick npc = msgid %d vars %v infos %d", msgid, vars, len(msgs[3]))
 	}
 
-	// Reject 9401, then invite 9404 for free (call_type=0).
+	// Reject 9401, then invite 9404 for free (call_type=1 -> free, 0 Gems spent).
 	gardenQuestReply(19, 9717, pbVar(nil, 1, 9401), now, logger)
-	msgid, body = gardenQuestReply(22, 9717, pbVar(pbVar(nil, 1, 9404), 2, 0), now, logger)
+	msgid, body = gardenQuestReply(22, 9717, pbVar(pbVar(nil, 1, 9404), 2, 1), now, logger)
 	if vars, _ = pbFields(t, body); msgid != 28 || vars[1] != 9404 || vars[2] != 0 {
 		t.Fatalf("free call npc = msgid %d vars %v", msgid, vars)
+	}
+	if gems, _, ok := economy.Balances("9717"); !ok || gems != 100 {
+		t.Fatalf("gems after free call (call_type=1) = %d, want 100", gems)
+	}
+
+	// Reject 9402, then invite 9405 paid (call_type=0 -> paid, charges 10 Gems).
+	gardenQuestReply(19, 9717, pbVar(nil, 1, 9402), now, logger)
+	msgid, body = gardenQuestReply(22, 9717, pbVar(pbVar(nil, 1, 9405), 2, 0), now, logger)
+	if vars, _ = pbFields(t, body); msgid != 28 || vars[1] != 9405 || vars[2] != 0 {
+		t.Fatalf("paid call npc = msgid %d vars %v", msgid, vars)
+	}
+	if gems, _, ok := economy.Balances("9717"); !ok || gems != 90 {
+		t.Fatalf("gems after paid call (call_type=0) = %d, want 90", gems)
 	}
 
 	// Complete garden-own -> unlocks claim on Episode 9501.

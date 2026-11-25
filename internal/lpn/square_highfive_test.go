@@ -396,12 +396,12 @@ func TestTLUPQuestListBodyAndGatewaySeed(t *testing.T) {
 	} {
 		raw := tlupQuestListBody(tc.aid)
 		var ts uint64
-		var questBytes []byte
+		var questMsgs [][]byte
 		if !pbScan(raw, func(f, v uint64, d []byte) {
 			if f == 1 {
 				ts = v
 			} else if f == 2 {
-				questBytes = d
+				questMsgs = append(questMsgs, d)
 			}
 		}) {
 			t.Fatalf("aid %d: malformed tc_questlist_res", tc.aid)
@@ -409,44 +409,56 @@ func TestTLUPQuestListBodyAndGatewaySeed(t *testing.T) {
 		if ts != uint64(now.Unix()) {
 			t.Fatalf("aid %d: server_timestamp = %d, want %d", tc.aid, ts, now.Unix())
 		}
-
-		var qid uint64
-		var masterBytes, userBytes []byte
-		if !pbScan(questBytes, func(f, v uint64, d []byte) {
-			switch f {
-			case 1:
-				qid = v
-			case 2:
-				masterBytes = d
-			case 3:
-				userBytes = d
-			}
-		}) {
-			t.Fatalf("aid %d: malformed QuestInfo", tc.aid)
-		}
-		if qid != 7 {
-			t.Fatalf("aid %d: QuestInfo.questid = %d, want 7", tc.aid, qid)
+		if len(questMsgs) != 2 {
+			t.Fatalf("aid %d: quest entries = %d, want 2 (QuestId 7 and 71)", tc.aid, len(questMsgs))
 		}
 
-		var mQid, mTarget uint64
-		var mParams string
-		var hasGroupID bool
-		if !pbScan(masterBytes, func(f, v uint64, d []byte) {
-			switch f {
-			case 1:
-				mQid = v
-			case 13:
-				mTarget = v
-			case 21:
-				mParams = string(d)
-			case 23:
-				hasGroupID = true
+		parseQuest := func(rawQ []byte) (qid, mQid, mTarget, mGroup uint64, hasGroup bool, mParams string, uQid, uTarget uint64) {
+			var masterBytes, userBytes []byte
+			if !pbScan(rawQ, func(f, v uint64, d []byte) {
+				switch f {
+				case 1:
+					qid = v
+				case 2:
+					masterBytes = d
+				case 3:
+					userBytes = d
+				}
+			}) {
+				t.Fatalf("aid %d: malformed QuestInfo", tc.aid)
 			}
-		}) {
-			t.Fatalf("aid %d: malformed MasterQuestInfo", tc.aid)
+			if !pbScan(masterBytes, func(f, v uint64, d []byte) {
+				switch f {
+				case 1:
+					mQid = v
+				case 13:
+					mTarget = v
+				case 21:
+					mParams = string(d)
+				case 23:
+					hasGroup = true
+					mGroup = v
+				}
+			}) {
+				t.Fatalf("aid %d: malformed MasterQuestInfo", tc.aid)
+			}
+			if !pbScan(userBytes, func(f, v uint64, _ []byte) {
+				switch f {
+				case 1:
+					uQid = v
+				case 8:
+					uTarget = v
+				}
+			}) {
+				t.Fatalf("aid %d: malformed UserQuestInfo", tc.aid)
+			}
+			return
 		}
-		if mQid != 7 || mTarget != 20 || hasGroupID {
-			t.Fatalf("aid %d: master qid=%d target=%d hasGroupID=%v, want 7, 20, false", tc.aid, mQid, mTarget, hasGroupID)
+
+		// Entry 0: QuestId 7 (high-five quest).
+		qid, mQid, mTarget, _, hasGroupID, mParams, uQid, uTarget := parseQuest(questMsgs[0])
+		if qid != 7 || mQid != 7 || mTarget != 20 || hasGroupID || uQid != 7 || uTarget != tc.wantUser {
+			t.Fatalf("aid %d: quest 7 got qid=%d mQid=%d target=%d hasGroupID=%v uQid=%d uTarget=%d", tc.aid, qid, mQid, mTarget, hasGroupID, uQid, uTarget)
 		}
 		var parsed struct {
 			DisplayVer   int   `json:"display_ver"`
@@ -460,19 +472,16 @@ func TestTLUPQuestListBodyAndGatewaySeed(t *testing.T) {
 			t.Fatalf("aid %d: parsed params = %+v, want display_ver=0 completed_gem=%d reset_hour=0", tc.aid, parsed, economy.HighFiveRewardGems)
 		}
 
-		var uQid, uTarget uint64
-		if !pbScan(userBytes, func(f, v uint64, _ []byte) {
-			switch f {
-			case 1:
-				uQid = v
-			case 8:
-				uTarget = v
-			}
-		}) {
-			t.Fatalf("aid %d: malformed UserQuestInfo", tc.aid)
+		// Entry 1: QuestId 71 (Find specific magic items in the Square!).
+		qid71, mQid71, mTarget71, mGroup71, hasGroup71, mParams71, uQid71, uTarget71 := parseQuest(questMsgs[1])
+		if qid71 != 71 || mQid71 != 71 || mTarget71 != 1 || !hasGroup71 || mGroup71 != 0 || uQid71 != 71 || uTarget71 != 0 {
+			t.Fatalf("aid %d: quest 71 got qid=%d mQid=%d target=%d group=%d(%v) uQid=%d uTarget=%d", tc.aid, qid71, mQid71, mTarget71, mGroup71, hasGroup71, uQid71, uTarget71)
 		}
-		if uQid != 7 || uTarget != tc.wantUser {
-			t.Fatalf("aid %d: user qid=%d targetcount=%d, want 7, %d", tc.aid, uQid, uTarget, tc.wantUser)
+		if err := json.Unmarshal([]byte(mParams71), &parsed); err != nil {
+			t.Fatalf("aid %d: quest 71 params JSON %q err=%v", tc.aid, mParams71, err)
+		}
+		if parsed.DisplayVer != 9 || parsed.CompletedGem != 300 || parsed.ResetHour != 0 {
+			t.Fatalf("aid %d: quest 71 params = %+v, want display_ver=9 completed_gem=300 reset_hour=0", tc.aid, parsed)
 		}
 	}
 

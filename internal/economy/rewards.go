@@ -44,13 +44,15 @@ type Rewards struct {
 
 // RepeatQuestDef is one Garden Requests tab quest (rewards.json requests).
 type RepeatQuestDef struct {
-	ID   int64  `json:"id"`
-	Key  string `json:"key"`
-	Name string `json:"name"`
-	Desc string `json:"desc"`
-	Gems int64  `json:"gems"`
-	Cash int64  `json:"cash,omitempty"`
-	Goal int64  `json:"goal,omitempty"`
+	ID      int64  `json:"id"`
+	Key     string `json:"key"`
+	Name    string `json:"name"`
+	Desc    string `json:"desc"`
+	Icon    string `json:"icon,omitempty"`
+	NPCIcon string `json:"npc_icon,omitempty"`
+	Gems    int64  `json:"gems"`
+	Cash    int64  `json:"cash,omitempty"`
+	Goal    int64  `json:"goal,omitempty"`
 }
 
 // RequestRules are the daily limit and Neighbor Invite pricing for Garden Requests (rewards.json request_rules).
@@ -63,13 +65,15 @@ type RequestRules struct {
 
 // EpisodeQuestDef is one Garden Episode tab chapter (rewards.json episodes).
 type EpisodeQuestDef struct {
-	ID   int64  `json:"id"`
-	Key  string `json:"key"`
-	Name string `json:"name"`
-	Desc string `json:"desc"`
-	Gems int64  `json:"gems"`
-	Cash int64  `json:"cash,omitempty"`
-	Goal int64  `json:"goal,omitempty"`
+	ID      int64  `json:"id"`
+	Key     string `json:"key"`
+	Name    string `json:"name"`
+	Desc    string `json:"desc"`
+	Icon    string `json:"icon,omitempty"`
+	NPCIcon string `json:"npc_icon,omitempty"`
+	Gems    int64  `json:"gems"`
+	Cash    int64  `json:"cash,omitempty"`
+	Goal    int64  `json:"goal,omitempty"`
 }
 
 // BirthdayRules are the avatar birthday reward numbers (rewards.json birthday; birthday.go).
@@ -87,6 +91,7 @@ type EventQuest struct {
 	Season string `json:"season"`
 	Name   string `json:"name"`
 	Desc   string `json:"desc"`
+	Icon   string `json:"icon,omitempty"`
 	Gems   int64  `json:"gems"`
 }
 

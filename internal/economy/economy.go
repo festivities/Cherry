@@ -65,6 +65,7 @@ func RegisterEconomyRoutes(mux *http.ServeMux) {
 	registerLoginBonusRoutes(mux)
 	registerMailRoutes(mux)
 	registerShopRoutes(mux)
+	mux.HandleFunc("/cherry/quest/", HandleQuestArt)
 }
 
 const EmptySpecialChanceBody = `{"result":{"items":[],"location":""}}`

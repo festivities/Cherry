@@ -20,9 +20,11 @@ type QuestRow struct {
 	ID       int64
 	Name     string
 	Desc     string
+	Icon     string
+	NPCIcon  string
 	Gems     int64
 	Cash     int64
-	Status   uint64 // 1 = in progress / available, 2 = claimed, 3 = claimable, 0 = locked
+	Status   uint64 // Requests/Episodes: 1 = not accepted, 2 = accepted / in progress, 3 = ready to complete, 0 = locked; Tasks: 1 = in progress, 2 = claimed, 3 = claimable
 	Current  uint64
 	Complete uint64
 }
@@ -32,8 +34,19 @@ type EpisodeRow struct {
 	QuestRow
 	Locked      bool
 	PreReqTitle string
+	PreReqIcon  string
 	PreReqCur   uint64
 	PreReqMax   uint64
+}
+
+func tabQuestStatus(cur, goal int64, accepted bool) uint64 {
+	if cur >= goal {
+		return 3
+	}
+	if accepted {
+		return 2
+	}
+	return 1
 }
 
 // RequestListView is the player's Requests tab state for the current game day.
@@ -216,14 +229,13 @@ func RequestList(aid string, now time.Time) RequestListView {
 		}
 		goal := effectiveGoal(rdef.Goal)
 		cur := min(rec.ReqProgress[id], goal)
-		status := uint64(1)
-		if cur >= goal {
-			status = 3
-		}
+		status := tabQuestStatus(cur, goal, slices.Contains(rec.AcceptedReqs, id))
 		view.Rows = append(view.Rows, QuestRow{
 			ID:       rdef.ID,
 			Name:     rdef.Name,
 			Desc:     rdef.Desc,
+			Icon:     resolveQuestIcon(rdef.Icon, rdef.Key, false),
+			NPCIcon:  resolveQuestNPC(rdef.NPCIcon, rdef.ID),
 			Gems:     rdef.Gems,
 			Cash:     rdef.Cash,
 			Status:   status,
@@ -439,6 +451,8 @@ func PickNPCRequests(aid string, refresh bool, now time.Time) (rows []QuestRow, 
 			ID:       r.ID,
 			Name:     r.Name,
 			Desc:     r.Desc,
+			Icon:     resolveQuestIcon(r.Icon, r.Key, false),
+			NPCIcon:  resolveQuestNPC(r.NPCIcon, r.ID),
 			Gems:     r.Gems,
 			Cash:     r.Cash,
 			Status:   1,
@@ -518,15 +532,15 @@ func EpisodeList(aid string) []EpisodeRow {
 	if acc.Episodes != nil && acc.Episodes.Progress != nil {
 		cur = min(acc.Episodes.Progress[ch.ID], goal)
 	}
-	status := uint64(1)
-	if cur >= goal {
-		status = 3
-	}
+	accepted := acc.Episodes != nil && slices.Contains(acc.Episodes.Accepted, ch.ID)
+	status := tabQuestStatus(cur, goal, accepted)
 	out := []EpisodeRow{{
 		QuestRow: QuestRow{
 			ID:       ch.ID,
 			Name:     ch.Name,
 			Desc:     ch.Desc,
+			Icon:     resolveQuestIcon(ch.Icon, ch.Key, false),
+			NPCIcon:  resolveQuestNPC(ch.NPCIcon, ch.ID),
 			Gems:     ch.Gems,
 			Cash:     ch.Cash,
 			Status:   status,
@@ -541,6 +555,8 @@ func EpisodeList(aid string) []EpisodeRow {
 				ID:       next.ID,
 				Name:     next.Name,
 				Desc:     next.Desc,
+				Icon:     resolveQuestIcon(next.Icon, next.Key, false),
+				NPCIcon:  resolveQuestNPC(next.NPCIcon, next.ID),
 				Gems:     next.Gems,
 				Cash:     next.Cash,
 				Status:   0,
@@ -548,7 +564,8 @@ func EpisodeList(aid string) []EpisodeRow {
 				Complete: uint64(effectiveGoal(next.Goal)),
 			},
 			Locked:      true,
-			PreReqTitle: "Complete: " + ch.Name,
+			PreReqTitle: "Clear " + ch.Name,
+			PreReqIcon:  questArtFallbackIcon,
 			PreReqCur:   0,
 			PreReqMax:   1,
 		})
@@ -573,6 +590,7 @@ func QuestDetailByID(aid string, id int64, now time.Time) (EpisodeRow, bool) {
 					ID:       def.ID,
 					Name:     def.Name,
 					Desc:     def.Desc,
+					Icon:     QuestIcon(def),
 					Gems:     def.Gems,
 					Cash:     def.Cash,
 					Status:   status,
@@ -594,6 +612,7 @@ func QuestDetailByID(aid string, id int64, now time.Time) (EpisodeRow, bool) {
 				ID:       def.ID,
 				Name:     def.Name,
 				Desc:     def.Desc,
+				Icon:     QuestIcon(def),
 				Gems:     def.Gems,
 				Cash:     def.Cash,
 				Status:   status,
@@ -615,6 +634,8 @@ func QuestDetailByID(aid string, id int64, now time.Time) (EpisodeRow, bool) {
 				ID:       rdef.ID,
 				Name:     rdef.Name,
 				Desc:     rdef.Desc,
+				Icon:     resolveQuestIcon(rdef.Icon, rdef.Key, false),
+				NPCIcon:  resolveQuestNPC(rdef.NPCIcon, rdef.ID),
 				Gems:     rdef.Gems,
 				Cash:     rdef.Cash,
 				Status:   1,

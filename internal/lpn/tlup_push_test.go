@@ -2,7 +2,9 @@ package lpn
 
 import (
 	"bytes"
+	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
 	"log"
 	"net"
 	"net/http"
@@ -306,4 +308,72 @@ func TestRoomHeartButtonFlow(t *testing.T) {
 		heartEnterGarden(t, client, tunnel, 9743, 9742)
 		expectTLUPReply(t, client, 9743)
 	})
+}
+
+// TestTLUPQuestDetailPush verifies that TLUP service=119 event=1 quest_id=71 pushes
+// msgid=5 (tc_questevent_push) with Command.Id == 157, quest_id == 71 (int_val), and
+// valid JSON in quest (str_val).
+func TestTLUPQuestDetailPush(t *testing.T) {
+	testutil.InstallAccounts(t, map[string]*store.Account{
+		"qd-1": {AccessToken: "qd-1", SessionKey: testSessionKey, Aid: "9751", Name: "Q"},
+	})
+	testutil.SetLab(t, "9751", false)
+	now := time.Date(2026, time.November, 25, 12, 0, 0, 0, time.UTC)
+	old := economy.NowFunc
+	economy.NowFunc = func() time.Time { return now }
+	t.Cleanup(func() { economy.NowFunc = old })
+
+	client, stop := heartGateway(t)
+	defer stop()
+	rpLogin(t, client, 9751)
+
+	req := tlupDFrame(heartTestSession, 1, tlupClientEvent(9751, 0x33, tlupEventData(119, 1, tlupParamData("quest_id", 71))))
+	if _, err := client.Write(req); err != nil {
+		t.Fatalf("tlup write: %v", err)
+	}
+	if got := readSessionFrame(t, client); !bytes.Equal(got, tlupDFrame(heartTestSession, 1, []byte{0x08, 0x33})) {
+		t.Fatalf("ack frame = %x", got)
+	}
+	push := readSessionFrame(t, client)
+	if len(push) < 22 || push[4] != 'D' || push[14] != 5 || binary.BigEndian.Uint16(push[20:22]) != tlupQuestEventMsg {
+		t.Fatalf("unexpected push header = %x", push)
+	}
+
+	_, topMsgs := pbFields(t, push[22:])
+	_, actionMsgs := pbFields(t, getBytes(t, topMsgs[1]))
+	cmdVars, cmdMsgs := pbFields(t, getBytes(t, actionMsgs[1]))
+	if cmdVars[2] != tlupQuestCommandDetail {
+		t.Fatalf("Command.Id = %d, want %d", cmdVars[2], tlupQuestCommandDetail)
+	}
+	if len(cmdMsgs[3]) != 2 {
+		t.Fatalf("Command.Param count = %d, want 2", len(cmdMsgs[3]))
+	}
+
+	p1v, p1m := pbFields(t, cmdMsgs[3][0])
+	if string(getBytes(t, p1m[1])) != "quest_id" || p1v[2] != 71 {
+		t.Fatalf("param 1 = name %q int_val %d, want quest_id=71", p1m[1], p1v[2])
+	}
+	_, p2m := pbFields(t, cmdMsgs[3][1])
+	if string(getBytes(t, p2m[1])) != "quest" {
+		t.Fatalf("param 2 name = %q, want quest", p2m[1])
+	}
+	var items []struct {
+		ID        int    `json:"id"`
+		Status    bool   `json:"status"`
+		StartDate int64  `json:"start_date"`
+		EndDate   int64  `json:"end_date"`
+		ItemGrade string `json:"item_grade"`
+		ItemCode  string `json:"item_code"`
+		ShopCode  string `json:"shop_code"`
+		Link      string `json:"link"`
+	}
+	if err := json.Unmarshal(getBytes(t, p2m[4]), &items); err != nil {
+		t.Fatalf("quest JSON unmarshal: %v", err)
+	}
+	wantEnd := economy.QuestResetMillis(now) / 1000
+	if len(items) != 1 || items[0].ID != 1 || items[0].Status || items[0].StartDate != 0 ||
+		items[0].EndDate != wantEnd || items[0].ItemGrade != "NORMAL" || items[0].ItemCode != "CUAH0067V" ||
+		items[0].ShopCode != "90001" || items[0].Link != "SQUARE" {
+		t.Fatalf("quest JSON = %+v, want end_date=%d CUAH0067V", items, wantEnd)
+	}
 }

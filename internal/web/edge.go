@@ -42,8 +42,8 @@ func plainPathAllowed(path string) bool {
 	if strings.HasPrefix(rest, "arts_") || strings.HasPrefix(rest, "notice/") {
 		return true
 	}
-	// The season and operator popup pictures (relative imageUrl paths under the static base). GET only: the handlers 404 the rest.
-	if strings.HasPrefix(rest, "cherry/event/") || strings.HasPrefix(rest, "cherry/popup/") {
+	// The season, operator popup, and quest pictures (relative imageUrl paths under the static base). GET only: the handlers 404 the rest.
+	if strings.HasPrefix(rest, "cherry/event/") || strings.HasPrefix(rest, "cherry/popup/") || strings.HasPrefix(rest, "cherry/quest/") {
 		return true
 	}
 	if pic, ok := strings.CutPrefix(rest, "lineplay/pr/"); ok && pic != "upload.nhn" {

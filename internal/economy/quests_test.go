@@ -1,10 +1,13 @@
 package economy
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"cherry/data"
@@ -302,9 +305,18 @@ func TestRequestsLifecycleAndLimits(t *testing.T) {
 		t.Fatalf("9402 after square = %+v, want status 3 cur 1", view.Rows[1])
 	}
 
-	// Accept works on active Request, fails on daily task 9001.
+	// Accept works on active Request, transitions status 1 -> 2, fails on daily task 9001.
+	if view.Rows[0].Status != 1 {
+		t.Fatalf("9401 before accept status = %d, want 1", view.Rows[0].Status)
+	}
 	if code := AcceptQuest("9721", 9401, now); code != 0 {
 		t.Fatalf("accept 9401 = %d", code)
+	}
+	if v2 := RequestList("9721", now); v2.Rows[0].Status != 2 {
+		t.Fatalf("9401 after accept status = %d, want 2", v2.Rows[0].Status)
+	}
+	if detail, ok := QuestDetailByID("9721", 9401, now); !ok || detail.Status != 2 || detail.Icon == "" || detail.NPCIcon == "" {
+		t.Fatalf("9401 detail after accept = %+v ok=%v", detail, ok)
 	}
 	if code := AcceptQuest("9721", 9001, now); code == 0 {
 		t.Fatal("accept daily 9001 succeeded")
@@ -370,7 +382,8 @@ func TestEpisodesSequentialProgression(t *testing.T) {
 	day2 := jstAt(12, 12, 0)
 
 	eps := EpisodeList("9722")
-	if len(eps) != 2 || eps[0].ID != 9501 || eps[0].Locked || !eps[1].Locked || eps[1].ID != 9502 {
+	if len(eps) != 2 || eps[0].ID != 9501 || eps[0].Status != 1 || eps[0].Locked || !eps[1].Locked || eps[1].ID != 9502 ||
+		eps[1].PreReqTitle != "Clear Ep. 1: My Garden" || eps[1].PreReqIcon != questArtFallbackIcon {
 		t.Fatalf("initial episodes = %+v", eps)
 	}
 	if code := RejectQuest("9722", 9501, day1); code == 0 {
@@ -381,6 +394,9 @@ func TestEpisodesSequentialProgression(t *testing.T) {
 	}
 	if code := AcceptQuest("9722", 9501, day1); code != 0 {
 		t.Fatalf("unlocked episode accept = %d", code)
+	}
+	if eps = EpisodeList("9722"); eps[0].Status != 2 {
+		t.Fatalf("episode 1 after accept status = %d, want 2", eps[0].Status)
 	}
 
 	// MarkQuest advances 9501 without auto-paying it.
@@ -432,5 +448,70 @@ func TestEpisodesSequentialProgression(t *testing.T) {
 	}
 	if got := EpisodeList("9722"); len(got) != 0 {
 		t.Fatalf("after all episodes claimed = %+v, want empty", got)
+	}
+}
+
+func TestQuestArtHandlerAndDefaults(t *testing.T) {
+	oldFS := questArtFS
+	questArtFS = fstest.MapFS{
+		"common_quest_list_icon_01.png": {Data: []byte("PNGDATA")},
+	}
+	t.Cleanup(func() { questArtFS = oldFS })
+
+	mux := http.NewServeMux()
+	RegisterEconomyRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/cherry/quest/common_quest_list_icon_01.png", nil))
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" || rec.Body.String() != "PNGDATA" {
+		t.Fatalf("valid quest icon = %d %q %q", rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
+	}
+
+	for _, tc := range []struct {
+		method, path string
+	}{
+		{http.MethodPost, "/cherry/quest/common_quest_list_icon_01.png"},
+		{http.MethodGet, "/cherry/quest/missing.png"},
+		{http.MethodGet, "/cherry/quest/..secret.png"},
+		{http.MethodGet, "/cherry/quest/sub/icon.png"},
+		{http.MethodGet, "/cherry/quest/bad.jpg"},
+	} {
+		r := httptest.NewRecorder()
+		mux.ServeHTTP(r, httptest.NewRequest(tc.method, tc.path, nil))
+		if r.Code != http.StatusNotFound {
+			t.Fatalf("%s %s = %d, want 404", tc.method, tc.path, r.Code)
+		}
+	}
+	traversal := httptest.NewRecorder()
+	HandleQuestArt(traversal, httptest.NewRequest(http.MethodGet, "/cherry/quest/../secret.png", nil))
+	if traversal.Code != http.StatusNotFound {
+		t.Fatalf("direct HandleQuestArt traversal = %d, want 404", traversal.Code)
+	}
+
+	// Default icons and NPC portraits resolve even when omitted from rewards.json.
+	if got := QuestIcon(QuestDef{Key: "square"}); got != "cherry/quest/common_quest_list_icon_03.png" {
+		t.Fatalf("default square icon = %q", got)
+	}
+	if got := QuestIcon(QuestDef{Display: true}); got != "cherry/quest/quest_symbol_01.png" {
+		t.Fatalf("default hearts icon = %q", got)
+	}
+	if got := resolveQuestNPC("", 9501); got != "cherry/quest/anniv_cherry_1.png" {
+		t.Fatalf("default 9501 npc = %q", got)
+	}
+	if got := resolveQuestNPC("", 9999); got != "cherry/quest/common_quest_popup_npc.png" {
+		t.Fatalf("fallback npc = %q", got)
+	}
+
+	// All default Requests & Episodes stay within the plist single-line title and 2-line desc limits.
+	r := ActiveRewards()
+	for _, q := range r.Requests {
+		if len(q.Name) > 17 || len(q.Desc) > 42 {
+			t.Fatalf("request %d title/desc too long: %q (%d) / %q (%d)", q.ID, q.Name, len(q.Name), q.Desc, len(q.Desc))
+		}
+	}
+	for _, ep := range r.Episodes {
+		if len(ep.Name) > 17 || len(ep.Desc) > 42 {
+			t.Fatalf("episode %d title/desc too long: %q (%d) / %q (%d)", ep.ID, ep.Name, len(ep.Name), ep.Desc, len(ep.Desc))
+		}
 	}
 }

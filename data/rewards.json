@@ -3,40 +3,40 @@
   "note": "Cherry-made rewards: the welcome Gems, the daily quests (ids 9001-9005 in CherryQuestFirst/Last; names, descriptions, Gem rewards and trigger keys), the season event quests (ids 9101-9303), the Garden Requests (ids 9401-9406) and request_rules (daily limit, free/paid invite and refresh costs), the sequential Garden Episodes (ids 9501-9507), the hearts rule, the mail rules (the sender 'Cherry Staff') and the avatar birthday reward (birthday: claim window in days, the gacha discount percent and how long it lasts; the birthday itself is the avatar's creation date, and the reward's keys and turn numbers are the client's own). No original quest id, goal or reward exists in the archives (phaseD quests.md). Exception: the hearts row name and its 20-heart goal are the original quest as the owner remembers it (2026-11-25); its reward is still Cherry-made.",
   "welcome_gems": 5000,
   "quests": [
-    {"id": 9001, "key": "garden-own", "name": "Visit your Garden", "desc": "Enter your own Garden today.", "gems": 30},
-    {"id": 9002, "key": "garden-visit", "name": "Visit a friend's Garden", "desc": "Enter a friend's Garden today.", "gems": 40},
-    {"id": 9003, "key": "square", "name": "Hang out in Square", "desc": "Enter Square today.", "gems": 40},
-    {"id": 9004, "key": "diary", "name": "Write in your Diary", "desc": "Post a diary entry today.", "gems": 40},
-    {"id": 9005, "key": "", "name": "Send Hearts to Avatars & Pets", "desc": "Send 20 hearts today.", "display": true}
+    {"id": 9001, "key": "garden-own", "name": "Visit your Garden", "desc": "Enter your own Garden today.", "icon": "cherry/quest/common_quest_list_icon_01.png", "gems": 30},
+    {"id": 9002, "key": "garden-visit", "name": "Visit a friend's Garden", "desc": "Enter a friend's Garden today.", "icon": "cherry/quest/common_quest_list_icon_02.png", "gems": 40},
+    {"id": 9003, "key": "square", "name": "Hang out in Square", "desc": "Enter Square today.", "icon": "cherry/quest/common_quest_list_icon_03.png", "gems": 40},
+    {"id": 9004, "key": "diary", "name": "Write in your Diary", "desc": "Post a diary entry today.", "icon": "cherry/quest/common_quest_list_icon_04.png", "gems": 40},
+    {"id": 9005, "key": "", "name": "Send Hearts to Avatars & Pets", "desc": "Send 20 hearts today.", "icon": "cherry/quest/quest_symbol_01.png", "display": true}
   ],
   "event_quests": [
-    {"id": 9101, "key": "gather3", "season": "halloween", "name": "Halloween: Gather 3 Garden materials", "desc": "Gather 3 materials in any Garden today.", "gems": 15},
-    {"id": 9102, "key": "atelier-craft", "season": "halloween", "name": "Halloween: Craft in the Atelier", "desc": "Make one item in the Atelier today.", "gems": 15},
-    {"id": 9103, "key": "square-fish", "season": "halloween", "name": "Halloween: Catch a fish in Square", "desc": "Land one fish in Square fishing today.", "gems": 15},
-    {"id": 9201, "key": "gather3", "season": "winter", "name": "Winter: Gather 3 Garden materials", "desc": "Gather 3 materials in any Garden today.", "gems": 15},
-    {"id": 9202, "key": "atelier-craft", "season": "winter", "name": "Winter: Craft in the Atelier", "desc": "Make one item in the Atelier today.", "gems": 15},
-    {"id": 9203, "key": "square-fish", "season": "winter", "name": "Winter: Catch a fish in Square", "desc": "Land one fish in Square fishing today.", "gems": 15},
-    {"id": 9301, "key": "gather3", "season": "newyear", "name": "New Year: Gather 3 Garden materials", "desc": "Gather 3 materials in any Garden today.", "gems": 15},
-    {"id": 9302, "key": "atelier-craft", "season": "newyear", "name": "New Year: Craft in the Atelier", "desc": "Make one item in the Atelier today.", "gems": 15},
-    {"id": 9303, "key": "square-fish", "season": "newyear", "name": "New Year: Catch a fish in Square", "desc": "Land one fish in Square fishing today.", "gems": 15}
+    {"id": 9101, "key": "gather3", "season": "halloween", "name": "Halloween: Gather 3 Garden materials", "desc": "Gather 3 materials in any Garden today.", "icon": "cherry/quest/quest_symbol_02.png", "gems": 15},
+    {"id": 9102, "key": "atelier-craft", "season": "halloween", "name": "Halloween: Craft in the Atelier", "desc": "Make one item in the Atelier today.", "icon": "cherry/quest/quest_symbol_03.png", "gems": 15},
+    {"id": 9103, "key": "square-fish", "season": "halloween", "name": "Halloween: Catch a fish in Square", "desc": "Land one fish in Square fishing today.", "icon": "cherry/quest/quest_symbol_04.png", "gems": 15},
+    {"id": 9201, "key": "gather3", "season": "winter", "name": "Winter: Gather 3 Garden materials", "desc": "Gather 3 materials in any Garden today.", "icon": "cherry/quest/quest_symbol_02.png", "gems": 15},
+    {"id": 9202, "key": "atelier-craft", "season": "winter", "name": "Winter: Craft in the Atelier", "desc": "Make one item in the Atelier today.", "icon": "cherry/quest/quest_symbol_03.png", "gems": 15},
+    {"id": 9203, "key": "square-fish", "season": "winter", "name": "Winter: Catch a fish in Square", "desc": "Land one fish in Square fishing today.", "icon": "cherry/quest/quest_symbol_04.png", "gems": 15},
+    {"id": 9301, "key": "gather3", "season": "newyear", "name": "New Year: Gather 3 Garden materials", "desc": "Gather 3 materials in any Garden today.", "icon": "cherry/quest/quest_symbol_02.png", "gems": 15},
+    {"id": 9302, "key": "atelier-craft", "season": "newyear", "name": "New Year: Craft in the Atelier", "desc": "Make one item in the Atelier today.", "icon": "cherry/quest/quest_symbol_03.png", "gems": 15},
+    {"id": 9303, "key": "square-fish", "season": "newyear", "name": "New Year: Catch a fish in Square", "desc": "Land one fish in Square fishing today.", "icon": "cherry/quest/quest_symbol_04.png", "gems": 15}
   ],
   "request_rules": {"max_daily": 10, "free_calls": 3, "call_gems": 10, "refresh_gems": 10},
   "requests": [
-    {"id": 9401, "key": "garden-visit", "name": "Garden Stroll", "desc": "Visit a friend's Garden.", "gems": 50, "goal": 1},
-    {"id": 9402, "key": "square", "name": "Square Hangout", "desc": "Visit any Square and say hello.", "gems": 50, "goal": 1},
-    {"id": 9403, "key": "diary", "name": "Daily Snapshot", "desc": "Share a post in your Diary.", "gems": 60, "goal": 1},
-    {"id": 9404, "key": "gather3", "name": "Nature's Bounty", "desc": "Gather 3 materials in a Garden.", "gems": 60, "goal": 1},
-    {"id": 9405, "key": "atelier-craft", "name": "Atelier Craft", "desc": "Craft an item in the Garden Atelier.", "gems": 80, "goal": 1},
-    {"id": 9406, "key": "square-fish", "name": "Island Catch", "desc": "Catch a fish on Treasure Island.", "gems": 80, "goal": 1}
+    {"id": 9401, "key": "garden-visit", "name": "Garden Stroll", "desc": "Visit a friend's Garden.", "icon": "cherry/quest/common_quest_list_icon_02.png", "npc_icon": "cherry/quest/intro_tutorial_npc_1_1.png", "gems": 50, "goal": 1},
+    {"id": 9402, "key": "square", "name": "Square Hangout", "desc": "Visit any Square and say hello.", "icon": "cherry/quest/common_quest_list_icon_03.png", "npc_icon": "cherry/quest/intro_tutorial_npc_2_1.png", "gems": 50, "goal": 1},
+    {"id": 9403, "key": "diary", "name": "Daily Snapshot", "desc": "Share a post in your Diary.", "icon": "cherry/quest/common_quest_list_icon_04.png", "npc_icon": "cherry/quest/intro_tutorial_npc_3_1.png", "gems": 60, "goal": 1},
+    {"id": 9404, "key": "gather3", "name": "Nature's Bounty", "desc": "Gather 3 materials in a Garden.", "icon": "cherry/quest/quest_symbol_02.png", "npc_icon": "cherry/quest/intro_tutorial_npc_4_1.png", "gems": 60, "goal": 1},
+    {"id": 9405, "key": "atelier-craft", "name": "Atelier Craft", "desc": "Craft an item in the Garden Atelier.", "icon": "cherry/quest/quest_symbol_03.png", "npc_icon": "cherry/quest/butler_tutorial_avatar1.png", "gems": 80, "goal": 1},
+    {"id": 9406, "key": "square-fish", "name": "Island Catch", "desc": "Catch a fish on Treasure Island.", "icon": "cherry/quest/quest_symbol_04.png", "npc_icon": "cherry/quest/butler_tutorial_avatar2.png", "gems": 80, "goal": 1}
   ],
   "episodes": [
-    {"id": 9501, "key": "garden-own", "name": "Episode 1: Home Sweet Garden", "desc": "Step into your own Garden to begin your journey.", "gems": 100, "goal": 1},
-    {"id": 9502, "key": "garden-visit", "name": "Episode 2: Friendly Neighbor", "desc": "Visit a friend's Garden and explore.", "gems": 150, "goal": 1},
-    {"id": 9503, "key": "square", "name": "Episode 3: Out on the Town", "desc": "Head to a Square and meet other avatars.", "gems": 150, "goal": 1},
-    {"id": 9504, "key": "diary", "name": "Episode 4: First Memories", "desc": "Write your first post in your Diary.", "gems": 200, "goal": 1},
-    {"id": 9505, "key": "gather3", "name": "Episode 5: Garden Harvester", "desc": "Gather 3 materials in any Garden.", "gems": 250, "goal": 1},
-    {"id": 9506, "key": "atelier-craft", "name": "Episode 6: Atelier Apprentice", "desc": "Craft your first item in the Atelier.", "gems": 300, "goal": 1},
-    {"id": 9507, "key": "square-fish", "name": "Episode 7: Treasure Island Angler", "desc": "Land a fish on Treasure Island.", "gems": 350, "goal": 1}
+    {"id": 9501, "key": "garden-own", "name": "Ep. 1: My Garden", "desc": "Visit your own Garden to begin.", "icon": "cherry/quest/common_quest_list_icon_01.png", "npc_icon": "cherry/quest/anniv_cherry_1.png", "gems": 100, "goal": 1},
+    {"id": 9502, "key": "garden-visit", "name": "Ep. 2: Neighbors", "desc": "Visit a friend's Garden.", "icon": "cherry/quest/common_quest_list_icon_02.png", "npc_icon": "cherry/quest/birth_ava_cherry_b.png", "gems": 150, "goal": 1},
+    {"id": 9503, "key": "square", "name": "Ep. 3: The Square", "desc": "Visit any Square and say hello.", "icon": "cherry/quest/common_quest_list_icon_03.png", "npc_icon": "cherry/quest/intro_tutorial_npc_1_2.png", "gems": 150, "goal": 1},
+    {"id": 9504, "key": "diary", "name": "Ep. 4: My Diary", "desc": "Write your first Diary post.", "icon": "cherry/quest/common_quest_list_icon_04.png", "npc_icon": "cherry/quest/intro_tutorial_npc_2_2.png", "gems": 200, "goal": 1},
+    {"id": 9505, "key": "gather3", "name": "Ep. 5: Gathering", "desc": "Gather 3 materials in a Garden.", "icon": "cherry/quest/quest_symbol_02.png", "npc_icon": "cherry/quest/intro_tutorial_npc_3_2.png", "gems": 250, "goal": 1},
+    {"id": 9506, "key": "atelier-craft", "name": "Ep. 6: Atelier", "desc": "Craft your first Atelier item.", "icon": "cherry/quest/quest_symbol_03.png", "npc_icon": "cherry/quest/intro_tutorial_npc_4_2.png", "gems": 300, "goal": 1},
+    {"id": 9507, "key": "square-fish", "name": "Ep. 7: Fishing", "desc": "Catch a fish on Treasure Island.", "icon": "cherry/quest/quest_symbol_04.png", "npc_icon": "cherry/quest/anniv_cherry_2.png", "gems": 350, "goal": 1}
   ],
   "hearts": {"base": 30, "quest": 20, "reward_gems": 0, "reward_cash": 600, "from_limit": 50},
   "mail": {"sender": "Cherry Staff", "default_days": 30, "max_amount": 1000000, "max_rows": 100},

@@ -40,8 +40,8 @@ func gardenQuestRow(def economy.QuestDef, rec store.QuestDay, sid string, now ti
 		}
 		return economy.EpisodeRow{
 			QuestRow: economy.QuestRow{
-				ID: def.ID, Name: def.Name, Desc: def.Desc, Gems: def.Gems, Cash: def.Cash,
-				Status: status, Current: current, Complete: complete,
+				ID: def.ID, Name: def.Name, Desc: def.Desc, Icon: economy.QuestIcon(def),
+				Gems: def.Gems, Cash: def.Cash, Status: status, Current: current, Complete: complete,
 			},
 		}
 	}
@@ -54,37 +54,62 @@ func gardenQuestRow(def economy.QuestDef, rec store.QuestDay, sid string, now ti
 	}
 	return economy.EpisodeRow{
 		QuestRow: economy.QuestRow{
-			ID: def.ID, Name: def.Name, Desc: def.Desc, Gems: def.Gems, Cash: def.Cash,
-			Status: status, Current: current, Complete: complete,
+			ID: def.ID, Name: def.Name, Desc: def.Desc, Icon: economy.QuestIcon(def),
+			Gems: def.Gems, Cash: def.Cash, Status: status, Current: current, Complete: complete,
 		},
 	}
 }
 
 // gardenQuestInfo is one QUEST::QuestInfo row.
 func gardenQuestInfo(row economy.EpisodeRow) []byte {
+	icon := row.Icon
+	if icon == "" {
+		icon = "cherry/quest/common_quest_today_quest_icon.png"
+	}
+	itemInfo := pbVar(nil, 1, 15) // item_view_type = 15 (.png + (i) item preview popup)
+	itemInfo = pbLen(itemInfo, 2, []byte(icon))
+	if row.Name != "" {
+		itemInfo = pbLen(itemInfo, 6, []byte(row.Name))
+	}
+	if row.Desc != "" {
+		itemInfo = pbLen(itemInfo, 7, []byte(row.Desc))
+	}
 	detail := pbVar(nil, 1, 1)              // QuestDetail.Index
+	detail = pbLen(detail, 2, itemInfo)     // QuestDetail.item_info
 	detail = pbVar(detail, 3, row.Current)  // CurrentCount
 	detail = pbVar(detail, 4, row.Complete) // CompleteCount
 	info := pbVar(nil, 1, uint64(row.ID))
 	info = pbLen(info, 2, []byte(row.Name))
 	if row.Locked && row.PreReqTitle != "" {
+		preIcon := row.PreReqIcon
+		if preIcon == "" {
+			preIcon = "cherry/quest/common_quest_today_quest_icon.png"
+		}
 		pre := pbLen(nil, 1, []byte(row.PreReqTitle))
 		pre = pbVar(pre, 2, row.PreReqCur)
 		pre = pbVar(pre, 3, row.PreReqMax)
+		pre = pbLen(pre, 4, []byte(preIcon))
 		info = pbLen(info, 3, pre)
 	}
 	info = pbLen(info, 5, detail)
 	if row.Gems > 0 || row.Cash == 0 {
 		reward := pbVar(nil, 1, gardenQuestGemView)
 		reward = pbVar(reward, 3, uint64(row.Gems)) // ItemCount, the amount the cell shows
+		reward = pbLen(reward, 6, []byte("Gems"))
+		reward = pbLen(reward, 7, []byte("Quest reward"))
 		info = pbLen(info, 6, reward)
 	}
 	if row.Cash > 0 {
 		reward := pbVar(nil, 1, gardenQuestCashView)
 		reward = pbVar(reward, 3, uint64(row.Cash))
+		reward = pbLen(reward, 6, []byte("Cash"))
+		reward = pbLen(reward, 7, []byte("Quest reward"))
 		info = pbLen(info, 6, reward)
 	}
 	info = pbVar(info, 7, row.Status)
+	if row.NPCIcon != "" {
+		info = pbLen(info, 9, []byte(row.NPCIcon))
+	}
 	return pbLen(info, 12, []byte(row.Desc))
 }
 
@@ -123,17 +148,20 @@ func gardenQuestList(sid string, now time.Time) []byte {
 // popup row with Gem and/or Cash items.
 func gardenQuestReward(gems, cash int64) []byte {
 	reward := pbVar(nil, 1, gardenQuestRewardType)
+	reward = pbLen(reward, 5, []byte("You got rewards!"))
 	if gems > 0 || cash == 0 {
 		item := pbVar(nil, 1, gardenQuestGemView)
+		item = pbLen(item, 3, []byte("Gems"))
 		item = pbVar(item, 4, uint64(gems)) // ViewCount
 		reward = pbLen(reward, 6, item)     // RewardItems
 	}
 	if cash > 0 {
 		item := pbVar(nil, 1, gardenQuestCashView)
+		item = pbLen(item, 3, []byte("Cash"))
 		item = pbVar(item, 4, uint64(cash)) // ViewCount
 		reward = pbLen(reward, 6, item)     // RewardItems
 	}
-	return reward
+	return pbLen(reward, 7, []byte("Quest Complete!"))
 }
 
 // gardenQuestReply answers one quest request and returns the reply msgid and body.
@@ -207,7 +235,7 @@ func gardenQuestReply(msgid uint16, aid uint64, data []byte, now time.Time, logg
 		return 23, body
 	case 22:
 		callType, _ := protobufUintField(data, 2)
-		paid := callType != 0
+		paid := callType == 0 // ch_quest_call_npc_req.#2 call_type: 1=free, 0=paid
 		code := economy.CallNPCRequest(sid, int64(id), paid, now)
 		logger.Printf("garden-quest call-npc aid=%d id=%d paid=%v result=%d", aid, id, paid, code)
 		return 28, pbVar(pbVar(nil, 1, id), 2, uint64(code))

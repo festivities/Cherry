@@ -48,6 +48,29 @@ func handleQuestStatus(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, string(body))
 }
 
+// handleAdmobInit serves GET /v4/admob/0 so QuestCode 118 ("Get Free Gems") populates cleanly
+// (RestCount=0, BaseCount=1, RewardAmount=2000) without video ads or per-frame polling.
+func handleAdmobInit(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		httpx.ServeNotFound(w)
+		return
+	}
+	nextReset := strconv.FormatInt(economy.QuestResetMillis(economy.NowFunc()), 10)
+	body, _ := json.Marshal(map[string]any{"result": map[string]any{
+		"pid":               0,
+		"viewable":          false,
+		"remainingCount":    0,
+		"maxCount":          0,
+		"nextViewTimeStamp": nextReset,
+		"gainCirclePoint":   0,
+		"coppaApply":        false,
+		"senderName":        "",
+		"linkType":          "",
+		"reward":            []any{},
+	}})
+	httpx.WriteJSON(w, http.StatusOK, string(body))
+}
+
 // handleHeart serves GET /v4/heart/haveHeart/<aid> and /v4/heart/receivable/<aid>, both
 // {"result":<bool>}. The caller is the sender (AV_AUTH); <aid> is the other avatar.
 func handleHeart(w http.ResponseWriter, r *http.Request) {

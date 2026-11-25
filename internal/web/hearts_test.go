@@ -223,3 +223,38 @@ func TestProfileHeartFields(t *testing.T) {
 		t.Fatalf("own profile receivable: %s", self.Body.String())
 	}
 }
+
+func TestAdmobInit(t *testing.T) {
+	heartTestClock(t, heartTestNow())
+	rec := serve(t, http.MethodGet, "/v4/admob/0")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /v4/admob/0 = %d %s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Result struct {
+			PID               int    `json:"pid"`
+			Viewable          bool   `json:"viewable"`
+			RemainingCount    int    `json:"remainingCount"`
+			MaxCount          int    `json:"maxCount"`
+			NextViewTimeStamp string `json:"nextViewTimeStamp"`
+			GainCirclePoint   int    `json:"gainCirclePoint"`
+			CoppaApply        bool   `json:"coppaApply"`
+			SenderName        string `json:"senderName"`
+			LinkType          string `json:"linkType"`
+			Reward            []any  `json:"reward"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	wantTS := "1792702800000" // 2026-10-23 06:00:00 JST in ms
+	if got.Result.PID != 0 || got.Result.Viewable || got.Result.RemainingCount != 0 ||
+		got.Result.MaxCount != 0 || got.Result.NextViewTimeStamp != wantTS ||
+		got.Result.GainCirclePoint != 0 || got.Result.CoppaApply ||
+		got.Result.SenderName != "" || got.Result.LinkType != "" || got.Result.Reward == nil || len(got.Result.Reward) != 0 {
+		t.Fatalf("unexpected admob result: %+v", got.Result)
+	}
+	if post := serve(t, http.MethodPost, "/v4/admob/0"); post.Code != http.StatusNotFound {
+		t.Fatalf("POST /v4/admob/0 = %d, want 404", post.Code)
+	}
+}

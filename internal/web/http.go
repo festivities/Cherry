@@ -450,6 +450,7 @@ func newMux(svc *auth.Service) http.Handler {
 	mux.HandleFunc("/v4/brand/list", httpx.HandleJSONBody(friendBrandBuddyBody))
 	mux.HandleFunc("/v4/quest/status", handleQuestStatus)
 	mux.HandleFunc("/v4/quest/labor/status", handleQuestStatus)
+	mux.HandleFunc("/v4/admob/0", handleAdmobInit)
 	mux.HandleFunc("/v4/heart/", handleHeart)
 	mux.HandleFunc("/v4/noti/heart/receive/list/", handleHeartSenderList)
 	mux.HandleFunc("/v4/inven/counts", httpx.HandleJSONBody(invenCountsBody))
