@@ -56,8 +56,9 @@ type Server struct {
 	sessions map[[32]byte]*session    // by the SHA-256 of the session id
 	blocked  map[string]time.Time     // client address -> blocked until
 
-	rate rateRing      // the request counter's recent readings (the dashboard's requests per minute)
-	stop chan struct{} // closed by Shutdown: ends sampleLoop
+	rate rateRing          // the request counter's recent readings (the dashboard's requests per minute)
+	bw   *bandwidthTracker // host outbound interface tracker and monthly 10 TB projection
+	stop chan struct{}     // closed by Shutdown: ends sampleLoop
 
 	// The Insights (insights.go, online.go) and Broadcast (broadcast.go): live-session hooks, so tests can supply their own.
 	online          func() []lpn.Connection                                 // lpn.Online
@@ -101,6 +102,7 @@ func New(cfg config.Config, logger *log.Logger) (*Server, error) {
 		logins:          map[[32]byte]*loginState{},
 		sessions:        map[[32]byte]*session{},
 		blocked:         map[string]time.Time{},
+		bw:              newBandwidthTracker(readHostTxBytes, store.LoadBandwidthState, store.SaveBandwidthState),
 		stop:            make(chan struct{}),
 		online:          lpn.Online,
 		closeAid:        lpn.CloseAid,
@@ -193,9 +195,12 @@ func Start(cfg config.Config, logger *log.Logger) (*Server, error) {
 // Serve serves TLS on ln until Shutdown.
 func (s *Server) Serve(ln net.Listener) error { return s.srv.ServeTLS(ln, "", "") }
 
-// Shutdown stops the sampler and the listener, and waits for the open requests, up to ctx.
+// Shutdown stops the sampler and the listener, flushes bandwidth state, and waits for the open requests, up to ctx.
 func (s *Server) Shutdown(ctx context.Context) error {
 	close(s.stop)
+	if s.bw != nil {
+		s.bw.flush(s.now())
+	}
 	return s.srv.Shutdown(ctx)
 }
 

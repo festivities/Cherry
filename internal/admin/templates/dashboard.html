@@ -26,6 +26,14 @@
 <p class="muted small">Static redirects <span class="strong" data-k="static_redirects">{{.Stats.StaticRedirects}}</span> of <span class="strong" data-k="static_reads">{{.Stats.StaticReads}}</span> static reads, bytes served directly <span class="strong" data-k="static_served_size">{{.Stats.StaticServedSize}}</span>, item lookups <span class="strong" data-k="item_lookups">{{.Stats.ItemLookups}}</span>.</p>
 </div>
 <div class="card">
+<h2>Outbound bandwidth</h2>
+<p class="big" data-k="bw_rate">{{.Stats.BWRate}}</p>
+<p class="muted small">Last 24h <span class="strong" data-k="bw_24h">{{.Stats.BW24h}}</span> · month to date <span class="strong" data-k="bw_mtd">{{.Stats.BWMTD}}</span>.</p>
+<p class="muted small">At current pace: <span class="strong" data-k="bw_pace_month">{{.Stats.BWPaceMonth}}</span>.</p>
+<p class="muted small" data-k="bw_forecast">{{.Stats.BWForecast}}</p>
+<p class="muted small">Host interface <span class="mono" data-k="bw_iface">{{.Stats.BWIface}}</span> direct outbound (excludes R2 redirects).</p>
+</div>
+<div class="card">
 <h2>Uptime</h2>
 <p class="big" data-k="uptime">{{.Stats.Uptime}}</p>
 <p class="muted small">Started <span data-k="started">{{.Stats.Started}}</span></p>

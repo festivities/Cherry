@@ -39,58 +39,59 @@ type histBar struct {
 // stats is what the dashboard and /stats.json show. The JSON keys are the data-k names staff.js updates, so a rename is a
 // change in both places.
 type stats struct {
-	Time              string    `json:"time"`
-	Started           string    `json:"started"`
-	UptimeSeconds     int64     `json:"uptime_seconds"`
-	Uptime            string    `json:"uptime"`
-	Build             string    `json:"build"`
-	BuildTime         string    `json:"build_time"`
-	GoVersion         string    `json:"go_version"`
-	Accounts          int       `json:"accounts"`
-	SessionConns      int64     `json:"session_conns"`
-	GatewayConns      int64     `json:"gateway_conns"`
-	Online            int64     `json:"online"`
-	Requests          int64     `json:"requests"`
-	RequestsPerMin    float64   `json:"requests_per_min"`
-	ConnRefused       int64     `json:"conn_refused"`
-	ConnRefusedHour   int64     `json:"conn_refused_hour"`
-	RateLimited       int64     `json:"rate_limited"`
-	RateLimitedHour   int64     `json:"rate_limited_hour"`
-	FramesDropped     int64     `json:"frames_dropped"`
-	FramesDroppedHour int64     `json:"frames_dropped_hour"`
-	FrameFloods       int64     `json:"frame_floods"`
-	FrameFloodsHour   int64     `json:"frame_floods_hour"`
-	RefusalsTotal     int64     `json:"refusals_total"`
-	RefusalsHour      int64     `json:"refusals_hour"`
-	StaticReads       int64     `json:"static_reads"`
-	StaticRedirects   int64     `json:"static_redirects"`
-	StaticServedSize  string    `json:"static_served_size"`
-	ItemLookups       int64     `json:"item_lookups"`
-	Saves             int64     `json:"saves"`
-	SaveAvg           string    `json:"save_avg"`
-	SaveMax           string    `json:"save_max"`
-	SaveHist          []histBar `json:"save_hist"`
-	DBBytes           int64     `json:"db_bytes"`
-	DBSize            string    `json:"db_size"`
-	WALBytes          int64     `json:"wal_bytes"`
-	WALSize           string    `json:"wal_size"`
-	DiaryFiles        int64     `json:"diary_files"`
-	DiarySize         string    `json:"diary_size"`
-	RoomFiles         int64     `json:"room_files"`
-	RoomSize          string    `json:"room_size"`
-	ProfileFiles      int64     `json:"profile_files"`
-	ProfileSize       string    `json:"profile_size"`
-	PicturesFiles     int64     `json:"pictures_files"`
-	PicturesSize      string    `json:"pictures_size"`
-	PicturesCap       string    `json:"pictures_cap"`
-	PicturesPct       string    `json:"pictures_percent"`
-	PerPlayerSize     string    `json:"per_player_size"`
-	Goroutines        int       `json:"goroutines"`
-	HeapBytes         uint64    `json:"heap_inuse_bytes"`
-	HeapInUse         string    `json:"heap_inuse"`
-	GCCount           uint32    `json:"gc_count"`
-	GOMAXPROCS        int       `json:"gomaxprocs"`
-	MemoryLimit       string    `json:"memory_limit"`
+	Time              string  `json:"time"`
+	Started           string  `json:"started"`
+	UptimeSeconds     int64   `json:"uptime_seconds"`
+	Uptime            string  `json:"uptime"`
+	Build             string  `json:"build"`
+	BuildTime         string  `json:"build_time"`
+	GoVersion         string  `json:"go_version"`
+	Accounts          int     `json:"accounts"`
+	SessionConns      int64   `json:"session_conns"`
+	GatewayConns      int64   `json:"gateway_conns"`
+	Online            int64   `json:"online"`
+	Requests          int64   `json:"requests"`
+	RequestsPerMin    float64 `json:"requests_per_min"`
+	ConnRefused       int64   `json:"conn_refused"`
+	ConnRefusedHour   int64   `json:"conn_refused_hour"`
+	RateLimited       int64   `json:"rate_limited"`
+	RateLimitedHour   int64   `json:"rate_limited_hour"`
+	FramesDropped     int64   `json:"frames_dropped"`
+	FramesDroppedHour int64   `json:"frames_dropped_hour"`
+	FrameFloods       int64   `json:"frame_floods"`
+	FrameFloodsHour   int64   `json:"frame_floods_hour"`
+	RefusalsTotal     int64   `json:"refusals_total"`
+	RefusalsHour      int64   `json:"refusals_hour"`
+	StaticReads       int64   `json:"static_reads"`
+	StaticRedirects   int64   `json:"static_redirects"`
+	StaticServedSize  string  `json:"static_served_size"`
+	ItemLookups       int64   `json:"item_lookups"`
+	bandwidthStats
+	Saves         int64     `json:"saves"`
+	SaveAvg       string    `json:"save_avg"`
+	SaveMax       string    `json:"save_max"`
+	SaveHist      []histBar `json:"save_hist"`
+	DBBytes       int64     `json:"db_bytes"`
+	DBSize        string    `json:"db_size"`
+	WALBytes      int64     `json:"wal_bytes"`
+	WALSize       string    `json:"wal_size"`
+	DiaryFiles    int64     `json:"diary_files"`
+	DiarySize     string    `json:"diary_size"`
+	RoomFiles     int64     `json:"room_files"`
+	RoomSize      string    `json:"room_size"`
+	ProfileFiles  int64     `json:"profile_files"`
+	ProfileSize   string    `json:"profile_size"`
+	PicturesFiles int64     `json:"pictures_files"`
+	PicturesSize  string    `json:"pictures_size"`
+	PicturesCap   string    `json:"pictures_cap"`
+	PicturesPct   string    `json:"pictures_percent"`
+	PerPlayerSize string    `json:"per_player_size"`
+	Goroutines    int       `json:"goroutines"`
+	HeapBytes     uint64    `json:"heap_inuse_bytes"`
+	HeapInUse     string    `json:"heap_inuse"`
+	GCCount       uint32    `json:"gc_count"`
+	GOMAXPROCS    int       `json:"gomaxprocs"`
+	MemoryLimit   string    `json:"memory_limit"`
 }
 
 // sample is one reading of the request counter.
@@ -194,11 +195,14 @@ func (r *rateRing) lastHour(now time.Time, cur refusalCounts) refusalCounts {
 	}
 }
 
-// sample records one reading of the request and refusal counters at s.now().
+// sample records one reading of the request, refusal, and host outbound counters at s.now().
 func (s *Server) sample() {
 	now := s.now()
 	s.rate.add(now, metrics.Requests.Load())
 	s.rate.addHour(now, readRefusals())
+	if s.bw != nil {
+		s.bw.sample(now)
+	}
 }
 
 // sampleLoop reads the request and refusal counters on startup and every sampleEvery until Shutdown.
@@ -292,6 +296,9 @@ func (s *Server) statsAt(now time.Time) (stats, error) {
 		PerPlayerSize: humanBytes(store.UploadQuotaBytes(s.cfg.EffectiveUploadQuotaBytes())),
 		Goroutines:    runtime.NumGoroutine(), HeapBytes: mem.HeapInuse, HeapInUse: humanBytes(int64(mem.HeapInuse)),
 		GCCount: mem.NumGC, GOMAXPROCS: runtime.GOMAXPROCS(0), MemoryLimit: memoryLimit(),
+	}
+	if s.bw != nil {
+		st.bandwidthStats = s.bw.snapshot(now)
 	}
 	if saves > 0 {
 		st.SaveAvg = (held / time.Duration(saves)).Round(time.Microsecond).String()
