@@ -91,6 +91,19 @@ func liveMail(acc *store.Account, now time.Time) []store.MailRow {
 // (unclaimed) count. Call under store.AccountsMu.
 func UnreadMail(acc *store.Account, now time.Time) int { return len(liveMail(acc, now)) }
 
+func mailNewsPostType(typ string) string {
+	switch typ {
+	case store.MailTypeItem:
+		return "item"
+	case store.MailTypeCash:
+		return "cash"
+	case store.MailTypeTickets:
+		return "gift"
+	default:
+		return "gem"
+	}
+}
+
 // addMailLocked appends a row to a fresh slice (rollback copies of *acc share the old one)
 // and drops expired rows. It returns false when the mailbox is full.
 func addMailLocked(acc *store.Account, row store.MailRow, days int, now time.Time) bool {
@@ -102,6 +115,17 @@ func addMailLocked(acc *store.Account, row store.MailRow, days int, now time.Tim
 	row.Seq, row.Created = acc.NextMailSeq, now.UnixMilli()
 	row.Expires = now.Add(time.Duration(days) * 24 * time.Hour).UnixMilli()
 	acc.Mail = append(rows, row)
+	store.AppendNewsAlertLocked(acc, store.NewsAlert{
+		Type:      "POSTBOX_RECEIVE",
+		At:        row.Created,
+		Actor:     row.SenderAid,
+		ActorName: row.Sender,
+		Ref:       strconv.FormatInt(row.Seq, 10),
+		Message:   row.Message,
+		PostType:  mailNewsPostType(row.Type),
+		Item:      row.Item,
+		Expires:   row.Expires,
+	})
 	return true
 }
 
@@ -172,21 +196,23 @@ func handleMailReceive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	store.AccountsMu.Lock()
-	defer store.AccountsMu.Unlock()
 	acc := store.SessionAccountLocked(r)
 	if acc == nil {
+		store.AccountsMu.Unlock()
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
 		return
 	}
 	idx := findMail(acc, strings.TrimPrefix(r.URL.Path, "/v4/postbox/receive/"))
 	if idx < 0 {
+		store.AccountsMu.Unlock()
 		httpx.WriteJSON(w, http.StatusBadRequest, errMailNotThere)
 		return
 	}
 	prev := *acc
 	row := acc.Mail[idx]
 	rest := slices.Delete(slices.Clone(acc.Mail), idx, idx+1)
-	expired := row.Expires <= NowFunc().UnixMilli()
+	now := NowFunc()
+	expired := row.Expires <= now.UnixMilli()
 	var lines []store.LedgerLine
 	var err error
 	if !expired {
@@ -194,6 +220,7 @@ func handleMailReceive(w http.ResponseWriter, r *http.Request) {
 	}
 	if errors.Is(err, errItemUnknown) { // the row stays in the mailbox for staff to fix
 		*acc = prev
+		store.AccountsMu.Unlock()
 		log.Printf("cherry: mail item missing code=%s seq=%d", row.Item, row.Seq)
 		httpx.WriteJSON(w, http.StatusBadRequest, errMailItemMissing)
 		return
@@ -204,12 +231,24 @@ func handleMailReceive(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		*acc = prev
+		store.AccountsMu.Unlock()
 		httpx.WriteJSON(w, http.StatusInternalServerError, `{"errorCode":"500"}`)
 		return
 	}
+	receiverAid, receiverName := acc.Aid, acc.Name
+	store.AccountsMu.Unlock()
 	if expired {
 		httpx.WriteJSON(w, http.StatusBadRequest, errMailExpired)
 		return
+	}
+	if row.Gift && row.SenderAid != "" && row.SenderAid != receiverAid {
+		store.AddNewsAlert(row.SenderAid, store.NewsAlert{
+			Type:      "POSTBOX_OPEN",
+			At:        now.UnixMilli(),
+			Actor:     receiverAid,
+			ActorName: receiverName,
+			Ref:       strconv.FormatInt(row.Seq, 10),
+		})
 	}
 	httpx.WriteJSON(w, http.StatusOK, `{"result":true}`)
 }

@@ -91,6 +91,12 @@ func HeartSend(sender, target string, now time.Time) (sent, questDone bool) {
 			th.From = th.From[len(th.From)-ActiveRewards().Hearts.FromLimit:]
 		}
 		tgt.Hearts = &th
+		store.AppendNewsAlertLocked(tgt, store.NewsAlert{
+			Type:      "HEART_RECEIVE",
+			At:        now.UnixMilli(),
+			Actor:     sender,
+			ActorName: acc.Name,
+		})
 	}
 	restore := func() {
 		*acc = prevAcc

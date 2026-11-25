@@ -174,6 +174,17 @@ func TestSquareInviteSendAndPush(t *testing.T) {
 	if mapParam["catg"] != "square" || mapParam["aid"] != "8811" {
 		t.Fatalf("push mapParam = %v, want {catg:square aid:8811}", mapParam)
 	}
+	store.AccountsMu.Lock()
+	acc8812 := store.AccountByAidLocked("8812")
+	var gotAlert bool
+	if acc8812 != nil && acc8812.News != nil && len(acc8812.News.Alerts) > 0 {
+		a := acc8812.News.Alerts[0]
+		gotAlert = a.Type == "SQUARE_INVITE_RECEIVE" && a.Actor == "8811" && a.ActorName == "Inviter"
+	}
+	store.AccountsMu.Unlock()
+	if !gotAlert {
+		t.Fatal("expected SQUARE_INVITE_RECEIVE news alert on aid 8812 from aid 8811")
+	}
 }
 
 // TestSquareInviteAcceptFromGardenAndShard verifies cr36 from outside any Square (Garden/logged in only) enters

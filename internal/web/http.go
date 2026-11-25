@@ -386,6 +386,7 @@ func newMux(svc *auth.Service) http.Handler {
 	mux.HandleFunc("/v4/popup/list", economy.HandlePopupList)
 	mux.HandleFunc("/cherry/event/", economy.HandleEventPopupImage)
 	mux.HandleFunc("/cherry/popup/", economy.HandlePopupImage)
+	mux.HandleFunc("/cherry/news/", economy.HandleNewsImage)
 	mux.HandleFunc("/v4/home/integrated/info", economy.HandleHomeIntegratedInfo)
 	mux.HandleFunc("/v4/birthday/info/year", economy.HandleBirthdayInfoYear)
 	mux.HandleFunc("/v4/birthday/info/day", economy.HandleBirthdayInfoDay)
@@ -452,6 +453,8 @@ func newMux(svc *auth.Service) http.Handler {
 	mux.HandleFunc("/v4/quest/labor/status", handleQuestStatus)
 	mux.HandleFunc("/v4/admob/0", handleAdmobInit)
 	mux.HandleFunc("/v4/heart/", handleHeart)
+	mux.HandleFunc("/v4/noti/lists", handleNewsList)
+	mux.HandleFunc("/v4/noti/banner/view/", handleNewsBannerView)
 	mux.HandleFunc("/v4/noti/heart/receive/list/", handleHeartSenderList)
 	mux.HandleFunc("/v4/inven/counts", httpx.HandleJSONBody(invenCountsBody))
 	mux.HandleFunc("/lineplay/d/upload.nhn", handleDiaryImageUpload)
@@ -568,18 +571,24 @@ func handleBadgeInfos(w http.ResponseWriter, r *http.Request) {
 	store.SocialMu.Lock()
 	ifrd := incomingFriendRequestsLocked(aidStr)
 	store.SocialMu.Unlock()
+	newsUnread, alertUnread := newsBadgeCounts(aidStr, economy.NowFunc())
 	body := strings.Replace(badgeInfosBody, `"POSTBOX":0`, `"POSTBOX":`+strconv.Itoa(postbox), 1)
 	body = strings.Replace(body, `"CHAT":0`, `"CHAT":`+strconv.Itoa(chat), 1)
-	httpx.WriteJSON(w, http.StatusOK, strings.Replace(body, `"IFRD":0`, `"IFRD":`+strconv.Itoa(ifrd), 1))
+	body = strings.Replace(body, `"IFRD":0`, `"IFRD":`+strconv.Itoa(ifrd), 1)
+	body = strings.Replace(body, `"NEWS":0`, `"NEWS":`+strconv.Itoa(newsUnread), 1)
+	httpx.WriteJSON(w, http.StatusOK, strings.Replace(body, `"ALERT":0`, `"ALERT":`+strconv.Itoa(alertUnread), 1))
 }
 
 // handleBadgeReset acknowledges POST /v4/r/badge/reset/<BADGE> (e.g. CSET, FACE after a
-// Face Shop purchase); badges are not tracked, so this only clears the client's 404.
+// Face Shop purchase) and persists NEWS/ALERT read watermarks.
 func handleBadgeReset(w http.ResponseWriter, r *http.Request) {
 	badge := strings.TrimPrefix(r.URL.Path, "/v4/r/badge/reset/")
 	if r.Method != http.MethodPost || badge == "" || strings.Contains(badge, "/") {
 		httpx.ServeNotFound(w)
 		return
+	}
+	if badge == "NEWS" || badge == "ALERT" {
+		resetNewsBadge(r, badge)
 	}
 	httpx.WriteJSON(w, http.StatusOK, `{"result":{}}`)
 }

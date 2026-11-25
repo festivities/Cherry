@@ -45,13 +45,15 @@ func TestDiaryCheckExistGate(t *testing.T) {
 	}
 	for _, target := range []string{
 		"/v4/diary2/ext/checkExist/999/0/",
-		"/v4/diary2/ext/checkExist/100000/1/",
 		"/v4/diary2/ext/checkExist/100000/0",
 		"/v4/diary2/ext/checkExist/100000/0/extra/",
 	} {
 		if response := serve(t, http.MethodGet, target); response.Code != http.StatusNotFound {
 			t.Errorf("GET %s = %d %s, want 404", target, response.Code, response.Body.String())
 		}
+	}
+	if missing := serve(t, http.MethodGet, "/v4/diary2/ext/checkExist/100000/1/"); missing.Code != http.StatusBadRequest || missing.Body.String() != `{"errorCode":"200003"}` {
+		t.Errorf("GET missing diary = %d %s, want 400 200003", missing.Code, missing.Body.String())
 	}
 	if method := serve(t, http.MethodPost, "/v4/diary2/ext/checkExist/100000/0/"); method.Code != http.StatusNotFound {
 		t.Errorf("POST checkExist = %d %s, want 404", method.Code, method.Body.String())

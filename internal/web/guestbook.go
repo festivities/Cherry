@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"cherry/internal/economy"
 	"cherry/internal/httpx"
 	"cherry/internal/store"
 )
@@ -97,6 +98,16 @@ func handleGuestbookWrite(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
+	}
+	if actor.Aid != req.HostAvtNo {
+		store.AddNewsAlert(req.HostAvtNo, store.NewsAlert{
+			Type:      "GUESTBOOK_WRITE_SAVE",
+			At:        economy.NowFunc().UnixMilli(),
+			Actor:     actor.Aid,
+			ActorName: nickname,
+			Ref:       entry.GuestHistNo,
+			Message:   req.Content,
+		})
 	}
 	data, err := json.Marshal(map[string]any{"result": guestbookRowOf(entry)})
 	if err != nil {
@@ -360,6 +371,10 @@ func handleGuestbookReplyWrite(w http.ResponseWriter, r *http.Request) {
 		ReplyAvtNo: actor.Aid, ReplyAvtLocale: locale, ReplyNickname: nickname, Content: req.Content,
 		RegYmdt: strconv.FormatInt(time.Now().UnixMilli(), 10),
 	}
+	targetAid := req.HostAvtNo
+	if actor.Aid == req.HostAvtNo {
+		targetAid = store.GuestbookEntries[index].GuestAvtNo
+	}
 	prev := store.GuestbookEntries[index].Reply
 	store.GuestbookEntries[index].Reply = append(slices.Clone(prev), reply)
 	err = store.SaveSocialLocked(store.SocialChange{Replies: []string{reply.ReplyHistNo}, Scalars: true})
@@ -371,6 +386,16 @@ func handleGuestbookReplyWrite(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
+	}
+	if targetAid != "" && targetAid != actor.Aid {
+		store.AddNewsAlert(targetAid, store.NewsAlert{
+			Type:      "GUESTBOOK_COMMENT_SAVE",
+			At:        economy.NowFunc().UnixMilli(),
+			Actor:     actor.Aid,
+			ActorName: nickname,
+			Ref:       reply.ReplyHistNo,
+			Message:   req.Content,
+		})
 	}
 	data, err := json.Marshal(map[string]any{"result": reply})
 	if err != nil {

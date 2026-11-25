@@ -235,7 +235,7 @@ func HandleGiftSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, code := range codes {
-		row := store.MailRow{Type: store.MailTypeItem, Item: code, Message: req.GiftMessage, Sender: acc.Name, Gift: true}
+		row := store.MailRow{Type: store.MailTypeItem, Item: code, Message: req.GiftMessage, Sender: acc.Name, SenderAid: acc.Aid, Gift: true}
 		if !addMailLocked(recv, row, ActiveRewards().Mail.DefaultDays, now) {
 			*acc, *recv = prevSender, prevRecv
 			giftError(w, r, errUnknown, "receiver mailbox is full")

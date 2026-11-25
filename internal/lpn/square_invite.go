@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"cherry/internal/economy"
+	"cherry/internal/store"
 )
 
 // handleSquareInvite answers Square friend invite requests (cr35, cr36, cr37). Sessions inside a boss lobby/battle
@@ -95,8 +96,17 @@ func (s *squareSession) squareInvite(frame []byte, data []byte) error {
 	s.room.mu.Unlock()
 
 	s.logger.Printf("SQUARE invite aid=%d theme=%d room=%d invited=%d of=%d", s.aid, s.square.Theme, roomNo, len(invitees), len(aids))
+	inviterAid := strconv.FormatUint(s.aid, 10)
+	inviterName := squareAccountName(s.aid)
+	at := economy.NowFunc().UnixMilli()
 	for _, a := range invitees {
 		s.squareInvitePush(a)
+		store.AddNewsAlert(strconv.FormatUint(a, 10), store.NewsAlert{
+			Type:      "SQUARE_INVITE_RECEIVE",
+			At:        at,
+			Actor:     inviterAid,
+			ActorName: inviterName,
+		})
 	}
 
 	reply := pbVar(nil, 1, 1) // Result = true

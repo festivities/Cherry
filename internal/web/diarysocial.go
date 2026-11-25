@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"cherry/internal/economy"
 	"cherry/internal/httpx"
 	"cherry/internal/store"
 )
@@ -276,6 +277,16 @@ func handleDiaryCommentWrite(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
 	}
+	if actor.Aid != owner {
+		store.AddNewsAlert(owner, store.NewsAlert{
+			Type:      "DIARY_COMMENT_SAVE",
+			At:        economy.NowFunc().UnixMilli(),
+			Actor:     actor.Aid,
+			ActorName: nickname,
+			Ref:       diaryNo,
+			Message:   req.Content,
+		})
+	}
 	data, err := json.Marshal(map[string]any{"result": commentRowOf(comment)})
 	if err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
@@ -463,6 +474,15 @@ func handleDiaryLikeSave(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
+	}
+	if kind > 0 && actor.Aid != owner {
+		store.AddNewsAlert(owner, store.NewsAlert{
+			Type:      "DIARY_STICKER_SAVE",
+			At:        economy.NowFunc().UnixMilli(),
+			Actor:     actor.Aid,
+			ActorName: nickname,
+			Ref:       diaryNo,
+		})
 	}
 	httpx.WriteJSON(w, http.StatusOK, `{"result":true}`)
 }

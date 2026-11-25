@@ -398,22 +398,24 @@ func TestMailboxExpiry(t *testing.T) {
 func TestBadgeInfosPostboxCount(t *testing.T) {
 	ecoSetup(t, 0, 0, 0)
 	clock := setClock(t, day0)
-	want := func(n int) string {
-		return strings.Replace(badgeInfosBody, `"POSTBOX":0`, `"POSTBOX":`+strconv.Itoa(n), 1)
+	want := func(postbox, news, alert int) string {
+		body := strings.Replace(badgeInfosBody, `"POSTBOX":0`, `"POSTBOX":`+strconv.Itoa(postbox), 1)
+		body = strings.Replace(body, `"NEWS":0`, `"NEWS":`+strconv.Itoa(news), 1)
+		return strings.Replace(body, `"ALERT":0`, `"ALERT":`+strconv.Itoa(alert), 1)
 	}
-	if got := decorReq(t, "etok", "GET", "/v4/badge/infos/", "").Body.String(); got != want(0) {
+	if got := decorReq(t, "etok", "GET", "/v4/badge/infos/", "").Body.String(); got != want(0, 0, 0) {
 		t.Fatalf("no mail: %s", got)
 	}
 	adminMail(t, "127.0.0.1:9", `{"aid":"9401","type":"gems","amount":100,"expiresDays":2}`)
 	adminMail(t, "127.0.0.1:9", `{"aid":"9401","type":"gems","amount":200,"expiresDays":10}`)
-	if got := decorReq(t, "etok", "GET", "/v4/badge/infos/", "").Body.String(); got != want(2) {
+	if got := decorReq(t, "etok", "GET", "/v4/badge/infos/", "").Body.String(); got != want(2, 2, 2) {
 		t.Fatalf("two live mails: %s", got)
 	}
 	*clock = day0.Add(3 * 24 * time.Hour) // the 2-day mail has expired
-	if got := decorReq(t, "etok", "GET", "/v4/badge/infos/", "").Body.String(); got != want(1) {
+	if got := decorReq(t, "etok", "GET", "/v4/badge/infos/", "").Body.String(); got != want(1, 2, 2) {
 		t.Fatalf("one expired: %s", got)
 	}
-	if got := serve(t, "GET", "/v4/badge/infos/").Body.String(); got != want(0) {
+	if got := serve(t, "GET", "/v4/badge/infos/").Body.String(); got != want(0, 0, 0) {
 		t.Fatalf("no session: %s", got)
 	}
 }

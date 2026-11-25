@@ -34,6 +34,7 @@ func TestOperatorFilesNeedOriginAndNote(t *testing.T) {
 		{"dyes.json", data.DyesJSON, decodeWith(checkDyes)},
 		{"calendars.json", data.CalendarsJSON, decodeWith(checkCalendars)},
 		{"popups.json", data.PopupsJSON, decodeWith(checkOperatorPopups)},
+		{"news.json", data.NewsJSON, decodeWith(checkNewsConfig)},
 		{"circle.json", data.CircleJSON, decodeWith(checkCircleData)},
 		{"exchange.json", data.ExchangeJSON, decodeWith(checkExchange)},
 		{"fishboss.json", data.FishbossJSON, decodeWith(checkFishBoss)},

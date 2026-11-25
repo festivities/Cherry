@@ -832,6 +832,20 @@ func (s *roomPartySession) invite(frame, data []byte) error {
 		t.send(s.logger, 9, push)
 	}
 	if len(good) > 0 {
+		actorAid := strconv.FormatUint(s.aid, 10)
+		actorName := ""
+		if snap, ok := store.AccountByAvatarID(actorAid); ok {
+			actorName = snap.Name
+		}
+		at := economy.NowFunc().UnixMilli()
+		for _, a := range good {
+			store.AddNewsAlert(strconv.FormatUint(a, 10), store.NewsAlert{
+				Type:      "ROOM_INVITE_RECEIVE",
+				At:        at,
+				Actor:     actorAid,
+				ActorName: actorName,
+			})
+		}
 		h.mu.Lock()
 		hs := h.sessions[host]
 		h.mu.Unlock()

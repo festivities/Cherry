@@ -162,6 +162,7 @@ type Account struct {
 	Remodel         *RoomRemodel          // unlocked floors and per-floor tile sizes (economy/remodel.go); replaced, never edited in place
 	GardenStats     GardenStats           // persistent Garden level, visit counters, and planet element
 	HighFive        HighFiveDay           // Square high-five daily targets, count, and reward claim (economy/highfive.go)
+	News            *NewsState            // What's NEW read watermarks, seen banners, and personal alerts (news.go); replaced, never edited in place
 }
 
 // HighFiveDay holds one game day (06:00 JST boundary) of Square high-five state.

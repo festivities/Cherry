@@ -455,8 +455,17 @@ func (s *squareSession) bossInvite(data []byte) {
 	}
 	sq.mu.Unlock()
 	s.logger.Printf("SQUARE fishing boss invite aid=%d invited=%d of=%d", s.aid, len(invitees), len(aids))
+	masterAid := strconv.FormatUint(s.aid, 10)
+	masterName := squareAccountName(s.aid)
+	at := economy.NowFunc().UnixMilli()
 	for _, a := range invitees {
 		s.bossInvitePush(a)
+		store.AddNewsAlert(strconv.FormatUint(a, 10), store.NewsAlert{
+			Type:      "SQUARE_INVITE_RECEIVE",
+			At:        at,
+			Actor:     masterAid,
+			ActorName: masterName,
+		})
 	}
 }
 

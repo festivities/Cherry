@@ -188,3 +188,8 @@ var StylingJSON []byte
 //
 //go:embed popups.json
 var PopupsJSON []byte
+
+// NewsJSON is the What's NEW feed configuration and operator banner list (economy/news.go). The embedded banner list is empty.
+//
+//go:embed news.json
+var NewsJSON []byte

@@ -14,15 +14,16 @@ const (
 
 // MailRow is one unclaimed mail; Created/Expires are epoch milliseconds.
 type MailRow struct {
-	Seq     int64  `json:"postSeq"`
-	Type    string `json:"type"` // gems | cash | faceTickets | item
-	Amount  int64  `json:"amount"`
-	Item    string `json:"item,omitempty"` // item code when Type is item
-	Message string `json:"message"`
-	Sender  string `json:"sender"`
-	Created int64  `json:"created"`
-	Expires int64  `json:"expires"`
-	Gift    bool   `json:"gift,omitempty"` // a player's Gift Shop item (economy HandleGiftSend): claiming it pays no sell-back
+	Seq       int64  `json:"postSeq"`
+	Type      string `json:"type"` // gems | cash | faceTickets | item
+	Amount    int64  `json:"amount"`
+	Item      string `json:"item,omitempty"` // item code when Type is item
+	Message   string `json:"message"`
+	Sender    string `json:"sender"`
+	SenderAid string `json:"senderAid,omitempty"`
+	Created   int64  `json:"created"`
+	Expires   int64  `json:"expires"`
+	Gift      bool   `json:"gift,omitempty"` // a player's Gift Shop item (economy HandleGiftSend): claiming it pays no sell-back
 }
 
 func (m MailRow) Deltas() LedgerDeltas {

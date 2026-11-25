@@ -87,6 +87,7 @@ type StoredAccount struct {
 	Remodel         *RoomRemodel          `json:"remodel,omitempty"`
 	GardenStats     *GardenStats          `json:"gardenStats,omitempty"`
 	HighFive        *HighFiveDay          `json:"highFive,omitempty"`
+	News            *NewsState            `json:"news,omitempty"`
 }
 
 // accountFile is the account part of a legacy accounts.json, parsed without touching the store. Only cmd/cherry-import
@@ -505,6 +506,7 @@ func StoredFrom(acc *Account) StoredAccount {
 		StyleSlots: acc.StyleSlots, StyleBought: acc.StyleBought, StyleNextID: acc.StyleNextID, Remodel: acc.Remodel,
 		GardenStats: gs,
 		HighFive:    hf,
+		News:        CloneNewsState(acc.News),
 	}
 }
 
@@ -537,6 +539,7 @@ func accountFromStored(saved StoredAccount) *Account {
 		StyleSlots: saved.StyleSlots, StyleBought: max(saved.StyleBought, 0), StyleNextID: saved.StyleNextID, Remodel: saved.Remodel,
 		GardenStats: derefGardenStats(saved.GardenStats),
 		HighFive:    derefHighFive(saved.HighFive),
+		News:        CloneNewsState(saved.News),
 	}
 }
 

@@ -1,0 +1,8 @@
+{
+  "origin": "cherry",
+  "note": "All News settings and operator banners in this file are Cherry-made; original LINE PLAY banner content is not redistributed. When banners is empty, What's NEW surfaces organic friend diary posts, personal alerts, active season banners (if include_season_banners is true), and recent public photo diary posts (if include_recommended_posts is true).",
+  "include_season_banners": true,
+  "include_recommended_posts": true,
+  "recommended_max": 3,
+  "banners": []
+}

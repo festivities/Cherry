@@ -92,6 +92,17 @@ func TestSquareBossInvitePushesToSession(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("push = %v, want %v", got, want)
 	}
+	store.AccountsMu.Lock()
+	acc9962 := store.AccountByAidLocked("9962")
+	var gotAlert bool
+	if acc9962 != nil && acc9962.News != nil && len(acc9962.News.Alerts) > 0 {
+		a := acc9962.News.Alerts[0]
+		gotAlert = a.Type == "SQUARE_INVITE_RECEIVE" && a.Actor == "9961" && a.ActorName == "Master"
+	}
+	store.AccountsMu.Unlock()
+	if !gotAlert {
+		t.Fatal("expected SQUARE_INVITE_RECEIVE news alert on aid 9962 from aid 9961")
+	}
 }
 
 // TestSquareBossInviteWithoutSessionLogged: an invitee with no :10123 session gets no push. The cr35 neither panics

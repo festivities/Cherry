@@ -408,8 +408,37 @@ func handleDiaryCheckExist(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	parts := strings.Split(rest, "/")
-	if len(parts) != 3 || parts[2] != "" || !store.ValidAvatarID(parts[0]) || parts[1] != "0" || !store.KnownSocialAvatar(parts[0]) {
+	if len(parts) != 3 || !store.ValidAvatarID(parts[0]) || !httpx.IsAllDigits(parts[1]) {
 		httpx.ServeNotFound(w)
+		return
+	}
+	if parts[1] == "0" {
+		if parts[2] != "" || !store.KnownSocialAvatar(parts[0]) {
+			httpx.ServeNotFound(w)
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, `{"result":true}`)
+		return
+	}
+	if parts[2] != "" && !httpx.IsAllDigits(parts[2]) {
+		httpx.ServeNotFound(w)
+		return
+	}
+	owner, diaryNo := parts[0], parts[1]
+	if !store.KnownSocialAvatar(owner) {
+		httpx.WriteJSON(w, http.StatusBadRequest, `{"errorCode":"10001"}`)
+		return
+	}
+	viewer, viewerOK := store.AccountForRequest(r)
+	store.SocialMu.Lock()
+	post, found := findPostLocked(owner, diaryNo)
+	store.SocialMu.Unlock()
+	if !found {
+		httpx.WriteJSON(w, http.StatusBadRequest, `{"errorCode":"200003"}`)
+		return
+	}
+	if post.Blind || !canViewDiaryPost(post, viewer, viewerOK) {
+		httpx.WriteJSON(w, http.StatusBadRequest, `{"errorCode":"200002"}`)
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, `{"result":true}`)
@@ -1318,7 +1347,44 @@ func handleFriendAccept(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
 		return
 	}
-	aid := strings.Trim(strings.TrimPrefix(r.URL.Path, "/v4/friend/accept/"), "/")
+	rest := strings.Trim(strings.TrimPrefix(r.URL.Path, "/v4/friend/accept/"), "/")
+	parts := strings.Split(rest, "/")
+	if len(parts) == 2 {
+		aid, notiSn := parts[0], parts[1]
+		if notiSn == "" || len(notiSn) > 32 || !httpx.IsAllDigits(notiSn) {
+			httpx.ServeNotFound(w)
+			return
+		}
+		raw, err := httpx.ReadNativeBody(r)
+		var body any
+		if err != nil {
+			httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+			return
+		}
+		if _, err := httpx.UnmarshalNativeJSON(raw, &body); err != nil || body != nil {
+			httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+			return
+		}
+		if !store.ValidAvatarID(aid) || !store.KnownFriendTarget(aid) {
+			httpx.WriteJSON(w, http.StatusOK, `{"result":false,"errorCode":"19509"}`)
+			return
+		}
+		if aid == store.FriendAID {
+			restoreFriendWithBody(w, `{"result":true}`)
+			return
+		}
+		if aid == actor.Aid {
+			httpx.WriteJSON(w, http.StatusOK, `{"result":false,"errorCode":"19406"}`)
+			return
+		}
+		acceptFriendNews(w, actor.Aid, actor.Name, aid)
+		return
+	}
+	if len(parts) != 1 || parts[0] == "" {
+		httpx.ServeNotFound(w)
+		return
+	}
+	aid := parts[0]
 	raw, err := httpx.ReadNativeBody(r)
 	var body any
 	if !store.KnownFriendTarget(aid) {
@@ -1338,6 +1404,48 @@ func handleFriendAccept(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setFriendship(w, actor.Aid, actor.Name, aid, true)
+}
+
+func acceptFriendNews(w http.ResponseWriter, actor, actorName, other string) {
+	store.SocialMu.Lock()
+	prev := append([]store.Friendship(nil), store.Friendships...)
+	i := store.FriendshipIndex(actor, other, "")
+	switch {
+	case i >= 0 && store.Friendships[i].State == "accepted":
+		store.SocialMu.Unlock()
+		httpx.WriteJSON(w, http.StatusOK, `{"result":false,"errorCode":"19505"}`)
+		return
+	case i >= 0 && store.Friendships[i].State == "pending" && store.Friendships[i].A == actor:
+		store.SocialMu.Unlock()
+		httpx.WriteJSON(w, http.StatusOK, `{"result":false,"errorCode":"19508"}`)
+		return
+	case i < 0 || store.Friendships[i].State != "pending" || store.Friendships[i].B != actor:
+		store.SocialMu.Unlock()
+		httpx.WriteJSON(w, http.StatusOK, `{"result":false,"errorCode":"19406"}`)
+		return
+	case capsOn() && friendsFullLocked(actor, other, true, i):
+		store.SocialMu.Unlock()
+		httpx.WriteJSON(w, http.StatusOK, `{"result":false,"errorCode":"19406"}`)
+		return
+	}
+	store.Friendships[i].State = "accepted"
+	err := store.SaveSocialLocked(store.SocialChange{Friends: [][2]string{{actor, other}}})
+	if err != nil {
+		store.Friendships = prev
+	}
+	store.SocialMu.Unlock()
+	if err != nil {
+		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
+		return
+	}
+	lpn.PushFriendNoti(other, actor, actorName, "FRA", 0, 1)
+	store.AddNewsAlert(other, store.NewsAlert{
+		Type:      "FRIEND_ACCEPT",
+		At:        economy.NowFunc().UnixMilli(),
+		Actor:     actor,
+		ActorName: actorName,
+	})
+	httpx.WriteJSON(w, http.StatusOK, `{"result":true}`)
 }
 
 // incomingFriendRequestsLocked counts incoming pending friend requests for aid. Caller holds store.SocialMu.
@@ -1399,13 +1507,29 @@ func setFriendship(w http.ResponseWriter, actor, actorName, other string, accept
 	switch notifyType {
 	case "FRR":
 		lpn.PushFriendNoti(other, actor, actorName, "FRR", ifrd, 0)
+		store.AddNewsAlert(other, store.NewsAlert{
+			Type:      "FRIEND_RECEIVE",
+			At:        economy.NowFunc().UnixMilli(),
+			Actor:     actor,
+			ActorName: actorName,
+		})
 	case "FRA":
 		lpn.PushFriendNoti(other, actor, actorName, "FRA", 0, 1)
+		store.AddNewsAlert(other, store.NewsAlert{
+			Type:      "FRIEND_ACCEPT",
+			At:        economy.NowFunc().UnixMilli(),
+			Actor:     actor,
+			ActorName: actorName,
+		})
 	}
 	httpx.WriteJSON(w, http.StatusOK, `{"result":1}`)
 }
 
 func restoreFriend(w http.ResponseWriter) {
+	restoreFriendWithBody(w, `{"result":1}`)
+}
+
+func restoreFriendWithBody(w http.ResponseWriter, replyBody string) {
 	store.SocialMu.Lock()
 	prevRemoved, prevBookmarked := store.FriendRemoved, store.FriendBookmarked
 	store.FriendRemoved = false
@@ -1418,7 +1542,7 @@ func restoreFriend(w http.ResponseWriter) {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, `{"result":1}`)
+	httpx.WriteJSON(w, http.StatusOK, replyBody)
 }
 
 // markDiaryQuest completes the diary daily quest; the notice shows on the next Garden entry.

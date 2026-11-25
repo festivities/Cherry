@@ -689,8 +689,25 @@ func notifyCircleRoom(ev CircleRoomEvent) {
 // your request, you will become a Circle member", device 2026-11-01); an INVITE circle takes an invited player at once
 // (who thereby uses the invitation) and refuses anyone else as not found. A player holds at most one application:
 // another circle's application is withdrawn when cancelOthers is set (the client's cancleAndApplyYn=true), else refused.
+func circleNewsAlert(c store.Circle, typ, actorAid, actorName string, now time.Time) store.NewsAlert {
+	d := ActiveCircleData()
+	return store.NewsAlert{
+		Type:       typ,
+		At:         now.UnixMilli(),
+		Actor:      actorAid,
+		ActorName:  actorName,
+		Ref:        strconv.FormatInt(c.ID, 10),
+		CircleName: c.Name,
+		CircleLogo: circleArtPath(d.Logos, c.LogoID),
+		CircleBg:   circleArtPath(d.Backgrounds, c.LogoBgID),
+	}
+}
+
 func JoinCircle(token string, id int64, cancelOthers bool, now time.Time) error {
 	var joined string
+	var applied bool
+	var applyAlert store.NewsAlert
+	var notifyTargets []string
 	err := circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
 		ci := circleIndex(b, id)
 		if ci < 0 {
@@ -722,10 +739,22 @@ func JoinCircle(token string, id int64, cancelOthers bool, now time.Time) error 
 			}
 		}
 		c.Applies = append(c.Applies, store.CircleApply{Aid: acc.Aid, Date: now.UnixMilli()})
+		applied = true
+		applyAlert = circleNewsAlert(*c, "CIRCLE_APPLY_JOIN", acc.Aid, acc.Name, now)
+		for _, m := range c.Members {
+			if m.Role == roleLeader || m.Role == roleVice {
+				notifyTargets = append(notifyTargets, m.Aid)
+			}
+		}
 		return nil, nil
 	})
 	if err == nil && joined != "" {
 		notifyCircleRoom(CircleRoomEvent{Circle: id, Joined: []string{joined}})
+	}
+	if err == nil && applied {
+		for _, aid := range notifyTargets {
+			store.AddNewsAlert(aid, applyAlert)
+		}
 	}
 	return err
 }
@@ -770,6 +799,8 @@ func CancelApply(token string, id int64) error {
 
 // ApproveApply is POST circle/apply/join/<id>/approval/<aid>: the leader or a vice-leader admits an applicant.
 func ApproveApply(token string, id int64, target string, now time.Time) error {
+	var circleSnap store.Circle
+	var actorAid, actorName string
 	err := circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
 		ci := circleIndex(b, id)
 		if ci < 0 {
@@ -784,10 +815,16 @@ func ApproveApply(token string, id int64, target string, now time.Time) error {
 			return nil, circleRefuse(circleErrNotFound)
 		}
 		c.Applies = slices.Delete(c.Applies, ai, ai+1)
-		return nil, joinCircleAt(b, ci, target, now)
+		if err := joinCircleAt(b, ci, target, now); err != nil {
+			return nil, err
+		}
+		circleSnap = *c
+		actorAid, actorName = acc.Aid, acc.Name
+		return nil, nil
 	})
 	if err == nil {
 		notifyCircleRoom(CircleRoomEvent{Circle: id, Joined: []string{target}})
+		store.AddNewsAlert(target, circleNewsAlert(circleSnap, "CIRCLE_MEMBER_JOIN", actorAid, actorName, now))
 	}
 	return err
 }
@@ -814,7 +851,9 @@ func RefuseApply(token string, id int64, target string) error {
 
 // InviteCircle is POST circle/invite/<id>/<aid>: a leader or vice-leader invites an accepted friend who is in no circle.
 func InviteCircle(token string, id int64, target string, now time.Time) error {
-	return circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
+	var circleSnap store.Circle
+	var actorAid, actorName string
+	err := circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
 		ci := circleIndex(b, id)
 		if ci < 0 {
 			return nil, circleRefuse(circleErrNotFound)
@@ -839,8 +878,14 @@ func InviteCircle(token string, id int64, target string, now time.Time) error {
 			return nil, circleRefuse(circleErrGeneric)
 		}
 		c.Invites = append(c.Invites, store.CircleInvite{Aid: target, By: acc.Aid, Date: now.UnixMilli()})
+		circleSnap = *c
+		actorAid, actorName = acc.Aid, acc.Name
 		return nil, nil
 	})
+	if err == nil {
+		store.AddNewsAlert(target, circleNewsAlert(circleSnap, "CIRCLE_INVITE_AVATAR", actorAid, actorName, now))
+	}
+	return err
 }
 
 // CancelInvite is POST circle/invite/cancel/<id>/<aid>: a leader or vice-leader withdraws an invitation.
@@ -866,19 +911,34 @@ func CancelInvite(token string, id int64, target string) error {
 // AcceptInvite is POST circle/invite/approval/<id>: the invitee joins.
 func AcceptInvite(token string, id int64, now time.Time) error {
 	var joined string
+	var circleSnap store.Circle
+	var actorAid, actorName, inviter string
 	err := circleTx(token, true, func(acc *store.Account, b *store.CircleBook) ([]store.LedgerLine, error) {
 		ci := circleIndex(b, id)
 		if ci < 0 {
 			return nil, circleRefuse(circleErrNotFound)
 		}
-		if inviteIndex(&b.Circles[ci], acc.Aid) < 0 {
+		ii := inviteIndex(&b.Circles[ci], acc.Aid)
+		if ii < 0 {
 			return nil, circleRefuse(circleErrNotFound)
 		}
+		inviter = b.Circles[ci].Invites[ii].By
+		if inviter == "" {
+			inviter = leaderAid(&b.Circles[ci])
+		}
+		if err := joinCircleAt(b, ci, acc.Aid, now); err != nil {
+			return nil, err
+		}
 		joined = acc.Aid
-		return nil, joinCircleAt(b, ci, acc.Aid, now)
+		circleSnap = b.Circles[ci]
+		actorAid, actorName = acc.Aid, acc.Name
+		return nil, nil
 	})
 	if err == nil {
 		notifyCircleRoom(CircleRoomEvent{Circle: id, Joined: []string{joined}})
+		if inviter != "" {
+			store.AddNewsAlert(inviter, circleNewsAlert(circleSnap, "CIRCLE_ACCEPT_INVITATION", actorAid, actorName, now))
+		}
 	}
 	return err
 }
@@ -1115,6 +1175,7 @@ func CircleChangeAuth(actor string, id int64, targets []string, vice bool) ([]st
 // does this. It returns the new leader and the old one as they now are.
 func CircleTransferMaster(actor string, id int64, target string) ([]store.CircleMember, error) {
 	var changed []store.CircleMember
+	var circleSnap store.Circle
 	err := circleBookTx(true, func(b *store.CircleBook) error {
 		ci := circleIndex(b, id)
 		if ci < 0 {
@@ -1134,8 +1195,16 @@ func CircleTransferMaster(actor string, id int64, target string) ([]store.Circle
 		c.Members[ti].Role = roleLeader
 		c.Members[ai].Role = roleMember
 		changed = []store.CircleMember{c.Members[ti], c.Members[ai]}
+		circleSnap = *c
 		return nil
 	})
+	if err == nil {
+		actorName := ""
+		if snap, ok := store.AccountByAvatarID(actor); ok {
+			actorName = snap.Name
+		}
+		store.AddNewsAlert(target, circleNewsAlert(circleSnap, "CIRCLE_CHANGE_MASTER", actor, actorName, NowFunc()))
+	}
 	return changed, err
 }
 

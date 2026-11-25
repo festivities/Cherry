@@ -375,6 +375,16 @@ func TestPartyInvite(t *testing.T) {
 	if h.rooms[13] == nil {
 		t.Fatal("inviter room missing")
 	}
+	store.AccountsMu.Lock()
+	acc12 := store.AccountByAidLocked("12")
+	var gotAlert bool
+	if acc12 != nil && acc12.News != nil && len(acc12.News.Alerts) > 0 {
+		gotAlert = acc12.News.Alerts[0].Type == "ROOM_INVITE_RECEIVE" && acc12.News.Alerts[0].Actor == "11"
+	}
+	store.AccountsMu.Unlock()
+	if !gotAlert {
+		t.Fatal("expected ROOM_INVITE_RECEIVE news alert on aid 12 from aid 11")
+	}
 }
 
 // Cancel drops the aid from Waiting (reply idx22 = refreshed list); joining
