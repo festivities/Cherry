@@ -35,6 +35,7 @@ Earlier handoffs are in [HISTORY.md](HISTORY.md); the latest covers 2026-11-25 ~
 
 **User instructions and decisions in force:**
 - **Deploy only on an explicit "deploy"** (memory `deploy-needs-explicit-go`); a go covers that deploy only.
+- Garden Quests (owner, 2026-11-25): keep the Cherry-made Requests (`9401–9406`) and Episodes (`9501–9507`) in `data/rewards.json` (editable in Staff Documents), with everything Cherry-made explicitly labelled (`AGENTS.md` "Cherry-made content", `data/rewards.json` `origin`/`note`, and code comments).
 - Earlier handoff items #1 and #2 (hearts/Minipet/staff docs device & browser verification) were closed by the owner on 2026-11-25.
 - Hearts (owner, 2026-11-25): 30 sendable a day, quest at 20, reward stays **600 Cash**, quest name "Send Hearts to Avatars & Pets"; welcome gift 5,000 Gems. Staff "hearts" = extra hearts to SEND.
 - The owner's unpublished `rewards.json` **draft v1** (base 30 without `quest`, welcome 10,000) must not be published; the owner may Discard it in the panel. Any future `rewards.json` draft must carry `"quest": 20` (and optionally `requests`/`request_rules`/`episodes`).

@@ -19,7 +19,8 @@ const (
 
 // tlupQuestListBody encodes TLUP::tc_questlist_res (msgid 0, agent 5) seeding
 // TLUP::QuestId = 7 (eQUEST_CODE = 106, Square daily high-five quest) with
-// viewer's current game-day progress, and TLUP::QuestId = 71 (eQUEST_CODE = 113).
+// viewer's current game-day progress, and TLUP::QuestId = 71 (eQUEST_CODE = 113;
+// QuestId and display_ver=9 are original, while the 300-Gem reward and goal 1 are Cherry-made).
 func tlupQuestListBody(viewer uint64) []byte {
 	count, _, goal, reward := economy.HighFiveProgress(strconv.FormatUint(viewer, 10))
 	params := fmt.Sprintf(`{"display_ver":0,"completed_gem":%d,"reset_hour":0}`, reward)

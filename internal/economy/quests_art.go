@@ -27,6 +27,8 @@ func safeQuestArtName(name string) bool {
 }
 
 // HandleQuestArt serves GET /cherry/quest/<file>.png from static/ui/UIImage_hd/<file>.png.
+// The PNG bytes are original game UI assets; the /cherry/quest/ route and which icon or NPC portrait
+// is paired with each Cherry-made quest (defaultQuestIcon, defaultQuestNPC, data/rewards.json) are Cherry-made.
 func HandleQuestArt(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.NotFound(w, r)

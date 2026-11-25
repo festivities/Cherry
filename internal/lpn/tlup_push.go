@@ -109,7 +109,8 @@ func petStrokePush(conn *lockedConn, session [8]byte, reply economy.MiniPetStrok
 const tlupQuestCommandDetail = 157
 
 // tlupQuestDetailBody encodes TLUP::tc_questevent_push (msgid 5) with QuestActionCommand id=157
-// and ParamData entries quest_id (int_val) and quest (JSON array string).
+// and ParamData entries quest_id (int_val) and quest (JSON array string). The command id and JSON
+// schema are original client protocol; the showcase item ("CUAH0067V") and single-entry payload are Cherry-made.
 func tlupQuestDetailBody(questID int64, now time.Time) []byte {
 	nextResetSec := economy.QuestResetMillis(now) / 1000
 	items := []struct {
