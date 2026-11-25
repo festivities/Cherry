@@ -1,13 +1,13 @@
 {
   "origin": "cherry",
-  "note": "Cherry-made rewards: the welcome Gems, the daily quests (ids 9001-9005 in CherryQuestFirst/Last; names, descriptions, Gem rewards and trigger keys), the season event quests (ids 9101-9303), the hearts rule, the mail rules (the sender 'Cherry Staff') and the avatar birthday reward (birthday: claim window in days, the gacha discount percent and how long it lasts; the birthday itself is the avatar's creation date, and the reward's keys and turn numbers are the client's own). No original quest id, goal or reward exists in the archives (phaseD quests.md).",
+  "note": "Cherry-made rewards: the welcome Gems, the daily quests (ids 9001-9005 in CherryQuestFirst/Last; names, descriptions, Gem rewards and trigger keys), the season event quests (ids 9101-9303), the hearts rule, the mail rules (the sender 'Cherry Staff') and the avatar birthday reward (birthday: claim window in days, the gacha discount percent and how long it lasts; the birthday itself is the avatar's creation date, and the reward's keys and turn numbers are the client's own). No original quest id, goal or reward exists in the archives (phaseD quests.md). Exception: the hearts row name and its 20-heart goal are the original quest as the owner remembers it (2026-11-25); its reward is still Cherry-made.",
   "welcome_gems": 5000,
   "quests": [
     {"id": 9001, "key": "garden-own", "name": "Visit your Garden", "desc": "Enter your own Garden today.", "gems": 30},
     {"id": 9002, "key": "garden-visit", "name": "Visit a friend's Garden", "desc": "Enter a friend's Garden today.", "gems": 40},
     {"id": 9003, "key": "square", "name": "Hang out in Square", "desc": "Enter Square today.", "gems": 40},
     {"id": 9004, "key": "diary", "name": "Write in your Diary", "desc": "Post a diary entry today.", "gems": 40},
-    {"id": 9005, "key": "", "name": "Send 20 hearts", "desc": "Send 20 hearts today.", "display": true}
+    {"id": 9005, "key": "", "name": "Send Hearts to Avatars & Pets", "desc": "Send 20 hearts today.", "display": true}
   ],
   "event_quests": [
     {"id": 9101, "key": "gather3", "season": "halloween", "name": "Halloween: Gather 3 Garden materials", "desc": "Gather 3 materials in any Garden today.", "gems": 15},
