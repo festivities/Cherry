@@ -49,6 +49,7 @@ type StoredAccount struct {
 	NextMailSeq     int64                 `json:"nextMailSeq,omitempty"`
 	ProfileImage    *ProfileImage         `json:"profileImage,omitempty"`
 	Quests          *QuestDay             `json:"quests,omitempty"`
+	Episodes        *EpisodeState         `json:"episodes,omitempty"`
 	Fishing         *FishingDay           `json:"fishing,omitempty"`
 	FishCaught      map[int64]int64       `json:"fishCaught,omitempty"`
 	FishBookClaimed []int64               `json:"fishBookClaimed,omitempty"`
@@ -492,7 +493,7 @@ func StoredFrom(acc *Account) StoredAccount {
 		RoomItems:      acc.RoomItems, NextRoomSeq: acc.NextRoomSeq, Rooms: acc.Rooms, Presets: acc.Presets, Pets: acc.Pets, MiniPets: acc.MiniPets,
 		Gems: acc.Gems, Cash: acc.Cash, FaceTickets: acc.FaceTickets, Welcomed: acc.Welcomed,
 		AttendDay: acc.AttendDay, AttendKey: acc.AttendKey, Mail: acc.Mail, NextMailSeq: acc.NextMailSeq,
-		ProfileImage: pi, Quests: acc.Quests, Fishing: acc.Fishing, FishCaught: acc.FishCaught, FishBookClaimed: slices.Clone(acc.FishBookClaimed), Gear: acc.Gear,
+		ProfileImage: pi, Quests: acc.Quests, Episodes: cloneEpisodeState(acc.Episodes), Fishing: acc.Fishing, FishCaught: acc.FishCaught, FishBookClaimed: slices.Clone(acc.FishBookClaimed), Gear: acc.Gear,
 		BossCoins: acc.BossCoins, BossTries: acc.BossTries, BossCaught: acc.BossCaught, BossBook: acc.BossBook,
 		Hearts: acc.Hearts, PaidPrices: acc.PaidPrices,
 		Smiles: acc.Smiles, GardenBag: acc.GardenBag, Gather: acc.Gather, Atelier: acc.Atelier,
@@ -523,7 +524,7 @@ func accountFromStored(saved StoredAccount) *Account {
 		RoomItems: saved.RoomItems, NextRoomSeq: roomNextSeq(saved.RoomItems, saved.NextRoomSeq), Rooms: saved.Rooms, Presets: saved.Presets, Pets: saved.Pets, MiniPets: saved.MiniPets,
 		Gems: max(saved.Gems, 0), Cash: max(saved.Cash, 0), FaceTickets: max(saved.FaceTickets, 0), Welcomed: saved.Welcomed,
 		AttendDay: saved.AttendDay, AttendKey: saved.AttendKey, Mail: saved.Mail, NextMailSeq: saved.NextMailSeq,
-		ProfileImage: derefProfile(saved.ProfileImage), Quests: saved.Quests, Fishing: saved.Fishing,
+		ProfileImage: derefProfile(saved.ProfileImage), Quests: saved.Quests, Episodes: cloneEpisodeState(saved.Episodes), Fishing: saved.Fishing,
 		FishCaught: saved.FishCaught, FishBookClaimed: slices.Clone(saved.FishBookClaimed), Gear: saved.Gear, BossCoins: max(saved.BossCoins, 0), BossTries: saved.BossTries,
 		BossCaught: saved.BossCaught, BossBook: saved.BossBook, Hearts: saved.Hearts, PaidPrices: saved.PaidPrices,
 		Smiles: max(saved.Smiles, 0), GardenBag: saved.GardenBag, Gather: saved.Gather,
@@ -558,6 +559,17 @@ func derefProfile(p *ProfileImage) ProfileImage {
 		return ProfileImage{}
 	}
 	return *p
+}
+
+func cloneEpisodeState(e *EpisodeState) *EpisodeState {
+	if e == nil {
+		return nil
+	}
+	return &EpisodeState{
+		Accepted: slices.Clone(e.Accepted),
+		Progress: maps.Clone(e.Progress),
+		Claimed:  slices.Clone(e.Claimed),
+	}
 }
 
 // StoreDirLocked is the folder of the attached database, where the store's files sit beside it ("" when memory-only).

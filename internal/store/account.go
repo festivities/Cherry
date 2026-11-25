@@ -123,6 +123,7 @@ type Account struct {
 	NextMailSeq     int64
 	ProfileImage    ProfileImage          // saved profile picture (OBS paths + background), profileimage.go
 	Quests          *QuestDay             // Garden daily quest progress, economy/quests.go; replaced, never edited in place
+	Episodes        *EpisodeState         // Garden Episode quest chapters, economy/quests_tabs.go; replaced, never edited in place
 	Fishing         *FishingDay           // Square fishing Gems for one game day, economy/fishing.go; replaced, never edited in place
 	FishCaught      map[int64]int64       // Square catches per fish id (the fishing book); replaced, never edited in place
 	FishBookClaimed []int64               // Square fishing book page numbers (1-based) claimed; replaced, never edited in place
@@ -315,12 +316,25 @@ func (p ProfileImage) Fields() (img, wb, bg string) {
 	return img, wb, bg
 }
 
-// QuestDay is one game day (06:00 JST boundary) of daily-quest progress. Done and
-// Claimed hold quest IDs. A record whose Day is not today counts as empty.
+// QuestDay is one game day (06:00 JST boundary) of daily-quest and Request progress. Done and
+// Claimed hold daily quest IDs. A record whose Day is not today counts as empty.
 type QuestDay struct {
-	Day     int64   `json:"day"`
-	Done    []int64 `json:"done,omitempty"`
-	Claimed []int64 `json:"claimed,omitempty"`
+	Day          int64           `json:"day"`
+	Done         []int64         `json:"done,omitempty"`
+	Claimed      []int64         `json:"claimed,omitempty"`
+	ActiveReqs   []int64         `json:"activeReqs,omitempty"`
+	AcceptedReqs []int64         `json:"acceptedReqs,omitempty"`
+	ReqProgress  map[int64]int64 `json:"reqProgress,omitempty"`
+	ReqClaimed   int64           `json:"reqClaimed,omitempty"`
+	ReqFreeCalls int64           `json:"reqFreeCalls,omitempty"`
+	ReqSeeded    bool            `json:"reqSeeded,omitempty"`
+}
+
+// EpisodeState holds an account's Garden Episode quest chapters (economy/quests_tabs.go).
+type EpisodeState struct {
+	Accepted []int64         `json:"accepted,omitempty"`
+	Progress map[int64]int64 `json:"progress,omitempty"`
+	Claimed  []int64         `json:"claimed,omitempty"`
 }
 
 // FishingDay is the Square fishing Gems credited on one game day (06:00 JST boundary).

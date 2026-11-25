@@ -89,11 +89,34 @@ func TestQuestStatusHeartBlock(t *testing.T) {
 // TestQuestStatusUnknownSession keeps the zero body and rejects other methods.
 func TestQuestStatusUnknownSession(t *testing.T) {
 	heartTestClock(t, heartTestNow())
-	if rec := serve(t, http.MethodGet, "/v4/quest/status"); rec.Body.String() != questStatusBody {
-		t.Fatalf("unknown session body = %s", rec.Body.String())
+	for _, path := range []string{"/v4/quest/status", "/v4/quest/labor/status"} {
+		if rec := serve(t, http.MethodGet, path); rec.Body.String() != questStatusBody {
+			t.Fatalf("GET %s unknown session body = %s", path, rec.Body.String())
+		}
+		if rec := serve(t, http.MethodPost, path); rec.Code != http.StatusNotFound {
+			t.Fatalf("POST %s = %d, want 404", path, rec.Code)
+		}
 	}
-	if rec := serve(t, http.MethodPost, "/v4/quest/status"); rec.Code != http.StatusNotFound {
-		t.Fatalf("POST = %d, want 404", rec.Code)
+}
+
+// TestQuestLaborStatus confirms GET /v4/quest/labor/status returns 200 and a string toExpire
+// (used by NaQuestManager::ExpireTime for "Restart quest at HH:00").
+func TestQuestLaborStatus(t *testing.T) {
+	heartTestClock(t, heartTestNow())
+	heartTestAccounts(t)
+	rec := socialTestRequestAs(t, "hq-tok", http.MethodGet, "/v4/quest/labor/status", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d %s", rec.Code, rec.Body.String())
+	}
+	var got struct {
+		Result map[string]any `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("body %s: %v", rec.Body.String(), err)
+	}
+	expire, ok := got.Result["toExpire"].(string)
+	if !ok || expire != "64800" {
+		t.Fatalf("toExpire = %#v (type %T), want string \"64800\"", got.Result["toExpire"], got.Result["toExpire"])
 	}
 }
 

@@ -31,12 +31,45 @@ import (
 //	                  gacha_discount_percent: Gem gacha discount the claim gives; discount_days: how long it lasts
 type Rewards struct {
 	opdata.Provenance
-	WelcomeGems int64         `json:"welcome_gems"`
-	Quests      []QuestDef    `json:"quests"`
-	EventQuests []EventQuest  `json:"event_quests"`
-	Hearts      HeartRules    `json:"hearts"`
-	Mail        MailRules     `json:"mail"`
-	Birthday    BirthdayRules `json:"birthday"`
+	WelcomeGems  int64             `json:"welcome_gems"`
+	Quests       []QuestDef        `json:"quests"`
+	EventQuests  []EventQuest      `json:"event_quests"`
+	Requests     []RepeatQuestDef  `json:"requests,omitempty"`
+	RequestRules *RequestRules     `json:"request_rules,omitempty"`
+	Episodes     []EpisodeQuestDef `json:"episodes,omitempty"`
+	Hearts       HeartRules        `json:"hearts"`
+	Mail         MailRules         `json:"mail"`
+	Birthday     BirthdayRules     `json:"birthday"`
+}
+
+// RepeatQuestDef is one Garden Requests tab quest (rewards.json requests).
+type RepeatQuestDef struct {
+	ID   int64  `json:"id"`
+	Key  string `json:"key"`
+	Name string `json:"name"`
+	Desc string `json:"desc"`
+	Gems int64  `json:"gems"`
+	Cash int64  `json:"cash,omitempty"`
+	Goal int64  `json:"goal,omitempty"`
+}
+
+// RequestRules are the daily limit and Neighbor Invite pricing for Garden Requests (rewards.json request_rules).
+type RequestRules struct {
+	MaxDaily    int64 `json:"max_daily"`
+	FreeCalls   int64 `json:"free_calls"`
+	CallGems    int64 `json:"call_gems"`
+	RefreshGems int64 `json:"refresh_gems"`
+}
+
+// EpisodeQuestDef is one Garden Episode tab chapter (rewards.json episodes).
+type EpisodeQuestDef struct {
+	ID   int64  `json:"id"`
+	Key  string `json:"key"`
+	Name string `json:"name"`
+	Desc string `json:"desc"`
+	Gems int64  `json:"gems"`
+	Cash int64  `json:"cash,omitempty"`
+	Goal int64  `json:"goal,omitempty"`
 }
 
 // BirthdayRules are the avatar birthday reward numbers (rewards.json birthday; birthday.go).
@@ -82,6 +115,14 @@ var (
 // ActiveRewards is the rewards file in use.
 func ActiveRewards() *Rewards { return rewardsFile.Get() }
 
+// ActiveRequestRules returns the active RequestRules, falling back to defaults when omitted.
+func ActiveRequestRules() RequestRules {
+	if rr := ActiveRewards().RequestRules; rr != nil {
+		return *rr
+	}
+	return RequestRules{MaxDaily: 10, FreeCalls: 3, CallGems: 10, RefreshGems: 10}
+}
+
 // HeartQuest is the hearts row of the quest list (checkRewards guarantees one).
 func HeartQuest() QuestDef {
 	for _, q := range ActiveRewards().Quests {
@@ -92,12 +133,12 @@ func HeartQuest() QuestDef {
 	return QuestDef{}
 }
 
-// CherryQuestFirst and CherryQuestLast bound the quest ids Cherry makes: the daily quests (9001-9005) and the
-// event quests of each season (9101-9103 Halloween, 9201-9203 Winter, 9301-9303 New Year). The client compiles
+// CherryQuestFirst and CherryQuestLast bound the quest ids Cherry makes: the daily quests (9001-9005), the
+// event quests of each season (9101-9303), Requests (9401-9499) and Episodes (9501-9599). The client compiles
 // no quest goal or reward (phaseD quests.md), and no archive holds a quest id.
 const (
 	CherryQuestFirst int64 = 9001
-	CherryQuestLast  int64 = 9399
+	CherryQuestLast  int64 = 9599
 )
 
 func checkRewards(r *Rewards) error {
@@ -201,5 +242,51 @@ func checkRewards(r *Rewards) error {
 		}
 		eventKeys[e.Season][e.Key] = true
 	}
+	if r.RequestRules != nil {
+		switch {
+		case r.RequestRules.MaxDaily < 1 || r.RequestRules.MaxDaily > 100:
+			return errors.New("request_rules.max_daily must be 1 to 100")
+		case r.RequestRules.FreeCalls < 0:
+			return errors.New("request_rules.free_calls must not be negative")
+		case r.RequestRules.CallGems < 0:
+			return errors.New("request_rules.call_gems must not be negative")
+		case r.RequestRules.RefreshGems < 0:
+			return errors.New("request_rules.refresh_gems must not be negative")
+		}
+	}
+	for i := range r.Requests {
+		q := &r.Requests[i]
+		if err := checkTabQuest(ids, "request", q.ID, q.Key, q.Name, q.Gems, q.Cash, &q.Goal); err != nil {
+			return err
+		}
+	}
+	for i := range r.Episodes {
+		q := &r.Episodes[i]
+		if err := checkTabQuest(ids, "episode", q.ID, q.Key, q.Name, q.Gems, q.Cash, &q.Goal); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func checkTabQuest(ids map[int64]bool, kind string, id int64, key, name string, gems, cash int64, goal *int64) error {
+	switch {
+	case !inCherryBlock(id, CherryQuestFirst, CherryQuestLast) || ids[id]:
+		return fmt.Errorf("%s %d: id must be unique and inside the Cherry block %d-%d", kind, id, CherryQuestFirst, CherryQuestLast)
+	case name == "":
+		return fmt.Errorf("%s %d: name must not be empty", kind, id)
+	case !slices.Contains(questTriggers, key):
+		return fmt.Errorf("%s %d: key %q is not a known trigger (%s)", kind, id, key, strings.Join(questTriggers, ", "))
+	case gems < 0:
+		return fmt.Errorf("%s %d: gems must not be negative", kind, id)
+	case cash < 0:
+		return fmt.Errorf("%s %d: cash must not be negative", kind, id)
+	case *goal < 0:
+		return fmt.Errorf("%s %d: goal must not be negative", kind, id)
+	}
+	if *goal == 0 {
+		*goal = 1
+	}
+	ids[id] = true
 	return nil
 }

@@ -84,7 +84,7 @@ func TestFishIDsStayInCherryBlocks(t *testing.T) {
 // are refused at startup (CherryQuestFirst/Last, CherryDesignFirst/Last).
 func TestQuestAndDesignIDsStayInCherryBlocks(t *testing.T) {
 	quest := strings.Replace(string(data.RewardsJSON), `"id": 9001, "key": "garden-own"`, `"id": 9900, "key": "garden-own"`, 1)
-	if _, err := opdata.Decode([]byte(quest), checkRewards); err == nil || !strings.Contains(err.Error(), "quest 9900: id must be unique and inside the Cherry block 9001-9399") {
+	if _, err := opdata.Decode([]byte(quest), checkRewards); err == nil || !strings.Contains(err.Error(), "quest 9900: id must be unique and inside the Cherry block 9001-9599") {
 		t.Errorf("quest: err = %v", err)
 	}
 	design := strings.Replace(string(data.AtelierJSON), `"id": 101201,`, `"id": 102001,`, 1)

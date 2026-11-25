@@ -43,13 +43,14 @@ func TestGardenQuestPanelEventRows(t *testing.T) {
 	before := time.Date(2026, time.October, 24, 12, 0, 0, 0, eventJST)
 	during := time.Date(2026, time.October, 26, 12, 0, 0, 0, eventJST)
 
+	maxDaily := uint64(economy.ActiveRequestRules().MaxDaily)
 	vars, _ := pbFields(t, gardenQuestList("9731", before))
-	if vars[11] != 5 || !slices.Equal(questRowIDs(t, gardenQuestList("9731", before)), daily) {
+	if vars[11] != maxDaily || !slices.Equal(questRowIDs(t, gardenQuestList("9731", before)), daily) {
 		t.Fatalf("panel before the window = max %d rows %v", vars[11], questRowIDs(t, gardenQuestList("9731", before)))
 	}
 	rows := slices.Concat(daily, halloween)
 	vars, msgs := pbFields(t, gardenQuestList("9731", during))
-	if vars[11] != 8 || !slices.Equal(questRowIDs(t, gardenQuestList("9731", during)), rows) {
+	if vars[11] != maxDaily || !slices.Equal(questRowIDs(t, gardenQuestList("9731", during)), rows) {
 		t.Fatalf("panel in the window = max %d rows %v, want %v", vars[11], questRowIDs(t, gardenQuestList("9731", during)), rows)
 	}
 	if _, row := pbFields(t, msgs[2][5]); string(getBytes(t, row[2])) != "Halloween: Gather 3 Garden materials" {

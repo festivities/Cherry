@@ -11,92 +11,132 @@ import (
 	"cherry/internal/store"
 )
 
-// Garden daily quests (Economy Phase D slice 1). Requests: list 15, info 16, accept 17,
-// complete 18, reject 19. Replies: list 21, info 22, accept 24, complete 25, reject 26.
-// Field numbers and required bits come from quests.md section 10.
+// Garden quests (Tasks, Requests, Episode). Requests: list 15, info 16, accept 17,
+// complete 18, reject 19, pick_npc 20, info_pick_npc 21, call_npc 22.
+// Replies: list 21, info 22, info_pick_npc 23, accept 24, complete 25, reject 26, pick_npc 27, call_npc 28.
+// Field numbers and required bits come from quests-tabs-20261125/spec.md.
 const (
 	gardenQuestCashView   = 3  // ItemViewType/ViewType of the rainbow C coin (device), quests.md 10.4
 	gardenQuestGemView    = 4  // ItemViewType/ViewType of the Gem icon [I]
 	gardenQuestRewardType = 11 // EVENT_REWARD.RewardType that opens the reward popup [I]
+	gardenQuestCallGem    = 1  // charge_call_type / refresh_type: Gem (nonzero = Gem, 0 = Cash)
 )
 
 // gardenQuestMsg reports whether msgid is one of the quest requests answered here.
-func gardenQuestMsg(msgid uint16) bool { return msgid >= 15 && msgid <= 19 }
+func gardenQuestMsg(msgid uint16) bool { return msgid >= 15 && msgid <= 22 }
 
 // gardenQuestRow returns def's status and counts on the Garden list at now. Status 1 is in
 // progress, 3 claimable, 2 claimed. The hearts row counts hearts sent today out of the quest count and
 // shows claimed once that many are sent: HeartSend already paid it, so it is never claimable.
-func gardenQuestRow(def economy.QuestDef, rec store.QuestDay, sid string, now time.Time) (status, current, complete uint64) {
+func gardenQuestRow(def economy.QuestDef, rec store.QuestDay, sid string, now time.Time) economy.EpisodeRow {
 	if def.Display {
 		sent, _ := economy.HeartsSentToday(sid, now)
 		goal := economy.HeartQuestCount()
-		complete = uint64(goal)
-		current = uint64(min(sent, goal))
+		complete := uint64(goal)
+		current := uint64(min(sent, goal))
+		status := uint64(1)
 		if sent >= goal {
-			return 2, complete, complete
+			status = 2
 		}
-		return 1, current, complete
+		return economy.EpisodeRow{
+			QuestRow: economy.QuestRow{
+				ID: def.ID, Name: def.Name, Desc: def.Desc, Gems: def.Gems, Cash: def.Cash,
+				Status: status, Current: current, Complete: complete,
+			},
+		}
 	}
-	status, current, complete = 1, 0, 1
+	status, current, complete := uint64(1), uint64(0), uint64(1)
 	if slices.Contains(rec.Done, def.ID) {
 		status, current = 3, 1
 	}
 	if slices.Contains(rec.Claimed, def.ID) {
 		status, current = 2, 1
 	}
-	return status, current, complete
-}
-
-// gardenQuestInfo is one QUEST::QuestInfo row with the counts from gardenQuestRow.
-func gardenQuestInfo(def economy.QuestDef, status, current, complete uint64) []byte {
-	detail := pbVar(nil, 1, 1)          // QuestDetail.Index
-	detail = pbVar(detail, 3, current)  // CurrentCount
-	detail = pbVar(detail, 4, complete) // CompleteCount
-	view, count := uint64(gardenQuestGemView), uint64(def.Gems)
-	if def.Cash > 0 && def.Gems == 0 {
-		view, count = gardenQuestCashView, uint64(def.Cash)
+	return economy.EpisodeRow{
+		QuestRow: economy.QuestRow{
+			ID: def.ID, Name: def.Name, Desc: def.Desc, Gems: def.Gems, Cash: def.Cash,
+			Status: status, Current: current, Complete: complete,
+		},
 	}
-	reward := pbVar(nil, 1, view)
-	reward = pbVar(reward, 3, count) // ItemCount, the amount the cell shows
-	info := pbVar(nil, 1, uint64(def.ID))
-	info = pbLen(info, 2, []byte(def.Name))
-	info = pbLen(info, 5, detail)
-	info = pbLen(info, 6, reward)
-	info = pbVar(info, 7, status)
-	return pbLen(info, 12, []byte(def.Desc))
 }
 
-// gardenQuestList is hc_quest_list_res (21): every quest of the catalog at now (daily rows, then the
-// season's event quests) in RegularQuestInfo.
+// gardenQuestInfo is one QUEST::QuestInfo row.
+func gardenQuestInfo(row economy.EpisodeRow) []byte {
+	detail := pbVar(nil, 1, 1)              // QuestDetail.Index
+	detail = pbVar(detail, 3, row.Current)  // CurrentCount
+	detail = pbVar(detail, 4, row.Complete) // CompleteCount
+	info := pbVar(nil, 1, uint64(row.ID))
+	info = pbLen(info, 2, []byte(row.Name))
+	if row.Locked && row.PreReqTitle != "" {
+		pre := pbLen(nil, 1, []byte(row.PreReqTitle))
+		pre = pbVar(pre, 2, row.PreReqCur)
+		pre = pbVar(pre, 3, row.PreReqMax)
+		info = pbLen(info, 3, pre)
+	}
+	info = pbLen(info, 5, detail)
+	if row.Gems > 0 || row.Cash == 0 {
+		reward := pbVar(nil, 1, gardenQuestGemView)
+		reward = pbVar(reward, 3, uint64(row.Gems)) // ItemCount, the amount the cell shows
+		info = pbLen(info, 6, reward)
+	}
+	if row.Cash > 0 {
+		reward := pbVar(nil, 1, gardenQuestCashView)
+		reward = pbVar(reward, 3, uint64(row.Cash))
+		info = pbLen(info, 6, reward)
+	}
+	info = pbVar(info, 7, row.Status)
+	return pbLen(info, 12, []byte(row.Desc))
+}
+
+// gardenQuestList is hc_quest_list_res (21): Tasks (#2), Requests (#3), Episode (#4),
+// Neighbor Invite fields (#5-#9), daily counter (#10-#11), reset timestamp (#12), tutorial_cleared (#13).
 func gardenQuestList(sid string, now time.Time) []byte {
 	rec := economy.QuestProgress(sid, now)
 	body := pbVar(nil, 1, 0) // error_code, required
-	claimed := uint64(0)
-	catalog := economy.QuestCatalog(now)
-	for _, def := range catalog {
-		status, current, complete := gardenQuestRow(def, rec, sid, now)
-		if status == 2 {
-			claimed++
-		}
-		body = pbLen(body, 2, gardenQuestInfo(def, status, current, complete))
+	for _, def := range economy.QuestCatalog(now) {
+		body = pbLen(body, 2, gardenQuestInfo(gardenQuestRow(def, rec, sid, now)))
 	}
-	body = pbVar(body, 10, claimed)                               // TodayQuestAmount
-	body = pbVar(body, 11, uint64(len(catalog)))                  // MaxTodayQuestAmount
-	body = pbVar(body, 12, uint64(economy.QuestResetMillis(now))) // ResetTimestamp, ms
-	return pbVar(body, 13, 1)                                     // TutorialCleared
+	reqView := economy.RequestList(sid, now)
+	for _, row := range reqView.Rows {
+		body = pbLen(body, 3, gardenQuestInfo(economy.EpisodeRow{QuestRow: row}))
+	}
+	for _, row := range economy.EpisodeList(sid) {
+		body = pbLen(body, 4, gardenQuestInfo(row))
+	}
+	resetMillis := uint64(economy.QuestResetMillis(now))
+	body = pbVar(body, 5, uint64(reqView.FreeCallsLeft)) // free_call_count
+	body = pbVar(body, 6, uint64(reqView.MaxFreeCalls))  // max_free_call_count
+	body = pbVar(body, 7, gardenQuestCallGem)            // charge_call_type (Gem)
+	body = pbVar(body, 8, uint64(reqView.CallGems))      // charge_call_price
+	if reqView.CanInvite {
+		body = pbVar(body, 9, resetMillis) // next_call_timestamp, ms
+	} else {
+		body = pbVar(body, 9, 0)
+	}
+	body = pbVar(body, 10, uint64(reqView.TodayDone)) // today_quest_amount
+	body = pbVar(body, 11, uint64(reqView.MaxDaily))  // max_today_quest_amount
+	body = pbVar(body, 12, resetMillis)               // reset_timestamp, ms
+	return pbVar(body, 13, 1)                         // tutorial_cleared
 }
 
 // gardenQuestReward is one QuestRewards entry of hc_quest_complete_res (25): a reward
-// popup row with one Gem coin.
-func gardenQuestReward(gems int64) []byte {
-	item := pbVar(nil, 1, gardenQuestGemView)
-	item = pbVar(item, 4, uint64(gems)) // ViewCount
+// popup row with Gem and/or Cash items.
+func gardenQuestReward(gems, cash int64) []byte {
 	reward := pbVar(nil, 1, gardenQuestRewardType)
-	return pbLen(reward, 6, item) // RewardItems
+	if gems > 0 || cash == 0 {
+		item := pbVar(nil, 1, gardenQuestGemView)
+		item = pbVar(item, 4, uint64(gems)) // ViewCount
+		reward = pbLen(reward, 6, item)     // RewardItems
+	}
+	if cash > 0 {
+		item := pbVar(nil, 1, gardenQuestCashView)
+		item = pbVar(item, 4, uint64(cash)) // ViewCount
+		reward = pbLen(reward, 6, item)     // RewardItems
+	}
+	return reward
 }
 
-// gardenQuestReply answers one quest request and returns the reply msgid and body. The
-// QuestId is field 1 of every request that carries one. Accept and reject change nothing.
+// gardenQuestReply answers one quest request and returns the reply msgid and body.
 func gardenQuestReply(msgid uint16, aid uint64, data []byte, now time.Time, logger *log.Logger) (uint16, []byte) {
 	sid := strconv.FormatUint(aid, 10)
 	id, _ := protobufUintField(data, 1)
@@ -106,7 +146,7 @@ func gardenQuestReply(msgid uint16, aid uint64, data []byte, now time.Time, logg
 		logger.Printf("garden-quest list aid=%d id=- result=0", aid)
 		return 21, body
 	case 16:
-		def, ok := economy.QuestByID(int64(id), now)
+		row, ok := economy.QuestDetailByID(sid, int64(id), now)
 		body := pbVar(nil, 1, id)
 		if !ok {
 			body = pbVar(body, 2, 1)
@@ -115,25 +155,62 @@ func gardenQuestReply(msgid uint16, aid uint64, data []byte, now time.Time, logg
 			return 22, body
 		}
 		body = pbVar(body, 2, 0)
-		status, current, complete := gardenQuestRow(def, economy.QuestProgress(sid, now), sid, now)
-		body = pbLen(body, 3, gardenQuestInfo(def, status, current, complete))
+		body = pbLen(body, 3, gardenQuestInfo(row))
 		logger.Printf("garden-quest info aid=%d id=%d result=0", aid, id)
 		return 22, body
-	case 17, 19:
-		reply, name := uint16(24), "accept"
-		if msgid == 19 {
-			reply, name = 26, "reject"
-		}
-		logger.Printf("garden-quest %s aid=%d id=%d result=0", name, aid, id)
-		return reply, pbVar(pbVar(nil, 1, id), 2, 0)
+	case 17:
+		code := economy.AcceptQuest(sid, int64(id), now)
+		logger.Printf("garden-quest accept aid=%d id=%d result=%d", aid, id, code)
+		return 24, pbVar(pbVar(nil, 1, id), 2, uint64(code))
 	case 18:
-		gems, code := economy.ClaimQuest(sid, int64(id), now)
+		gems, cash, code := economy.ClaimQuestReward(sid, int64(id), now)
 		body := pbVar(pbVar(nil, 1, id), 2, uint64(code))
 		if code == 0 {
-			body = pbLen(body, 4, gardenQuestReward(gems))
+			body = pbLen(body, 4, gardenQuestReward(gems, cash))
 		}
 		logger.Printf("garden-quest complete aid=%d id=%d result=%d", aid, id, code)
 		return 25, body
+	case 19:
+		code := economy.RejectQuest(sid, int64(id), now)
+		logger.Printf("garden-quest reject aid=%d id=%d result=%d", aid, id, code)
+		return 26, pbVar(pbVar(nil, 1, id), 2, uint64(code))
+	case 20:
+		refresh := id != 0
+		rows, refreshGems, code := economy.PickNPCRequests(sid, refresh, now)
+		var body []byte
+		for _, row := range rows {
+			body = pbLen(body, 1, gardenQuestInfo(economy.EpisodeRow{QuestRow: row}))
+		}
+		body = pbVar(body, 2, gardenQuestCallGem)
+		body = pbVar(body, 3, uint64(refreshGems))
+		body = pbVar(body, 4, uint64(economy.QuestResetMillis(now)))
+		body = pbVar(body, 5, uint64(code))
+		logger.Printf("garden-quest pick-npc aid=%d refresh=%v count=%d result=%d", aid, refresh, len(rows), code)
+		return 27, body
+	case 21:
+		row, ok := economy.QuestDetailByID(sid, int64(id), now)
+		body := pbVar(nil, 1, id)
+		if !ok {
+			body = pbVar(body, 2, 1)
+			body = pbLen(body, 3, nil) // QuestInfo is required even on an error
+			logger.Printf("garden-quest info-pick-npc aid=%d id=%d result=1", aid, id)
+			return 23, body
+		}
+		reqView := economy.RequestList(sid, now)
+		body = pbVar(body, 2, 0)
+		body = pbLen(body, 3, gardenQuestInfo(row))
+		body = pbVar(body, 4, uint64(reqView.FreeCallsLeft))
+		body = pbVar(body, 5, uint64(reqView.MaxFreeCalls))
+		body = pbVar(body, 6, gardenQuestCallGem)
+		body = pbVar(body, 7, uint64(reqView.CallGems))
+		logger.Printf("garden-quest info-pick-npc aid=%d id=%d result=0", aid, id)
+		return 23, body
+	case 22:
+		callType, _ := protobufUintField(data, 2)
+		paid := callType != 0
+		code := economy.CallNPCRequest(sid, int64(id), paid, now)
+		logger.Printf("garden-quest call-npc aid=%d id=%d paid=%v result=%d", aid, id, paid, code)
+		return 28, pbVar(pbVar(nil, 1, id), 2, uint64(code))
 	}
 	return 0, nil
 }
