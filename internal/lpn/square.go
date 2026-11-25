@@ -42,12 +42,8 @@ const (
 	squareDefaultCountry  = "JP"
 )
 
-// Each Square's spawn tile (AVATAR_START, data/squares.json) is converted by Square.spawnPx; every Square joiner
-// starts there (squareRoom.join). Circle still steps its joiners one tile along x (+40,-20) on its own small map.
-const (
-	squareSpawnStepX = 40
-	squareSpawnStepY = 20
-)
+// Each Square's spawn tile (AVATAR_START, data/squares.json) is converted by Square.spawnPx; every Square and
+// Circle joiner starts there (squareRoom.join, circleRoom.join).
 
 // squareNpcList returns the minigame NPC list for Squares that host NPCs (Treasure Island and LINE City), or nil for other Squares.
 func squareNpcList(theme uint64) []byte {

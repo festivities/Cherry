@@ -183,13 +183,11 @@ func TestPartyPetsFrames(t *testing.T) {
 	if pets[0].id != 1101 || pets[0].move != nil || arranged != 2 || pets[1].id != 1102 || pets[2].id != 1103 {
 		t.Fatalf("host pets %+v", pets)
 	}
-	for _, p := range pets[1:] { // arranged pets avoid the hero spawn tiles
+	for _, p := range pets[1:] { // arranged pets avoid the hero spawn tile
 		x, y, _, _, _ := partyMoveFields(p.move)
 		tx, ty := partyPxTile(x, y)
-		for _, s := range partySpawnTiles {
-			if s == [2]int{tx, ty} {
-				t.Fatalf("pet on spawn tile %v", s)
-			}
+		if partySpawnTile == [2]int{tx, ty} {
+			t.Fatalf("pet on spawn tile %v", partySpawnTile)
 		}
 		if tx < 0 || tx >= 12 || ty < 0 || ty >= 12 {
 			t.Fatalf("pet tile (%d,%d)", tx, ty)

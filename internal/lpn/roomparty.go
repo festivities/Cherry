@@ -62,8 +62,9 @@ func partyPxTile(x, y uint64) (tx, ty int) {
 	return (a + b) / 2, (b - a) / 2
 }
 
-// partySpawnTiles is the preference order (first free tile wins).
-var partySpawnTiles = [][2]int{{8, 4}, {8, 5}, {7, 4}, {9, 4}, {8, 3}, {7, 5}, {9, 3}, {7, 3}, {9, 5}}
+// partySpawnTile is DefaultHeroPosition: every member starts there and avatars stack until they walk off. Neighbour
+// tiles can hold furniture, where the client ignores every tap (the Square spawn bug, 2026-11-25).
+var partySpawnTile = [2]int{8, 4}
 
 // partyMoveFields returns cur x,y plus f5/f6 of a _player_move.
 func partyMoveFields(move []byte) (x, y, f5, f6 uint64, ok bool) {
@@ -86,32 +87,10 @@ func partyMoveFields(move []byte) (x, y, f5, f6 uint64, ok bool) {
 	return x, y, f5, f6, got == 3
 }
 
-// spawnLocked assigns a spawn _player_move for m on floor: f1..f4 = tile px, f5/f6
+// spawnLocked assigns the spawn _player_move: f1..f4 = partySpawnTile px, f5/f6
 // copied from the client's own move (f6 default 1). Caller holds hub.mu.
-func (r *partyRoom) spawnLocked(m *partyMember, floor int, client []byte) (move []byte, tx, ty int) {
-	taken := map[[2]int]bool{}
-	for _, o := range r.members {
-		if o.aid == m.aid || o.floor != floor || len(o.move) == 0 {
-			continue
-		}
-		if x, y, _, _, ok := partyMoveFields(o.move); ok {
-			a, b := partyPxTile(x, y)
-			taken[[2]int{a, b}] = true
-		}
-	}
-	tiles := partySpawnTiles
-	for a := 0; a < 12; a++ { // fallback: any tile of the grid
-		for b := 0; b < 12; b++ {
-			tiles = append(tiles[:len(tiles):len(tiles)], [2]int{a, b})
-		}
-	}
-	tx, ty = tiles[0][0], tiles[0][1]
-	for _, t := range tiles { // first free tile; the host (normally first) therefore keeps (8,4)
-		if !taken[t] {
-			tx, ty = t[0], t[1]
-			break
-		}
-	}
+func (r *partyRoom) spawnLocked(client []byte) (move []byte, tx, ty int) {
+	tx, ty = partySpawnTile[0], partySpawnTile[1]
 	_, _, f5, f6, _ := partyMoveFields(client)
 	if f6 == 0 {
 		f6 = 1
@@ -662,7 +641,7 @@ func (s *roomPartySession) relayStart(frame, data []byte) error {
 	}
 	tx, ty := -1, -1
 	if assigned == nil {
-		assigned, tx, ty = r.spawnLocked(m, floor, move)
+		assigned, tx, ty = r.spawnLocked(move)
 	}
 	m.move, m.floor = assigned, floor
 	if idx >= 0 {
@@ -778,7 +757,7 @@ func (s *roomPartySession) floorRelayStart(data []byte) error {
 	if oldFloor == floor && len(m.move) > 0 {
 		assigned = m.move
 	} else {
-		assigned, tx, ty = r.spawnLocked(m, floor, move)
+		assigned, tx, ty = r.spawnLocked(move)
 	}
 	m.move, m.floor = assigned, floor
 	roster := r.rosterLocked(floor)

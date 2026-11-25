@@ -239,7 +239,7 @@ func TestPartyRosterRelaysExit(t *testing.T) {
 	b.read()
 	ma := pbVar(nil, 1, 5) // client's own move; the server assigns spawn tiles
 	mb := pbVar(nil, 1, 9)
-	wa, wb := spawnMove(8, 4), spawnMove(8, 5) // host keeps (8,4), joiner next free tile
+	wa, wb := spawnMove(8, 4), spawnMove(8, 4) // everyone spawns on DefaultHeroPosition (8,4)
 	res := a.start(ma)
 	if !bytes.Equal(res, append([]byte{0x08, 0}, pbLen(nil, 2, partyPlayerInfo(11, wa))...)) {
 		t.Fatalf("host roster = %x", res)
@@ -305,7 +305,7 @@ func TestPartySilentRejoinAndFriendEntered(t *testing.T) {
 	h := partySetup(t)
 	b := partyLogin(t, h, 12, 2)
 	a := partyLogin(t, h, 11, 1)
-	wa, wb := spawnMove(8, 5), spawnMove(8, 4) // guest got there first; host takes the next free tile
+	wa, wb := spawnMove(8, 4), spawnMove(8, 4) // guest and host both on (8,4)
 	a.enterHost(11)
 	b.enter(11)
 	b.read()
@@ -419,28 +419,21 @@ func TestPartyTileHelpers(t *testing.T) {
 	if x, y := partyTilePx(8, 4); x != 640 || y != 220 {
 		t.Fatalf("(8,4) -> %d,%d", x, y)
 	}
-	for _, tl := range partySpawnTiles {
+	for _, tl := range append([][2]int{partySpawnTile}, partyPetTiles...) {
 		x, y := partyTilePx(tl[0], tl[1])
 		if a, b := partyPxTile(x, y); a != tl[0] || b != tl[1] {
 			t.Fatalf("tile %v -> (%d,%d) -> (%d,%d)", tl, x, y, a, b)
 		}
 	}
-	// (8,5): 08 d8 04 10 c8 01 18 d8 04 20 c8 01 28 dir 30 01, f5/f6 copied from the client
+	// (8,4) for everyone, occupied or not; f5/f6 copied from the client (f6 default 1)
 	r := &partyRoom{host: 11}
-	m := &partyMember{aid: 12}
-	got, tx, ty := r.spawnLocked(m, 1, nil)
+	got, tx, ty := r.spawnLocked(nil)
 	if tx != 8 || ty != 4 || !bytes.Equal(got, []byte{8, 0x80, 5, 0x10, 0xdc, 1, 0x18, 0x80, 5, 0x20, 0xdc, 1, 0x28, 0, 0x30, 1}) {
-		t.Fatalf("empty room spawn (%d,%d) %x", tx, ty, got)
+		t.Fatalf("spawn (%d,%d) %x", tx, ty, got)
 	}
-	r.members = []*partyMember{{aid: 11, floor: 1, move: got}, {aid: 13, floor: 2, move: got}}
-	client := pbVar(pbVar(pbVar(nil, 1, 1), 5, 3), 6, 7)
-	got, tx, ty = r.spawnLocked(m, 1, client)
-	want := []byte{8, 0xd8, 4, 0x10, 0xc8, 1, 0x18, 0xd8, 4, 0x20, 0xc8, 1, 0x28, 3, 0x30, 7}
-	if tx != 8 || ty != 5 || !bytes.Equal(got, want) {
-		t.Fatalf("occupied spawn (%d,%d) %x want %x", tx, ty, got, want)
-	}
-	if _, tx, ty = r.spawnLocked(m, 2, nil); tx != 8 || ty != 5 { // aid 13 holds (8,4) on floor 2
-		t.Fatalf("floor 2 spawn (%d,%d)", tx, ty)
+	got, _, _ = r.spawnLocked(pbVar(pbVar(pbVar(nil, 1, 1), 5, 3), 6, 7))
+	if want := []byte{8, 0x80, 5, 0x10, 0xdc, 1, 0x18, 0x80, 5, 0x20, 0xdc, 1, 0x28, 3, 0x30, 7}; !bytes.Equal(got, want) {
+		t.Fatalf("spawn with client move %x want %x", got, want)
 	}
 }
 

@@ -32,8 +32,6 @@ const (
 	circleMaxChatLen = 512 // bytes, as Square's chat
 	circleChatCap    = 200 // messages kept per circle
 	circleChatPage   = 50  // messages in one old-chat reply
-	circleSpawnTiles = 3   // tiles between spawn slots: one tile drew two avatars on top of each other (device 2026-11-01)
-	circleSpawnRow   = 8   // ponytail: slots wrap after 8 (24 tiles) to stay near the spawn; a 9th avatar shares a slot
 )
 
 // Outbound (client to server) msgids, cs_* GetIndex (appendix B).
@@ -223,23 +221,9 @@ func (r *circleRoom) join(p *circlePlayer, spawnX, spawnY uint64) (roster []byte
 		}
 	}
 	if index < 0 {
-		// The first spawn slot nobody stands on: counting players reused an occupied slot after someone left and came
-		// back, and the two avatars stacked exactly (the bear vanished behind the other avatar, device 2026-11-01).
-		for n := uint64(0); n <= uint64(len(r.players)); n++ {
-			k := (n % circleSpawnRow) * circleSpawnTiles
-			x, y := spawnX+k*squareSpawnStepX, spawnY-k*squareSpawnStepY
-			taken := false
-			for _, o := range r.players {
-				if o.x == x && o.y == y {
-					taken = true
-					break
-				}
-			}
-			if !taken || n == uint64(len(r.players)) {
-				p.x, p.y = x, y
-				break
-			}
-		}
+		// Everyone starts on AVATAR_START, the tile the map guarantees walkable; avatars stack there until they walk
+		// off. Stepped slots can land on blocked tiles where the client ignores every tap (Square, 2026-11-25).
+		p.x, p.y = spawnX, spawnY
 	}
 	roster = pbLen(nil, 2, p.info())
 	for i, o := range r.players {
