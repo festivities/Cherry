@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"cherry/internal/economy"
+	"cherry/internal/store"
+	"cherry/internal/testutil"
 )
 
 func addPipeSession(t *testing.T, aid uint64) net.Conn {
@@ -172,5 +174,65 @@ func TestBroadcastBannerAndMaintPopup(t *testing.T) {
 	}
 	if res := <-done; res.sent != 1 || res.failed != 1 {
 		t.Fatalf("after-close BroadcastBanner = (%d, %d), want (1, 1)", res.sent, res.failed)
+	}
+}
+
+func TestBroadcastMaintPopupSkipsWhitelist(t *testing.T) {
+	testutil.UseDatabase(t)
+	now := time.UnixMilli(1732450000123)
+	old := economy.NowFunc
+	economy.NowFunc = func() time.Time { return now }
+	t.Cleanup(func() { economy.NowFunc = old })
+
+	if err := store.AddMaintenanceWhitelist("9901", "staff test", "dev-owner", now); err != nil {
+		t.Fatal(err)
+	}
+
+	whitelistedConn := addPipeSession(t, 9901)
+	normalConn := addPipeSession(t, 9902)
+
+	type counts struct{ sent, failed int }
+	done := make(chan counts, 1)
+	go func() {
+		s, f := BroadcastMaintPopup("Scheduled maintenance", 5*time.Minute)
+		done <- counts{s, f}
+	}()
+
+	op, txn, payload := readLOPush(t, normalConn)
+	if op != loOpPush || txn != 0 {
+		t.Fatalf("maint op=%#02x txn=%d, want 0x1b txn 0", op, txn)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(payload, &got); err != nil {
+		t.Fatalf("maint payload not JSON: %v", err)
+	}
+	if got["catg"] != "maint" {
+		t.Fatalf("catg = %#v, want maint", got["catg"])
+	}
+	if res := <-done; res.sent != 1 || res.failed != 0 {
+		t.Fatalf("BroadcastMaintPopup = (%d, %d), want (1, 0)", res.sent, res.failed)
+	}
+	expectNoSessionPush(t, whitelistedConn)
+
+	// BroadcastBanner still delivers to both sessions, including the whitelisted one.
+	done = make(chan counts, 1)
+	go func() {
+		s, f := BroadcastBanner("Server announcement")
+		done <- counts{s, f}
+	}()
+	ch := make(chan byte, 2)
+	for _, c := range []net.Conn{whitelistedConn, normalConn} {
+		go func(conn net.Conn) {
+			op, _, _ := readLOPush(t, conn)
+			ch <- op
+		}(c)
+	}
+	for range 2 {
+		if op := <-ch; op != loOpPush {
+			t.Fatalf("banner op = %#02x, want 0x1b", op)
+		}
+	}
+	if res := <-done; res.sent != 2 || res.failed != 0 {
+		t.Fatalf("BroadcastBanner = (%d, %d), want (2, 0)", res.sent, res.failed)
 	}
 }

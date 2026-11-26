@@ -237,3 +237,105 @@ func TestSettingsAudit(t *testing.T) {
 		}
 	}
 }
+
+// TestMaintWhitelistOwnerOnlyAndFreshSignIn: non-owner staff gets 403, unauthenticated gets 401, and a stale session
+// gets 403 on the maintenance whitelist add/remove routes, leaving the whitelist and audit log untouched.
+func TestMaintWhitelistOwnerOnlyAndFreshSignIn(t *testing.T) {
+	fx := newFixture(t, settingsConfig(t))
+
+	anon := fx.client()
+	expect(t, anon.post("/settings/maintenance-whitelist/add", url.Values{"csrf": {"x"}, "aid": {"1001"}}), http.StatusUnauthorized)
+	expect(t, anon.post("/settings/maintenance-whitelist/remove", url.Values{"csrf": {"x"}, "aid": {"1001"}}), http.StatusUnauthorized)
+
+	st := fx.client()
+	st.signInDev("staff")
+	for _, p := range []struct {
+		path string
+		form url.Values
+	}{
+		{"/settings/maintenance-whitelist/add", url.Values{"csrf": {st.csrf()}, "aid": {"1001"}}},
+		{"/settings/maintenance-whitelist/remove", url.Values{"csrf": {st.csrf()}, "aid": {"1001"}}},
+	} {
+		r := st.post(p.path, p.form)
+		expect(t, r, http.StatusForbidden)
+		if !strings.Contains(r.body, "Only the owner can change the settings.") {
+			t.Errorf("%s: non-owner refusal does not name the owner", p.path)
+		}
+	}
+
+	owner := fx.client()
+	owner.signInDev("owner")
+	fx.clk.advance(6 * time.Minute)
+	stale := owner.post("/settings/maintenance-whitelist/add", url.Values{"csrf": {owner.csrf()}, "aid": {"1001"}})
+	expect(t, stale, http.StatusForbidden)
+	if !strings.Contains(stale.body, "needs a Discord sign-in") {
+		t.Fatal("stale add did not ask for a fresh sign-in")
+	}
+	if list, _ := store.MaintenanceWhitelist(); len(list) != 0 {
+		t.Fatalf("refused requests added %d entries", len(list))
+	}
+	for _, row := range auditRows(t) {
+		if row.Action == "maint-whitelist-add" || row.Action == "maint-whitelist-remove" {
+			t.Fatalf("refused request wrote audit row: %+v", row)
+		}
+	}
+}
+
+// TestMaintWhitelistRoundTripAndValidation: adding, rendering (including avatar name and CSP check), removing with
+// notices and audit rows, and rejecting bad inputs with 400.
+func TestMaintWhitelistRoundTripAndValidation(t *testing.T) {
+	fx := newFixture(t, settingsConfig(t))
+	seedPlayer(t, "dev-wl1", "7701", "Whitelist Tester", 0)
+
+	c := fx.client()
+	c.signInDev("owner")
+
+	for _, bad := range []string{"", "0", "-5", "abc", "07701"} {
+		expect(t, c.post("/settings/maintenance-whitelist/add", url.Values{"csrf": {c.csrf()}, "aid": {bad}}), http.StatusBadRequest)
+	}
+	expect(t, c.post("/settings/maintenance-whitelist/remove", url.Values{"csrf": {c.csrf()}, "aid": {"7701"}}), http.StatusBadRequest)
+
+	added := c.post("/settings/maintenance-whitelist/add", url.Values{"csrf": {c.csrf()}, "aid": {" 7701 "}, "note": {"QA account"}})
+	expect(t, added, http.StatusSeeOther)
+	if loc := added.Header.Get("Location"); loc != "/settings?notice=maint-whitelist-added" {
+		t.Fatalf("add redirect to %q", loc)
+	}
+	afterAdd := c.follow(added)
+	expect(t, afterAdd, http.StatusOK)
+	if bad := inlineMarkup(afterAdd.body); len(bad) > 0 {
+		t.Fatalf("settings page inline markup after add: %v", bad)
+	}
+	for _, want := range []string{
+		"The account is added to the maintenance whitelist. It now bypasses maintenance popups.",
+		"7701", "Whitelist Tester", "QA account",
+		`action="/settings/maintenance-whitelist/remove"`,
+		`data-confirm="Remove this account from the maintenance whitelist?`,
+	} {
+		if !strings.Contains(afterAdd.body, want) {
+			t.Errorf("Settings page after add lacks %q", want)
+		}
+	}
+
+	// Duplicate returns 400.
+	expect(t, c.post("/settings/maintenance-whitelist/add", url.Values{"csrf": {c.csrf()}, "aid": {"7701"}}), http.StatusBadRequest)
+
+	removed := c.post("/settings/maintenance-whitelist/remove", url.Values{"csrf": {c.csrf()}, "aid": {"7701"}})
+	expect(t, removed, http.StatusSeeOther)
+	if loc := removed.Header.Get("Location"); loc != "/settings?notice=maint-whitelist-removed" {
+		t.Fatalf("remove redirect to %q", loc)
+	}
+	afterRemove := c.follow(removed)
+	expect(t, afterRemove, http.StatusOK)
+	if !strings.Contains(afterRemove.body, "The account is removed from the maintenance whitelist.") ||
+		!strings.Contains(afterRemove.body, "No account is on the maintenance whitelist.") {
+		t.Fatal("Settings page after remove did not show removed notice and empty table")
+	}
+
+	rows := auditRows(t)
+	if !hasAudit(rows, "dev-owner", "maint-whitelist-add", `"aid":"7701"`) {
+		t.Error("missing maint-whitelist-add audit row")
+	}
+	if !hasAudit(rows, "dev-owner", "maint-whitelist-remove", `"aid":"7701"`) {
+		t.Error("missing maint-whitelist-remove audit row")
+	}
+}

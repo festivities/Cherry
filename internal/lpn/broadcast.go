@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"cherry/internal/economy"
+	"cherry/internal/store"
 )
 
 type maintPushMessage struct {
@@ -39,21 +40,26 @@ func SessionCount() int {
 	return len(sessionConns)
 }
 
-func snapshotSessionConns() []*lockedConn {
+type sessionConnEntry struct {
+	aid  uint64
+	conn *lockedConn
+}
+
+func snapshotSessionConnEntries() []sessionConnEntry {
 	sessionConnsMu.Lock()
 	defer sessionConnsMu.Unlock()
-	conns := make([]*lockedConn, 0, len(sessionConns))
-	for _, c := range sessionConns {
+	entries := make([]sessionConnEntry, 0, len(sessionConns))
+	for aid, c := range sessionConns {
 		if c != nil {
-			conns = append(conns, c)
+			entries = append(entries, sessionConnEntry{aid: aid, conn: c})
 		}
 	}
-	return conns
+	return entries
 }
 
 func broadcastLOFrame(frame []byte) (sent, failed int) {
-	for _, c := range snapshotSessionConns() {
-		if _, err := c.Write(frame); err != nil {
+	for _, entry := range snapshotSessionConnEntries() {
+		if _, err := entry.conn.Write(frame); err != nil {
 			failed++
 		} else {
 			sent++
@@ -91,7 +97,8 @@ func BroadcastBanner(message string) (sent, failed int) {
 }
 
 // BroadcastMaintPopup sends a blocking modal maintenance popup (catg "maint",
-// displayType "POPUP", NaScheduleErrPopup) to every live :10123 session.
+// displayType "POPUP", NaScheduleErrPopup) to every live :10123 session except
+// accounts on the maintenance whitelist.
 func BroadcastMaintPopup(message string, duration time.Duration) (sent, failed int) {
 	if strings.TrimSpace(message) == "" || duration <= 0 {
 		return 0, 0
@@ -119,7 +126,20 @@ func BroadcastMaintPopup(message string, duration time.Duration) (sent, failed i
 	if err != nil {
 		return 0, 0
 	}
-	sent, failed = broadcastLOFrame(buildLOFrame(loOpPush, 0, payload))
-	log.Printf("cherry: broadcast maint-popup sent=%d failed=%d duration=%s", sent, failed, duration)
+	frame := buildLOFrame(loOpPush, 0, payload)
+	skip := store.MaintenanceWhitelistSet()
+	skipped := 0
+	for _, entry := range snapshotSessionConnEntries() {
+		if _, ok := skip[strconv.FormatUint(entry.aid, 10)]; ok {
+			skipped++
+			continue
+		}
+		if _, err := entry.conn.Write(frame); err != nil {
+			failed++
+		} else {
+			sent++
+		}
+	}
+	log.Printf("cherry: broadcast maint-popup sent=%d skipped=%d failed=%d duration=%s", sent, skipped, failed, duration)
 	return sent, failed
 }

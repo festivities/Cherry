@@ -24,38 +24,44 @@ type settingsRow struct {
 	Identity, Note, Added, By string
 }
 
+// maintWhitelistRow is one account on the maintenance whitelist table.
+type maintWhitelistRow struct {
+	Aid, Name, Note, Added, By string
+}
+
 // settingsPage is what the Settings page shows.
 type settingsPage struct {
-	ChatDays                  int           // the retention in effect
-	FromPanel                 bool          // the retention is the panel's value (else the server's configuration)
-	ConfigDays                int           // the server's configured retention, the value the reset returns to
-	Owner                     string        // the owner's identity, from the server's configuration
-	Members                   []settingsRow // the staff members added here, in the order they were added
-	Allowlist                 bool          // a staff allowlist file is configured as well
-	DevNames                  bool          // dev-fake: the add field also takes dev-<name>
-	RoomCap                   int           // the players a Square room holds in effect
-	RoomCapFromPanel          bool          // the room size is the panel's value (else the default)
-	RoomCapDefault            int           // the default the reset returns to
-	UploadTotalCapMiB         string        // total photo storage cap in effect, formatted in MiB
-	UploadTotalCapFromPanel   bool          // the total cap is the panel's value
-	UploadTotalCapConfigMiB   string        // server's configured total cap in MiB
-	UploadQuotaMiB            string        // one player's picture quota (all kinds together) in effect, formatted in MiB
-	UploadQuotaFromPanel      bool          // the quota is the panel's value
-	UploadQuotaConfigMiB      string        // server's configured quota in MiB
-	UploadReceiveCapMiB       string        // max upload receive size in effect, formatted in MiB
-	UploadReceiveCapFromPanel bool          // the receive cap is the panel's value
-	UploadReceiveCapConfigMiB string        // server's configured receive cap in MiB
-	UploadJPEGCapKiB          string        // target JPEG filesize in effect, formatted in KiB
-	UploadJPEGCapFromPanel    bool          // the JPEG cap is the panel's value
-	UploadJPEGCapConfigKiB    string        // server's configured JPEG cap in KiB
-	UploadPNGCapKiB           string        // target transparent PNG filesize in effect, formatted in KiB
-	UploadPNGCapFromPanel     bool          // the PNG cap is the panel's value
-	UploadPNGCapConfigKiB     string        // server's configured PNG cap in KiB
-	MaxPlayers                int           // concurrent player cap in effect (0 = unlimited)
-	MaxPlayersFromPanel       bool          // the concurrent player cap is the panel's value
-	MaxPlayersConfig          int           // server's configured concurrent player cap (0 = unlimited)
-	Limits                    []limitRow    // the Server limits table, in store.LimitKeys order
-	OpenConns, OpenAddrs      int           // the game connections open now and the addresses holding them
+	ChatDays                  int                 // the retention in effect
+	FromPanel                 bool                // the retention is the panel's value (else the server's configuration)
+	ConfigDays                int                 // the server's configured retention, the value the reset returns to
+	Owner                     string              // the owner's identity, from the server's configuration
+	Members                   []settingsRow       // the staff members added here, in the order they were added
+	MaintWhitelist            []maintWhitelistRow // accounts on the maintenance whitelist, in insertion order
+	Allowlist                 bool                // a staff allowlist file is configured as well
+	DevNames                  bool                // dev-fake: the add field also takes dev-<name>
+	RoomCap                   int                 // the players a Square room holds in effect
+	RoomCapFromPanel          bool                // the room size is the panel's value (else the default)
+	RoomCapDefault            int                 // the default the reset returns to
+	UploadTotalCapMiB         string              // total photo storage cap in effect, formatted in MiB
+	UploadTotalCapFromPanel   bool                // the total cap is the panel's value
+	UploadTotalCapConfigMiB   string              // server's configured total cap in MiB
+	UploadQuotaMiB            string              // one player's picture quota (all kinds together) in effect, formatted in MiB
+	UploadQuotaFromPanel      bool                // the quota is the panel's value
+	UploadQuotaConfigMiB      string              // server's configured quota in MiB
+	UploadReceiveCapMiB       string              // max upload receive size in effect, formatted in MiB
+	UploadReceiveCapFromPanel bool                // the receive cap is the panel's value
+	UploadReceiveCapConfigMiB string              // server's configured receive cap in MiB
+	UploadJPEGCapKiB          string              // target JPEG filesize in effect, formatted in KiB
+	UploadJPEGCapFromPanel    bool                // the JPEG cap is the panel's value
+	UploadJPEGCapConfigKiB    string              // server's configured JPEG cap in KiB
+	UploadPNGCapKiB           string              // target transparent PNG filesize in effect, formatted in KiB
+	UploadPNGCapFromPanel     bool                // the PNG cap is the panel's value
+	UploadPNGCapConfigKiB     string              // server's configured PNG cap in KiB
+	MaxPlayers                int                 // concurrent player cap in effect (0 = unlimited)
+	MaxPlayersFromPanel       bool                // the concurrent player cap is the panel's value
+	MaxPlayersConfig          int                 // server's configured concurrent player cap (0 = unlimited)
+	Limits                    []limitRow          // the Server limits table, in store.LimitKeys order
+	OpenConns, OpenAddrs      int                 // the game connections open now and the addresses holding them
 }
 
 // settingsOwner answers the refusal for anyone but the owner and reports whether the request may go on. The log line names
@@ -90,6 +96,19 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, sess ses
 	rows := make([]settingsRow, 0, len(members))
 	for _, m := range members {
 		rows = append(rows, settingsRow{Identity: m.Identity, Note: m.Note, Added: m.Added, By: auth.MaskIdentity(m.By)})
+	}
+	maintList, err := store.MaintenanceWhitelist()
+	if err != nil {
+		s.storeError(w, err)
+		return
+	}
+	maintRows := make([]maintWhitelistRow, 0, len(maintList))
+	for _, e := range maintList {
+		name := ""
+		if snap, ok := store.AccountByAvatarID(e.Aid); ok {
+			name = snap.Name
+		}
+		maintRows = append(maintRows, maintWhitelistRow{Aid: e.Aid, Name: name, Note: e.Note, Added: e.Added, By: auth.MaskIdentity(e.By)})
 	}
 	roomCap, roomSet, err := store.SquareRoomCapSetting()
 	if err != nil {
@@ -161,7 +180,8 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, sess ses
 	open, hosts := httpx.Conns.Counts()
 	v := s.base(r, sess, "Settings")
 	v.Settings = settingsPage{ChatDays: days, FromPanel: set, ConfigDays: s.cfg.ChatDays, Owner: s.owner, Members: rows,
-		Allowlist: s.cfg.StaffAllowlistFile != "", DevNames: s.cfg.AuthMode == config.AuthDevFake,
+		MaintWhitelist: maintRows,
+		Allowlist:      s.cfg.StaffAllowlistFile != "", DevNames: s.cfg.AuthMode == config.AuthDevFake,
 		RoomCap: roomCap, RoomCapFromPanel: roomSet, RoomCapDefault: store.SquareRoomCapDefault,
 		UploadTotalCapMiB: formatMiB(totalBytes), UploadTotalCapFromPanel: totalSet, UploadTotalCapConfigMiB: formatMiB(totalConfig),
 		UploadQuotaMiB: formatMiB(quotaBytes), UploadQuotaFromPanel: quotaSet, UploadQuotaConfigMiB: formatMiB(quotaConfig),
@@ -480,4 +500,31 @@ func (s *Server) handleStaffRemove(w http.ResponseWriter, r *http.Request, sess 
 	}
 	s.endSessionsOf(id)
 	redirect(w, http.StatusSeeOther, "/settings?notice=staff-removed")
+}
+
+// handleMaintWhitelistAdd: POST /settings/maintenance-whitelist/add (privileged, owner). The form: aid (positive whole
+// number) and an optional note.
+func (s *Server) handleMaintWhitelistAdd(w http.ResponseWriter, r *http.Request, sess session) {
+	if !s.settingsOwner(w, sess) {
+		return
+	}
+	aid := strings.TrimSpace(r.PostFormValue("aid"))
+	if err := store.AddMaintenanceWhitelist(aid, r.PostFormValue("note"), sess.identity, s.now()); err != nil {
+		s.storeError(w, err)
+		return
+	}
+	redirect(w, http.StatusSeeOther, "/settings?notice=maint-whitelist-added")
+}
+
+// handleMaintWhitelistRemove: POST /settings/maintenance-whitelist/remove (privileged, owner). The form: aid.
+func (s *Server) handleMaintWhitelistRemove(w http.ResponseWriter, r *http.Request, sess session) {
+	if !s.settingsOwner(w, sess) {
+		return
+	}
+	aid := strings.TrimSpace(r.PostFormValue("aid"))
+	if err := store.RemoveMaintenanceWhitelist(aid, sess.identity); err != nil {
+		s.storeError(w, err)
+		return
+	}
+	redirect(w, http.StatusSeeOther, "/settings?notice=maint-whitelist-removed")
 }

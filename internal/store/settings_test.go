@@ -285,3 +285,135 @@ func TestStaffMembersConcurrentAdds(t *testing.T) {
 		t.Fatalf("%d members after %d concurrent adds (%v)", len(list), n, err)
 	}
 }
+
+func TestMaintenanceWhitelistWithoutDatabase(t *testing.T) {
+	_ = CloseStore()
+	if IsMaintenanceWhitelisted("1001") || IsMaintenanceWhitelisted("") || IsMaintenanceWhitelisted("0") {
+		t.Fatal("IsMaintenanceWhitelisted without a database returned true")
+	}
+	if set := MaintenanceWhitelistSet(); len(set) != 0 {
+		t.Fatalf("MaintenanceWhitelistSet without a database = %v, want empty", set)
+	}
+	if _, err := MaintenanceWhitelist(); !errors.Is(err, ErrNoDatabase) {
+		t.Fatalf("MaintenanceWhitelist = %v, want ErrNoDatabase", err)
+	}
+	if err := AddMaintenanceWhitelist("1001", "", "dev-owner", time.Now()); !errors.Is(err, ErrNoDatabase) {
+		t.Fatalf("AddMaintenanceWhitelist = %v, want ErrNoDatabase", err)
+	}
+	if err := RemoveMaintenanceWhitelist("1001", "dev-owner"); !errors.Is(err, ErrNoDatabase) {
+		t.Fatalf("RemoveMaintenanceWhitelist = %v, want ErrNoDatabase", err)
+	}
+}
+
+func TestMaintenanceWhitelistRoundTrip(t *testing.T) {
+	docStore(t)
+	now := time.Date(2026, 11, 26, 18, 0, 0, 0, time.FixedZone("CET", 3600))
+	if list, err := MaintenanceWhitelist(); err != nil || len(list) != 0 {
+		t.Fatalf("empty list: %v %v", list, err)
+	}
+	if set := MaintenanceWhitelistSet(); len(set) != 0 {
+		t.Fatalf("empty set: %v", set)
+	}
+	if IsMaintenanceWhitelisted("") || IsMaintenanceWhitelisted("0") || IsMaintenanceWhitelisted("1001") {
+		t.Fatal("unexpected IsMaintenanceWhitelisted true on empty list")
+	}
+
+	if err := AddMaintenanceWhitelist("1001", "  Tester one  ", "dev-owner", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddMaintenanceWhitelist("1002", "", "dev-owner", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddMaintenanceWhitelist("1003", "Tester three", "dev-owner", now); err != nil {
+		t.Fatal(err)
+	}
+
+	list, err := MaintenanceWhitelist()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list) != 3 {
+		t.Fatalf("%d entries, want 3", len(list))
+	}
+	if list[0].Aid != "1001" || list[0].Note != "Tester one" || list[0].By != "dev-owner" || list[0].Added != "2026-11-26T17:00:00Z" {
+		t.Fatalf("first entry: %+v", list[0])
+	}
+	if list[1].Aid != "1002" || list[1].Note != "" || list[2].Aid != "1003" {
+		t.Fatalf("order or empty note: %+v", list)
+	}
+
+	set := MaintenanceWhitelistSet()
+	if len(set) != 3 {
+		t.Fatalf("set len = %d, want 3", len(set))
+	}
+	for _, aid := range []string{"1001", "1002", "1003"} {
+		if _, ok := set[aid]; !ok {
+			t.Fatalf("set missing %s", aid)
+		}
+		if !IsMaintenanceWhitelisted(aid) {
+			t.Fatalf("IsMaintenanceWhitelisted(%s) = false, want true", aid)
+		}
+	}
+	if IsMaintenanceWhitelisted("") || IsMaintenanceWhitelisted("0") || IsMaintenanceWhitelisted("9999") {
+		t.Fatal("IsMaintenanceWhitelisted returned true for non-whitelisted/empty/zero aid")
+	}
+
+	if err := RemoveMaintenanceWhitelist("1002", "dev-owner"); err != nil {
+		t.Fatal(err)
+	}
+	list, _ = MaintenanceWhitelist()
+	if len(list) != 2 || list[0].Aid != "1001" || list[1].Aid != "1003" {
+		t.Fatalf("after removal: %+v", list)
+	}
+	if IsMaintenanceWhitelisted("1002") {
+		t.Fatal("removed aid still reads as whitelisted")
+	}
+	if err := RemoveMaintenanceWhitelist("1002", "dev-owner"); !errors.Is(err, ErrBadInput) {
+		t.Fatalf("removing twice = %v, want ErrBadInput", err)
+	}
+
+	addRow, ok := settingAudit(t, "maint-whitelist-add", "maintenance")
+	if !ok || addRow.Actor != "dev-owner" || !strings.Contains(addRow.Detail, `"aid":"1003"`) || !strings.Contains(addRow.Detail, `"note":"Tester three"`) {
+		t.Fatalf("maint-whitelist-add audit row: ok=%t %+v", ok, addRow)
+	}
+	remRow, ok := settingAudit(t, "maint-whitelist-remove", "maintenance")
+	if !ok || remRow.Actor != "dev-owner" || !strings.Contains(remRow.Detail, `"aid":"1002"`) {
+		t.Fatalf("maint-whitelist-remove audit row: ok=%t %+v", ok, remRow)
+	}
+}
+
+func TestMaintenanceWhitelistBounds(t *testing.T) {
+	docStore(t)
+	now := time.Now()
+	for _, bad := range []string{"", "0", "-1", "-42", "abc", "01", "00123", "+10", " 10", "10 "} {
+		if err := AddMaintenanceWhitelist(bad, "", "dev-owner", now); !errors.Is(err, ErrBadInput) {
+			t.Errorf("AddMaintenanceWhitelist(%q) = %v, want ErrBadInput", bad, err)
+		}
+	}
+	if err := AddMaintenanceWhitelist("500", strings.Repeat("n", 101), "dev-owner", now); !errors.Is(err, ErrBadInput) {
+		t.Fatalf("101-rune note = %v, want ErrBadInput", err)
+	}
+	if err := AddMaintenanceWhitelist("500", strings.Repeat("ö", 100), "dev-owner", now); err != nil {
+		t.Fatalf("100-rune note: %v", err)
+	}
+	if err := AddMaintenanceWhitelist("500", "", "dev-owner", now); !errors.Is(err, ErrBadInput) {
+		t.Fatalf("duplicate aid = %v, want ErrBadInput", err)
+	}
+	if err := RemoveMaintenanceWhitelist("999999", "dev-owner"); !errors.Is(err, ErrBadInput) {
+		t.Fatalf("removing unknown aid = %v, want ErrBadInput", err)
+	}
+
+	list, _ := MaintenanceWhitelist()
+	for len(list) < maintWhitelistMax {
+		if err := AddMaintenanceWhitelist(fmt.Sprintf("%d", 10000+len(list)), "", "dev-owner", now); err != nil {
+			t.Fatal(err)
+		}
+		list, _ = MaintenanceWhitelist()
+	}
+	if err := AddMaintenanceWhitelist("99999", "", "dev-owner", now); !errors.Is(err, ErrBadInput) {
+		t.Fatalf("over-cap add = %v, want ErrBadInput", err)
+	}
+	if list, _ := MaintenanceWhitelist(); len(list) != maintWhitelistMax {
+		t.Fatalf("%d entries after cap, want %d", len(list), maintWhitelistMax)
+	}
+}

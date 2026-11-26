@@ -27,10 +27,12 @@ const (
 	uploadMaxJPEGBytesKey    = "uploads.max-jpeg-bytes"
 	uploadMaxPNGBytesKey     = "uploads.max-png-bytes"
 	maxPlayersKey            = "limits.max-players"
+	maintenanceWhitelistKey  = "maintenance.whitelist"
 	// ChatDaysMax is the longest retention the panel takes: ten years.
-	ChatDaysMax  = 3650
-	staffMax     = 50  // staff members the panel keeps
-	staffNoteMax = 100 // characters of a member's note
+	ChatDaysMax       = 3650
+	staffMax          = 50  // staff members the panel keeps
+	staffNoteMax      = 100 // characters of a member's note
+	maintWhitelistMax = 200 // accounts the maintenance whitelist keeps
 	// SquareRoomCapDefault is the players a Square room holds when the panel sets no value; the panel takes
 	// SquareRoomCapMin to SquareRoomCapMax.
 	SquareRoomCapDefault = 20
@@ -70,6 +72,15 @@ type StaffMember struct {
 	Note     string `json:"note"`
 	Added    string `json:"added"`
 	By       string `json:"by"`
+}
+
+// MaintenanceWhitelistEntry is one account on the maintenance whitelist: the avatar ID, the owner's note, when it was
+// added (RFC 3339, UTC) and the identity that added it.
+type MaintenanceWhitelistEntry struct {
+	Aid   string `json:"aid"`
+	Note  string `json:"note"`
+	Added string `json:"added"`
+	By    string `json:"by"`
 }
 
 // chatDaysOverride reads the stored retention: the days and whether a valid value is stored. A stored value that is not a
@@ -398,6 +409,146 @@ func RemoveStaffMember(identity, actor string) error {
 // validStaffIdentity: discord:<17 to 20 digits>, or with devNames dev-<1 to 24 letters, digits, dashes or underscores>.
 func validStaffIdentity(identity string, devNames bool) bool {
 	return staffDiscordRe.MatchString(identity) || devNames && staffDevRe.MatchString(identity)
+}
+
+func maintWhitelistOf(q Querier) ([]MaintenanceWhitelistEntry, error) {
+	v, err := metaValue(q, maintenanceWhitelistKey)
+	if err != nil || v == "" {
+		return nil, err
+	}
+	var list []MaintenanceWhitelistEntry
+	if err := json.Unmarshal([]byte(v), &list); err != nil {
+		return nil, err
+	}
+	return list, nil
+}
+
+func writeMaintWhitelistTx(tx *sql.Tx, list []MaintenanceWhitelistEntry) error {
+	if list == nil {
+		list = []MaintenanceWhitelistEntry{}
+	}
+	b, err := json.Marshal(list)
+	if err != nil {
+		return err
+	}
+	return setMetaTx(tx, maintenanceWhitelistKey, string(b))
+}
+
+func validMaintWhitelistAid(aid string) bool {
+	n, err := strconv.ParseInt(aid, 10, 64)
+	return err == nil && n > 0 && strconv.FormatInt(n, 10) == aid
+}
+
+// MaintenanceWhitelist returns the accounts on the maintenance whitelist in insertion order. ErrNoDatabase without a database.
+func MaintenanceWhitelist() ([]MaintenanceWhitelistEntry, error) {
+	d, err := docDB()
+	if err != nil {
+		return nil, err
+	}
+	var list []MaintenanceWhitelistEntry
+	err = d.View(func(q Querier) error {
+		var err error
+		list, err = maintWhitelistOf(q)
+		return err
+	})
+	return list, err
+}
+
+// MaintenanceWhitelistSet returns a set of whitelisted avatar IDs (empty/nil without a database or on read error).
+func MaintenanceWhitelistSet() map[string]struct{} {
+	d := attachedDB()
+	if d == nil {
+		return nil
+	}
+	var list []MaintenanceWhitelistEntry
+	if err := d.View(func(q Querier) error {
+		var err error
+		list, err = maintWhitelistOf(q)
+		return err
+	}); err != nil || len(list) == 0 {
+		return nil
+	}
+	set := make(map[string]struct{}, len(list))
+	for _, e := range list {
+		set[e.Aid] = struct{}{}
+	}
+	return set
+}
+
+// IsMaintenanceWhitelisted reports whether aid is on the maintenance whitelist. Without a database, for empty/"0" aid, or
+// on read error, it returns false.
+func IsMaintenanceWhitelisted(aid string) bool {
+	if aid == "" || aid == "0" {
+		return false
+	}
+	d, err := docDB()
+	if err != nil {
+		return false
+	}
+	found := false
+	err = d.View(func(q Querier) error {
+		list, err := maintWhitelistOf(q)
+		found = slices.ContainsFunc(list, func(e MaintenanceWhitelistEntry) bool { return e.Aid == aid })
+		return err
+	})
+	return err == nil && found
+}
+
+// AddMaintenanceWhitelist adds aid to the maintenance whitelist with its note, timestamp and actor, and writes an audit row
+// in one transaction. aid must be a positive canonical decimal integer; note is trimmed and at most 100 runes.
+func AddMaintenanceWhitelist(aid, note, actor string, now time.Time) error {
+	if !validMaintWhitelistAid(aid) {
+		return fmt.Errorf("%w: the avatar ID must be a positive whole number", ErrBadInput)
+	}
+	note = strings.TrimSpace(note)
+	if utf8.RuneCountInString(note) > staffNoteMax {
+		return fmt.Errorf("%w: the note is at most %d characters", ErrBadInput, staffNoteMax)
+	}
+	d, err := docDB()
+	if err != nil {
+		return err
+	}
+	return d.Update(func(tx *sql.Tx) error {
+		list, err := maintWhitelistOf(tx)
+		if err != nil {
+			return err
+		}
+		if slices.ContainsFunc(list, func(e MaintenanceWhitelistEntry) bool { return e.Aid == aid }) {
+			return fmt.Errorf("%w: already on the maintenance whitelist", ErrBadInput)
+		}
+		if len(list) >= maintWhitelistMax {
+			return fmt.Errorf("%w: at most %d accounts on the maintenance whitelist", ErrBadInput, maintWhitelistMax)
+		}
+		list = append(list, MaintenanceWhitelistEntry{Aid: aid, Note: note, Added: now.UTC().Format(time.RFC3339), By: actor})
+		if err := writeMaintWhitelistTx(tx, list); err != nil {
+			return err
+		}
+		return auditTx(tx, actor, "maint-whitelist-add", "maintenance", map[string]any{"aid": aid, "note": note})
+	})
+}
+
+// RemoveMaintenanceWhitelist removes aid from the maintenance whitelist and writes an audit row in one transaction. An aid
+// not on the list returns ErrBadInput.
+func RemoveMaintenanceWhitelist(aid, actor string) error {
+	d, err := docDB()
+	if err != nil {
+		return err
+	}
+	return d.Update(func(tx *sql.Tx) error {
+		list, err := maintWhitelistOf(tx)
+		if err != nil {
+			return err
+		}
+		i := slices.IndexFunc(list, func(e MaintenanceWhitelistEntry) bool { return e.Aid == aid })
+		if i < 0 {
+			return fmt.Errorf("%w: not on the maintenance whitelist", ErrBadInput)
+		}
+		list = slices.Delete(list, i, i+1)
+		if err := writeMaintWhitelistTx(tx, list); err != nil {
+			return err
+		}
+		return auditTx(tx, actor, "maint-whitelist-remove", "maintenance", map[string]any{"aid": aid})
+	})
 }
 
 func int64MetaOverride(q Querier, key string, min, max int64) (int64, bool, error) {

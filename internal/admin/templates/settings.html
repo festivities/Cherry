@@ -184,4 +184,39 @@
 <small class="help">Up to 100 characters. Shown in this list only.</small></label>
 <div class="actions"><button type="submit">Add staff member</button></div>
 </form>
+
+<section class="card stack">
+<h2>Maintenance whitelist</h2>
+<p class="muted">Accounts on this list are skipped by <a href="/broadcast">maintenance popup broadcasts</a> and answered as staff on <code>/v4/maintenance/whitelist/lineplay</code> when signed in. Pre-login server-full refusals happen before the client sends any account identity, so this whitelist cannot bypass them.</p>
+<div class="scroll"><table>
+<thead><tr><th>Avatar ID</th><th>Avatar name</th><th>Note</th><th>Added (UTC)</th><th>Added by</th><th>Remove</th></tr></thead>
+<tbody>
+{{range .Settings.MaintWhitelist}}<tr>
+<td class="mono">{{.Aid}}</td>
+<td>{{with .Name}}{{.}}{{else}}<span class="muted">—</span>{{end}}</td>
+<td>{{with .Note}}{{.}}{{else}}<span class="muted">—</span>{{end}}</td>
+<td>{{utc .Added}}</td>
+<td class="mono">{{.By}}</td>
+<td><form method="post" action="/settings/maintenance-whitelist/remove" class="row-form" data-confirm="Remove this account from the maintenance whitelist? It will receive maintenance popups again.">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<input type="hidden" name="aid" value="{{.Aid}}">
+<button type="submit" class="danger">Remove</button>
+</form></td>
+</tr>
+{{else}}<tr class="empty"><td colspan="6">No account is on the maintenance whitelist.</td></tr>
+{{end}}</tbody>
+</table></div>
+
+<form method="post" action="/settings/maintenance-whitelist/add" class="stack">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<h3>Add to maintenance whitelist</h3>
+<label><span class="label">Avatar ID</span>
+<input type="text" name="aid" required maxlength="20" inputmode="numeric" placeholder="e.g. 1001">
+<small class="help">Positive whole avatar ID (aid).</small></label>
+<label><span class="label">Note (optional)</span>
+<input type="text" name="note" maxlength="100" placeholder="Who this is">
+<small class="help">Up to 100 characters. Shown in this list only.</small></label>
+<div class="actions"><button type="submit">Add to maintenance whitelist</button></div>
+</form>
+</section>
 {{end}}

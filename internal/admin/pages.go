@@ -78,6 +78,8 @@ var notices = map[string]string{
 	"limit-reset":               "The server limit uses the server's configured value again. Frame limits reach only connections opened from now on.",
 	"staff-added":               "The staff member is added. They can sign in at this panel from now on.",
 	"staff-removed":             "The staff member is removed. Their open sessions end now.",
+	"maint-whitelist-added":     "The account is added to the maintenance whitelist. It now bypasses maintenance popups.",
+	"maint-whitelist-removed":   "The account is removed from the maintenance whitelist.",
 	"report-resolved":           "The report is resolved. The audit trail has the line and your note.",
 	"report-dismissed":          "The report is dismissed. The audit trail has the line and your note.",
 	"balances-already-applied":  "This balance change was already made. Nothing changed again.",

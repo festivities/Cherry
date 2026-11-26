@@ -12,6 +12,7 @@ import (
 
 	"cherry/internal/httpx"
 	"cherry/internal/lpn"
+	"cherry/internal/store"
 )
 
 // A full server (limits.max-players, lpn.ServerFull) refuses a new player at app start with the client's own maintenance
@@ -132,11 +133,37 @@ func handleMaintenanceNotice(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, fullNoticeBody(now, online, cap, r.Header.Get("Accept-Language")))
 }
 
-// handleMaintenanceWhitelist serves GET /v4/maintenance/whitelist/lineplay (ReqWhiteListInLinePlay 0x1b90058, sent when the
-// maintenance popup shows; ResWhiteListInLinePlay 0x1b44620 reads result as an array). Nobody is staff, so the popup stays.
+// handleMaintenanceWhitelist serves GET /v4/maintenance/whitelist/lineplay (ReqWhiteListInLinePlay 0x1b90058 ->
+// ResWhiteListInLinePlay 0x1b44620). When the caller presents an AV_AUTH cookie for a whitelisted account, it returns
+// only that account's own aid entry; otherwise (including unauthenticated boot requests) it returns {"result":[]}.
 func handleMaintenanceWhitelist(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		httpx.ServeNotFound(w)
+		return
+	}
+	var aid string
+	if tok := httpx.CookieValue(r, "AV_AUTH"); tok != "" {
+		store.AccountsMu.Lock()
+		if acc := store.AccountByTokenLocked(tok); acc != nil {
+			aid = acc.Aid
+		}
+		store.AccountsMu.Unlock()
+	}
+	if aid != "" && aid != "0" && store.IsMaintenanceWhitelisted(aid) {
+		b, _ := json.Marshal(struct {
+			Result []struct {
+				GameID string `json:"gameId"`
+				Type   string `json:"type"`
+				Data   string `json:"data"`
+			} `json:"result"`
+		}{
+			Result: []struct {
+				GameID string `json:"gameId"`
+				Type   string `json:"type"`
+				Data   string `json:"data"`
+			}{{GameID: "lineplay", Type: "aid", Data: aid}},
+		})
+		httpx.WriteJSON(w, http.StatusOK, string(b))
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, `{"result":[]}`)

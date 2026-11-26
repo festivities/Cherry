@@ -6,7 +6,7 @@
 <fieldset class="stack">
 <legend class="label">Announcement type</legend>
 <label><input type="radio" name="kind" value="banner"{{if eq .Broadcast.Form.Kind "banner"}} checked{{end}}> In-game banner (non-blocking) — slides down at the top of the screen with a chime across all scenes; tapping dismisses safely.</label>
-<label><input type="radio" name="kind" value="maint"{{if eq .Broadcast.Form.Kind "maint"}} checked{{end}}> Maintenance popup (blocking) — opens the full-screen "Maintenance in progress." modal with a "Close App" button until the duration ends.</label>
+<label><input type="radio" name="kind" value="maint"{{if eq .Broadcast.Form.Kind "maint"}} checked{{end}}> Maintenance popup (blocking) — opens the full-screen "Maintenance in progress." modal with a "Close App" button until the duration ends; accounts on the maintenance whitelist (Settings) are skipped.</label>
 </fieldset>
 <label><span class="label">Message</span>
 <textarea name="message" rows="4" maxlength="400" required>{{.Broadcast.Form.Message}}</textarea>

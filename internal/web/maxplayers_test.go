@@ -181,3 +181,52 @@ func TestFullNoticeExpires(t *testing.T) {
 		t.Fatal("a notice older than fullNoticeTTL was served")
 	}
 }
+
+func TestMaintenanceWhitelist(t *testing.T) {
+	testutil.UseDatabase(t)
+	acc1 := &store.Account{AccessToken: "wl-tok1", SessionKey: "skey1", Aid: "1001", Name: "One"}
+	acc2 := &store.Account{AccessToken: "wl-tok2", SessionKey: "skey2", Aid: "1002", Name: "Two"}
+	installSocialTestAccounts(t, map[string]*store.Account{
+		"wl-tok1": acc1,
+		"wl-tok2": acc2,
+	})
+	store.LatestAcc = acc1
+
+	if err := store.AddMaintenanceWhitelist("1001", "tester", "dev-owner", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	mux := NewMux()
+	call := func(token string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/v4/maintenance/whitelist/lineplay", nil)
+		if token != "" {
+			req.Header.Set("Cookie", `AV_AUTH="`+token+`"`)
+		}
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// Unauthenticated request must never leak whitelisted entries or fall back to LatestAcc.
+	if rec := call(""); rec.Code != http.StatusOK || rec.Body.String() != `{"result":[]}` {
+		t.Fatalf("unauthenticated whitelist = %d %s, want 200 {\"result\":[]}", rec.Code, rec.Body)
+	}
+
+	// Authenticated non-whitelisted account receives empty result.
+	if rec := call("wl-tok2"); rec.Code != http.StatusOK || rec.Body.String() != `{"result":[]}` {
+		t.Fatalf("non-whitelisted whitelist = %d %s, want 200 {\"result\":[]}", rec.Code, rec.Body)
+	}
+
+	// Authenticated whitelisted account receives only its own aid entry.
+	if rec := call("wl-tok1"); rec.Code != http.StatusOK || rec.Body.String() != `{"result":[{"gameId":"lineplay","type":"aid","data":"1001"}]}` {
+		t.Fatalf("whitelisted response = %d %s", rec.Code, rec.Body)
+	}
+
+	// Removing from whitelist returns empty result again.
+	if err := store.RemoveMaintenanceWhitelist("1001", "dev-owner"); err != nil {
+		t.Fatal(err)
+	}
+	if rec := call("wl-tok1"); rec.Code != http.StatusOK || rec.Body.String() != `{"result":[]}` {
+		t.Fatalf("after removal whitelist = %d %s, want 200 {\"result\":[]}", rec.Code, rec.Body)
+	}
+}
