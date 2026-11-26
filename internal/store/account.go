@@ -20,20 +20,21 @@ import (
 // AccountSnapshot is a copy of the fields /v4/avatar/<id> serves, taken under
 // AccountsMu so the handler never reads fields while an avatar mutation writes.
 type AccountSnapshot struct {
-	Aid            string
-	Name           string
-	Gender         string
-	Skin           string
-	Country        string
-	ItemCodes      []string
-	InventoryCodes []string
-	ProfileImage   ProfileImage
-	DiaryProfile   *DiaryProfile
-	DyeColors      map[string][]DyeColor
-	BirthdayClaims map[int]int64 // birthday reward claims by avatar turn (economy/birthday.go); replaced, never edited in place
-	Remodel        *RoomRemodel  // unlocked floors and per-floor tile sizes (economy/remodel.go); replaced, never edited in place
-	GardenStats    GardenStats
-	HighFive       HighFiveDay
+	Aid             string
+	Name            string
+	Gender          string
+	Skin            string
+	Country         string
+	ItemCodes       []string
+	InventoryCodes  []string
+	ProfileImage    ProfileImage
+	DiaryProfile    *DiaryProfile
+	DyeColors       map[string][]DyeColor
+	BirthdayClaims  map[int]int64 // birthday reward claims by avatar turn (economy/birthday.go); replaced, never edited in place
+	Remodel         *RoomRemodel  // unlocked floors and per-floor tile sizes (economy/remodel.go); replaced, never edited in place
+	GardenStats     GardenStats
+	HighFive        HighFiveDay
+	FriendBookmarks []string
 }
 
 func AccountInventoryCodes(acc *Account) []string {
@@ -142,6 +143,7 @@ type Account struct {
 	GardenMap       string                // Garden map this account's Garden shows (economy/gardens.go); "" = the default
 	Landscapes      []string              // bought Garden landscape item codes (economy/landscape.go); replaced, never edited in place
 	Pins            []string              // avatar ids on the requester's My Pins, in pin order (web/pins.go); replaced, never edited in place
+	FriendBookmarks []string              // bookmarked friend avatar ids (web/social.go); replaced, never edited in place
 	DiaryProfile    *DiaryProfile         // Diary profile edit fields (diaryprofile.go, web/profileedit.go); replaced, never edited in place
 	Wishes          []string              // item codes on the requester's wish list, at most four (web/wishlist.go); replaced, never edited in place
 	Butlers         *ButlerBook           // Garden butlers: contracts, chief, gathering (economy/butler.go); replaced, never edited in place
@@ -762,8 +764,9 @@ func accountForToken(token string) (AccountSnapshot, bool) {
 		Country: acc.Country, ItemCodes: append([]string(nil), acc.ItemCodes...),
 		InventoryCodes: append([]string(nil), AccountInventoryCodes(acc)...),
 		BirthdayClaims: acc.BirthdayClaims, ProfileImage: acc.ProfileImage, Remodel: acc.Remodel,
-		GardenStats: acc.GardenStats.clone(),
-		HighFive:    acc.HighFive.clone(),
+		GardenStats:     acc.GardenStats.clone(),
+		HighFive:        acc.HighFive.clone(),
+		FriendBookmarks: slices.Clone(acc.FriendBookmarks),
 	}
 	AccountsMu.Unlock()
 	return snapshot, true

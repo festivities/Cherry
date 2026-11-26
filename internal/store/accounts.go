@@ -68,6 +68,7 @@ type StoredAccount struct {
 	GardenMap       string                `json:"gardenMap,omitempty"`
 	Landscapes      []string              `json:"landscapes,omitempty"`
 	Pins            []string              `json:"pins,omitempty"`
+	FriendBookmarks []string              `json:"friendBookmarks,omitempty"`
 	DiaryProfile    *DiaryProfile         `json:"diaryProfile,omitempty"`
 	Wishes          []string              `json:"wishes,omitempty"`
 	Butlers         *ButlerBook           `json:"butlers,omitempty"`
@@ -498,7 +499,7 @@ func StoredFrom(acc *Account) StoredAccount {
 		BossCoins: acc.BossCoins, BossTries: acc.BossTries, BossCaught: acc.BossCaught, BossBook: acc.BossBook,
 		Hearts: acc.Hearts, PaidPrices: acc.PaidPrices,
 		Smiles: acc.Smiles, GardenBag: acc.GardenBag, Gather: acc.Gather, Atelier: acc.Atelier,
-		Racing: acc.Racing, GardenMap: acc.GardenMap, Landscapes: acc.Landscapes, Pins: acc.Pins,
+		Racing: acc.Racing, GardenMap: acc.GardenMap, Landscapes: acc.Landscapes, Pins: acc.Pins, FriendBookmarks: slices.Clone(acc.FriendBookmarks),
 		DiaryProfile: acc.DiaryProfile, Wishes: acc.Wishes, Butlers: acc.Butlers,
 		Dyes: acc.Dyes, DyeColors: acc.DyeColors, LuckySpinDay: acc.LuckySpinDay, PopupDay: acc.PopupDay, AvatarCreated: acc.AvatarCreated,
 		BirthdayClaims: acc.BirthdayClaims,
@@ -532,7 +533,7 @@ func accountFromStored(saved StoredAccount) *Account {
 		Smiles: max(saved.Smiles, 0), GardenBag: saved.GardenBag, Gather: saved.Gather,
 		Atelier: saved.Atelier,
 		Racing:  saved.Racing, GardenMap: saved.GardenMap, Landscapes: saved.Landscapes,
-		Pins: saved.Pins, DiaryProfile: saved.DiaryProfile, Wishes: saved.Wishes, Butlers: saved.Butlers,
+		Pins: saved.Pins, FriendBookmarks: slices.Clone(saved.FriendBookmarks), DiaryProfile: saved.DiaryProfile, Wishes: saved.Wishes, Butlers: saved.Butlers,
 		Dyes: saved.Dyes, DyeColors: saved.DyeColors, LuckySpinDay: saved.LuckySpinDay, PopupDay: saved.PopupDay, AvatarCreated: saved.AvatarCreated,
 		BirthdayClaims: saved.BirthdayClaims,
 		GuestCode:      saved.GuestCode, Identity: saved.Identity, CodeHashes: saved.CodeHashes, Ban: saved.Ban,

@@ -1049,3 +1049,344 @@ func TestDiarySkinInfo(t *testing.T) {
 		t.Errorf("POST skinInfo = %d, want 404", rec.Code)
 	}
 }
+
+func TestFriendRemoveNativeIntegersAndValidation(t *testing.T) {
+	installSocialTestAccounts(t, map[string]*store.Account{
+		"t1": {AccessToken: "t1", Aid: "1001", Name: "One"},
+		"t2": {AccessToken: "t2", Aid: "1002", Name: "Two"},
+		"t3": {AccessToken: "t3", Aid: "1003", Name: "Three"},
+	})
+	store.ResetSocial()
+	t.Cleanup(store.ResetSocial)
+	testutil.UseDatabase(t)
+
+	// Make 1001 friends with both 1002 and 1003.
+	if c := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/friend/apply/", `{"applyAvatarId":"1002"}`); c.Code != http.StatusOK {
+		t.Fatalf("apply 1002 = %d", c.Code)
+	}
+	if c := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/friend/apply/", `{"applyAvatarId":"1003"}`); c.Code != http.StatusOK {
+		t.Fatalf("apply 1003 = %d", c.Code)
+	}
+	if c := socialTestRequestAs(t, "t2", http.MethodPut, "/v4/friend/accept/1001", "null\x00"); c.Code != http.StatusOK {
+		t.Fatalf("accept 1002 = %d", c.Code)
+	}
+	if c := socialTestRequestAs(t, "t3", http.MethodPut, "/v4/friend/accept/1001", "null\x00"); c.Code != http.StatusOK {
+		t.Fatalf("accept 1003 = %d", c.Code)
+	}
+
+	// Unquoted integer array with trailing NUL, and verify JSON string array response.
+	rec := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/friend/remove/", "[1002]\x00")
+	if rec.Code != http.StatusOK || rec.Body.String() != `{"result":{"success":["1002"]}}` {
+		t.Fatalf("POST /v4/friend/remove/ [1002] = %d %s", rec.Code, rec.Body.String())
+	}
+	rows1, _ := syncRowsAs(t, "t1")
+	rows2, _ := syncRowsAs(t, "t2")
+	if rows1["1002"].Status != -1 || rows2["1001"].Status != -1 {
+		t.Fatalf("removed sync = %+v %+v", rows1["1002"], rows2["1001"])
+	}
+	if s := socialTestRequestAs(t, "t1", http.MethodGet, "/v4/friend/status/1002", ""); s.Body.String() != `{"result":2}` {
+		t.Fatalf("removed status = %s", s.Body.String())
+	}
+
+	// Re-applying after removal works.
+	if c := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/friend/apply/", `{"applyAvatarId":"1002"}`); c.Code != http.StatusOK {
+		t.Fatalf("re-apply 1002 = %d %s", c.Code, c.Body.String())
+	}
+	if c := socialTestRequestAs(t, "t2", http.MethodPut, "/v4/friend/accept/1001", "null\x00"); c.Code != http.StatusOK {
+		t.Fatalf("re-accept 1002 = %d", c.Code)
+	}
+
+	// Multi-element integer array removes multiple friends at once and persists across reload.
+	rec = socialTestRequestAs(t, "t1", http.MethodPost, "/v4/friend/remove/", "[1002,1003]\x00")
+	if rec.Code != http.StatusOK || rec.Body.String() != `{"result":{"success":["1002","1003"]}}` {
+		t.Fatalf("POST /v4/friend/remove/ [1002,1003] = %d %s", rec.Code, rec.Body.String())
+	}
+	store.ResetSocial()
+	if err := store.ReloadSocial(); err != nil {
+		t.Fatal(err)
+	}
+	rows1, _ = syncRowsAs(t, "t1")
+	rows2, _ = syncRowsAs(t, "t2")
+	rows3, _ := syncRowsAs(t, "t3")
+	if rows1["1002"].Status != -1 || rows1["1003"].Status != -1 || rows2["1001"].Status != -1 || rows3["1001"].Status != -1 {
+		t.Fatalf("multi-remove after reload = %+v %+v %+v", rows1, rows2, rows3)
+	}
+
+	// Invalid payloads rejected with 400.
+	over100 := "[" + strings.Repeat("1002,", 100) + "1003]"
+	for _, bad := range []string{"[true]", "[1.5]", "[-1]", "[null]", "[{}]", "[[]]", "{}", "null", over100} {
+		if r := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/friend/remove/", bad); r.Code != http.StatusBadRequest {
+			t.Errorf("POST /v4/friend/remove/ %s = %d, want 400", bad, r.Code)
+		}
+	}
+}
+
+func TestFriendDefer(t *testing.T) {
+	installSocialTestAccounts(t, map[string]*store.Account{
+		"t1": {AccessToken: "t1", Aid: "1001", Name: "One"},
+		"t2": {AccessToken: "t2", Aid: "1002", Name: "Two"},
+		"t3": {AccessToken: "t3", Aid: "1003", Name: "Three"},
+		"t4": {AccessToken: "t4", Aid: "1004", Name: "Four"},
+	})
+	store.ResetSocial()
+	t.Cleanup(store.ResetSocial)
+	testutil.UseDatabase(t)
+
+	// 1001 -> 1002 incoming request for t2; 1002 -> 1003 outgoing sent by t2; 1004 <-> 1002 accepted friendship.
+	if c := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/friend/apply/", `{"applyAvatarId":"1002"}`); c.Code != http.StatusOK {
+		t.Fatalf("apply 1001->1002 = %d", c.Code)
+	}
+	if c := socialTestRequestAs(t, "t2", http.MethodPost, "/v4/friend/apply/", `{"applyAvatarId":"1003"}`); c.Code != http.StatusOK {
+		t.Fatalf("apply 1002->1003 = %d", c.Code)
+	}
+	if c := socialTestRequestAs(t, "t4", http.MethodPost, "/v4/friend/apply/", `{"applyAvatarId":"1002"}`); c.Code != http.StatusOK {
+		t.Fatalf("apply 1004->1002 = %d", c.Code)
+	}
+	if c := socialTestRequestAs(t, "t2", http.MethodPut, "/v4/friend/accept/1004", "null\x00"); c.Code != http.StatusOK {
+		t.Fatalf("accept 1004 = %d", c.Code)
+	}
+
+	badge := socialTestRequestAs(t, "t2", http.MethodGet, "/v4/badge/infos/", "")
+	if !strings.Contains(badge.Body.String(), `"IFRD":1`) {
+		t.Fatalf("before defer badge = %s, want IFRD:1", badge.Body.String())
+	}
+
+	// Unauthenticated / bad method / invalid paths.
+	if r := serveRequest(t, httptest.NewRequest(http.MethodPut, "/v4/friend/defer/1001", strings.NewReader("null\x00"))); r.Code != http.StatusNotFound {
+		t.Errorf("unauth defer = %d, want 404", r.Code)
+	}
+	for _, bad := range []struct{ method, path string }{
+		{http.MethodGet, "/v4/friend/defer/1001"},
+		{http.MethodPut, "/v4/friend/defer/"},
+		{http.MethodPut, "/v4/friend/defer/1001/extra"},
+		{http.MethodPut, "/v4/friend/defer/abc"},
+	} {
+		if r := socialTestRequestAs(t, "t2", bad.method, bad.path, "null\x00"); r.Code != http.StatusNotFound {
+			t.Errorf("%s %s = %d, want 404", bad.method, bad.path, r.Code)
+		}
+	}
+
+	// Decline incoming request from 1001.
+	def := socialTestRequestAs(t, "t2", http.MethodPut, "/v4/friend/defer/1001", "null\x00")
+	if def.Code != http.StatusOK || def.Body.String() != `{"result":1}` {
+		t.Fatalf("PUT /v4/friend/defer/1001 = %d %s", def.Code, def.Body.String())
+	}
+	badge = socialTestRequestAs(t, "t2", http.MethodGet, "/v4/badge/infos/", "")
+	if !strings.Contains(badge.Body.String(), `"IFRD":0`) {
+		t.Fatalf("after defer badge = %s, want IFRD:0", badge.Body.String())
+	}
+	// Idempotent second defer also succeeds.
+	if again := socialTestRequestAs(t, "t2", http.MethodPut, "/v4/friend/defer/1001", "null\x00"); again.Code != http.StatusOK || again.Body.String() != `{"result":1}` {
+		t.Fatalf("repeat defer = %d %s", again.Code, again.Body.String())
+	}
+
+	// Deferring an accepted friend or an outgoing sent request does NOT remove them.
+	if r := socialTestRequestAs(t, "t2", http.MethodPut, "/v4/friend/defer/1004", "null\x00"); r.Code != http.StatusOK || r.Body.String() != `{"result":1}` {
+		t.Fatalf("defer accepted = %d %s", r.Code, r.Body.String())
+	}
+	if r := socialTestRequestAs(t, "t2", http.MethodPut, "/v4/friend/defer/1003", "null\x00"); r.Code != http.StatusOK || r.Body.String() != `{"result":1}` {
+		t.Fatalf("defer outgoing = %d %s", r.Code, r.Body.String())
+	}
+
+	store.ResetSocial()
+	if err := store.ReloadSocial(); err != nil {
+		t.Fatal(err)
+	}
+	rows2, _ := syncRowsAs(t, "t2")
+	if rows2["1001"].Status != -1 || rows2["1004"].Status != 1 || rows2["1003"].Status != relSent {
+		t.Fatalf("sync after defer + reload = %+v", rows2)
+	}
+}
+
+func TestIdentityModeRetiresSyntheticFriend(t *testing.T) {
+	useConfig(t, devFakeConfig())
+	installSocialTestAccounts(t, map[string]*store.Account{
+		"t1": {AccessToken: "t1", Aid: "1001", Name: "One"},
+		"t2": {AccessToken: "t2", Aid: "1002", Name: "Two"},
+	})
+	store.ResetSocial()
+	t.Cleanup(store.ResetSocial)
+	store.SocialMu.Lock()
+	store.FriendBookmarked = true
+	store.SocialMu.Unlock()
+
+	// sync/friends tombstones 100000 with status -1, excludes it from bookmarks and friendsCount.
+	syncRec := socialTestRequestAs(t, "t1", http.MethodGet, "/v4/sync/friends/0", "")
+	if syncRec.Code != http.StatusOK {
+		t.Fatalf("sync = %d %s", syncRec.Code, syncRec.Body.String())
+	}
+	var syncOut struct {
+		Result struct {
+			FriendsCount int       `json:"friendsCount"`
+			Bookmarks    []string  `json:"bookmarks"`
+			BuddyList    []syncRow `json:"buddyList"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(syncRec.Body.Bytes(), &syncOut); err != nil {
+		t.Fatal(err)
+	}
+	if syncOut.Result.FriendsCount != 0 || len(syncOut.Result.Bookmarks) != 0 {
+		t.Fatalf("identity sync counts = %+v", syncOut.Result)
+	}
+	var foundTombstone bool
+	for _, b := range syncOut.Result.BuddyList {
+		if b.AvatarNo == store.FriendAID {
+			foundTombstone = b.Status == -1
+		}
+	}
+	if !foundTombstone {
+		t.Fatalf("sync missing -1 tombstone for 100000: %+v", syncOut.Result.BuddyList)
+	}
+
+	// Profile friendsCount excludes 100000 and friendStatus for 100000 is relNone (2).
+	if p := socialTestRequestAs(t, "t1", http.MethodGet, "/v4/profile/1001", ""); !strings.Contains(p.Body.String(), `"friendsCount":0`) {
+		t.Fatalf("profile/1001 = %s", p.Body.String())
+	}
+	if s := socialTestRequestAs(t, "t1", http.MethodGet, "/v4/friend/status/100000", ""); s.Body.String() != `{"result":2}` {
+		t.Fatalf("status/100000 = %s", s.Body.String())
+	}
+
+	// Friend search excludes 100000 (by CODE and NICK) while still finding real accounts.
+	for _, body := range []string{
+		`{"country":"JP","caricNickName":"100000","searchType":"CODE"}`,
+		`{"country":"JP","caricNickName":"Friend","searchType":"NICK"}`,
+	} {
+		sr := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/square/friends/search", body)
+		if sr.Code != http.StatusOK || !strings.Contains(sr.Body.String(), `"items":[]`) {
+			t.Fatalf("search %s = %d %s", body, sr.Code, sr.Body.String())
+		}
+	}
+	srReal := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/square/friends/search", `{"country":"JP","caricNickName":"1002","searchType":"CODE"}`)
+	if srReal.Code != http.StatusOK || !strings.Contains(srReal.Body.String(), `"avatarId":"1002"`) {
+		t.Fatalf("search real = %d %s", srReal.Code, srReal.Body.String())
+	}
+
+	// Apply and accept against 100000 are refused with 404.
+	if r := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/friend/apply/", `{"applyAvatarId":"100000"}`); r.Code != http.StatusNotFound {
+		t.Errorf("apply 100000 = %d, want 404", r.Code)
+	}
+	if r := socialTestRequestAs(t, "t1", http.MethodPut, "/v4/friend/accept/100000", "null\x00"); r.Code != http.StatusNotFound {
+		t.Errorf("accept 100000 = %d, want 404", r.Code)
+	}
+	if r := socialTestRequestAs(t, "t1", http.MethodPut, "/v4/friend/accept/100000/1", "null\x00"); r.Code != http.StatusNotFound {
+		t.Errorf("news accept 100000 = %d, want 404", r.Code)
+	}
+
+	// POST /v4/friend/remove/ with [100000]\x00 returns string success without mutating store.FriendRemoved.
+	rem := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/friend/remove/", "[100000]\x00")
+	if rem.Code != http.StatusOK || rem.Body.String() != `{"result":{"success":["100000"]}}` {
+		t.Fatalf("remove [100000] = %d %s", rem.Code, rem.Body.String())
+	}
+	store.SocialMu.Lock()
+	removedFlag := store.FriendRemoved
+	store.SocialMu.Unlock()
+	if removedFlag {
+		t.Fatalf("store.FriendRemoved mutated to true in identity mode")
+	}
+}
+
+func TestRealFriendBookmarks(t *testing.T) {
+	useConfig(t, devFakeConfig())
+	testutil.UseDatabase(t)
+	installSocialTestAccounts(t, map[string]*store.Account{
+		"t1": {AccessToken: "t1", Aid: "1001", Name: "One"},
+		"t2": {AccessToken: "t2", Aid: "1002", Name: "Two"},
+		"t3": {AccessToken: "t3", Aid: "1003", Name: "Three"},
+	})
+	store.ResetSocial()
+	t.Cleanup(store.ResetSocial)
+
+	bookmarksOf := func(token string) []string {
+		t.Helper()
+		rec := socialTestRequestAs(t, token, http.MethodGet, "/v4/sync/friends/0", "")
+		var out struct {
+			Result struct {
+				Bookmarks []string `json:"bookmarks"`
+			} `json:"result"`
+		}
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &out) != nil {
+			t.Fatalf("sync = %d %s", rec.Code, rec.Body.String())
+		}
+		return out.Result.Bookmarks
+	}
+
+	// Non-friend and retired synthetic 100000 cannot be bookmarked in identity mode.
+	if r := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/friend/bookmark/1002", "{}\x00"); r.Code != http.StatusNotFound {
+		t.Fatalf("bookmark non-friend = %d, want 404", r.Code)
+	}
+	if r := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/friend/bookmark/100000", "{}\x00"); r.Code != http.StatusNotFound {
+		t.Fatalf("bookmark 100000 in identity mode = %d, want 404", r.Code)
+	}
+
+	// Make 1001 and 1002 friends; 1003 stays pending.
+	if r := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/friend/apply/", `{"applyAvatarId":"1002"}`); r.Code != http.StatusOK {
+		t.Fatalf("apply 1002 = %d", r.Code)
+	}
+	if r := socialTestRequestAs(t, "t2", http.MethodPut, "/v4/friend/accept/1001", "null\x00"); r.Code != http.StatusOK {
+		t.Fatalf("accept 1001 = %d", r.Code)
+	}
+	if r := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/friend/apply/", `{"applyAvatarId":"1003"}`); r.Code != http.StatusOK {
+		t.Fatalf("apply 1003 = %d", r.Code)
+	}
+	if r := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/friend/bookmark/1003", "{}\x00"); r.Code != http.StatusNotFound {
+		t.Fatalf("bookmark pending friend = %d, want 404", r.Code)
+	}
+
+	// Add bookmark for accepted friend 1002 (and verify idempotency + persistence).
+	for i := 0; i < 2; i++ {
+		r := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/friend/bookmark/1002", "{}\x00")
+		if r.Code != http.StatusOK || r.Body.String() != `{"result":1}` {
+			t.Fatalf("bookmark 1002 = %d %s", r.Code, r.Body.String())
+		}
+	}
+	if got := bookmarksOf("t1"); len(got) != 1 || got[0] != "1002" {
+		t.Fatalf("t1 bookmarks = %v, want [1002]", got)
+	}
+	if got := bookmarksOf("t2"); len(got) != 0 {
+		t.Fatalf("t2 bookmarks = %v, want []", got)
+	}
+	if err := store.ReloadAccounts(); err != nil {
+		t.Fatal(err)
+	}
+	if got := bookmarksOf("t1"); len(got) != 1 || got[0] != "1002" {
+		t.Fatalf("t1 bookmarks after reload = %v, want [1002]", got)
+	}
+
+	// Remove bookmark and verify persistence + idempotency.
+	r := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/friend/bookmark/remove/1002", "{}\x00")
+	if r.Code != http.StatusOK || r.Body.String() != `{"result":1}` {
+		t.Fatalf("remove bookmark = %d %s", r.Code, r.Body.String())
+	}
+	if err := store.ReloadAccounts(); err != nil {
+		t.Fatal(err)
+	}
+	if got := bookmarksOf("t1"); len(got) != 0 {
+		t.Fatalf("t1 bookmarks after remove+reload = %v, want []", got)
+	}
+	if r := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/friend/bookmark/remove/1002", "{}\x00"); r.Code != http.StatusOK || r.Body.String() != `{"result":1}` {
+		t.Fatalf("idempotent remove bookmark = %d %s", r.Code, r.Body.String())
+	}
+
+	// Mutual bookmark -> unfriend clears both sides' bookmarks cleanly (even after re-friending).
+	if r := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/friend/bookmark/1002", "{}\x00"); r.Code != http.StatusOK {
+		t.Fatalf("re-bookmark t1->1002 = %d", r.Code)
+	}
+	if r := socialTestRequestAs(t, "t2", http.MethodPost, "/v4/friend/bookmark/1001", "{}\x00"); r.Code != http.StatusOK {
+		t.Fatalf("bookmark t2->1001 = %d", r.Code)
+	}
+	if rem := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/friend/remove/", "[1002]\x00"); rem.Code != http.StatusOK {
+		t.Fatalf("unfriend = %d %s", rem.Code, rem.Body.String())
+	}
+	if err := store.ReloadAccounts(); err != nil {
+		t.Fatal(err)
+	}
+	if got1, got2 := bookmarksOf("t1"), bookmarksOf("t2"); len(got1) != 0 || len(got2) != 0 {
+		t.Fatalf("bookmarks after unfriend = t1:%v t2:%v, want empty", got1, got2)
+	}
+	// Re-friending stays unbookmarked.
+	socialTestRequestAs(t, "t1", http.MethodPost, "/v4/friend/apply/", `{"applyAvatarId":"1002"}`)
+	socialTestRequestAs(t, "t2", http.MethodPut, "/v4/friend/accept/1001", "null\x00")
+	if got1, got2 := bookmarksOf("t1"), bookmarksOf("t2"); len(got1) != 0 || len(got2) != 0 {
+		t.Fatalf("bookmarks after re-friend = t1:%v t2:%v, want empty", got1, got2)
+	}
+}

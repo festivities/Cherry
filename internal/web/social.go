@@ -12,11 +12,14 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"cherry/internal/config"
 	"cherry/internal/economy"
 	"cherry/internal/httpx"
 	"cherry/internal/lpn"
 	"cherry/internal/store"
 )
+
+func syntheticFriendEnabled() bool { return !config.IdentityMode() }
 
 type buddyRow struct {
 	AvatarNo            string `json:"avatarNo"`
@@ -81,7 +84,14 @@ func handleFriendSync(w http.ResponseWriter, r *http.Request) {
 		buddies = append(buddies, buddyRow{AvatarNo: aid, BuddyAvatarNo: aid, Status: -1, FriendStatus: -1, LineBuddyYn: "N", Mid: aid})
 	}
 	bookmarks := []string{}
-	if !removed {
+	if !syntheticFriendEnabled() {
+		if _, live := store.AccountByAvatarID(store.FriendAID); !live {
+			buddies = append(buddies, buddyRow{
+				AvatarNo: store.FriendAID, BuddyAvatarNo: store.FriendAID,
+				Status: -1, FriendStatus: -1, LineBuddyYn: "N", Mid: store.FriendAID,
+			})
+		}
+	} else if !removed {
 		// Native sorts by status: 1 is an accepted friend (My Friends); 0 lands in Received Requests.
 		buddies = append(buddies, buddyRow{
 			AvatarNo: store.FriendAID, AvatarName: store.FriendName(), BuddyAvatarNo: store.FriendAID,
@@ -103,13 +113,22 @@ func handleFriendSync(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	friends := 0
+	accepted := make(map[string]bool, len(buddies))
 	for _, b := range buddies {
 		if b.Status == 1 {
 			friends++
+			accepted[b.AvatarNo] = true
 		}
 	}
-	if marked && !removed {
-		bookmarks = []string{store.FriendAID}
+	if syntheticFriendEnabled() && marked && !removed {
+		bookmarks = append(bookmarks, store.FriendAID)
+	}
+	if actorOK {
+		for _, aid := range actor.FriendBookmarks {
+			if accepted[aid] && !slices.Contains(bookmarks, aid) {
+				bookmarks = append(bookmarks, aid)
+			}
+		}
 	}
 	// The Friends screen's own "Profile" row (NaFriendProfileCell, from the sync reply's top level) has the same gate:
 	// myProfileImageUrl non-empty, then obsProfileImagePath (friendlist-picture-spec 2026-11-22).
@@ -147,7 +166,7 @@ const (
 // friendRelation returns the enum from actor's point of view. Caller holds socialMu.
 func friendRelation(actor string, actorOK bool, aid string) int {
 	if aid == store.FriendAID {
-		if store.FriendRemoved {
+		if !syntheticFriendEnabled() || store.FriendRemoved {
 			return relNone
 		}
 		return relFriends
@@ -226,7 +245,7 @@ func profileBodyFor(aid, name string, hasGarden bool, viewer store.AccountSnapsh
 			friendsCount++
 		}
 	}
-	if aid != store.FriendAID && !store.FriendRemoved {
+	if aid != store.FriendAID && syntheticFriendEnabled() && !store.FriendRemoved {
 		friendsCount++
 	}
 	store.SocialMu.Unlock()
@@ -280,12 +299,15 @@ func handleBadgeSetAck(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, badgeSetAckBody)
 }
 
+const maxFriendBookmarks = 500
+
 func handleFriendBookmark(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		httpx.ServeNotFound(w)
 		return
 	}
-	if _, ok := store.AccountForRequest(r); !ok {
+	actor, ok := store.AccountForRequest(r)
+	if !ok {
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
 		return
 	}
@@ -296,23 +318,114 @@ func handleFriendBookmark(w http.ResponseWriter, r *http.Request) {
 		rest = cut
 	}
 	aid := strings.Trim(rest, "/")
-	if strings.Contains(aid, "/") || aid != store.FriendAID {
+	if strings.Contains(aid, "/") || !store.ValidAvatarID(aid) {
 		httpx.ServeNotFound(w)
 		return
 	}
-	store.SocialMu.Lock()
-	prev := store.FriendBookmarked
-	store.FriendBookmarked = !remove && !store.FriendRemoved
-	err := store.SaveSocialLocked(store.SocialChange{Scalars: true})
-	if err != nil {
-		store.FriendBookmarked = prev
+	if aid == store.FriendAID {
+		if !syntheticFriendEnabled() {
+			httpx.ServeNotFound(w)
+			return
+		}
+		store.SocialMu.Lock()
+		prev := store.FriendBookmarked
+		store.FriendBookmarked = !remove && !store.FriendRemoved
+		err := store.SaveSocialLocked(store.SocialChange{Scalars: true})
+		if err != nil {
+			store.FriendBookmarked = prev
+		}
+		store.SocialMu.Unlock()
+		if err != nil {
+			httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, `{"result":1}`)
+		return
 	}
-	store.SocialMu.Unlock()
+	store.AccountsMu.Lock()
+	acc := store.AccountByAidLocked(actor.Aid)
+	if acc == nil {
+		store.AccountsMu.Unlock()
+		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
+		return
+	}
+	if !remove {
+		store.SocialMu.Lock()
+		accepted := store.FriendshipIndex(acc.Aid, aid, "accepted") >= 0
+		store.SocialMu.Unlock()
+		if !accepted {
+			store.AccountsMu.Unlock()
+			httpx.ServeNotFound(w)
+			return
+		}
+	}
+	prev := acc.FriendBookmarks
+	var next []string
+	changed := false
+	if remove {
+		if slices.Contains(prev, aid) {
+			next = make([]string, 0, len(prev))
+			for _, id := range prev {
+				if id != aid {
+					next = append(next, id)
+				}
+			}
+			changed = true
+		}
+	} else if !slices.Contains(prev, aid) {
+		if len(prev) >= maxFriendBookmarks {
+			store.AccountsMu.Unlock()
+			httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+			return
+		}
+		next = append(slices.Clone(prev), aid)
+		changed = true
+	}
+	var err error
+	if changed {
+		acc.FriendBookmarks = next
+		err = store.SaveLocked(nil, acc)
+		if err != nil {
+			acc.FriendBookmarks = prev
+		}
+	}
+	store.AccountsMu.Unlock()
 	if err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, `{"result":1}`)
+}
+
+func parseFriendRemoveIDs(raw []byte) ([]string, bool) {
+	var items []json.RawMessage
+	if _, err := httpx.UnmarshalNativeJSON(raw, &items); err != nil || items == nil || len(items) > 100 {
+		return nil, false
+	}
+	aids := make([]string, 0, len(items))
+	for _, elem := range items {
+		trimmed := strings.TrimSpace(string(elem))
+		if trimmed == "" || trimmed == "null" {
+			return nil, false
+		}
+		var aid string
+		if trimmed[0] == '"' {
+			if err := json.Unmarshal(elem, &aid); err != nil {
+				return nil, false
+			}
+		} else {
+			var n json.Number
+			if err := json.Unmarshal(elem, &n); err != nil {
+				return nil, false
+			}
+			aid = n.String()
+		}
+		if !store.ValidAvatarID(aid) {
+			return nil, false
+		}
+		aids = append(aids, aid)
+	}
+	return aids, true
 }
 
 func handleFriendRemove(w http.ResponseWriter, r *http.Request) {
@@ -330,44 +443,55 @@ func handleFriendRemove(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
 	}
-	var aids []string
-	if _, err = httpx.UnmarshalNativeJSON(raw, &aids); err != nil || aids == nil || len(aids) > 100 {
+	aids, ok := parseFriendRemoveIDs(raw)
+	if !ok {
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
-	}
-	for _, aid := range aids {
-		if !store.ValidAvatarID(aid) {
-			httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
-			return
-		}
 	}
 	removed := []string{}
 	store.SocialMu.Lock()
 	prevRemoved, prevMarked := store.FriendRemoved, store.FriendBookmarked
 	prevFriendships := append([]store.Friendship(nil), store.Friendships...)
 	var changed [][2]string
+	scalarsChanged := false
 	for _, aid := range aids {
-		if i := store.FriendshipIndex(actor.Aid, aid, ""); i >= 0 && store.Friendships[i].State != "removed" {
-			store.Friendships[i].State = "removed"
-			removed = append(removed, aid)
-			changed = append(changed, [2]string{actor.Aid, aid})
+		if i := store.FriendshipIndex(actor.Aid, aid, ""); i >= 0 {
+			if store.Friendships[i].State != "removed" {
+				store.Friendships[i].State = "removed"
+				changed = append(changed, [2]string{actor.Aid, aid})
+			}
+			if !slices.Contains(removed, aid) {
+				removed = append(removed, aid)
+			}
 		}
-		if aid == store.FriendAID && !store.FriendRemoved {
-			store.FriendRemoved = true
-			store.FriendBookmarked = false
-			removed = append(removed, store.FriendAID)
+		if aid == store.FriendAID {
+			if !syntheticFriendEnabled() {
+				if !slices.Contains(removed, store.FriendAID) {
+					removed = append(removed, store.FriendAID)
+				}
+			} else if !store.FriendRemoved {
+				store.FriendRemoved = true
+				store.FriendBookmarked = false
+				removed = append(removed, store.FriendAID)
+				scalarsChanged = true
+			}
 		}
 	}
-	err = store.SaveSocialLocked(store.SocialChange{Friends: changed, Scalars: true})
-	if err != nil {
-		store.FriendRemoved, store.FriendBookmarked = prevRemoved, prevMarked
-		store.Friendships = prevFriendships
-		removed = nil
+	if len(changed) > 0 || scalarsChanged {
+		err = store.SaveSocialLocked(store.SocialChange{Friends: changed, Scalars: scalarsChanged})
+		if err != nil {
+			store.FriendRemoved, store.FriendBookmarked = prevRemoved, prevMarked
+			store.Friendships = prevFriendships
+			removed = nil
+		}
 	}
 	store.SocialMu.Unlock()
 	if err != nil {
 		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
 		return
+	}
+	if len(changed) > 0 {
+		dropBookmarkIDs(actor.Aid, changed)
 	}
 	if removed == nil {
 		removed = []string{}
@@ -378,6 +502,96 @@ func handleFriendRemove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, string(body))
+}
+
+func dropBookmarkIDs(actorAid string, changed [][2]string) {
+	dropForActor := make(map[string]bool, len(changed))
+	for _, pair := range changed {
+		dropForActor[pair[1]] = true
+	}
+	store.AccountsMu.Lock()
+	defer store.AccountsMu.Unlock()
+	type savedPrev struct {
+		acc  *store.Account
+		prev []string
+	}
+	var dirty []*store.Account
+	var undo []savedPrev
+	prune := func(acc *store.Account, match func(string) bool) {
+		if acc == nil || len(acc.FriendBookmarks) == 0 {
+			return
+		}
+		var next []string
+		removed := false
+		for _, id := range acc.FriendBookmarks {
+			if match(id) {
+				removed = true
+				continue
+			}
+			next = append(next, id)
+		}
+		if !removed {
+			return
+		}
+		undo = append(undo, savedPrev{acc: acc, prev: acc.FriendBookmarks})
+		acc.FriendBookmarks = next
+		dirty = append(dirty, acc)
+	}
+	prune(store.AccountByAidLocked(actorAid), func(id string) bool { return dropForActor[id] })
+	seenPeer := make(map[string]bool, len(changed))
+	for _, pair := range changed {
+		peerAid := pair[1]
+		if seenPeer[peerAid] {
+			continue
+		}
+		seenPeer[peerAid] = true
+		prune(store.AccountByAidLocked(peerAid), func(id string) bool { return id == actorAid })
+	}
+	if len(dirty) > 0 {
+		if err := store.SaveLocked(nil, dirty...); err != nil {
+			for _, u := range undo {
+				u.acc.FriendBookmarks = u.prev
+			}
+		}
+	}
+}
+
+func handleFriendDefer(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		httpx.ServeNotFound(w)
+		return
+	}
+	actor, ok := store.AccountForRequest(r)
+	if !ok {
+		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
+		return
+	}
+	aid := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/v4/friend/defer/"), "/")
+	if strings.Contains(aid, "/") || !store.ValidAvatarID(aid) {
+		httpx.ServeNotFound(w)
+		return
+	}
+	if _, err := httpx.ReadNativeBody(r); err != nil {
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
+	var err error
+	store.SocialMu.Lock()
+	if i := store.FriendshipIndex(actor.Aid, aid, ""); i >= 0 &&
+		store.Friendships[i].State == "pending" && store.Friendships[i].B == actor.Aid {
+		prev := store.Friendships[i].State
+		store.Friendships[i].State = "removed"
+		err = store.SaveSocialLocked(store.SocialChange{Friends: [][2]string{{actor.Aid, aid}}})
+		if err != nil {
+			store.Friendships[i].State = prev
+		}
+	}
+	store.SocialMu.Unlock()
+	if err != nil {
+		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, `{"result":1}`)
 }
 
 func handleDiaryCheckExist(w http.ResponseWriter, r *http.Request) {
@@ -1159,12 +1373,16 @@ func handleFriendSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items := []friendSearchItem{{AvatarID: store.FriendAID, CaricNickName: store.FriendName(), FriendStatus: "1"}}
-	store.SocialMu.Lock()
-	removed := store.FriendRemoved
-	store.SocialMu.Unlock()
-	if removed {
-		items[0].FriendStatus = strconv.Itoa(relNone)
+	var items []friendSearchItem
+	if syntheticFriendEnabled() {
+		status := "1"
+		store.SocialMu.Lock()
+		removed := store.FriendRemoved
+		store.SocialMu.Unlock()
+		if removed {
+			status = strconv.Itoa(relNone)
+		}
+		items = append(items, friendSearchItem{AvatarID: store.FriendAID, CaricNickName: store.FriendName(), FriendStatus: status})
 	}
 	store.AccountsMu.Lock()
 	byID := make(map[string]friendSearchItem, store.AccountCountLocked())
@@ -1192,10 +1410,11 @@ func handleFriendSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	store.SocialMu.Unlock()
+	sortStart := len(items)
 	for _, item := range byID {
 		items = append(items, item)
 	}
-	sort.Slice(items[1:], func(i, j int) bool { return items[i+1].AvatarID < items[j+1].AvatarID })
+	sort.Slice(items[sortStart:], func(i, j int) bool { return items[sortStart+i].AvatarID < items[sortStart+j].AvatarID })
 	matches := make([]friendSearchItem, 0, len(items))
 	for _, item := range items {
 		match := item.AvatarID == strings.ReplaceAll(query, "-", "") // the client groups a typed code: 1001 arrives as "10-01"
@@ -1318,7 +1537,7 @@ func handleFriendApply(w http.ResponseWriter, r *http.Request) {
 	if aid == "" {
 		aid = req.ApplyAvatarID
 	}
-	if !store.KnownFriendTarget(aid) {
+	if !store.KnownFriendTarget(aid) || (!syntheticFriendEnabled() && aid == store.FriendAID) {
 		httpx.ServeNotFound(w)
 		return
 	}
@@ -1370,6 +1589,10 @@ func handleFriendAccept(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if aid == store.FriendAID {
+			if !syntheticFriendEnabled() {
+				httpx.ServeNotFound(w)
+				return
+			}
 			restoreFriendWithBody(w, `{"result":true}`)
 			return
 		}
@@ -1387,7 +1610,7 @@ func handleFriendAccept(w http.ResponseWriter, r *http.Request) {
 	aid := parts[0]
 	raw, err := httpx.ReadNativeBody(r)
 	var body any
-	if !store.KnownFriendTarget(aid) {
+	if !store.KnownFriendTarget(aid) || (!syntheticFriendEnabled() && aid == store.FriendAID) {
 		httpx.ServeNotFound(w)
 		return
 	}

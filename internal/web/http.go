@@ -409,7 +409,9 @@ func newMux(svc *auth.Service) http.Handler {
 	// POST badge/nopush/CHAT/<n> is the client's write-back of its own CHAT count: acknowledged, the number is ignored (the server counts).
 	mux.HandleFunc("/v4/badge/nopush/", handleBadgeSetAck)
 	mux.HandleFunc("/v4/friend/bookmark/", handleFriendBookmark)
+	mux.HandleFunc("/v4/friend/remove/", handleFriendRemove)
 	mux.HandleFunc("/v4/r/friend/remove/", handleFriendRemove)
+	mux.HandleFunc("/v4/friend/defer/", handleFriendDefer)
 	mux.HandleFunc("/v4/friend/status/", handleFriendStatus)
 	mux.HandleFunc("/v4/friend/relationship/", handleFriendRelationship)
 	mux.HandleFunc("/v4/friend/apply/", handleFriendApply)
