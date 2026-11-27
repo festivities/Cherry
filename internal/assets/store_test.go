@@ -453,7 +453,7 @@ func TestFlagDefaultIsOff(t *testing.T) {
 }
 
 func TestDiarySkinKey(t *testing.T) {
-	skins := []string{"00001", "00002", "00003", "00005", "00009", "00015", "00016"}
+	skins := []string{"00001", "00002", "00003", "00005", "00009", "00014", "00015", "00016"}
 	for _, lang := range []string{"en", "jp", "tw", "th", "ko"} {
 		p := "/arts_diaryskin_" + lang + "_00007/common/UIImage_hd/avatar_photo_bg.png"
 		if got, ok := diarySkinKey(p); !ok || got != "static/DiarySkin/common/UIImage_hd/avatar_photo_bg.png" {
@@ -492,6 +492,7 @@ func TestServeDiarySkin(t *testing.T) {
 		"00003/UIImage_hd/skin_info.json":       `{"id":3}`,
 		"00005/UIImage_hd/skin_info.json":       `{"id":5}`,
 		"00009/UIImage_hd/skin_info.json":       `{"id":9}`,
+		"00014/UIImage_hd/skin_info.json":       `{"id":14}`,
 		"00015/UIImage_hd/skin_info.json":       `{"id":15}`,
 		"00016/UIImage_hd/skin_info.json":       `{"id":16}`,
 	}

@@ -51,6 +51,49 @@ func runUpload(ctx context.Context, objs []*object, concurrency int, packsOnly, 
 	return uploadWithClient(ctx, client, logger, objs, concurrency, packsOnly, origOnly, cat)
 }
 
+// runUploadMissing lists the bucket once (static/ and cherry/) and uploads only planned objects that are
+// absent or differ in size in R2. It refuses to run if any missing object belongs to a bulk category, map
+// pack, or generated item (which require rewriting cherry/manifest/* via full upload / -cat / -packs-only).
+func runUploadMissing(ctx context.Context, objs []*object, concurrency int) error {
+	cfg, err := loadR2()
+	if err != nil {
+		return err
+	}
+	client := assets.NewClient(cfg)
+	have := map[string]int64{}
+	for _, prefix := range []string{"static/", assets.CherryPrefix} {
+		token := ""
+		for {
+			page, next, err := client.ListPage(ctx, prefix, token)
+			if err != nil {
+				return fmt.Errorf("list %s: %w", prefix, err)
+			}
+			for _, o := range page {
+				have[o.Key] = o.Size
+			}
+			if next == "" {
+				break
+			}
+			token = next
+		}
+	}
+	var missing []*object
+	for _, o := range objs {
+		if sz, ok := have[o.key]; ok && sz == o.size {
+			continue
+		}
+		if o.cat != "" || o.pack != "" || o.generated {
+			return fmt.Errorf("-missing-only: %s belongs to a manifest-tracked group; use full upload, -cat, or -packs-only", o.key)
+		}
+		missing = append(missing, o)
+	}
+	fmt.Printf("missing-only: %d missing/changed of %d planned objects\n", len(missing), len(objs))
+	if len(missing) == 0 {
+		return nil
+	}
+	return runUpload(ctx, missing, concurrency, false, true, "")
+}
+
 func uploadWithClient(ctx context.Context, client *assets.Client, logger *log.Logger, objs []*object, concurrency int, packsOnly, origOnly bool, cat string) error {
 	ctx, stop := context.WithCancel(ctx)
 	defer stop()
@@ -392,7 +435,7 @@ func verifyGroup(key string) string {
 		return "item:" + parts[2]
 	case len(parts) > 2 && parts[1] == "chatting":
 		return "chat:action"
-	case len(parts) > 1 && (parts[1] == "garden" || parts[1] == "world"):
+	case len(parts) > 1 && slices.Contains(assets.PackDirs, parts[1]):
 		return "pack:" + parts[1]
 	}
 	return "bulk:" + parts[1]

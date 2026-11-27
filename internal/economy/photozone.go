@@ -15,14 +15,19 @@ import (
 // @0x1da43b4). The client renders the comic itself (SaveComicLayerToPNG), uploads
 // it through OBS (existing /lineplay/d/upload.nhn) and posts via the normal diary
 // write route (UploadToDiary @0x1e96a08, type 0), so nothing else is served.
-// Frames are the 50 pre-cached dirs under files/cache/photozone/frame/<dir>/
-// (animation.aniproj bg.png myavatar.png otheravatar.png thumbnail.png); the
+// Frames are the 80 original dirs under files/cache/photozone/frame/<dir>/
+// (50 from santi + 30 frames 001..030 from robo-2015backup-20261127;
+// animation.aniproj bg.png myavatar.png otheravatar.png thumbnail.png); the
 // client loads them from disk and only downloads files that are missing.
 // Action thumbs are UIResource/UIImage_hd/action_comic_{a,f,m}<id>.png; the ids
 // below exist for all three genders.
 
 var PhotoZoneFrames = []string{
-	"0-2", "031", "032", "033", "034", "035", "036", "037", "038", "039-2",
+	"0-2",
+	"001", "002", "003", "004", "005", "006", "007", "008", "009", "010",
+	"011", "012", "013", "014", "015", "016", "017", "018", "019", "020",
+	"021", "022", "023", "024", "025", "026", "027", "028", "029", "030",
+	"031", "032", "033", "034", "035", "036", "037", "038", "039-2",
 	"040", "041", "042", "043", "044", "045", "046", "047", "048", "049",
 	"050", "051", "052", "053", "054", "055", "056", "057", "058", "059",
 	"060", "061", "062", "063", "064", "065", "066", "067-1", "068", "069-1", "070-2",

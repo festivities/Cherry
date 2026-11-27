@@ -974,11 +974,11 @@ func TestDiarySkinList(t *testing.T) {
 		if err := json.Unmarshal(out.Result[0], &entries); err != nil {
 			t.Fatalf("GET %s result[0]: %v", path, err)
 		}
-		if len(entries) != 7 {
-			t.Fatalf("GET %s entries = %d, want 7", path, len(entries))
+		if len(entries) != 8 {
+			t.Fatalf("GET %s entries = %d, want 8", path, len(entries))
 		}
-		wantResources := []int{1, 2, 3, 5, 9, 15, 16}
-		wantIDs := []string{"default", "00002", "00003", "00005", "00009", "00015", "00016"}
+		wantResources := []int{1, 2, 3, 5, 9, 15, 16, 14}
+		wantIDs := []string{"default", "00002", "00003", "00005", "00009", "00015", "00016", "00014"}
 		for i, e := range entries {
 			if e.SkinSn != i+1 || e.SkinID != wantIDs[i] || e.SkinCategoryID != "default" ||
 				e.ResourceNumber != wantResources[i] || e.Flag != 0 || e.Sort != i+1 ||
@@ -1019,6 +1019,7 @@ func TestDiarySkinInfo(t *testing.T) {
 		{"/v4/diary2/skinInfo/Android?osVersion=10.1.0.0", "default", 1},
 		{"/v4/diary2/skinInfo/Android?diary_skin_id=", "default", 1},
 		{"/v4/diary2/skinInfo/Android/?diary_skin_id=00005", "00005", 5},
+		{"/v4/diary2/skinInfo/Android?diary_skin_id=00014", "00014", 14},
 		{"/v4/diary2/skinInfo/iPhone?diary_skin_id=00016&osVersion=10.1.0", "00016", 16},
 	}
 	for _, tc := range cases {

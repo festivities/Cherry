@@ -15,6 +15,15 @@ func TestCheckOrigListsOnlyTheDiarySkinFiles(t *testing.T) {
 			t.Errorf("%s refused: %v", o.key, err)
 		}
 	}
+	r2015 := &object{
+		key:    "static/DiarySkin/00014/UIImage_hd/skin_info.json",
+		path:   filepath.Join(robo2015Dataset, "DiarySkin", "00014", "UIImage_hd", "skin_info.json"),
+		source: "DiarySkin",
+		rel:    "00014/UIImage_hd/skin_info.json",
+	}
+	if err := checkOrig(r2015); err != nil {
+		t.Errorf("%s refused: %v", r2015.key, err)
+	}
 	other := &object{key: "static/DiarySkin/00001/UIImage_hd/avatar_photo_bg.png", path: filepath.Join(folder, "00001", "UIImage_hd", "avatar_photo_bg.png"), source: "DiarySkin", rel: "00001/UIImage_hd/avatar_photo_bg.png"}
 	if err := checkOrig(other); err == nil {
 		t.Errorf("unlisted diary skin file accepted: %s", other.key)

@@ -1996,6 +1996,7 @@ var diarySkins = []diarySkinEntry{
 	{SkinSn: 5, SkinID: "00009", SkinCategoryID: "default", ResourceNumber: 9, Flag: 0, Sort: 5, HasSkin: true, SkinNm: "00009", Version: 7},
 	{SkinSn: 6, SkinID: "00015", SkinCategoryID: "default", ResourceNumber: 15, Flag: 0, Sort: 6, HasSkin: true, SkinNm: "00015", Version: 7},
 	{SkinSn: 7, SkinID: "00016", SkinCategoryID: "default", ResourceNumber: 16, Flag: 0, Sort: 7, HasSkin: true, SkinNm: "00016", Version: 7},
+	{SkinSn: 8, SkinID: "00014", SkinCategoryID: "default", ResourceNumber: 14, Flag: 0, Sort: 8, HasSkin: true, SkinNm: "00014", Version: 7},
 }
 
 func handleDiarySkinList(w http.ResponseWriter, r *http.Request) {

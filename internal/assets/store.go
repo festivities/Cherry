@@ -435,6 +435,7 @@ var diarySkinFiles = map[string]string{
 	"00003/UIImage_hd/skin_info.json":       "static/DiarySkin/00003/UIImage_hd/skin_info.json",
 	"00005/UIImage_hd/skin_info.json":       "static/DiarySkin/00005/UIImage_hd/skin_info.json",
 	"00009/UIImage_hd/skin_info.json":       "static/DiarySkin/00009/UIImage_hd/skin_info.json",
+	"00014/UIImage_hd/skin_info.json":       "static/DiarySkin/00014/UIImage_hd/skin_info.json",
 	"00015/UIImage_hd/skin_info.json":       "static/DiarySkin/00015/UIImage_hd/skin_info.json",
 	"00016/UIImage_hd/skin_info.json":       "static/DiarySkin/00016/UIImage_hd/skin_info.json",
 }

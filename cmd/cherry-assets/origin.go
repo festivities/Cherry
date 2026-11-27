@@ -67,6 +67,7 @@ var origSources = append([]origSource{
 	{top: "DiarySkin", base: defaultDataset, file: "00015/UIImage_hd/skin_info.json"},
 	{top: "DiarySkin", base: roboDataset, file: "00005/UIImage_hd/skin_info.json"},
 	{top: "DiarySkin", base: roboDataset, file: "00009/UIImage_hd/skin_info.json"},
+	{top: "DiarySkin", base: robo2015Dataset, file: "00014/UIImage_hd/skin_info.json"},
 	{top: "DiarySkin", base: roboDataset, file: "00016/UIImage_hd/skin_info.json"},
 	// Treasure World season pictures (SeasonInfo picture fields, economy.TreasureSeasonArt): the server's season art as
 	// the robo iOS device cached it; served at /cherry/treasure/<name> from static/cache/season_master/.

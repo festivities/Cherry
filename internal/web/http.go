@@ -70,7 +70,7 @@ func diarySkinListBody(path string) (string, bool) {
 	switch dir {
 	case "common":
 		return "[avatar_photo_bg.png]", true
-	case "00001", "00002", "00003", "00005", "00009", "00015", "00016":
+	case "00001", "00002", "00003", "00005", "00009", "00014", "00015", "00016":
 		return "[skin_info.json]", true
 	default:
 		return "", false

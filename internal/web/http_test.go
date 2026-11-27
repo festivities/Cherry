@@ -384,6 +384,7 @@ func TestSkinFileIni(t *testing.T) {
 		"/arts_diaryskin_th_00007/00003/UIImage_hd/skin_file.ini":  "[skin_info.json]",
 		"/arts_diaryskin_ko_00007/00005/UIImage_hd/skin_file.ini":  "[skin_info.json]",
 		"/arts_diaryskin_tw_00007/00009/UIImage_hd/skin_file.ini":  "[skin_info.json]",
+		"/arts_diaryskin_en_00007/00014/UIImage_hd/skin_file.ini":  "[skin_info.json]",
 		"/arts_diaryskin_en_00007/00015/UIImage_hd/skin_file.ini":  "[skin_info.json]",
 		"/arts_diaryskin_jp_00007/00016/UIImage_hd/skin_file.ini":  "[skin_info.json]",
 		"/arts_diaryskin_jp/common/UIImage_hd/skin_file.ini":       skinFileIniBody,
@@ -432,6 +433,7 @@ func TestDiarySkinFilesServedFromStore(t *testing.T) {
 		"00003/UIImage_hd/skin_info.json":       `{"color":"#00ff00"}`,
 		"00005/UIImage_hd/skin_info.json":       `{"color":"#ffffff"}`,
 		"00009/UIImage_hd/skin_info.json":       `{"color":"#112233"}`,
+		"00014/UIImage_hd/skin_info.json":       `{"color":"#939dab"}`,
 		"00015/UIImage_hd/skin_info.json":       `{"color":"#445566"}`,
 		"00016/UIImage_hd/skin_info.json":       `{"color":"#778899"}`,
 	}
