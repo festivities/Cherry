@@ -570,7 +570,7 @@ func TestCreateAvatarLegacyShortTypeAndNumericCode(t *testing.T) {
 	accessToken := guestGenerate(t)
 	token := avAuthValue(t, createSession(t, accessToken))
 
-	payload := []byte(`{"name":"","avatarType":"F","nationCode":"JP","skinColor":"1","itemCodes":["1001"],"useMid":true}`)
+	payload := []byte(`{"name":"Ann","avatarType":"F","nationCode":"JP","skinColor":"1","itemCodes":["1001"],"useMid":true}`)
 	rec := createAvatar(t, token, payload, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %q", rec.Code, rec.Body.String())
@@ -1011,7 +1011,7 @@ func TestCreateAvatarNumericItemCodes(t *testing.T) {
 	accessToken := guestGenerate(t)
 	token := avAuthValue(t, createSession(t, accessToken))
 
-	rec := createAvatar(t, token, []byte(`{"name":"","avatarType":"FEMALE","skinColor":1,"itemCodes":[1001,"CUON001CH"],"useMid":true}`), "")
+	rec := createAvatar(t, token, []byte(`{"name":"Ann","avatarType":"FEMALE","skinColor":1,"itemCodes":[1001,"CUON001CH"],"useMid":true}`), "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %q", rec.Code, rec.Body.String())
 	}
@@ -1062,5 +1062,26 @@ func TestCreateAvatarDropsCodesOfTheOtherSpecies(t *testing.T) {
 				t.Errorf("items = %v, want %v", got, c.kept)
 			}
 		})
+	}
+}
+
+// TestCreateAvatarRefusesBadNicknames: the creation applies the nickname rule (store.ValidNickname) the stock client checks
+// before sending: a name with a tall stack of combining marks (the 2026-11-27 crash string), one of 21 characters and a
+// newline are each a 400, and the account keeps no avatar.
+func TestCreateAvatarRefusesBadNicknames(t *testing.T) {
+	accessToken := guestGenerate(t)
+	token := avAuthValue(t, createSession(t, accessToken))
+	for _, name := range []string{
+		"\u0e01" + strings.Repeat("\u0e39", 25) + strings.Repeat("\u0e47", 24),
+		strings.Repeat("a", 21),
+		"two\nlines",
+	} {
+		body, _ := json.Marshal(map[string]any{"name": name, "avatarType": "FEMALE", "skinColor": 1, "itemCodes": []string{"CUON001CH"}})
+		if rec := createAvatar(t, token, nativeAvatarBody(string(body)), ""); rec.Code != http.StatusBadRequest || rec.Body.String() != httpx.BadRequestBody {
+			t.Fatalf("name %q: status = %d, body = %q, want 400", name, rec.Code, rec.Body.String())
+		}
+	}
+	if aid := decodeSession(t, checkSession(t, token)).Aid; aid != "0" {
+		t.Fatalf("aid = %q after refused creations, want %q", aid, "0")
 	}
 }

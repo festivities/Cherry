@@ -838,6 +838,7 @@ func miniPetChangeMemo(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusBadRequest, `{"errorCode":"400","errorMessage":"memo too long"}`)
 		return
 	}
+	memo = MaskBannedWords(memo)
 	acc := minipetAccount(w, r)
 	if acc == nil {
 		return

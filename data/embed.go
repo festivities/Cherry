@@ -194,6 +194,11 @@ var PopupsJSON []byte
 //go:embed news.json
 var NewsJSON []byte
 
+// BannedWordsJSON is the operator's banned word list (economy/bannedwords.go). The embedded list is empty.
+//
+//go:embed bannedwords.json
+var BannedWordsJSON []byte
+
 // ItemNamesJSON is the community-contributed built-in item display name table (internal/store/itemnames.go). Exported
 // from the staff panel (/items/export.json) and promoted here so every Cherry server starts with proper item names.
 //

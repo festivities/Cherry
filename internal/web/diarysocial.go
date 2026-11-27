@@ -232,6 +232,7 @@ func handleDiaryCommentWrite(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
 	}
+	req.Content = economy.MaskBannedWords(req.Content)
 	nickname := actor.Name
 	if nickname == "" {
 		nickname = "guest"

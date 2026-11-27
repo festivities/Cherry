@@ -42,12 +42,21 @@ const MaxJSONBody = 1 << 20
 
 // The native client appends one NUL after its JSON body. Accept that exact
 // terminator while leaving every other trailing byte to json.Unmarshal.
+// Every player request body passes here, so here the text shape rule is
+// checked for all of them: a string that breaks it is ErrUnsafeText.
 func UnmarshalNativeJSON(raw []byte, dst any) (bool, error) {
 	nativeTerminator := len(raw) > 0 && raw[len(raw)-1] == 0
 	if nativeTerminator {
 		raw = raw[:len(raw)-1]
 	}
-	return nativeTerminator, json.Unmarshal(raw, dst)
+	if err := json.Unmarshal(raw, dst); err != nil {
+		return nativeTerminator, err
+	}
+	if !SafeJSON(raw) {
+		metrics.TextRefused.Add(1)
+		return nativeTerminator, ErrUnsafeText
+	}
+	return nativeTerminator, nil
 }
 
 func IsAllDigits(s string) bool {

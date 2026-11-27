@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"cherry/internal/economy"
 	"cherry/internal/store"
 )
 
@@ -877,7 +878,7 @@ func (s *squareSession) handleData(frame []byte) error {
 		s.room.broadcast(s.logger, s.player, 15, pbLen(pbVar(nil, 1, s.aid), 2, info))
 	case 8: // cr_common_chat -> rc_common_chat_all to everyone
 		msg, found, ok := pbBytesField(data, 1)
-		if !ok || !found || len(msg) == 0 || len(msg) > squareMaxChatLen || !utf8.Valid(msg) {
+		if !ok || !found || len(msg) == 0 || len(msg) > squareMaxChatLen || !utf8.Valid(msg) || unsafeChat("SQUARE", s.aid, string(msg)) {
 			s.logger.Printf("SQUARE chat rejected")
 			return nil
 		}
@@ -886,7 +887,7 @@ func (s *squareSession) handleData(frame []byte) error {
 		serial := s.room.chatSerial
 		s.room.mu.Unlock()
 		body := pbVar(pbVar(nil, 1, s.aid), 2, serial)
-		body = pbVar(pbLen(body, 3, msg), 4, 0) // type=0 [I]
+		body = pbVar(pbLen(body, 3, []byte(economy.MaskBannedWords(string(msg)))), 4, 0) // type=0 [I]
 		s.logger.Printf("SQUARE chat aid=%d serial=%d bytes=%d", s.aid, serial, len(msg))
 		store.RecordChat(store.ChatEntry{Kind: store.ChatSquare, Channel: strconv.FormatUint(s.square.Theme, 10), Sender: strconv.FormatUint(s.aid, 10), SenderName: squareAccountName(s.aid), Text: string(msg)})
 		s.room.broadcast(s.logger, nil, 11, body)

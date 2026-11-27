@@ -17,7 +17,7 @@ func LoadOperatorData() error {
 		calendarsFile.Load, exchangeFile.Load, rewardsFile.Load, atelierFile.Load, racingFile.Load, rideShopFile.Load,
 		gardensFile.Load, modelHouseFile.Load, cherryTipsFile.Load, remodelFile.Load, butlersFile.Load, dyesFile.Load,
 		spinFile.Load, loungeFile.Load, circleFile.Load, loadCircleBook, treasureFile.Load, petsFile.Load, stylingFile.Load,
-		popupsFile.Load, newsFile.Load,
+		popupsFile.Load, newsFile.Load, bannedWordsFile.Load,
 	} {
 		if err := load(); err != nil {
 			return err

@@ -1261,7 +1261,7 @@ func (s *roomPartySession) relay(msgid uint16, data []byte) error {
 		}
 	case 9: // cr_common_chat -> idx12 to all
 		msg, found, ok := pbBytesField(data, 1)
-		if !ok || !found || len(msg) == 0 || len(msg) > squareMaxChatLen || !utf8.Valid(msg) {
+		if !ok || !found || len(msg) == 0 || len(msg) > squareMaxChatLen || !utf8.Valid(msg) || unsafeChat("ROOMPARTY", s.aid, string(msg)) {
 			s.logger.Printf("ROOMPARTY chat rejected")
 			return nil
 		}
@@ -1271,7 +1271,7 @@ func (s *roomPartySession) relay(msgid uint16, data []byte) error {
 		all := r.others(nil)
 		h.mu.Unlock()
 		body := pbVar(pbVar(nil, 1, s.aid), 2, serial)
-		body = pbVar(pbLen(body, 3, msg), 4, 0)
+		body = pbVar(pbLen(body, 3, []byte(economy.MaskBannedWords(string(msg)))), 4, 0)
 		s.logger.Printf("ROOMPARTY chat aid=%d serial=%d bytes=%d to=%d", s.aid, serial, len(msg), len(all))
 		store.RecordChat(store.ChatEntry{Kind: store.ChatParty, Channel: strconv.FormatUint(r.host, 10), Sender: strconv.FormatUint(s.aid, 10), SenderName: squareAccountName(s.aid), Text: string(msg)})
 		for _, o := range all {

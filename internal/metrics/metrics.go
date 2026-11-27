@@ -24,6 +24,10 @@ var ChatLogDropped atomic.Int64
 // flood (lpn framelimit.go).
 var ItemLookups, StaticReads, ConnRefused, RateLimited, FramesDropped, FrameFloods atomic.Int64
 
+// TextRefused counts the chat messages and request bodies refused for text that breaks the text shape rule (stacked
+// combining marks that crash the client; httpx.SafeText).
+var TextRefused atomic.Int64
+
 var (
 	saves      atomic.Int64 // every store save (accounts, social, circles, Treasure World, chat)
 	saveNs     atomic.Int64 // total time the saves held their lock
@@ -81,6 +85,7 @@ func init() {
 	publish("rate_limited", &RateLimited)
 	publish("frames_dropped", &FramesDropped)
 	publish("frame_floods", &FrameFloods)
+	publish("text_refused", &TextRefused)
 	publish("saves", &saves)
 	publish("save_ns_total", &saveNs)
 	publish("save_ns_max", &saveMaxNs)

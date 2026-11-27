@@ -602,13 +602,14 @@ func avatarChatSendLocked(roomID string, msgType int64, text, name string, aid u
 	avatarChatMu.Lock()
 	defer avatarChatMu.Unlock()
 	r, id := avatarChatRoomOf(roomID, aid)
-	if r == nil || msgType != avatarChatTypeText || text == "" || utf8.RuneCountInString(text) > avatarChatTextMax {
+	if r == nil || msgType != avatarChatTypeText || text == "" || utf8.RuneCountInString(text) > avatarChatTextMax || unsafeChat("CHAT", aid, text) {
 		return avatarChatErr(acRefused), id, 0, false
 	}
 	to := r.other(aid)
 	if store.BlockedBetween(strconv.FormatUint(aid, 10), strconv.FormatUint(to, 10)) {
 		return avatarChatErr(acRefused), id, 0, false
 	}
+	text = economy.MaskBannedWords(text) // stored, pushed and bannered masked; avatarChatSend logs what was typed
 	m := avatarChatMsg{sn: r.lastSn + 1, sec: economy.NowFunc().Unix(), sender: aid, text: text}
 	// The message is saved before its serial is returned. A failed save keeps the serial taken (memory never goes back, and
 	// nothing was sent with it, so the next message skips it; the room stays unsaved until a save of it succeeds) and

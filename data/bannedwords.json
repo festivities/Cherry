@@ -1,0 +1,5 @@
+{
+  "origin": "cherry",
+  "note": "Cherry-made: the operator's banned word list. LINE PLAY's own list came from LINE's server (GET /v4/banned/keyword) and is in neither the client nor the archives. Empty on purpose until the operator adds words (owner, 2026-11-27). Each word is masked with one * per character, ignoring case, in chat and in the text players store (nicknames, Status Message, Diary, comments, guestbook, Circle names and intros, gift messages, pet memos), and the list is served to the client for its own check.",
+  "words": []
+}

@@ -638,7 +638,7 @@ func (s *circleSession) chat(data []byte) {
 		return
 	}
 	msg, found, ok := pbBytesField(data, 1)
-	if !ok || !found || len(msg) == 0 || len(msg) > circleMaxChatLen || !utf8.Valid(msg) {
+	if !ok || !found || len(msg) == 0 || len(msg) > circleMaxChatLen || !utf8.Valid(msg) || unsafeChat("CIRCLE", s.aid, string(msg)) {
 		s.logger.Printf("CIRCLE chat rejected")
 		return
 	}
@@ -648,7 +648,11 @@ func (s *circleSession) chat(data []byte) {
 			kind = v
 		}
 	})
-	m := circleChatMsg{sendAid: s.aid, sendName: circleAccountName(s.aid), kind: kind, text: slices.Clone(msg), ms: time.Now().UnixMilli()}
+	shown := slices.Clone(msg)
+	if kind == 0 { // typed text; the other types carry no words
+		shown = []byte(economy.MaskBannedWords(string(msg)))
+	}
+	m := circleChatMsg{sendAid: s.aid, sendName: circleAccountName(s.aid), kind: kind, text: shown, ms: time.Now().UnixMilli()}
 	m.serial = s.chats.add(s.circleID, m)
 	s.logger.Printf("CIRCLE chat aid=%d serial=%d bytes=%d", s.aid, m.serial, len(msg))
 	if kind == 0 { // the chat log keeps typed text (type 0); other types are not logged

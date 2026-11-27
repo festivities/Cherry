@@ -5,6 +5,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"cherry/internal/economy"
 	"cherry/internal/store"
 )
 
@@ -138,7 +139,7 @@ func (s *squareSession) handleWhisper(frame, data []byte) error {
 	// Delivered only to sender (echo) and target; never broadcast to observers.
 	if step == squareWhisperStepConnect && len(msgBytes) > 0 {
 		msg, valid := sanitizeWhisperMsg(msgBytes)
-		if !valid {
+		if !valid || unsafeChat("SQUARE whisper", s.aid, msg) {
 			s.logger.Printf("SQUARE whisper chat rejected aid=%d", s.aid)
 			return nil
 		}
@@ -175,7 +176,7 @@ func (s *squareSession) handleWhisper(frame, data []byte) error {
 			TargetName: squareAccountName(targetAid),
 			Text:       msg,
 		})
-		body := squareTrunkCallBody(s.aid, targetAid, serial, msg, squareWhisperStepConnect, squareWhisperOK)
+		body := squareTrunkCallBody(s.aid, targetAid, serial, economy.MaskBannedWords(msg), squareWhisperStepConnect, squareWhisperOK)
 		if err := s.reply(frame, squareRcTrunkCall, body); err != nil {
 			return err
 		}

@@ -955,10 +955,20 @@ func handleCreateAvatar(w http.ResponseWriter, r *http.Request) {
 	var req createAvatarRequest
 	nativeTerminator, err := httpx.UnmarshalNativeJSON(raw, &req)
 	if err != nil {
-		logCreateAvatarReject("json", len(raw), fmt.Sprintf("nativeTerminator=%t", nativeTerminator))
+		stage := "json"
+		if errors.Is(err, httpx.ErrUnsafeText) {
+			stage = "text"
+		}
+		logCreateAvatarReject(stage, len(raw), fmt.Sprintf("nativeTerminator=%t", nativeTerminator))
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
 	}
+	if !validNickname(req.Name) { // the stock client checks the same before sending (NaCreateLayer::CheckValidNickName)
+		logCreateAvatarReject("name", len(raw), fmt.Sprintf("nameBytes=%d", len(req.Name)))
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
+	name := economy.MaskBannedWords(req.Name)
 	gender := normalizeAvatarType(req.AvatarType)
 	if gender == "" {
 		logCreateAvatarReject("avatarType", len(raw), "typeLen="+strconv.Itoa(len(req.AvatarType)))
@@ -1012,7 +1022,7 @@ func handleCreateAvatar(w http.ResponseWriter, r *http.Request) {
 		acc.Aid = strconv.FormatUint(store.NextAvatarID, 10)
 		acc.AvatarCreated = time.Now().UnixMilli() // the profile's "Avatar Birthday"
 	}
-	acc.Name = req.Name
+	acc.Name = name
 	acc.Gender = gender
 	acc.Skin = skin
 	acc.Country = req.NationCode
@@ -1040,7 +1050,7 @@ func handleCreateAvatar(w http.ResponseWriter, r *http.Request) {
 		Result store.AvatarResult `json:"result"`
 	}{store.AvatarResult{
 		AvatarID:    aid,
-		Name:        req.Name,
+		Name:        name,
 		Gender:      req.AvatarType,
 		SessionKey:  sessionKey,
 		AvatarCode:  store.AvatarCodeForID(aid),

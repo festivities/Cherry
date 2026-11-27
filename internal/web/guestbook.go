@@ -54,6 +54,7 @@ func handleGuestbookWrite(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
 	}
+	req.Content = economy.MaskBannedWords(req.Content)
 	if !store.KnownSocialAvatar(req.HostAvtNo) || !store.KnownSocialAvatar(req.GuestAvtNo) {
 		httpx.ServeNotFound(w)
 		return
@@ -342,6 +343,7 @@ func handleGuestbookReplyWrite(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
 	}
+	req.Content = economy.MaskBannedWords(req.Content)
 	if store.BlockedBetween(actor.Aid, req.HostAvtNo) {
 		httpx.WriteJSON(w, http.StatusBadRequest, `{"errorCode":"19500"}`)
 		return

@@ -1309,7 +1309,7 @@ func TestCreateAvatar(t *testing.T) {
 
 	guestGenerate(t)
 
-	payload := []byte(`{"name":"","avatarType":"F","nationCode":"JP","skinColor":"1","itemCodes":["CUON0059S","CUSH002BH"],"useMid":true}`)
+	payload := []byte(`{"name":"Ann","avatarType":"F","nationCode":"JP","skinColor":"1","itemCodes":["CUON0059S","CUSH002BH"],"useMid":true}`)
 	rec := createAvatar(t, avAuthA, payload, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200, body = %q", rec.Code, rec.Body.String())
@@ -1343,8 +1343,8 @@ func TestCreateAvatar(t *testing.T) {
 	if !httpx.IsAllDigits(res.AvatarID) || res.AvatarID == "0" {
 		t.Fatalf("avatarId = %q, want non-zero decimal", res.AvatarID)
 	}
-	if res.Name != "" {
-		t.Errorf("name = %q, want empty", res.Name)
+	if res.Name != "Ann" {
+		t.Errorf("name = %q, want %q", res.Name, "Ann")
 	}
 	if res.Gender != "F" {
 		t.Errorf("gender = %q, want %q", res.Gender, "F")

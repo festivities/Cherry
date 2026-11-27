@@ -990,14 +990,14 @@ func handleDiaryIntroSave(w http.ResponseWriter, r *http.Request) {
 	if previous != nil {
 		next = *previous
 	}
-	next.DiaryName = req.DiaryName
-	next.Introduce = req.Introduce
+	next.DiaryName = economy.MaskBannedWords(req.DiaryName)
+	next.Introduce = economy.MaskBannedWords(req.Introduce)
 	next.SkinID = req.SkinID
 	next.BirthDay = req.BirthDay
 	next.BirthDaySecret = req.BirthDaySecret
 	next.BloodType = req.BloodType
 	next.BloodTypeSecret = req.BloodTypeSecret
-	next.Job = req.Job
+	next.Job = economy.MaskBannedWords(req.Job)
 	next.JobSecret = req.JobSecret
 	next.Sex = req.Sex
 	next.SexSecret = req.SexSecret
@@ -1251,6 +1251,7 @@ func handleDiaryModify(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
 	}
+	req.Title, req.Content = economy.MaskBannedWords(req.Title), economy.MaskBannedWords(req.Content)
 	req.Images = slices.DeleteFunc(req.Images, func(image store.DiaryImage) bool { return image.ImageURL == "" })
 	for _, image := range req.Images {
 		if !store.ValidDiaryImage(image) || !store.MediaOwnedBy(image.ImageURL, actor.Aid) {
@@ -1332,6 +1333,7 @@ func handleDiaryWrite(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
 	}
+	req.Title, req.Content = economy.MaskBannedWords(req.Title), economy.MaskBannedWords(req.Content)
 	// A text-only post still carries images:[{"imageUrl":""}] (runtime 2026-10-11); drop empty rows.
 	req.Images = slices.DeleteFunc(req.Images, func(image store.DiaryImage) bool { return image.ImageURL == "" })
 	for _, image := range req.Images {

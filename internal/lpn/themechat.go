@@ -589,8 +589,12 @@ func loungeSend(roomID, msgType int64, text string, aid uint64, bound bool) tcRe
 	if (msgType != tcTypeText && msgType != tcTypeSticker) || strings.TrimSpace(text) == "" || utf8.RuneCountInString(text) > l.MaxTextChars {
 		return refused
 	}
-	if msgType == tcTypeSticker && !validStickerKey(text) {
+	if msgType == tcTypeSticker && !validStickerKey(text) || msgType == tcTypeText && unsafeChat("LOUNGE", aid, text) {
 		return refused
+	}
+	typed := text // the chat log keeps what was typed; the room gets it with banned words masked
+	if msgType == tcTypeText {
+		text = economy.MaskBannedWords(text)
 	}
 	loungeMu.Lock()
 	defer loungeMu.Unlock()
@@ -606,7 +610,7 @@ func loungeSend(roomID, msgType int64, text string, aid uint64, bound bool) tcRe
 		r.msgs = slices.Delete(r.msgs, 0, over)
 	}
 	if msgType == tcTypeText { // a sticker is not typed text: it is not logged
-		store.RecordChat(store.ChatEntry{Kind: store.ChatLounge, Channel: strconv.FormatInt(roomID, 10), Sender: strconv.FormatUint(aid, 10), SenderName: sender.nickname, Text: text})
+		store.RecordChat(store.ChatEntry{Kind: store.ChatLounge, Channel: strconv.FormatInt(roomID, 10), Sender: strconv.FormatUint(aid, 10), SenderName: sender.nickname, Text: typed})
 	}
 	return tcReply{
 		result: map[string]any{"msgSn": msg.sn, "msgTimeSec": msg.sec},

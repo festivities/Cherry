@@ -10,6 +10,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"cherry/internal/httpx"
 )
 
 // Staff actions on accounts (PLAN P4, P11; slice 8.7 part 2a): player lookup, currency grants and bans. Each change is one
@@ -333,13 +335,13 @@ func PlayerWritingOf(id int64, limit int) (PlayerWriting, error) {
 }
 
 // nicknameMaxRunes is the creation limit (NaCreateLayer::CheckValidNickName 0x1828498 rejects more than 20 characters,
-// error 48). ValidNickname is the one nickname rule, for the in-game edit (web/profileedit.go) and the staff rename: not
-// empty and not only spaces (IsEmptyNickName 0x18282d8 looks at spaces only), at most 20 characters, valid UTF-8 with no
-// control characters.
+// error 48). ValidNickname is the one nickname rule, for avatar creation, the in-game edit (web/profileedit.go) and the
+// staff rename: not empty and not only spaces (IsEmptyNickName 0x18282d8 looks at spaces only), at most 20 characters,
+// the text shape rule (httpx.SafeText: valid UTF-8, no tall stack of combining marks) and no control characters.
 const nicknameMaxRunes = 20
 
 func ValidNickname(s string) bool {
-	if strings.Trim(s, " ") == "" || !utf8.ValidString(s) || utf8.RuneCountInString(s) > nicknameMaxRunes {
+	if strings.Trim(s, " ") == "" || !httpx.SafeText(s) || utf8.RuneCountInString(s) > nicknameMaxRunes {
 		return false
 	}
 	return !slices.ContainsFunc([]rune(s), unicode.IsControl)

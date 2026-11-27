@@ -627,7 +627,7 @@ func CreateCircle(token string, req CircleCreateRequest, now time.Time) (store.C
 		}
 		ms := now.UnixMilli()
 		made = store.Circle{
-			ID: id, Code: circleCodeOf(id), Name: req.CircleName, Intro: req.CircleIntroduce, JoinType: req.JoinType,
+			ID: id, Code: circleCodeOf(id), Name: MaskBannedWords(req.CircleName), Intro: MaskBannedWords(req.CircleIntroduce), JoinType: req.JoinType,
 			LogoID: req.LogoID, LogoBgID: req.LogoBgID, Interests: sortedInterests(req.InterestCodeList),
 			Created: ms, Modified: ms,
 			Members: []store.CircleMember{{Aid: acc.Aid, Role: roleLeader, Joined: ms}},
@@ -657,7 +657,7 @@ func ModifyCircle(token string, req CircleModifyRequest, now time.Time) error {
 		if err := checkCircleSettings(req.CircleIntroduce, req.JoinType, req.LogoID, req.LogoBgID, req.InterestCodeList); err != nil {
 			return nil, err
 		}
-		c.Intro, c.JoinType, c.LogoID, c.LogoBgID = req.CircleIntroduce, req.JoinType, req.LogoID, req.LogoBgID
+		c.Intro, c.JoinType, c.LogoID, c.LogoBgID = MaskBannedWords(req.CircleIntroduce), req.JoinType, req.LogoID, req.LogoBgID
 		c.Interests = sortedInterests(req.InterestCodeList)
 		c.Modified = now.UnixMilli()
 		return nil, nil

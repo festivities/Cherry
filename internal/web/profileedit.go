@@ -8,6 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"cherry/internal/economy"
 	"cherry/internal/httpx"
 	"cherry/internal/store"
 )
@@ -121,10 +122,10 @@ func handleAvatarProfileSave(w http.ResponseWriter, r *http.Request) {
 	if previous != nil {
 		next = *previous
 	}
-	next.StatusMessage = req.Intro
+	next.StatusMessage = economy.MaskBannedWords(req.Intro)
 	name := previousName
 	if req.Name != "" { // the stock client always sends one (an empty nickname is refused before sending)
-		name = req.Name
+		name = economy.MaskBannedWords(req.Name)
 	}
 	acc.Name, acc.DiaryProfile = name, &next
 	if err := store.SaveLocked(nil, acc); err != nil {
@@ -314,11 +315,11 @@ func handleProfileIntroSave(w http.ResponseWriter, r *http.Request) {
 	}
 	previous := acc.DiaryProfile
 	next := &store.DiaryProfile{
-		Location: req.Location, LocationSecret: req.LocationSecret,
+		Location: economy.MaskBannedWords(req.Location), LocationSecret: req.LocationSecret,
 		Sex: req.Sex, SexSecret: req.SexSecret,
 		BirthDay: req.BirthDay, BirthDaySecret: req.BirthDaySecret,
 		BloodType: req.BloodType, BloodTypeSecret: req.BloodTypeSecret,
-		Job: req.Job, JobSecret: req.JobSecret,
+		Job: economy.MaskBannedWords(req.Job), JobSecret: req.JobSecret,
 	}
 	if previous != nil {
 		// The Status Message, diary intro fields, and photos have their own routes; keep them.

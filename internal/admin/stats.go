@@ -60,6 +60,8 @@ type stats struct {
 	FramesDroppedHour int64   `json:"frames_dropped_hour"`
 	FrameFloods       int64   `json:"frame_floods"`
 	FrameFloodsHour   int64   `json:"frame_floods_hour"`
+	TextRefused       int64   `json:"text_refused"`
+	TextRefusedHour   int64   `json:"text_refused_hour"`
 	RefusalsTotal     int64   `json:"refusals_total"`
 	RefusalsHour      int64   `json:"refusals_hour"`
 	StaticReads       int64   `json:"static_reads"`
@@ -100,16 +102,17 @@ type sample struct {
 	total int64
 }
 
-// refusalCounts holds the four cumulative refusal counters from metrics.
+// refusalCounts holds the five cumulative refusal counters from metrics.
 type refusalCounts struct {
 	connRefused   int64
 	rateLimited   int64
 	framesDropped int64
 	frameFloods   int64
+	textRefused   int64
 }
 
 func (c refusalCounts) total() int64 {
-	return c.connRefused + c.rateLimited + c.framesDropped + c.frameFloods
+	return c.connRefused + c.rateLimited + c.framesDropped + c.frameFloods + c.textRefused
 }
 
 func readRefusals() refusalCounts {
@@ -118,6 +121,7 @@ func readRefusals() refusalCounts {
 		rateLimited:   metrics.RateLimited.Load(),
 		framesDropped: metrics.FramesDropped.Load(),
 		frameFloods:   metrics.FrameFloods.Load(),
+		textRefused:   metrics.TextRefused.Load(),
 	}
 }
 
@@ -192,6 +196,7 @@ func (r *rateRing) lastHour(now time.Time, cur refusalCounts) refusalCounts {
 		rateLimited:   max(0, cur.rateLimited-from.counts.rateLimited),
 		framesDropped: max(0, cur.framesDropped-from.counts.framesDropped),
 		frameFloods:   max(0, cur.frameFloods-from.counts.frameFloods),
+		textRefused:   max(0, cur.textRefused-from.counts.textRefused),
 	}
 }
 
@@ -283,6 +288,7 @@ func (s *Server) statsAt(now time.Time) (stats, error) {
 		RateLimited: refusals.rateLimited, RateLimitedHour: refusalsHour.rateLimited,
 		FramesDropped: refusals.framesDropped, FramesDroppedHour: refusalsHour.framesDropped,
 		FrameFloods: refusals.frameFloods, FrameFloodsHour: refusalsHour.frameFloods,
+		TextRefused: refusals.textRefused, TextRefusedHour: refusalsHour.textRefused,
 		RefusalsTotal: refusals.total(), RefusalsHour: refusalsHour.total(),
 		StaticReads: metrics.StaticReads.Load(), StaticRedirects: staticRedirects,
 		StaticServedSize: humanBytes(staticBytes), ItemLookups: metrics.ItemLookups.Load(),
