@@ -1,5 +1,5 @@
 {{define "page"}}<h1>Dashboard</h1>
-<p class="muted">{{.Server}} · the numbers refresh every 15 seconds while this page is open. A published operator document applies at the next restart.</p>
+<p class="muted">{{.Server}} · the numbers refresh every 15 seconds while this page is open. A published operator document applies at the next restart unless it is marked "live at once".</p>
 {{if .OpenReports}}<p class="flash warn">Open player reports: <strong>{{.OpenReports}}</strong>. <a href="/reports">Open the report queue</a>.</p>{{end}}
 
 <section class="cards" data-stats>

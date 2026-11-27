@@ -1,6 +1,6 @@
 """Operator documents on the Cherry staff API (loopback only; PLAN Roadmap 8, P3, slice 8.5).
 
-A published document applies at the NEXT restart of Cherry; nothing running changes when it is published.
+A published document applies at the NEXT restart of Cherry, except a hot one (bannedwords.json), which is live at once.
 
   cherry-docs.py live                          every document: source, published version, pending restart
   cherry-docs.py history NAME                  stored versions, newest first (no bodies)

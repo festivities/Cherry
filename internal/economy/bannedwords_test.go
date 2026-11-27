@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"cherry/internal/opdata"
+	"cherry/internal/store"
 )
 
 // useBannedWords makes words the list in use for the test.
@@ -71,5 +72,36 @@ func TestBannedWordsRefusals(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: err = %v, want one naming %q", c.words, err, c.want)
 		}
+	}
+}
+
+// TestBannedWordsPublishIsLive: bannedwords.json is hot. A publish masks at once and the result says so; a rollback to
+// nothing published masks nothing again, without a restart.
+func TestBannedWordsPublishIsLive(t *testing.T) {
+	docStore(t)
+	t.Cleanup(bannedWordsFile.Reset)
+	restart(t)
+	v, err := store.SaveDraft("bannedwords.json", []byte(`{"origin":"cherry","note":"test list","words":["tolol"]}`), "tester", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := store.Publish("bannedwords.json", v.Version, "loopback")
+	if err != nil || !res.Live || res.Message != "is live now" {
+		t.Fatalf("publish = %+v, %v; want live", res, err)
+	}
+	if got := MaskBannedWords("botak tolol"); got != "botak *****" {
+		t.Fatalf("after publish MaskBannedWords = %q, want the word masked at once", got)
+	}
+	if d := liveDoc(t, "bannedwords.json"); !d.Hot || d.Pending || d.Source != "database v1" {
+		t.Fatalf("live after publish = %+v, want hot database v1, nothing pending", d)
+	}
+	if back, err := store.Rollback("bannedwords.json", "loopback"); err != nil || !back.Live {
+		t.Fatalf("rollback = %+v, %v", back, err)
+	}
+	if got := MaskBannedWords("botak tolol"); got != "botak tolol" || len(BannedWords()) != 0 {
+		t.Fatalf("after rollback MaskBannedWords = %q, words %q; want the empty default", got, BannedWords())
+	}
+	if d := liveDoc(t, "bannedwords.json"); d.Pending || d.Source != "embedded default" {
+		t.Fatalf("live after rollback = %+v", d)
 	}
 }

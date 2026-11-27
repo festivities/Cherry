@@ -65,8 +65,18 @@ type File[T any] struct {
 // embedded default is decoded and checked here, so a broken default panics at start (a build error, not a request-time
 // failure). verify runs at Load, LoadFrom and Validate. A name declared twice panics.
 func New[T any](name string, embedded []byte, check, verify func(*T) error) *File[T] {
+	return newDocument(name, embedded, check, verify, false)
+}
+
+// NewHot is New for a document whose readers call Get on every use and that has no derived cache outside its own value:
+// a publish or rollback makes it live at once (Swap) instead of at the next restart (PLAN P3, hot swap per document).
+func NewHot[T any](name string, embedded []byte, check, verify func(*T) error) *File[T] {
+	return newDocument(name, embedded, check, verify, true)
+}
+
+func newDocument[T any](name string, embedded []byte, check, verify func(*T) error, hot bool) *File[T] {
 	f := newFile(name, embedded, check, verify)
-	register(&document{name: name, embedded: embedded, hasArt: verify != nil, validate: f.validate, apply: f.apply})
+	register(&document{name: name, embedded: embedded, hasArt: verify != nil, hot: hot, validate: f.validate, apply: f.apply, fallback: f.loadFallback})
 	return f
 }
 
@@ -133,6 +143,11 @@ func (f *File[T]) Load() error {
 		reject(f.name, o.version, err)
 		log.Printf("cherry: document %s rejected at startup, next source used: %v", f.name, err)
 	}
+	return f.loadFallback()
+}
+
+// loadFallback loads the source below the database: the operator file in Dir() when it exists, else the embedded default.
+func (f *File[T]) loadFallback() error {
 	path := ""
 	if dir := Dir(); dir != "" {
 		path = filepath.Join(dir, f.name)

@@ -15,7 +15,7 @@ import (
 
 // The operator-document staff API (PLAN Roadmap 8, P3; slice 8.5): loopback only, on the admin listener. A document
 // is one operator data file (AGENTS "Operator-editable fabricated content"); a published version applies at the next
-// restart, never to the running process. Actor "loopback". Replies are JSON; an error is {"error": "..."} and carries
+// restart, except a hot document (opdata.NewHot, e.g. bannedwords.json), which is live at once ("live": true). Actor "loopback". Replies are JSON; an error is {"error": "..."} and carries
 // the validator's message. The public admin UI (slice 8.7) builds on the same store functions.
 //
 //	curl -X POST "http://127.0.0.1:8099/admin/docs/cherrytips.json?note=test" --data-binary "@body.json"
@@ -141,7 +141,8 @@ func handleDocsValidate(w http.ResponseWriter, r *http.Request) {
 	writeDocJSON(w, http.StatusOK, map[string]any{"name": name, "version": version, "valid": true, "artSkipped": artSkipped})
 }
 
-// POST /admin/docs/{name}/{version}/publish: makes the version the one a restart loads (refused when it fails validation).
+// POST /admin/docs/{name}/{version}/publish: makes the version the one a restart loads, or live now for a hot document
+// (refused when it fails validation).
 func handleDocsPublish(w http.ResponseWriter, r *http.Request) {
 	version, ok := docVersionArg(w, r)
 	if !ok {

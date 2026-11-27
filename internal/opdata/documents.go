@@ -16,9 +16,11 @@ import (
 type document struct {
 	name     string
 	hasArt   bool
+	hot      bool // NewHot: a publish or rollback is live at once (Swap)
 	validate func(raw []byte) error
 	apply    func(raw []byte, where string, u use) error
-	embedded []byte // the default in data/ (Embedded)
+	fallback func() error // the config file, else the embedded default (File.loadFallback)
+	embedded []byte       // the default in data/ (Embedded)
 }
 
 // Embedded returns the default body of document name as built into the binary (the staff UI prefills a draft with it).
@@ -108,6 +110,39 @@ func sortedDocumentNames() []string {
 	}
 	sort.Strings(names)
 	return names
+}
+
+// IsHot reports whether document name is live at once on publish (NewHot) rather than at the next restart.
+func IsHot(name string) bool {
+	mu.Lock()
+	defer mu.Unlock()
+	d, ok := documents[name]
+	return ok && d.hot
+}
+
+// Swap makes a publish or rollback of document name live now when the document is hot, and reports whether it is. raw is
+// the body of the published version, or nil when none is published any more (the config file or the embedded default
+// then runs). A document that is not hot keeps what it loaded at start: Swap does nothing and returns false.
+func Swap(name string, version int, raw []byte) (bool, error) {
+	mu.Lock()
+	d, ok := documents[name]
+	mu.Unlock()
+	if !ok || !d.hot {
+		return false, nil
+	}
+	var err error
+	if raw == nil {
+		err = d.fallback()
+	} else {
+		where := fmt.Sprintf("database v%d", version)
+		err = d.apply(raw, where, use{source: where, version: version})
+	}
+	if err == nil {
+		mu.Lock()
+		delete(rejects, name) // the version rejected at start is no longer the published one
+		mu.Unlock()
+	}
+	return true, err
 }
 
 // Validate runs every check of document name on raw: decode, the structural checks and the art checks the process can

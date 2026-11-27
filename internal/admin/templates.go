@@ -11,6 +11,8 @@ import (
 	"path"
 	"strings"
 	"time"
+
+	"cherry/internal/opdata"
 )
 
 // The staff pages are html/template files in templates/. layout.html defines "layout" (the shell of a signed-in page or the
@@ -96,7 +98,7 @@ func serveStatic(w http.ResponseWriter, r *http.Request) {
 }
 
 // templateFuncs are the functions the templates may call.
-var templateFuncs = template.FuncMap{"asset": assetURL, "utc": rfcDate, "firstLine": firstLine, "unixms": unixMsDate}
+var templateFuncs = template.FuncMap{"asset": assetURL, "utc": rfcDate, "firstLine": firstLine, "unixms": unixMsDate, "hot": opdata.IsHot}
 
 // firstLine is the first line of s: a document's note as the list shows it.
 func firstLine(s string) string {

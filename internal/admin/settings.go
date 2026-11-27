@@ -62,7 +62,12 @@ type settingsPage struct {
 	MaxPlayersConfig          int                 // server's configured concurrent player cap (0 = unlimited)
 	Limits                    []limitRow          // the Server limits table, in store.LimitKeys order
 	OpenConns, OpenAddrs      int                 // the game connections open now and the addresses holding them
+	CanRestart                bool                // the Restart button works here (OnRestart is set)
 }
+
+// OnRestart asks cmd/cherry for a restart: the graceful shutdown, then the binary again (cmd/cherry restart_unix.go). It is
+// set before Start, and only where the process can start itself again; nil hides the Restart button.
+var OnRestart func()
 
 // settingsOwner answers the refusal for anyone but the owner and reports whether the request may go on. The log line names
 // no value.
@@ -192,8 +197,30 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, sess ses
 		UploadJPEGCapKiB: formatKiB(jpegBytes), UploadJPEGCapFromPanel: jpegSet, UploadJPEGCapConfigKiB: formatKiB(jpegConfig),
 		UploadPNGCapKiB: formatKiB(pngBytes), UploadPNGCapFromPanel: pngSet, UploadPNGCapConfigKiB: formatKiB(pngConfig),
 		MaxPlayers: players, MaxPlayersFromPanel: playersSet, MaxPlayersConfig: playersConfig,
-		Limits: limits, OpenConns: open, OpenAddrs: hosts}
+		Limits: limits, OpenConns: open, OpenAddrs: hosts, CanRestart: s.restart != nil}
 	s.render(w, http.StatusOK, "settings", v)
+}
+
+// handleRestart: POST /settings/restart (privileged, owner). Writes the audit row, answers, then asks for the restart: the
+// staff listener's graceful shutdown lets this answer finish first. Every game connection drops; clients reconnect.
+func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request, sess session) {
+	if !s.settingsOwner(w, sess) {
+		return
+	}
+	if s.restart == nil {
+		s.fail(w, http.StatusConflict, "This server cannot restart itself (it needs a Linux or other Unix host). Restart it from the host.")
+		return
+	}
+	players := s.onlinePlayers()
+	if err := store.Audit(sess.identity, "restart", "server", map[string]any{"players": players}); err != nil {
+		s.storeError(w, err) // a staff action that cannot be recorded must not run
+		return
+	}
+	s.logger.Printf("cherry: restart requested by %s from the staff UI (%d players online)", auth.MaskIdentity(sess.identity), players)
+	v := s.base(r, sess, "Restarting")
+	v.Notice = fmt.Sprintf("Cherry is restarting. %d players were online; their game connections drop and they reconnect. This panel answers again in about 15 seconds, and you will need to sign in again.", players)
+	s.render(w, http.StatusOK, "result", v)
+	s.restart()
 }
 
 // handleSquareRoomCap: POST /settings/square-room-cap (privileged, owner). The form: players, 2 to 100 (the store refuses

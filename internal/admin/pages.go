@@ -546,7 +546,7 @@ func (s *Server) handleValidate(w http.ResponseWriter, r *http.Request, sess ses
 	s.render(w, status, "version", v)
 }
 
-// handlePublish: POST …/publish (privileged). The result page says the change applies at the next restart.
+// handlePublish: POST …/publish (privileged). The result page says whether the change is live or applies at the next restart.
 func (s *Server) handlePublish(w http.ResponseWriter, r *http.Request, sess session) {
 	name, ver, ok := s.docArgs(w, r)
 	if !ok {
@@ -572,7 +572,15 @@ func publishNotice(res store.DocResult) string {
 	if res.ArtSkipped {
 		note = " The art checks were skipped: this process has no asset store."
 	}
-	return fmt.Sprintf("%s v%d is published (%s). The change applies at the next restart.%s", res.Name, res.Version, replaced, note)
+	return fmt.Sprintf("%s v%d is published (%s). %s%s", res.Name, res.Version, replaced, whenLive(res), note)
+}
+
+// whenLive says when a publish or rollback reaches the game.
+func whenLive(res store.DocResult) string {
+	if res.Live {
+		return "The change is live now."
+	}
+	return "The change applies at the next restart."
 }
 
 // handleRollback: POST /docs/{name}/rollback (privileged): back to the version the published one replaced, or none.
@@ -585,9 +593,9 @@ func (s *Server) handleRollback(w http.ResponseWriter, r *http.Request, sess ses
 	}
 	v := s.base(r, sess, "Rolled back")
 	if res.Version == 0 {
-		v.Notice = fmt.Sprintf("%s has no published version now (v%d was rolled back). The config file or the embedded default applies at the next restart.", name, res.Replaces)
+		v.Notice = fmt.Sprintf("%s has no published version now (v%d was rolled back). The config file or the embedded default runs: %s", name, res.Replaces, whenLive(res))
 	} else {
-		v.Notice = fmt.Sprintf("%s v%d is published again (v%d was rolled back). The change applies at the next restart.", name, res.Version, res.Replaces)
+		v.Notice = fmt.Sprintf("%s v%d is published again (v%d was rolled back). %s", name, res.Version, res.Replaces, whenLive(res))
 	}
 	s.render(w, http.StatusOK, "result", v)
 }

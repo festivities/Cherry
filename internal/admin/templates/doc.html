@@ -1,5 +1,5 @@
 {{define "page"}}<h1>{{.DocName}}</h1>
-<p class="muted">Runs on: {{.Doc.Source}}. Published: {{if .Doc.Published}}v{{.Doc.Published}}{{else}}none{{end}}.{{if .Doc.Pending}} A change applies at the next restart.{{end}}</p>
+<p class="muted">Runs on: {{.Doc.Source}}. Published: {{if .Doc.Published}}v{{.Doc.Published}}{{else}}none{{end}}.{{if .Doc.Pending}} A change applies at the next restart.{{else if .Doc.Hot}} A publish or roll back is live at once.{{end}}</p>
 {{with .Doc.Rejected}}<p class="flash error">Published v{{.Version}} was rejected at start: {{.Error}}</p>{{end}}
 {{with .Doc.Note}}<details class="note"><summary>Origin{{with $.Doc.Origin}}: {{.}}{{end}}. What is original and what Cherry made</summary><p>{{.}}</p></details>{{end}}
 

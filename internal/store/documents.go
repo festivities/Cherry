@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 
 	"cherry/internal/assets"
 	"cherry/internal/opdata"
@@ -16,8 +17,8 @@ import (
 // documents table. A draft is stored and checked for JSON and the name only. Publishing checks the full validator
 // (refused when it fails, always) and makes one version the one a restart loads from the database; rollback re-publishes
 // the version it replaced. Precedence at start (opdata): published database version, config file, embedded default.
-// Publishing never changes the running process: the result says the change applies at the next restart.
-// ponytail: hot swap per document (PLAN P3) hooks in at Publish: the document's opdata File would take the version too.
+// Publishing changes the running process only for a hot document (opdata.NewHot): it is swapped in once the transaction
+// commits (opdata.Swap) and the result says it is live. Every other document applies at the next restart.
 
 // MaxDocumentBytes caps one stored body. docKeep caps the versions kept per name: the newest docKeep plus the published
 // version, which is never removed. maxDocNote caps the note.
@@ -26,7 +27,12 @@ const (
 	docKeep          = 50
 	maxDocNote       = 500
 	applyMessage     = "applies at the next restart"
+	liveMessage      = "is live now"
 )
+
+// swapMu keeps a publish or rollback and its hot swap together, so two of them on one document cannot leave the older
+// body live.
+var swapMu sync.Mutex
 
 // Errors of the document functions. The staff API maps each to a status code with errors.Is.
 var (
@@ -55,12 +61,14 @@ type DocVersion struct {
 
 // DocResult is the reply of Publish and Rollback. Publish: Version is the version published and Replaces the one it
 // replaced. Rollback: Version is the version now published (0 = none) and Replaces the version rolled back from.
-// ArtSkipped says the art checks did not run (no asset store in this process).
+// ArtSkipped says the art checks did not run (no asset store in this process). Live says the change already runs (a hot
+// document); otherwise it applies at the next restart.
 type DocResult struct {
 	Name       string `json:"name"`
 	Version    int    `json:"version"`
 	Replaces   int    `json:"replaces"`
 	ArtSkipped bool   `json:"artSkipped"`
+	Live       bool   `json:"live"`
 	Message    string `json:"message"`
 }
 
@@ -74,6 +82,7 @@ type DocLive struct {
 	Versions    int    `json:"versions"`
 	Draft       int    `json:"draft"`                 // the newest draft when it is newer than the published version (0 = none)
 	ArtChecks   bool   `json:"artChecks"`             // opdata.HasArtChecks: startup checks against the item archive
+	Hot         bool   `json:"hot"`                   // opdata.IsHot: a publish or rollback is live at once
 	PublishedAt string `json:"publishedAt,omitempty"` // when the published version was published (RFC 3339, UTC)
 	PublishedBy string `json:"publishedBy,omitempty"` // the actor of the newest publish or rollback of the document
 	Origin      string `json:"origin,omitempty"`      // the top-level "origin" and "note" of the body that runs
@@ -260,6 +269,8 @@ func Publish(name string, version int, actor string) (DocResult, error) {
 	if err != nil {
 		return DocResult{}, err
 	}
+	swapMu.Lock()
+	defer swapMu.Unlock()
 	var res DocResult
 	err = d.Update(func(tx *sql.Tx) error {
 		cur, _, ok, err := publishedRow(tx, name)
@@ -283,6 +294,23 @@ func Publish(name string, version int, actor string) (DocResult, error) {
 		res = DocResult{Name: name, Version: version, Replaces: replaces, ArtSkipped: artSkipped, Message: applyMessage}
 		return auditTx(tx, actor, "publish", name, map[string]any{"version": version, "replaces": replaces, "artSkipped": artSkipped})
 	})
+	if err != nil {
+		return res, err
+	}
+	return swapLive(res, []byte(body))
+}
+
+// swapLive makes a committed publish or rollback live when the document is hot (raw nil = nothing published now). The
+// body passed validation before the commit, so a refusal here is unexpected: the result then keeps "applies at the next
+// restart" and the error is returned with it.
+func swapLive(res DocResult, raw []byte) (DocResult, error) {
+	hot, err := opdata.Swap(res.Name, res.Version, raw)
+	if hot && err == nil {
+		res.Live, res.Message = true, liveMessage
+	}
+	if err != nil {
+		err = fmt.Errorf("%s was saved but could not be made live, it applies at the next restart: %w", res.Name, err)
+	}
 	return res, err
 }
 
@@ -325,6 +353,8 @@ func Rollback(name, actor string) (DocResult, error) {
 			return DocResult{}, err
 		}
 	}
+	swapMu.Lock()
+	defer swapMu.Unlock()
 	var res DocResult
 	err = d.Update(func(tx *sql.Tx) error {
 		now, _, ok, err := publishedRow(tx, name)
@@ -346,7 +376,14 @@ func Rollback(name, actor string) (DocResult, error) {
 		res = DocResult{Name: name, Version: cur.Replaces, Replaces: cur.Version, ArtSkipped: artSkipped, Message: applyMessage}
 		return auditTx(tx, actor, "rollback", name, map[string]any{"from": cur.Version, "to": cur.Replaces, "artSkipped": artSkipped})
 	})
-	return res, err
+	if err != nil {
+		return res, err
+	}
+	var raw []byte // nil: nothing published now
+	if cur.Replaces != 0 {
+		raw = []byte(target)
+	}
+	return swapLive(res, raw)
 }
 
 // History lists the stored versions of document name, newest first, without bodies.
@@ -466,7 +503,7 @@ func Live() ([]DocLive, error) {
 	}
 	var out []DocLive
 	for _, st := range opdata.Live() {
-		l := DocLive{Status: st, ArtChecks: opdata.HasArtChecks(st.Name)}
+		l := DocLive{Status: st, ArtChecks: opdata.HasArtChecks(st.Name), Hot: opdata.IsHot(st.Name)}
 		body, _ := opdata.Embedded(st.Name)
 		if p, ok := pubs[st.Name]; ok {
 			body = []byte(p.body)

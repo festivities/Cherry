@@ -339,3 +339,47 @@ func TestMaintWhitelistRoundTripAndValidation(t *testing.T) {
 		t.Error("missing maint-whitelist-remove audit row")
 	}
 }
+
+// TestRestart: the Restart button is the owner's privileged action. Without a restart hook it is hidden and refused; with
+// one, a non-owner is refused, and the owner's request writes the audit row, answers, then calls the hook once.
+func TestRestart(t *testing.T) {
+	fx := newFixture(t, settingsConfig(t))
+	owner := fx.client()
+	owner.signInDev("owner")
+
+	fx.s.restart = nil
+	if page := owner.get("/settings"); !strings.Contains(page.body, "Not available on this host") || strings.Contains(page.body, `action="/settings/restart"`) {
+		t.Fatal("without a restart hook the page must hide the button")
+	}
+	expect(t, owner.post("/settings/restart", url.Values{"csrf": {owner.csrf()}}), http.StatusConflict)
+
+	calls := 0
+	fx.s.restart = func() { calls++ }
+	st := fx.client()
+	st.signInDev("staff")
+	expect(t, st.post("/settings/restart", url.Values{"csrf": {st.csrf()}}), http.StatusForbidden)
+	for _, row := range auditRows(t) {
+		if row.Action == "restart" {
+			t.Fatalf("a refused restart wrote an audit row: %+v", row)
+		}
+	}
+	if calls != 0 {
+		t.Fatal("a refused restart called the hook")
+	}
+
+	if page := owner.get("/settings"); !strings.Contains(page.body, `action="/settings/restart"`) {
+		t.Fatal("with a restart hook the page must show the button")
+	}
+	r := owner.post("/settings/restart", url.Values{"csrf": {owner.csrf()}})
+	expect(t, r, http.StatusOK)
+	if !strings.Contains(r.body, "Cherry is restarting") || calls != 1 {
+		t.Fatalf("restart: calls %d, body lacks the notice: %v", calls, !strings.Contains(r.body, "Cherry is restarting"))
+	}
+	found := false
+	for _, row := range auditRows(t) {
+		found = found || (row.Action == "restart" && row.Target == "server")
+	}
+	if !found {
+		t.Fatal("no restart audit row")
+	}
+}

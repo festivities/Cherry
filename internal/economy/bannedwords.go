@@ -16,8 +16,8 @@ import (
 // empty until an operator fills it (owner, 2026-11-27). It works in two places: web serves it to the client for its own
 // check (NaDataManager::SetInhibitionWordList, libgame 0x1c0a170, lowercases each word), and the server masks the words
 // itself (MaskBannedWords) in chat and in the text it stores, because a modified client skips its own check. The chat log
-// keeps what was typed, for staff. data/bannedwords.json is the operator document; a published version applies at the
-// next restart. Strict JSON:
+// keeps what was typed, for staff. data/bannedwords.json is the operator document; it is hot (opdata.NewHot): a publish
+// or rollback is live at once, since every reader calls Get and the folded words are part of the value. Strict JSON:
 //
 //	origin, note   Cherry-made (opdata.Provenance)
 //	words          0 to maxBannedWords words, each 1 to maxBannedWordRunes characters, not blank, no control characters,
@@ -34,7 +34,7 @@ const (
 	maxBannedWordRunes = 64
 )
 
-var bannedWordsFile = opdata.New("bannedwords.json", data.BannedWordsJSON, checkBannedWords, nil)
+var bannedWordsFile = opdata.NewHot("bannedwords.json", data.BannedWordsJSON, checkBannedWords, nil)
 
 // BannedWords is the list in use, as GET /v4/banned/keyword serves it (never nil).
 func BannedWords() []string { return bannedWordsFile.Get().Words }

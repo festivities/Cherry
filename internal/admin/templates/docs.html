@@ -1,5 +1,5 @@
 {{define "page"}}<h1>Documents</h1>
-<p class="muted">Operator documents. The published version applies at the next restart, and every change is in the audit log. Edit drafts a change from the live document; History lists the versions.</p>
+<p class="muted">Operator documents. The published version applies at the next restart, except a document marked "live at once", and every change is in the audit log. Edit drafts a change from the live document; History lists the versions.</p>
 <div class="scroll"><table class="docs">
 <thead><tr><th>Name</th><th>Runs on</th><th>Live</th><th>Published</th><th>By</th><th>Newer draft</th><th>Art checks</th><th>Origin</th><th>Note</th><th>Waiting for a restart</th><th>Rejected at start</th><th class="num">Versions</th><th>Links</th></tr></thead>
 <tbody>
@@ -13,7 +13,7 @@
 <td>{{if .ArtChecks}}yes{{else}}no{{end}}</td>
 <td>{{with .Origin}}<span class="pill">{{.}}</span>{{end}}</td>
 <td class="clip">{{firstLine .Note}}</td>
-<td>{{if .Pending}}<span class="pill warn">yes</span>{{else}}no{{end}}</td>
+<td>{{if .Pending}}<span class="pill warn">yes</span>{{else if .Hot}}no, live at once{{else}}no{{end}}</td>
 <td>{{with .Rejected}}<span class="pill error">v{{.Version}}: {{.Error}}</span>{{else}}no{{end}}</td>
 <td class="num">{{.Versions}}</td>
 <td class="links"><a href="/docs/{{.Name}}#draft">Edit</a> · <a href="/docs/{{.Name}}#history">History</a></td>

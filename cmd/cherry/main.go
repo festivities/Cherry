@@ -159,6 +159,16 @@ func main() {
 	// A staff ban and a logout end the account's live connections (store.OnRevoke).
 	store.OnRevoke = lpn.CloseAid
 	store.OnTakeover = lpn.KickAid // a sign-in on another device: the older one is told, then closed
+	// The staff UI's Restart button (owner) ends main's wait like a signal; main then starts the binary again (reexec).
+	restartReq := make(chan struct{}, 1)
+	if canReexec {
+		admin.OnRestart = func() {
+			select {
+			case restartReq <- struct{}{}:
+			default: // a restart is already on its way
+			}
+		}
+	}
 	// The staff UI listens on its own address and hostname (PLAN P4). listen.staff empty (the lab) starts nothing.
 	staff, err := admin.Start(cfg, logger)
 	if err != nil {
@@ -247,11 +257,15 @@ func main() {
 	defer maintStop()
 	go maintain(maintCtx, logger, cfg)
 
+	restarting := false
 	select {
 	case err := <-errc:
 		logger.Fatalf("cherry: https serve: %v", err)
 	case <-ctx.Done():
 		logger.Printf("cherry: signal received, shutting down")
+	case <-restartReq:
+		restarting = true
+		logger.Printf("cherry: restart requested, shutting down")
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -279,4 +293,9 @@ func main() {
 		logger.Printf("cherry: close database: %v", err)
 	}
 	logger.Printf("cherry: shutdown complete")
+	if restarting {
+		// Same PID, so systemd sees no stop. A failed exec exits non-zero, which Restart=on-failure turns into a restart too.
+		err := reexec()
+		logger.Fatalf("cherry: restart: %v", err)
+	}
 }

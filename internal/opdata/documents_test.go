@@ -101,3 +101,41 @@ func TestSwitchIsNotADocument(t *testing.T) {
 	}()
 	New("sample-twice.json", []byte(`{"n":1,"name":"b"}`), checkSample, nil)
 }
+
+// Swap makes a hot document's publish live at once and its un-publish fall back to the config file or default; a document
+// that is not hot is left on what it loaded.
+func TestSwapHotOnly(t *testing.T) {
+	isolate(t)
+	hot := NewHot("sample-hot.json", []byte(`{"n":1,"name":"default"}`), checkSample, nil)
+	cold := New("sample-cold.json", []byte(`{"n":1,"name":"default"}`), checkSample, nil)
+	t.Cleanup(hot.Reset)
+	t.Cleanup(cold.Reset)
+	for _, f := range []*File[sample]{hot, cold} {
+		if err := f.Load(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !IsHot("sample-hot.json") || IsHot("sample-cold.json") {
+		t.Fatal("IsHot does not follow NewHot")
+	}
+
+	if ok, err := Swap("sample-hot.json", 4, []byte(`{"n":4,"name":"published"}`)); !ok || err != nil {
+		t.Fatalf("Swap hot = %v, %v", ok, err)
+	}
+	if got := hot.Get(); got.N != 4 {
+		t.Fatalf("hot value = %+v, want the published v4", got)
+	}
+	if s := status(t, "sample-hot.json"); s.Source != "database v4" || s.Version != 4 {
+		t.Fatalf("status = %+v, want database v4", s)
+	}
+	if ok, err := Swap("sample-hot.json", 5, []byte(`{"n":-1}`)); !ok || err == nil || hot.Get().N != 4 {
+		t.Fatalf("an invalid body must be refused and leave v4 live: %v, %v, %+v", ok, err, hot.Get())
+	}
+	if ok, err := Swap("sample-hot.json", 0, nil); !ok || err != nil || hot.Get().N != 1 {
+		t.Fatalf("un-publish = %v, %v, %+v; want the embedded default", ok, err, hot.Get())
+	}
+
+	if ok, err := Swap("sample-cold.json", 2, []byte(`{"n":2,"name":"published"}`)); ok || err != nil || cold.Get().N != 1 {
+		t.Fatalf("Swap cold = %v, %v, %+v; want no change", ok, err, cold.Get())
+	}
+}

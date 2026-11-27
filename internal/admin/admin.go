@@ -66,6 +66,7 @@ type Server struct {
 	sessionCount    func() int                                              // lpn.SessionCount
 	broadcastBanner func(message string) (int, int)                         // lpn.BroadcastBanner
 	broadcastMaint  func(message string, duration time.Duration) (int, int) // lpn.BroadcastMaintPopup
+	restart         func()                                                  // OnRestart; nil = this process cannot restart itself
 	memo            memo                                                    // the Insights aggregates, kept for insightsTTL
 
 	srv *http.Server
@@ -109,6 +110,7 @@ func New(cfg config.Config, logger *log.Logger) (*Server, error) {
 		sessionCount:    lpn.SessionCount,
 		broadcastBanner: lpn.BroadcastBanner,
 		broadcastMaint:  lpn.BroadcastMaintPopup,
+		restart:         OnRestart,
 		memo:            memo{items: map[string]memoItem{}},
 		limits: limits{
 			loginMinute:    auth.NewLimiter(10, time.Minute),
@@ -312,6 +314,7 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /settings/staff/remove", s.action(true, maxBodySmall, s.handleStaffRemove))
 	mux.HandleFunc("POST /settings/maintenance-whitelist/add", s.action(true, maxBodySmall, s.handleMaintWhitelistAdd))
 	mux.HandleFunc("POST /settings/maintenance-whitelist/remove", s.action(true, maxBodySmall, s.handleMaintWhitelistRemove))
+	mux.HandleFunc("POST /settings/restart", s.action(true, maxBodySmall, s.handleRestart))
 	// A state change reached by GET gets 405: a literal path beats the {version} wildcard of the GET page.
 	mux.HandleFunc("GET /docs/{name}/draft", methodNotAllowed("POST"))
 	mux.HandleFunc("GET /docs/{name}/rollback", methodNotAllowed("POST"))

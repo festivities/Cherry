@@ -234,4 +234,13 @@
 <div class="actions"><button type="submit">Add to maintenance whitelist</button></div>
 </form>
 </section>
+
+<section class="card stack">
+<h2>Restart server</h2>
+{{if .Settings.CanRestart}}<p>Stops Cherry cleanly (saved data stays; the queued chat log and token times are written first) and starts it again. Every player's game connection drops, and staff sign-ins end. The game is back in about 15 seconds. Use it after publishing a document that applies at the next restart.</p>
+<form method="post" action="/settings/restart" data-confirm="Restart Cherry now? Every player online is disconnected for about 15 seconds.">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<div class="actions"><button type="submit" class="danger">Restart server</button></div>
+</form>{{else}}<p class="muted">Not available on this host: Cherry restarts itself only on Linux or another Unix system. Restart it from the host.</p>{{end}}
+</section>
 {{end}}
