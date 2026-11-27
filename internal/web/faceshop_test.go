@@ -87,8 +87,8 @@ func TestFaceShopDataShapes(t *testing.T) {
 		}
 		total += len(cat["items"])
 	}
-	if total != 1173 {
-		t.Fatalf("catalog items = %d", total)
+	if total < len(economy.FaceCatalog) {
+		t.Fatalf("catalog items = %d, want at least %d", total, len(economy.FaceCatalog))
 	}
 	var set map[string][]json.RawMessage
 	if json.Unmarshal(top.Result["SET"], &set) != nil || set["items"] == nil {

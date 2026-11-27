@@ -98,6 +98,44 @@ func TestAllowlistAndRefusals(t *testing.T) {
 	}
 }
 
+// TestMFARequiredMessage: an authorised staff member (owner, moderator or helper) without Discord 2FA gets a 403
+// telling them to enable two-factor authentication, while a stranger without 2FA still sees only "Not authorised.".
+func TestMFARequiredMessage(t *testing.T) {
+	fakeDiscord(t, new(int))
+	fx := newFixture(t, discordConfig(t, ""))
+	owner := fx.client()
+	expect(t, owner.discordLogin("c|"+ownerID+"|1"), http.StatusOK)
+
+	helperID := "300000000000000001"
+	expect(t, owner.post("/settings/staff/add", url.Values{
+		"csrf": {owner.csrf()}, "identity": {helperID}, "role": {"helper"}, "note": {"Volunteer"},
+	}), http.StatusSeeOther)
+
+	// Helper without Discord 2FA gets 403 explaining that 2FA must be enabled, and is audited as mfa-off.
+	helper := fx.client()
+	r := helper.discordLogin("c|" + helperID + "|0")
+	expect(t, r, http.StatusForbidden)
+	if !strings.Contains(r.body, "Two-factor authentication (2FA)") {
+		t.Fatalf("helper mfa-off page did not explain 2FA requirement: %s", r.body)
+	}
+	if !hasAudit(auditRows(t), "discord:"+helperID, "login-refused", "mfa-off") {
+		t.Error("helper without 2FA was not audited as mfa-off")
+	}
+
+	// Stranger without Discord 2FA still sees generic "Not authorised." (never reveals MFA check).
+	stranger := fx.client()
+	sr := stranger.discordLogin("c|" + strangerID + "|0")
+	expect(t, sr, http.StatusForbidden)
+	if !strings.Contains(sr.body, "Not authorised.") || strings.Contains(sr.body, "2FA") {
+		t.Fatalf("stranger without 2FA leaked MFA requirement: %s", sr.body)
+	}
+
+	// Once 2FA is enabled, the Helper signs in cleanly and lands on /items.
+	expect(t, helper.discordLogin("c|"+helperID+"|1"), http.StatusOK)
+	expect(t, helper.get("/"), http.StatusSeeOther)
+	expect(t, helper.get("/items"), http.StatusOK)
+}
+
 // TestStateAndCookieChecks: a sign-in needs its own pre-login cookie and an unused, unexpired state from the same address.
 func TestStateAndCookieChecks(t *testing.T) {
 	fakeDiscord(t, new(int))

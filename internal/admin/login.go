@@ -18,9 +18,10 @@ import (
 
 // The sign-in (PLAN P4): GET /auth/login starts it with a pre-login cookie and a server-side state bound to that cookie;
 // GET /auth/callback finishes it. The state is single use and expires; the pre-login cookie is single use too. A person is
-// admitted when their identity is the owner or on the staff allowlist AND Discord reports two-factor (mfa_enabled). Refused
-// sign-ins say "Not authorised." and nothing else; the reason goes to the log and, once the state was found, to the audit
-// trail with the Discord id.
+// admitted when their identity is the owner or on the staff list/allowlist AND Discord reports two-factor (mfa_enabled).
+// Unauthorised sign-ins say "Not authorised." and nothing else; an authorised staff member without Discord 2FA is told to
+// enable two-factor authentication in Discord and try again. Every refusal is logged and, once the state was found,
+// written to the audit trail with the Discord id.
 //
 // ponytail: the sign-in state and the blocks are in memory (see admin.go).
 
@@ -43,10 +44,12 @@ type loginState struct {
 	created time.Time
 }
 
-// Texts of the sign-in pages. None of them says which check failed.
+// Texts of the sign-in pages. Unauthorised refusals never say which check failed; only an already-authorised staff
+// member without Discord 2FA is told to enable two-factor authentication.
 const (
 	textBlocked     = "Too many attempts from this network. Wait a few minutes and try again."
 	textRefused     = "Not authorised."
+	textMFARequired = "Two-factor authentication (2FA) is required on your Discord account to sign in. Please enable 2FA in Discord (User Settings -> My Account) and try again."
 	textBadRequest  = "This sign-in link is not valid."
 	textUnavailable = "Sign-in is not available right now. Try again later."
 )
@@ -172,7 +175,7 @@ func (s *Server) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !mfa {
-		s.refuse(w, ip, identity, "mfa-off", true)
+		s.refuseWithText(w, ip, identity, "mfa-off", textMFARequired, true)
 		return
 	}
 
@@ -246,6 +249,10 @@ func cleanName(n string) string {
 // refuse answers a refused sign-in with the generic page, logs the reason, counts it toward the address's block and, when
 // audited, writes a login-refused row with the identity (or "unknown") and the reason.
 func (s *Server) refuse(w http.ResponseWriter, ip, identity, reason string, audited bool) {
+	s.refuseWithText(w, ip, identity, reason, textRefused, audited)
+}
+
+func (s *Server) refuseWithText(w http.ResponseWriter, ip, identity, reason, text string, audited bool) {
 	now := s.now()
 	shown := auth.MaskIdentity(identity)
 	if shown == "" {
@@ -262,7 +269,7 @@ func (s *Server) refuse(w http.ResponseWriter, ip, identity, reason string, audi
 		}
 	}
 	s.countRefusal(ip, now)
-	s.fail(w, http.StatusForbidden, textRefused)
+	s.fail(w, http.StatusForbidden, text)
 }
 
 // countRefusal counts a refused sign-in from ip. The sixth within 15 minutes blocks the address for 15 minutes.

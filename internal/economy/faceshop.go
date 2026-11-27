@@ -113,23 +113,58 @@ func convertedFaces(keep func(string) bool, kinds []string) []string {
 	return codes
 }
 
-// faceCatalog is every human face the Face Shop lists: FaceCatalog, then the converted human faces.
+// mergeFaceCodes combines the static baseline list, newly discovered original faces from the asset store,
+// and converted faces, keeping the baseline order first and deduplicating across all three sources.
+func mergeFaceCodes(base []string, baseSet map[string]struct{}, orig []string, conv []string) []string {
+	out := make([]string, 0, len(base)+len(orig)+len(conv))
+	seen := make(map[string]struct{}, len(base)+len(orig)+len(conv))
+	for _, c := range base {
+		out = append(out, c)
+		seen[c] = struct{}{}
+	}
+	for _, c := range orig {
+		if _, ok := baseSet[c]; ok {
+			continue
+		}
+		if _, ok := seen[c]; ok {
+			continue
+		}
+		out = append(out, c)
+		seen[c] = struct{}{}
+	}
+	for _, c := range conv {
+		if _, ok := seen[c]; ok {
+			continue
+		}
+		out = append(out, c)
+		seen[c] = struct{}{}
+	}
+	return out
+}
+
+// faceCatalog is every human face the Face Shop lists: FaceCatalog, then any additional renderable original
+// human faces discovered from the asset store, then the converted human faces (deduplicated).
 func faceCatalog() []string {
-	return append(slices.Clone(FaceCatalog), convertedFaces(isHumanFace, humanKinds)...)
+	return mergeFaceCodes(FaceCatalog, FaceCatalogSet, loadCatalog().origHumanFaces, convertedFaces(isHumanFace, humanKinds))
 }
 
-// animalFaceCatalog is every animal part the Face Shop lists: the original animal parts, then the converted ones.
+// animalFaceCatalog is every animal part the Face Shop lists: AnimalFaceCatalog, then any additional renderable
+// original animal parts discovered from the asset store, then the converted ones (deduplicated).
 func animalFaceCatalog() []string {
-	return append(slices.Clone(AnimalFaceCatalog), convertedFaces(isAnimalPart, animalKinds)...)
+	return mergeFaceCodes(AnimalFaceCatalog, AnimalFaceCatalogSet, loadCatalog().origAnimalFaces, convertedFaces(isAnimalPart, animalKinds))
 }
 
-// faceForSale reports whether a face or animal part can be bought now: a catalog code (human or animal), or a
-// converted code the index lists. Which species may buy it is checked against the account in HandleFaceShopPurchase.
+// faceForSale reports whether a face or animal part can be bought now: a static catalog code (human or animal),
+// a renderable original face discovered from the asset store, or a converted code the index lists. Which species
+// may buy it is checked against the account in HandleFaceShopPurchase.
 func faceForSale(code string) bool {
 	if _, ok := FaceCatalogSet[code]; ok {
 		return true
 	}
 	if _, ok := AnimalFaceCatalogSet[code]; ok {
+		return true
+	}
+	if loadCatalog().origFaceSet[code] {
 		return true
 	}
 	id, ok := itemcode.ID(code)

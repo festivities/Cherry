@@ -237,6 +237,9 @@ type shopCatalog struct {
 	minipets               []miniPetPair        // the Minipet Shop: paired pets with art whose item has art (minipet.go)
 	byCode                 map[string]*shopItem // the same items by code
 	animated               map[string]bool      // every priced code, art or not (ItemPrice; sell-back needs it)
+	origHumanFaces         []string             // renderable original human face codes discovered from originals (sorted)
+	origAnimalFaces        []string             // renderable original animal face/skin/ear/tail codes discovered from originals (sorted)
+	origFaceSet            map[string]bool      // membership for origHumanFaces ∪ origAnimalFaces
 }
 
 // miniPetPair is one Minipet for sale: a pet with art and its room item with art.
@@ -330,7 +333,7 @@ func PetCategoryCode(code string) string {
 }
 
 func scanCatalog(archive *assets.Store) *shopCatalog {
-	c := &shopCatalog{archive: archive, originals: archive.Items(), generated: assets.GeneratedItems(), gardens: gardensFile.Get(), byCode: map[string]*shopItem{}, animated: map[string]bool{}, petItems: map[string]*shopItem{}}
+	c := &shopCatalog{archive: archive, originals: archive.Items(), generated: assets.GeneratedItems(), gardens: gardensFile.Get(), byCode: map[string]*shopItem{}, animated: map[string]bool{}, petItems: map[string]*shopItem{}, origFaceSet: map[string]bool{}}
 	for _, sub := range []string{"custom", "dress", "interior", "tile", "pet"} {
 		for _, n := range c.originals.IDs(sub) {
 			c.add(sub, n, true)
@@ -347,6 +350,8 @@ func scanCatalog(archive *assets.Store) *shopCatalog {
 			c.byCode[(*list)[i].Code] = &(*list)[i]
 		}
 	}
+	slices.Sort(c.origHumanFaces)
+	slices.Sort(c.origAnimalFaces)
 	c.classifyPets()
 	for _, pet := range c.pet {
 		if item, ok := MiniPetItem(pet.Code); ok {
@@ -382,6 +387,18 @@ func (c *shopCatalog) add(sub string, n int64, original bool) {
 	code, ok := itemCodeFromID(n)
 	if !ok {
 		return
+	}
+	// Discover renderable original faces and animal parts from the asset index so future donated backups
+	// automatically appear in the Face Shop and the staff Item names catalog without editing face_codes.txt.
+	if original && (sub == "custom" || sub == "dress") && !c.origFaceSet[code] {
+		switch {
+		case sub == "custom" && isHumanFace(code) && thumbs.HasArt(sub, n):
+			c.origFaceSet[code] = true
+			c.origHumanFaces = append(c.origHumanFaces, code)
+		case isAnimalPart(code) && thumbs.HasArt(sub, n):
+			c.origFaceSet[code] = true
+			c.origAnimalFaces = append(c.origAnimalFaces, code)
+		}
 	}
 	_, kind := classify(code)
 	if kind == 0 || c.byCode[code] != nil || kind == kindPet && !(original && c.originals.HasFile(sub, n, "skeleton.xml")) {

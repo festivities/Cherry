@@ -70,6 +70,7 @@ func itemconvSwitch(t *testing.T, on bool) {
 // TestFaceCatalogConvertedFaces: the converted human faces the index lists join the Face Shop catalog and are sold;
 // converted hair, faces the index does not list, and animal faces (TestFaceShopAnimalFaces) stay out of the catalog.
 func TestFaceCatalogConvertedFaces(t *testing.T) {
+	testutil.SetArchive(t, map[string][]string{})
 	faceIndex(t, "CUEY0000A", "CUMO0000A", "CUHE0000A", "CUHA00001", "CAEY0000A")
 	got := faceCatalog()
 	if len(got) != len(FaceCatalog)+3 {
@@ -95,6 +96,7 @@ func TestFaceCatalogConvertedFaces(t *testing.T) {
 
 // TestFaceCatalogConvertedSwitch: itemconv.json off hides every converted face, from the catalog and from purchase.
 func TestFaceCatalogConvertedSwitch(t *testing.T) {
+	testutil.SetArchive(t, map[string][]string{})
 	faceIndex(t, "CUEY0000A")
 	itemconvSwitch(t, false)
 	if len(faceCatalog()) != len(FaceCatalog) || faceForSale("CUEY0000A") {
@@ -106,6 +108,62 @@ func TestFaceCatalogConvertedSwitch(t *testing.T) {
 	itemconvSwitch(t, true)
 	if !faceForSale("CUEY0000A") {
 		t.Fatal("switch back on does not sell the converted face")
+	}
+}
+
+// TestFaceCatalogDiscoversDonatedOriginalFaces: newly donated original human and animal faces in static/item/
+// with valid sprites join faceCatalog/animalFaceCatalog/faceForSale automatically (and deduplicate against
+// converted items), while dp-only folders without part sprites stay excluded.
+func TestFaceCatalogDiscoversDonatedOriginalFaces(t *testing.T) {
+	origRoot := t.TempDir()
+	writeFace := func(kind, code string, withPart bool) {
+		id, ok := itemcode.ID(code)
+		if !ok {
+			t.Fatalf("bad code %s", code)
+		}
+		dir := filepath.Join(origRoot, kind, fmt.Sprintf("%d", id))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "dp.png"), []byte("png"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if withPart {
+			if err := os.WriteFile(filepath.Join(dir, "1409_iteminfo.artsitem"), []byte("1;0;0;0;0;"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "0_1.png"), []byte("png"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	writeFace("custom", "CUEY00ZZZ", true)
+	writeFace("custom", "CUMO00ZZZ", false) // dp-only: must stay out
+	writeFace("custom", "CAEY00ZZZ", true)
+	writeFace("dress", "CAEA00ZZZ", true)
+
+	testutil.SetArchive(t, map[string][]string{"static/item/": {origRoot}})
+	// Even if CUEY00ZZZ also exists as a converted item, it must only appear once (deduplicated).
+	faceIndex(t, "CUEY00ZZZ")
+
+	hcat := faceCatalog()
+	count := 0
+	for _, c := range hcat {
+		if c == "CUEY00ZZZ" {
+			count++
+		}
+	}
+	if count != 1 || !faceForSale("CUEY00ZZZ") {
+		t.Fatalf("donated human face CUEY00ZZZ count=%d forSale=%t", count, faceForSale("CUEY00ZZZ"))
+	}
+	if slices.Contains(hcat, "CUMO00ZZZ") || faceForSale("CUMO00ZZZ") {
+		t.Fatal("dp-only face CUMO00ZZZ should stay excluded")
+	}
+	acat := animalFaceCatalog()
+	for _, want := range []string{"CAEY00ZZZ", "CAEA00ZZZ"} {
+		if !slices.Contains(acat, want) || !faceForSale(want) {
+			t.Errorf("donated animal part %s missing from animalFaceCatalog or faceForSale", want)
+		}
 	}
 }
 
@@ -173,6 +231,7 @@ func slotCodes(codes []string, slot string) []string {
 // AEYE/ANOSE/AMOUTH/AFACE/AEAR/ATAIL. A human body has none, a human account cannot buy an animal part (original or
 // converted), an animal account cannot buy a human face, and it buys a converted face for one ticket.
 func TestFaceShopAnimalFaces(t *testing.T) {
+	testutil.SetArchive(t, map[string][]string{})
 	if len(AnimalFaceCatalog) != 172 {
 		t.Fatalf("AnimalFaceCatalog = %d codes, want 172 (114 EY/NO/MO faces, 24 FA, 19 EA, 15 TL)", len(AnimalFaceCatalog))
 	}

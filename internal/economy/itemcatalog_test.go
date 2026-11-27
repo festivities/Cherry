@@ -123,22 +123,35 @@ func TestCatalogItemsAndServeItemPreview(t *testing.T) {
 	genRoot := t.TempDir()
 	pngBytes := tinyPNG(t)
 
-	// One original cosmetic item (CUHA00001) and one converted item (CUTO00001).
+	// One original cosmetic item (CUHA00001), one newly donated original human face (CUEY00ZZZ) not in face_codes.txt,
+	// one newly donated original animal face (CAEY00ZZZ) not in animal_face_codes.txt, one dp-only broken face (CUMO00ZZZ),
+	// and one converted item (CUTO00001).
 	hairID, _ := itemcode.ID("CUHA00001")
+	donatedHumanFaceID, _ := itemcode.ID("CUEY00ZZZ")
+	donatedAnimalFaceID, _ := itemcode.ID("CAEY00ZZZ")
+	brokenFaceID, _ := itemcode.ID("CUMO00ZZZ")
 	topID, _ := itemcode.ID("CUTO00001")
-	origDir := filepath.Join(origRoot, "custom", strconv.FormatInt(hairID, 10))
-	if err := os.MkdirAll(origDir, 0o755); err != nil {
-		t.Fatal(err)
+	writeOrigItem := func(kind string, id int64, withPart bool) {
+		dir := filepath.Join(origRoot, kind, strconv.FormatInt(id, 10))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "dp.png"), pngBytes, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if withPart {
+			if err := os.WriteFile(filepath.Join(dir, "1409_iteminfo.artsitem"), []byte("1;0;0;0;0;"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "0_1.png"), pngBytes, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
-	if err := os.WriteFile(filepath.Join(origDir, "dp.png"), pngBytes, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(origDir, "1409_iteminfo.artsitem"), []byte("1;0;0;0;0;"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(origDir, "0_1.png"), pngBytes, 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeOrigItem("custom", hairID, true)
+	writeOrigItem("custom", donatedHumanFaceID, true)
+	writeOrigItem("custom", donatedAnimalFaceID, true)
+	writeOrigItem("custom", brokenFaceID, false)
 
 	convDir := filepath.Join(genRoot, "dress", strconv.FormatInt(topID, 10))
 	if err := os.MkdirAll(convDir, 0o755); err != nil {
@@ -180,8 +193,21 @@ func TestCatalogItemsAndServeItemPreview(t *testing.T) {
 	if !ok || top.Group != "cosmetics" || top.Category != "TO" || !top.Converted {
 		t.Fatalf("CUTO00001 = %+v %t", top, ok)
 	}
+	// Newly donated original faces with part art are auto-discovered in both Face Shop and Item names;
+	// dp-only broken face folders without sprites stay out.
+	hface, ok := CatalogItemByCode("CUEY00ZZZ")
+	if !ok || hface.Group != "faces" || hface.Species != "human" || hface.Converted || !faceForSale("CUEY00ZZZ") {
+		t.Fatalf("donated human face CUEY00ZZZ = %+v ok=%t forSale=%t", hface, ok, faceForSale("CUEY00ZZZ"))
+	}
+	aface, ok := CatalogItemByCode("CAEY00ZZZ")
+	if !ok || aface.Group != "faces" || aface.Species != "animal" || aface.Converted || !faceForSale("CAEY00ZZZ") {
+		t.Fatalf("donated animal face CAEY00ZZZ = %+v ok=%t forSale=%t", aface, ok, faceForSale("CAEY00ZZZ"))
+	}
+	if _, ok := CatalogItemByCode("CUMO00ZZZ"); ok || faceForSale("CUMO00ZZZ") {
+		t.Fatal("dp-only broken face CUMO00ZZZ should not be discovered or sold")
+	}
 
-	for _, code := range []string{"CUHA00001", "CUTO00001"} {
+	for _, code := range []string{"CUHA00001", "CUTO00001", "CUEY00ZZZ", "CAEY00ZZZ"} {
 		rec := httptest.NewRecorder()
 		if !ServeItemPreview(rec, code) {
 			t.Fatalf("ServeItemPreview(%s) returned false", code)
