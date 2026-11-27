@@ -46,6 +46,12 @@ func handleFriendSync(w http.ResponseWriter, r *http.Request) {
 		status int
 	}
 	var rels []relRow
+	blockedSet := make(map[string]bool, len(actor.Blocked))
+	if actorOK {
+		for _, aid := range actor.Blocked {
+			blockedSet[aid] = true
+		}
+	}
 	store.SocialMu.Lock()
 	removed, marked := store.FriendRemoved, store.FriendBookmarked
 	if actorOK {
@@ -56,6 +62,9 @@ func handleFriendSync(w http.ResponseWriter, r *http.Request) {
 			}
 			if f.B == actor.Aid {
 				other = f.A
+			}
+			if blockedSet[other] {
+				continue
 			}
 			switch {
 			case f.State == "accepted":
@@ -71,6 +80,15 @@ func handleFriendSync(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	store.SocialMu.Unlock()
+	if actorOK {
+		for _, aid := range actor.Blocked {
+			if _, live := store.AccountByAvatarID(aid); live {
+				rels = append(rels, relRow{aid, relBlocked})
+			} else {
+				rels = append(rels, relRow{aid, -1})
+			}
+		}
+	}
 	// Native caches sync rows by avatarNo and never prunes omitted ones; see PLAN
 	// "Stale friend-cache fix" before renumbering friendAID again.
 	// Accounts 1 and 2 were renumbered to 1001/1002 (Room Party cells hide
@@ -161,10 +179,11 @@ const (
 	relFriends  = 1
 	relNone     = 2
 	relSent     = 3
+	relBlocked  = 4
 )
 
 // friendRelation returns the enum from actor's point of view. Caller holds socialMu.
-func friendRelation(actor string, actorOK bool, aid string) int {
+func friendRelation(actor string, actorBlocked []string, actorOK bool, aid string) int {
 	if aid == store.FriendAID {
 		if !syntheticFriendEnabled() || store.FriendRemoved {
 			return relNone
@@ -173,6 +192,9 @@ func friendRelation(actor string, actorOK bool, aid string) int {
 	}
 	if !actorOK {
 		return relNone
+	}
+	if slices.Contains(actorBlocked, aid) {
+		return relBlocked
 	}
 	if i := store.FriendshipIndex(actor, aid, ""); i >= 0 {
 		switch f := store.Friendships[i]; {
@@ -226,8 +248,16 @@ func handleProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func profileBodyFor(aid, name string, hasGarden bool, viewer store.AccountSnapshot, viewerOK bool) map[string]any {
+	blockedByViewer := viewerOK && slices.Contains(viewer.Blocked, aid)
+	blockedByTarget := viewerOK && viewer.Aid != aid && store.IsBlocked(aid, viewer.Aid)
+	online := false
+	if aid != store.FriendAID && !blockedByViewer && !blockedByTarget {
+		if n, err := strconv.ParseUint(aid, 10, 64); err == nil && n > 0 {
+			online = lpn.SessionOnline(n)
+		}
+	}
 	store.SocialMu.Lock()
-	friendStatus := friendRelation(viewer.Aid, viewerOK, aid)
+	friendStatus := friendRelation(viewer.Aid, viewer.Blocked, viewerOK, aid)
 	diaryCount, guestbookCount := 0, 0
 	for _, post := range store.DiaryPosts {
 		if post.AvatarID == aid && canViewDiaryPost(post, viewer, viewerOK) {
@@ -251,7 +281,8 @@ func profileBodyFor(aid, name string, hasGarden bool, viewer store.AccountSnapsh
 	store.SocialMu.Unlock()
 	body := map[string]any{
 		"avatarId": aid, "name": name, "nickname": name, "diaryName": name,
-		"newbie": false, "friendStatus": friendStatus, "friendApplyYn": true, "hasGarden": hasGarden,
+		"newbie": false, "online": online, "busy": false,
+		"friendStatus": friendStatus, "friendApplyYn": !blockedByViewer && !blockedByTarget, "hasGarden": hasGarden,
 		"showGuestBook": true, "showCmt": true, "showProfile": true,
 		"diaryCount": diaryCount, "guestBookCount": guestbookCount, "friendsCount": friendsCount,
 		"myGardenAvatarInfo": map[string]any{"level": 1, "footprintCount": int64(0), "userPlanet": 0},
@@ -594,6 +625,167 @@ func handleFriendDefer(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, `{"result":1}`)
 }
 
+const maxBlockedAvatars = 500
+
+// handleChatBlock serves GET /v4/chat/block/<aid> (ReqFriendBlockWithAvatarID @0x1bab6d8 &
+// ReqChatBlockWithAvatarID @0x1bba114). It adds aid to actor.Blocked, unfriends/removes any
+// pending request and bookmarks between the pair, records a "removed" friendship tombstone so
+// a later unblock emits status:-1 in sync/friends, and replies {"result":{"blocked":true,"avatar":...}}.
+func handleChatBlock(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		httpx.ServeNotFound(w)
+		return
+	}
+	actor, ok := store.AccountForRequest(r)
+	if !ok {
+		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
+		return
+	}
+	aid := strings.Trim(strings.TrimPrefix(r.URL.Path, "/v4/chat/block/"), "/")
+	if strings.Contains(aid, "/") || !store.ValidAvatarID(aid) || aid == store.FriendAID {
+		httpx.ServeNotFound(w)
+		return
+	}
+	if aid == actor.Aid {
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
+	store.AccountsMu.Lock()
+	acc := store.AccountByAidLocked(actor.Aid)
+	if acc == nil {
+		store.AccountsMu.Unlock()
+		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
+		return
+	}
+	targetAcc := store.AccountByAidLocked(aid)
+	if targetAcc == nil {
+		store.AccountsMu.Unlock()
+		httpx.ServeNotFound(w)
+		return
+	}
+	prevBlocked := acc.Blocked
+	prevActorMarks := acc.FriendBookmarks
+	prevTargetMarks := targetAcc.FriendBookmarks
+	actorDirty, targetDirty := false, false
+	if !slices.Contains(acc.Blocked, aid) {
+		if len(acc.Blocked) >= maxBlockedAvatars {
+			store.AccountsMu.Unlock()
+			httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+			return
+		}
+		acc.Blocked = append(slices.Clone(acc.Blocked), aid)
+		actorDirty = true
+	}
+	if slices.Contains(acc.FriendBookmarks, aid) {
+		acc.FriendBookmarks = slices.DeleteFunc(slices.Clone(acc.FriendBookmarks), func(id string) bool { return id == aid })
+		actorDirty = true
+	}
+	if slices.Contains(targetAcc.FriendBookmarks, actor.Aid) {
+		targetAcc.FriendBookmarks = slices.DeleteFunc(slices.Clone(targetAcc.FriendBookmarks), func(id string) bool { return id == actor.Aid })
+		targetDirty = true
+	}
+	var dirty []*store.Account
+	if actorDirty {
+		dirty = append(dirty, acc)
+	}
+	if targetDirty {
+		dirty = append(dirty, targetAcc)
+	}
+	var err error
+	if len(dirty) > 0 {
+		if err = store.SaveLocked(nil, dirty...); err != nil {
+			acc.Blocked = prevBlocked
+			acc.FriendBookmarks = prevActorMarks
+			targetAcc.FriendBookmarks = prevTargetMarks
+		}
+	}
+	store.AccountsMu.Unlock()
+	if err != nil {
+		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
+		return
+	}
+	// Mark any existing friendship removed, or record a "removed" tombstone for strangers so
+	// unblocking later emits status:-1 in sync/friends to clear status=4 from artsdata.db.
+	store.SocialMu.Lock()
+	prevFriendships := append([]store.Friendship(nil), store.Friendships...)
+	socialChanged := false
+	if i := store.FriendshipIndex(actor.Aid, aid, ""); i >= 0 {
+		if store.Friendships[i].State != "removed" {
+			store.Friendships[i].State = "removed"
+			socialChanged = true
+		}
+	} else {
+		store.Friendships = append(store.Friendships, store.Friendship{A: actor.Aid, B: aid, State: "removed"})
+		socialChanged = true
+	}
+	if socialChanged {
+		err = store.SaveSocialLocked(store.SocialChange{Friends: [][2]string{{actor.Aid, aid}}})
+		if err != nil {
+			store.Friendships = prevFriendships
+		}
+	}
+	store.SocialMu.Unlock()
+	if err != nil {
+		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
+		return
+	}
+	targetSnap, ok := store.AccountByAvatarID(aid)
+	if !ok {
+		httpx.ServeNotFound(w)
+		return
+	}
+	httpx.WriteObj(w, map[string]any{
+		"result": map[string]any{
+			"blocked": true,
+			"avatar":  store.AvatarInfoForAccount(targetSnap),
+		},
+	})
+}
+
+// handleChatUnblock serves POST /v4/chat/block/remove/<aid> (ReqFriendUnBlockWithAvatarID @0x1bcd648 &
+// ReqChatUnBlockWithAvatarID @0x1bd9a84, body "null"). ResFriendUnBlockWithAvatarID @0x1a70d0c checks result.asInt() == 1.
+func handleChatUnblock(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		httpx.ServeNotFound(w)
+		return
+	}
+	actor, ok := store.AccountForRequest(r)
+	if !ok {
+		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
+		return
+	}
+	aid := strings.Trim(strings.TrimPrefix(r.URL.Path, "/v4/chat/block/remove/"), "/")
+	if strings.Contains(aid, "/") || !store.ValidAvatarID(aid) {
+		httpx.ServeNotFound(w)
+		return
+	}
+	if _, err := httpx.ReadNativeBody(r); err != nil {
+		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
+	store.AccountsMu.Lock()
+	acc := store.AccountByAidLocked(actor.Aid)
+	if acc == nil {
+		store.AccountsMu.Unlock()
+		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
+		return
+	}
+	var err error
+	if slices.Contains(acc.Blocked, aid) {
+		prev := acc.Blocked
+		acc.Blocked = slices.DeleteFunc(slices.Clone(prev), func(id string) bool { return id == aid })
+		if err = store.SaveLocked(nil, acc); err != nil {
+			acc.Blocked = prev
+		}
+	}
+	store.AccountsMu.Unlock()
+	if err != nil {
+		httpx.WriteJSON(w, http.StatusInternalServerError, httpx.SaveFailedBody)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, `{"result":1}`)
+}
+
 func handleDiaryCheckExist(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		httpx.ServeNotFound(w)
@@ -609,10 +801,11 @@ func handleDiaryCheckExist(w http.ResponseWriter, r *http.Request) {
 		}
 		owner, diaryNo := parts[0], parts[1]
 		viewer, viewerOK := store.AccountForRequest(r)
+		blockedByOwner := viewerOK && viewer.Aid != owner && store.IsBlocked(owner, viewer.Aid)
 		store.SocialMu.Lock()
 		post, found := findPostLocked(owner, diaryNo)
 		visible := found && canViewDiaryPost(post, viewer, viewerOK)
-		frndApplyYn := viewerOK && viewer.Aid != owner && friendRelation(viewer.Aid, true, owner) == relNone
+		frndApplyYn := viewerOK && viewer.Aid != owner && !blockedByOwner && friendRelation(viewer.Aid, viewer.Blocked, true, owner) == relNone
 		store.SocialMu.Unlock()
 		if !visible {
 			httpx.ServeNotFound(w)
@@ -1405,7 +1598,7 @@ func handleFriendSearch(w http.ResponseWriter, r *http.Request) {
 	store.SocialMu.Lock()
 	for aid, item := range byID {
 		if searcherOK {
-			item.FriendStatus = strconv.Itoa(friendRelation(searcher.Aid, true, aid))
+			item.FriendStatus = strconv.Itoa(friendRelation(searcher.Aid, searcher.Blocked, true, aid))
 			byID[aid] = item
 		}
 	}
@@ -1490,7 +1683,7 @@ func handleFriendStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	actor, actorOK := store.AccountForRequest(r)
 	store.SocialMu.Lock()
-	status := friendRelation(actor.Aid, actorOK, aid)
+	status := friendRelation(actor.Aid, actor.Blocked, actorOK, aid)
 	store.SocialMu.Unlock()
 	body, _ := json.Marshal(map[string]int{"result": status})
 	httpx.WriteJSON(w, http.StatusOK, string(body))
@@ -1553,6 +1746,10 @@ func handleFriendApply(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
 	}
+	if store.BlockedBetween(actor.Aid, aid) {
+		httpx.WriteJSON(w, http.StatusBadRequest, `{"errorCode":"19500"}`)
+		return
+	}
 	setFriendship(w, actor.Aid, actor.Name, aid, false)
 }
 
@@ -1596,7 +1793,7 @@ func handleFriendAccept(w http.ResponseWriter, r *http.Request) {
 			restoreFriendWithBody(w, `{"result":true}`)
 			return
 		}
-		if aid == actor.Aid {
+		if aid == actor.Aid || store.BlockedBetween(actor.Aid, aid) {
 			httpx.WriteJSON(w, http.StatusOK, `{"result":false,"errorCode":"19406"}`)
 			return
 		}
@@ -1624,6 +1821,10 @@ func handleFriendAccept(w http.ResponseWriter, r *http.Request) {
 	}
 	if aid == store.FriendAID {
 		restoreFriend(w)
+		return
+	}
+	if store.BlockedBetween(actor.Aid, aid) {
+		httpx.WriteJSON(w, http.StatusBadRequest, `{"errorCode":"19406"}`)
 		return
 	}
 	setFriendship(w, actor.Aid, actor.Name, aid, true)

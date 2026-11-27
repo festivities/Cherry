@@ -35,6 +35,7 @@ type AccountSnapshot struct {
 	GardenStats     GardenStats
 	HighFive        HighFiveDay
 	FriendBookmarks []string
+	Blocked         []string
 }
 
 func AccountInventoryCodes(acc *Account) []string {
@@ -86,6 +87,7 @@ func AccountByAvatarID(id string) (AccountSnapshot, bool) {
 				Remodel:        acc.Remodel,
 				GardenStats:    acc.GardenStats.clone(),
 				HighFive:       acc.HighFive.clone(),
+				Blocked:        slices.Clone(acc.Blocked),
 			}, true
 		}
 	}
@@ -144,6 +146,7 @@ type Account struct {
 	Landscapes      []string              // bought Garden landscape item codes (economy/landscape.go); replaced, never edited in place
 	Pins            []string              // avatar ids on the requester's My Pins, in pin order (web/pins.go); replaced, never edited in place
 	FriendBookmarks []string              // bookmarked friend avatar ids (web/social.go); replaced, never edited in place
+	Blocked         []string              // blocked avatar ids (web/social.go); replaced, never edited in place
 	DiaryProfile    *DiaryProfile         // Diary profile edit fields (diaryprofile.go, web/profileedit.go); replaced, never edited in place
 	Wishes          []string              // item codes on the requester's wish list, at most four (web/wishlist.go); replaced, never edited in place
 	Butlers         *ButlerBook           // Garden butlers: contracts, chief, gathering (economy/butler.go); replaced, never edited in place
@@ -767,6 +770,7 @@ func accountForToken(token string) (AccountSnapshot, bool) {
 		GardenStats:     acc.GardenStats.clone(),
 		HighFive:        acc.HighFive.clone(),
 		FriendBookmarks: slices.Clone(acc.FriendBookmarks),
+		Blocked:         slices.Clone(acc.Blocked),
 	}
 	AccountsMu.Unlock()
 	return snapshot, true
@@ -800,4 +804,37 @@ func AvatarBirthday(aid string) int64 {
 		acc.AvatarCreated = 0
 	}
 	return acc.AvatarCreated
+}
+
+// IsBlockedLocked reports whether acc has blocked targetAid. Caller holds AccountsMu.
+func IsBlockedLocked(acc *Account, targetAid string) bool {
+	return acc != nil && targetAid != "" && slices.Contains(acc.Blocked, targetAid)
+}
+
+// BlockedBetweenLocked reports whether either a or b has blocked the other. Caller holds AccountsMu.
+func BlockedBetweenLocked(a, b string) bool {
+	if a == "" || b == "" || a == b {
+		return false
+	}
+	return IsBlockedLocked(AccountByAidLocked(a), b) || IsBlockedLocked(AccountByAidLocked(b), a)
+}
+
+// IsBlocked reports whether actorAid has blocked targetAid.
+func IsBlocked(actorAid, targetAid string) bool {
+	if actorAid == "" || targetAid == "" || actorAid == targetAid {
+		return false
+	}
+	AccountsMu.Lock()
+	defer AccountsMu.Unlock()
+	return IsBlockedLocked(AccountByAidLocked(actorAid), targetAid)
+}
+
+// BlockedBetween reports whether either a or b has blocked the other.
+func BlockedBetween(a, b string) bool {
+	if a == "" || b == "" || a == b {
+		return false
+	}
+	AccountsMu.Lock()
+	defer AccountsMu.Unlock()
+	return BlockedBetweenLocked(a, b)
 }

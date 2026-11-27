@@ -58,6 +58,10 @@ func handleGuestbookWrite(w http.ResponseWriter, r *http.Request) {
 		httpx.ServeNotFound(w)
 		return
 	}
+	if store.BlockedBetween(actor.Aid, req.HostAvtNo) {
+		httpx.WriteJSON(w, http.StatusBadRequest, `{"errorCode":"19500"}`)
+		return
+	}
 
 	store.SocialMu.Lock()
 	if capsOn() && entriesToday(actor.Aid, todayKey()) >= maxEntriesPerDay {
@@ -336,6 +340,10 @@ func handleGuestbookReplyWrite(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, err := httpx.UnmarshalNativeJSON(raw, &req); err != nil || !store.ValidAvatarID(req.HostAvtNo) || req.ReplyAvtNo != actor.Aid || !httpx.IsAllDigits(req.ParentHistNo) || strings.TrimSpace(req.Content) == "" || len(req.Content) > 4000 || !utf8.ValidString(req.Content) {
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
+		return
+	}
+	if store.BlockedBetween(actor.Aid, req.HostAvtNo) {
+		httpx.WriteJSON(w, http.StatusBadRequest, `{"errorCode":"19500"}`)
 		return
 	}
 	locale := actor.Country

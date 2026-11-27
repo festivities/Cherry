@@ -241,6 +241,10 @@ func handleDiaryCommentWrite(w http.ResponseWriter, r *http.Request) {
 		locale = "JP"
 	}
 	owner, diaryNo := parts[0], strconv.FormatUint(req.DiaryNo, 10)
+	if store.BlockedBetween(actor.Aid, owner) {
+		httpx.WriteJSON(w, http.StatusOK, `{"result":{"blocked":true}}`)
+		return
+	}
 
 	store.SocialMu.Lock()
 	post, found := findPostLocked(owner, diaryNo)

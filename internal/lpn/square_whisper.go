@@ -130,6 +130,10 @@ func (s *squareSession) handleWhisper(frame, data []byte) error {
 		return nil
 	}
 
+	if store.BlockedBetween(strconv.FormatUint(s.aid, 10), strconv.FormatUint(targetAid, 10)) {
+		return s.reply(frame, squareRcTrunkCall, squareTrunkCallBody(targetAid, targetAid, 0, "", step, squareWhisperErrNotFound))
+	}
+
 	// Case C: Active whisper chat (step == 6 with non-empty msg).
 	// Delivered only to sender (echo) and target; never broadcast to observers.
 	if step == squareWhisperStepConnect && len(msgBytes) > 0 {

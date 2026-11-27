@@ -9,7 +9,10 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"cherry/internal/economy"
+	"cherry/internal/lpn"
 	"cherry/internal/store"
 	"cherry/internal/testutil"
 )
@@ -1388,5 +1391,253 @@ func TestRealFriendBookmarks(t *testing.T) {
 	socialTestRequestAs(t, "t2", http.MethodPut, "/v4/friend/accept/1001", "null\x00")
 	if got1, got2 := bookmarksOf("t1"), bookmarksOf("t2"); len(got1) != 0 || len(got2) != 0 {
 		t.Fatalf("bookmarks after re-friend = t1:%v t2:%v, want empty", got1, got2)
+	}
+}
+
+func TestProfileOnlineIndicator(t *testing.T) {
+	useConfig(t, devFakeConfig())
+	testutil.UseDatabase(t)
+	installSocialTestAccounts(t, map[string]*store.Account{
+		"t1": {AccessToken: "t1", SessionKey: "s1", Aid: "1001", Name: "One"},
+		"t2": {AccessToken: "t2", SessionKey: "s2", Aid: "1002", Name: "Two"},
+	})
+	store.ResetSocial()
+	t.Cleanup(store.ResetSocial)
+
+	profileOnline := func(token, aid string) (online, busy bool) {
+		t.Helper()
+		rec := socialTestRequestAs(t, token, http.MethodGet, "/v4/profile/"+aid+"?deviceType=Android", "")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("profile %s = %d %s", aid, rec.Code, rec.Body.String())
+		}
+		var out struct {
+			Result struct {
+				Online bool `json:"online"`
+				Busy   bool `json:"busy"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatalf("unmarshal profile: %v (%s)", err, rec.Body.String())
+		}
+		return out.Result.Online, out.Result.Busy
+	}
+
+	if online, busy := profileOnline("t1", "1002"); online || busy {
+		t.Fatalf("offline profile = online:%v busy:%v, want false/false", online, busy)
+	}
+
+	conn := startTestSessionConn(t, "s2", 1002)
+	if online, busy := profileOnline("t1", "1002"); !online || busy {
+		t.Fatalf("online profile = online:%v busy:%v, want true/false", online, busy)
+	}
+
+	// Blocking hides online status on both profile and session/status.
+	if rec := socialTestRequestAs(t, "t1", http.MethodGet, "/v4/chat/block/1002", ""); rec.Code != http.StatusOK {
+		t.Fatalf("block 1002 = %d %s", rec.Code, rec.Body.String())
+	}
+	if online, _ := profileOnline("t1", "1002"); online {
+		t.Fatalf("blocked profile online = true, want false")
+	}
+	if online, _ := profileOnline("t2", "1001"); online {
+		t.Fatalf("reverse-blocked profile online = true, want false")
+	}
+	ss := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/session/status", `["1002"]`)
+	if ss.Code != http.StatusOK || !strings.Contains(ss.Body.String(), `"online":false`) {
+		t.Fatalf("session/status while blocked = %d %s", ss.Code, ss.Body.String())
+	}
+
+	// Unblocking restores online status while session is still live.
+	if rec := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/chat/block/remove/1002", "null\x00"); rec.Code != http.StatusOK {
+		t.Fatalf("unblock 1002 = %d %s", rec.Code, rec.Body.String())
+	}
+	if online, _ := profileOnline("t1", "1002"); !online {
+		t.Fatalf("unblocked online profile = false, want true")
+	}
+
+	_ = conn.Close()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && lpn.SessionOnline(1002) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if online, _ := profileOnline("t1", "1002"); online {
+		t.Fatalf("disconnected profile online = true, want false")
+	}
+}
+
+func TestBlockUnblockAndEnforcement(t *testing.T) {
+	useConfig(t, devFakeConfig())
+	testutil.UseDatabase(t)
+	installSocialTestAccounts(t, map[string]*store.Account{
+		"t1": {AccessToken: "t1", Aid: "1001", Name: "One"},
+		"t2": {AccessToken: "t2", Aid: "1002", Name: "Two"},
+		"t3": {AccessToken: "t3", Aid: "1003", Name: "Three"},
+	})
+	store.ResetSocial()
+	t.Cleanup(store.ResetSocial)
+
+	syncInfo := func(token string) (friendsCount int, statuses map[string]int, bookmarks []string) {
+		t.Helper()
+		rec := socialTestRequestAs(t, token, http.MethodGet, "/v4/sync/friends/0", "")
+		var out struct {
+			Result struct {
+				FriendsCount int `json:"friendsCount"`
+				BuddyList    []struct {
+					AvatarNo     string `json:"avatarNo"`
+					Status       int    `json:"status"`
+					FriendStatus int    `json:"friendStatus"`
+				} `json:"buddyList"`
+				Bookmarks []string `json:"bookmarks"`
+			} `json:"result"`
+		}
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &out) != nil {
+			t.Fatalf("sync = %d %s", rec.Code, rec.Body.String())
+		}
+		statuses = make(map[string]int, len(out.Result.BuddyList))
+		for _, b := range out.Result.BuddyList {
+			statuses[b.AvatarNo] = b.Status
+		}
+		return out.Result.FriendsCount, statuses, out.Result.Bookmarks
+	}
+
+	profileStatus := func(token, aid string) (friendStatus int, applyYn bool) {
+		t.Helper()
+		rec := socialTestRequestAs(t, token, http.MethodGet, "/v4/profile/"+aid, "")
+		var out struct {
+			Result struct {
+				FriendStatus  int  `json:"friendStatus"`
+				FriendApplyYn bool `json:"friendApplyYn"`
+			} `json:"result"`
+		}
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &out) != nil {
+			t.Fatalf("profile = %d %s", rec.Code, rec.Body.String())
+		}
+		return out.Result.FriendStatus, out.Result.FriendApplyYn
+	}
+
+	// Edge cases: self-block 400, unknown 404, wrong method 404.
+	if r := socialTestRequestAs(t, "t1", http.MethodGet, "/v4/chat/block/1001", ""); r.Code != http.StatusBadRequest {
+		t.Fatalf("self block = %d, want 400", r.Code)
+	}
+	if r := socialTestRequestAs(t, "t1", http.MethodGet, "/v4/chat/block/9999", ""); r.Code != http.StatusNotFound {
+		t.Fatalf("unknown block = %d, want 404", r.Code)
+	}
+	if r := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/chat/block/1002", ""); r.Code != http.StatusNotFound {
+		t.Fatalf("POST chat/block = %d, want 404", r.Code)
+	}
+	if r := socialTestRequestAs(t, "t1", http.MethodGet, "/v4/chat/block/remove/1002", ""); r.Code != http.StatusNotFound {
+		t.Fatalf("GET chat/block/remove = %d, want 404", r.Code)
+	}
+
+	// Make 1001 and 1002 friends with mutual bookmarks, and create a diary post on 1002.
+	socialTestRequestAs(t, "t1", http.MethodPost, "/v4/friend/apply/", `{"applyAvatarId":"1002"}`)
+	socialTestRequestAs(t, "t2", http.MethodPut, "/v4/friend/accept/1001", "null\x00")
+	socialTestRequestAs(t, "t1", http.MethodPost, "/v4/friend/bookmark/1002", "{}\x00")
+	socialTestRequestAs(t, "t2", http.MethodPost, "/v4/friend/bookmark/1001", "{}\x00")
+	store.SocialMu.Lock()
+	store.DiaryPosts = append(store.DiaryPosts, store.DiaryPost{
+		DiaryNo: "1", AvatarID: "1002", OpenState: "public", Content: "hi",
+	})
+	_ = store.SaveSocialLocked(store.SocialChange{Posts: []string{"1"}})
+	store.SocialMu.Unlock()
+
+	// 1001 blocks 1002.
+	blk := socialTestRequestAs(t, "t1", http.MethodGet, "/v4/chat/block/1002", "")
+	if blk.Code != http.StatusOK {
+		t.Fatalf("block 1002 = %d %s", blk.Code, blk.Body.String())
+	}
+	var blkOut struct {
+		Result struct {
+			Blocked bool `json:"blocked"`
+			Avatar  struct {
+				AvatarID string `json:"avatarId"`
+				Name     string `json:"name"`
+			} `json:"avatar"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(blk.Body.Bytes(), &blkOut); err != nil || !blkOut.Result.Blocked || blkOut.Result.Avatar.AvatarID != "1002" || blkOut.Result.Avatar.Name != "Two" {
+		t.Fatalf("block reply = %s", blk.Body.String())
+	}
+
+	// Reload from DB to verify persistence.
+	if err := store.ReloadStores(); err != nil {
+		t.Fatal(err)
+	}
+
+	fc1, st1, bm1 := syncInfo("t1")
+	if fc1 != 0 || st1["1002"] != 4 || len(bm1) != 0 {
+		t.Fatalf("t1 sync after block = count:%d status:%d bm:%v, want 0/4/[]", fc1, st1["1002"], bm1)
+	}
+	fc2, st2, bm2 := syncInfo("t2")
+	if fc2 != 0 || st2["1001"] != -1 || len(bm2) != 0 {
+		t.Fatalf("t2 sync after block = count:%d status:%d bm:%v, want 0/-1/[]", fc2, st2["1001"], bm2)
+	}
+
+	// Profile status: 1001 sees friendStatus=4, 1002 sees friendStatus=2 and friendApplyYn=false.
+	if fs, apply := profileStatus("t1", "1002"); fs != 4 || apply {
+		t.Fatalf("t1 profile 1002 = fs:%d apply:%v, want 4/false", fs, apply)
+	}
+	if fs, apply := profileStatus("t2", "1001"); fs != 2 || apply {
+		t.Fatalf("t2 profile 1001 = fs:%d apply:%v, want 2/false", fs, apply)
+	}
+
+	// Enforcement: friend apply, diary comment, guestbook, hearts all rejected.
+	if r := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/friend/apply/", `{"applyAvatarId":"1002"}`); r.Code != http.StatusBadRequest || !strings.Contains(r.Body.String(), `"19500"`) {
+		t.Fatalf("apply blocked = %d %s", r.Code, r.Body.String())
+	}
+	if r := socialTestRequestAs(t, "t2", http.MethodPost, "/v4/friend/apply/", `{"applyAvatarId":"1001"}`); r.Code != http.StatusBadRequest || !strings.Contains(r.Body.String(), `"19500"`) {
+		t.Fatalf("apply by blocked = %d %s", r.Code, r.Body.String())
+	}
+	if r := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/diary2/comment/write/1002", `{"diaryNo":1,"avatarID":"1001","content":"yo"}`); r.Code != http.StatusOK || r.Body.String() != `{"result":{"blocked":true}}` {
+		t.Fatalf("diary comment blocked = %d %s", r.Code, r.Body.String())
+	}
+	if r := socialTestRequestAs(t, "t2", http.MethodPost, "/v4/guestbook/write", `{"hostAvtNo":"1001","guestAvtNo":"1002","content":"hi","secret":false}`); r.Code != http.StatusBadRequest {
+		t.Fatalf("guestbook write blocked = %d %s", r.Code, r.Body.String())
+	}
+	if economy.HeartReceivable("1001", "1002") || economy.HeartReceivable("1002", "1001") {
+		t.Fatalf("HeartReceivable should be false while blocked")
+	}
+
+	// Mutual block: 1002 also blocks 1001; 1001 unblocking leaves 1002's block intact.
+	if r := socialTestRequestAs(t, "t2", http.MethodGet, "/v4/chat/block/1001", ""); r.Code != http.StatusOK {
+		t.Fatalf("mutual block = %d %s", r.Code, r.Body.String())
+	}
+	if r := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/chat/block/remove/1002", "null\x00"); r.Code != http.StatusOK || r.Body.String() != `{"result":1}` {
+		t.Fatalf("unblock 1002 = %d %s", r.Code, r.Body.String())
+	}
+	_, st1, _ = syncInfo("t1")
+	_, st2, _ = syncInfo("t2")
+	if st1["1002"] != -1 || st2["1001"] != 4 {
+		t.Fatalf("after one-sided unblock: st1[1002]=%d (want -1), st2[1001]=%d (want 4)", st1["1002"], st2["1001"])
+	}
+	// Still blocked by 1002 so apply still fails.
+	if r := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/friend/apply/", `{"applyAvatarId":"1002"}`); r.Code != http.StatusBadRequest {
+		t.Fatalf("apply while still blocked by peer = %d", r.Code)
+	}
+	// 1002 unblocks 1001 -> now both have -1 tombstone and can re-friend.
+	if r := socialTestRequestAs(t, "t2", http.MethodPost, "/v4/chat/block/remove/1001", "null\x00"); r.Code != http.StatusOK || r.Body.String() != `{"result":1}` {
+		t.Fatalf("unblock 1001 = %d %s", r.Code, r.Body.String())
+	}
+	_, st2, _ = syncInfo("t2")
+	if st2["1001"] != -1 {
+		t.Fatalf("t2 sync after unblock = %d, want -1 tombstone", st2["1001"])
+	}
+	if r := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/friend/apply/", `{"applyAvatarId":"1002"}`); r.Code != http.StatusOK {
+		t.Fatalf("re-apply after mutual unblock = %d %s", r.Code, r.Body.String())
+	}
+
+	// Block a stranger (no prior friendship) -> unblock still emits -1 tombstone to clear artsdata.db.
+	if r := socialTestRequestAs(t, "t1", http.MethodGet, "/v4/chat/block/1003", ""); r.Code != http.StatusOK {
+		t.Fatalf("block stranger 1003 = %d %s", r.Code, r.Body.String())
+	}
+	_, st1, _ = syncInfo("t1")
+	if st1["1003"] != 4 {
+		t.Fatalf("stranger sync status = %d, want 4", st1["1003"])
+	}
+	if r := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/chat/block/remove/1003", "null\x00"); r.Code != http.StatusOK {
+		t.Fatalf("unblock stranger 1003 = %d %s", r.Code, r.Body.String())
+	}
+	_, st1, _ = syncInfo("t1")
+	if st1["1003"] != -1 {
+		t.Fatalf("stranger sync status after unblock = %d, want -1", st1["1003"])
 	}
 }

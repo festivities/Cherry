@@ -416,6 +416,8 @@ func newMux(svc *auth.Service) http.Handler {
 	mux.HandleFunc("/v4/friend/relationship/", handleFriendRelationship)
 	mux.HandleFunc("/v4/friend/apply/", handleFriendApply)
 	mux.HandleFunc("/v4/friend/accept/", handleFriendAccept)
+	mux.HandleFunc("/v4/chat/block/remove/", handleChatUnblock)
+	mux.HandleFunc("/v4/chat/block/", handleChatBlock)
 	mux.HandleFunc("/v4/pin/list", handlePinList)
 	mux.HandleFunc("/v4/pin/add/", handlePinAdd)
 	mux.HandleFunc("/v4/pin/delete", handlePinDelete)

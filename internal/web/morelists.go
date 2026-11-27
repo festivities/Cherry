@@ -178,14 +178,19 @@ func handleSessionStatus(w http.ResponseWriter, r *http.Request) {
 		Busy     bool   `json:"busy"`
 		Online   bool   `json:"online"`
 	}
+	actor, actorOK := store.AccountForRequest(r)
 	result := make([]status, 0, len(aids))
 	for _, aid := range aids {
 		if !store.ValidAvatarID(aid) {
 			httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 			return
 		}
-		n, _ := strconv.ParseUint(aid, 10, 64)
-		result = append(result, status{AvatarID: aid, Online: lpn.SessionOnline(n)})
+		online := false
+		if !actorOK || !store.BlockedBetween(actor.Aid, aid) {
+			n, _ := strconv.ParseUint(aid, 10, 64)
+			online = lpn.SessionOnline(n)
+		}
+		result = append(result, status{AvatarID: aid, Online: online})
 	}
 	httpx.WriteObj(w, struct {
 		Result []status `json:"result"`

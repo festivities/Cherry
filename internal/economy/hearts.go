@@ -69,7 +69,7 @@ func HeartSend(sender, target string, now time.Time) (sent, questDone bool) {
 	defer store.AccountsMu.Unlock()
 	acc := store.AccountByAidLocked(sender)
 	tgt, valid := heartTargetLocked(target)
-	if acc == nil || !valid || sender == target {
+	if acc == nil || !valid || sender == target || store.BlockedBetweenLocked(sender, target) {
 		return false, false
 	}
 	day := AttendDayKey(now)
@@ -187,7 +187,7 @@ func HaveHeart(viewer string, now time.Time) bool {
 func HeartReceivable(viewer, target string) bool {
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
-	if store.AccountByAidLocked(viewer) == nil || viewer == target {
+	if store.AccountByAidLocked(viewer) == nil || viewer == target || store.BlockedBetweenLocked(viewer, target) {
 		return false
 	}
 	_, valid := heartTargetLocked(target)

@@ -437,6 +437,14 @@ func (s *squareSession) bossInvite(data []byte) {
 		s.logger.Printf("SQUARE fishing boss invite aid=%d ignored", s.aid)
 		return
 	}
+	masterAid := strconv.FormatUint(s.aid, 10)
+	allowed := make([]uint64, 0, len(aids))
+	for _, a := range aids {
+		if a == 0 || a == s.aid || store.BlockedBetween(masterAid, strconv.FormatUint(a, 10)) {
+			continue
+		}
+		allowed = append(allowed, a)
+	}
 	sq := seat.sq
 	sq.mu.Lock()
 	r := seat.room
@@ -446,8 +454,8 @@ func (s *squareSession) bossInvite(data []byte) {
 		return
 	}
 	var invitees []uint64
-	for _, a := range aids {
-		if a == 0 || a == s.aid || slices.ContainsFunc(r.members, func(m *squareBossSeat) bool { return m.aid() == a }) {
+	for _, a := range allowed {
+		if slices.ContainsFunc(r.members, func(m *squareBossSeat) bool { return m.aid() == a }) {
 			continue
 		}
 		r.invited[a] = true
@@ -455,7 +463,6 @@ func (s *squareSession) bossInvite(data []byte) {
 	}
 	sq.mu.Unlock()
 	s.logger.Printf("SQUARE fishing boss invite aid=%d invited=%d of=%d", s.aid, len(invitees), len(aids))
-	masterAid := strconv.FormatUint(s.aid, 10)
 	masterName := squareAccountName(s.aid)
 	at := economy.NowFunc().UnixMilli()
 	for _, a := range invitees {

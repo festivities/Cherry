@@ -605,6 +605,10 @@ func avatarChatSendLocked(roomID string, msgType int64, text, name string, aid u
 	if r == nil || msgType != avatarChatTypeText || text == "" || utf8.RuneCountInString(text) > avatarChatTextMax {
 		return avatarChatErr(acRefused), id, 0, false
 	}
+	to := r.other(aid)
+	if store.BlockedBetween(strconv.FormatUint(aid, 10), strconv.FormatUint(to, 10)) {
+		return avatarChatErr(acRefused), id, 0, false
+	}
 	m := avatarChatMsg{sn: r.lastSn + 1, sec: economy.NowFunc().Unix(), sender: aid, text: text}
 	// The message is saved before its serial is returned. A failed save keeps the serial taken (memory never goes back, and
 	// nothing was sent with it, so the next message skips it; the room stays unsaved until a save of it succeeds) and
@@ -625,7 +629,6 @@ func avatarChatSendLocked(roomID string, msgType int64, text, name string, aid u
 		return avatarChatErr(acInternal), id, 0, false
 	}
 	// A member outside the room gets the banner text with the push; one inside gets the plain 13001 as before.
-	to := r.other(aid)
 	banner := ""
 	if avatarChatBannerOn && !avatarChatInRoomLocked(to, id) {
 		banner = avatarChatBanner(name, text)

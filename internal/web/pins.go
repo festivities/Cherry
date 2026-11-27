@@ -37,7 +37,7 @@ func handlePinList(w http.ResponseWriter, r *http.Request) {
 		httpx.ServeNotFound(w)
 		return
 	}
-	owner, pins, ok := requesterPins(r)
+	owner, pins, blocked, ok := requesterPins(r)
 	if !ok {
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
 		return
@@ -49,7 +49,7 @@ func handlePinList(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		store.SocialMu.Lock()
-		row.Status = friendRelation(owner, true, aid)
+		row.Status = friendRelation(owner, blocked, true, aid)
 		store.SocialMu.Unlock()
 		rows = append(rows, row)
 	}
@@ -139,15 +139,15 @@ func writePinResult(w http.ResponseWriter, found bool, err error) {
 	}
 }
 
-// requesterPins returns the requester's aid and a copy of its pins; ok is false without a session.
-func requesterPins(r *http.Request) (aid string, pins []string, ok bool) {
+// requesterPins returns the requester's aid and copies of its pins and blocked list; ok is false without a session.
+func requesterPins(r *http.Request) (aid string, pins, blocked []string, ok bool) {
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
 	acc := store.AccountByTokenLocked(httpx.CookieValue(r, "AV_AUTH"))
 	if acc == nil {
-		return "", nil, false
+		return "", nil, nil, false
 	}
-	return acc.Aid, slices.Clone(acc.Pins), true
+	return acc.Aid, slices.Clone(acc.Pins), slices.Clone(acc.Blocked), true
 }
 
 // editPins replaces the pins of the account behind token with edit(pins) and saves them. found is
