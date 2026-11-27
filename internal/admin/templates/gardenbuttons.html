@@ -1,0 +1,42 @@
+{{define "page"}}<h1>Garden buttons</h1>
+<p class="muted">Owner only. These buttons appear in each player's own Garden, in the event column on the <strong>right</strong> of the screen. The game shows at most {{.GardenButtons.Max}}; while a season with a Garden icon runs (calendars.json), its icon takes a free place after these.</p>
+<p class="muted">What the game allows: the picture is one of the game's own event pictures (any text you see is part of the picture), and the action is a menu screen or a web page in the phone's browser. The label is only for staff: the game never shows it. A new button appears the next time a player's Garden loads. A removed or changed button stays on a player's screen until they restart the app. The column on the <strong>left</strong>, below the player picture, holds only the game's built-in buttons (packages, Play Pass, season pass, video ads, gacha target, comic guide, anniversary, back to My Garden). No server setting changes their picture, text or action.</p>
+
+<h2>Current buttons</h2>
+<div class="scroll"><table>
+<thead><tr><th>Picture</th><th>Label</th><th>Opens</th><th>Added (UTC)</th><th>By</th><th></th></tr></thead>
+<tbody>
+{{range .GardenButtons.Buttons}}<tr>
+<td><img class="icon-preview" src="/garden-buttons/icon/{{.Icon}}" alt="" loading="lazy"> <code>{{.Icon}}</code></td>
+<td>{{.Label}}</td><td class="detail">{{.Action}}</td><td>{{.Added}}</td><td>{{.By}}</td>
+<td><form method="post" action="/garden-buttons/remove" data-confirm="Remove this Garden button? Players who already see it keep it until they restart the app."><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="icon" value="{{.Icon}}"><button type="submit" class="danger">Remove</button></form></td>
+</tr>
+{{else}}<tr class="empty"><td colspan="6">No Garden buttons yet.</td></tr>{{end}}
+</tbody>
+</table></div>
+
+<h2>Add a button</h2>
+{{if .GardenButtons.Full}}<p class="muted">The game shows at most {{.GardenButtons.Max}} buttons. Remove one to add another.</p>
+{{else if not .GardenButtons.Icons}}<p class="muted">The game's event pictures could not be read from the asset store, so no button can be added now. The server log has the reason.</p>
+{{else}}<form method="post" action="/garden-buttons/add" class="card stack">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<label><span class="label">Label</span>
+<input type="text" name="label" maxlength="40" required>
+<small class="help">1 to 40 characters, for staff only.</small></label>
+<label><span class="label">Opens</span>
+<select name="action" required>
+{{range .GardenButtons.Actions}}<option value="{{.Value}}">{{.Label}}</option>
+{{end}}</select></label>
+<label><span class="label">Web page address</span>
+<input type="url" name="url" maxlength="512" placeholder="https://">
+<small class="help">Only for "Open a web page": an https address, opened in the phone's browser.</small></label>
+<fieldset class="stack">
+<legend class="label">Picture</legend>
+<small class="help">Rough stills of the game's event pictures (the game animates them). Pictures that look like buttons are named <code>*_home_l_*</code>, <code>*_event_icon</code> or <code>87_home_free_gift</code>.</small>
+<div class="icon-pick">
+{{range .GardenButtons.Icons}}<label><input type="radio" name="icon" value="{{.}}" required><img src="/garden-buttons/icon/{{.}}" alt="" loading="lazy"><span>{{.}}</span></label>
+{{end}}</div>
+</fieldset>
+<div class="actions"><button type="submit">Add button</button></div>
+</form>{{end}}
+{{end}}

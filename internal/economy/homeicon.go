@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"cherry/internal/httpx"
+	"cherry/internal/store"
 )
 
 // Economy Phase E: the Garden's floating event icon. The Garden asks GET /v4/home/integrated/info when it loads
@@ -52,8 +53,10 @@ func checkSeasonIcon(season string, ic *seasonIconJSON) error {
 	return nil
 }
 
-// HandleHomeIntegratedInfo serves GET /v4/home/integrated/info (exact path): one home_icon row while a season with
-// an icon is in force, an empty list otherwise. result.bill_prod_icon is the unavailable package body (economy.go).
+// HandleHomeIntegratedInfo serves GET /v4/home/integrated/info (exact path): the owner's Garden buttons (store.GardenButtons,
+// staff panel), then one row while a season with an icon is in force. The client draws at most two rows, in the Garden's
+// right-hand event column, and keeps a row it has received until the app exits (spec garden-buttons-20261128).
+// result.bill_prod_icon is the unavailable package body (economy.go).
 // result.gacha_target_icon is left out: the parser reads it only when it is non-empty (Json::Value::empty is true for
 // a missing member), so no gacha target icon is shown. result.birthday_home is sent only while the requester's birthday
 // claim window is open and unclaimed (birthday.go); left out otherwise.
@@ -63,8 +66,11 @@ func HandleHomeIntegratedInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows := []homeEventIconRow{}
+	for _, b := range store.GardenButtons() {
+		rows = append(rows, homeEventIconRow{IconSeq: len(rows) + 1, IconID: b.Icon, IconName: b.Label, LinkTypeCode: b.Link, LinkDetail: b.Detail})
+	}
 	if ic := scheduleAt(NowFunc()).Icon; ic != nil {
-		rows = append(rows, homeEventIconRow{IconSeq: 1, IconID: ic.ID, IconName: ic.Name, LinkTypeCode: ic.Link, LinkDetail: ic.Detail})
+		rows = append(rows, homeEventIconRow{IconSeq: len(rows) + 1, IconID: ic.ID, IconName: ic.Name, LinkTypeCode: ic.Link, LinkDetail: ic.Detail})
 	}
 	icons, _ := json.Marshal(rows) // strings and ints only: cannot fail
 	httpx.WriteJSON(w, http.StatusOK, `{"result":{"bill_prod_icon":`+unavailableHomeIcons+`,"home_icon":`+string(icons)+birthdayHomeIntegrated(r)+`}}`)

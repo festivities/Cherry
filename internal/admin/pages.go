@@ -52,6 +52,7 @@ var navGroups = []navGroup{
 	}},
 	{"Content", []link{
 		{Href: "/items", Label: "Item names", MinRole: roleHelper},
+		{Href: "/garden-buttons", Label: "Garden buttons", MinRole: roleOwner},
 		{Href: "/docs", Label: "Documents", MinRole: roleOwner},
 	}},
 	{"System", []link{
@@ -112,6 +113,8 @@ var notices = map[string]string{
 	"circle-edited":             "The circle details are saved. The audit trail has the line and your reason.",
 	"circle-member-removed":     "The member is removed from the circle. The audit trail has the line and your reason.",
 	"circle-disbanded":          "The circle is disbanded. Its members are removed and the audit trail has the line.",
+	"garden-button-added":       "The Garden button is saved. Players see it the next time their Garden loads.",
+	"garden-button-removed":     "The Garden button is removed. A player who already saw it keeps it until they restart the app.",
 	"broadcast-sent":            "The announcement was sent to all currently online players. The audit trail has the line.",
 }
 
@@ -200,8 +203,10 @@ type view struct {
 	Mail      mailPage
 	Balances  balancesPage
 	Broadcast *broadcastPage
-	Search    searchPage
-	Settings  settingsPage
+	// Garden buttons (gardenbuttons.go)
+	GardenButtons *gardenButtonsPage
+	Search        searchPage
+	Settings      settingsPage
 
 	// deleted avatars (deleted.go): the list rows and one record
 	DeletedRows   []deletedRow

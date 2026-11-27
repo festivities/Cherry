@@ -243,6 +243,20 @@ func homeIconRows() []homeIconRow {
 	return rows
 }
 
+// MenuLink is one home menu row as a Garden button action: the link type, its menu label and the detail it sends.
+type MenuLink struct{ Link, Label, Detail string }
+
+// MenuLinks lists the home menu rows in menu order: the screens a Garden button may open (the staff Garden buttons page).
+// Every row opens from the MENU with this detail, and a Garden button goes through the same SceneChangeByLinkType call.
+func MenuLinks() []MenuLink {
+	rows := homeIconRows()
+	out := make([]MenuLink, len(rows))
+	for i, row := range rows {
+		out[i] = MenuLink{Link: row.LinkType, Label: row.Name, Detail: gachaHomeLink(row.LinkType)}
+	}
+	return out
+}
+
 type homeIconEntry struct {
 	ID             int    `json:"id"`
 	Name           string `json:"name"`

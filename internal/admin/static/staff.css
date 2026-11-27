@@ -198,6 +198,11 @@ button.ghost, .button.ghost { background: transparent; color: var(--accent); }
 button.ghost:hover, .button.ghost:hover { background: var(--accent-soft); filter: none; }
 button.danger { background: var(--danger); border-color: var(--danger); color: #ffffff; }
 button.danger:hover { filter: brightness(1.08); }
+.icon-preview { max-width: 3rem; max-height: 3rem; vertical-align: middle; }
+.icon-pick { display: grid; grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr)); gap: .5rem; max-height: 32rem; overflow-y: auto; }
+.icon-pick label { display: flex; flex-direction: column; align-items: center; gap: .25rem; padding: .4rem; border: 1px solid var(--line); border-radius: 6px; font-size: .72rem; overflow-wrap: anywhere; text-align: center; cursor: pointer; }
+.icon-pick label:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+.icon-pick img { max-width: 5.5rem; max-height: 5.5rem; }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) button.danger { color: #1a0b0a; }
 }
