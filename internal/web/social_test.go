@@ -628,8 +628,71 @@ func TestInviteScreenRoutes(t *testing.T) {
 		t.Fatalf("recommend/code without session: status = %d, want 404", rec.Code)
 	}
 	rec := socialTestRequestAs(t, "invite-token", http.MethodGet, "/v4/recommend/code", "")
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"recommendCode":"7"`) {
-		t.Fatalf("recommend/code: status = %d, body = %q", rec.Code, rec.Body.String())
+	wantCode := store.AvatarCodeForID("7")
+	if !store.IsAvatarCode(wantCode) {
+		t.Fatalf("AvatarCodeForID(7) = %q, want AA-DDDD-DDDD", wantCode)
+	}
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"recommendCode":"`+wantCode+`"`) {
+		t.Fatalf("recommend/code: status = %d, body = %q, want %q", rec.Code, rec.Body.String(), wantCode)
+	}
+}
+
+func TestFriendSearchEmptyCountryAndAvatarCode(t *testing.T) {
+	installSocialTestAccounts(t, map[string]*store.Account{
+		"t1": {AccessToken: "t1", Aid: "752", Name: "Alpha", Country: ""},
+		"t2": {AccessToken: "t2", Aid: "6137", Name: "BetaTester", Country: ""},
+		"t3": {AccessToken: "t3", Aid: "6138", Name: "GammaBlocked", Country: "TH"},
+	})
+	store.ResetSocial()
+	t.Cleanup(store.ResetSocial)
+	store.SocialMu.Lock()
+	store.Friendships = append(store.Friendships, store.Friendship{A: "752", B: "6137", State: "accepted"})
+	store.SocialMu.Unlock()
+	store.AccountsMu.Lock()
+	if acc := store.AccountByTokenLocked("t1"); acc != nil {
+		acc.Blocked = []string{"6138"}
+	}
+	store.AccountsMu.Unlock()
+
+	code6137 := store.AvatarCodeForID("6137")
+	if !store.IsAvatarCode(code6137) {
+		t.Fatalf("AvatarCodeForID(6137) = %q, want AA-DDDD-DDDD", code6137)
+	}
+
+	// Empty country must succeed for both NICK and CODE searches (client sends "" when account country is unset).
+	nickRec := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/square/friends/search?page=0&size=20",
+		`{"country":"","caricNickName":"betatester","searchType":"NICK"}`)
+	if nickRec.Code != http.StatusOK || !strings.Contains(nickRec.Body.String(), `"avatarId":"6137"`) || !strings.Contains(nickRec.Body.String(), `"friendStatus":"1"`) {
+		t.Fatalf("empty-country NICK search = %d %s", nickRec.Code, nickRec.Body.String())
+	}
+
+	// Omitted searchType (legacy ReqFriendSearchWithText) defaults to NICK.
+	omittedType := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/square/friends/search?page=0&size=20",
+		`{"country":"","caricNickName":"Gamma"}`)
+	if omittedType.Code != http.StatusOK || !strings.Contains(omittedType.Body.String(), `"avatarId":"6138"`) || !strings.Contains(omittedType.Body.String(), `"friendStatus":"4"`) {
+		t.Fatalf("omitted searchType = %d %s", omittedType.Code, omittedType.Body.String())
+	}
+
+	// CODE search matches canonical AA-DDDD-DDDD, lowercase, unhyphenated, and legacy numeric aid (grouped or plain).
+	for _, query := range []string{
+		code6137,
+		strings.ToLower(code6137),
+		strings.ReplaceAll(code6137, "-", ""),
+		"6137",
+		"61-37",
+	} {
+		rec := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/square/friends/search?page=0&size=20",
+			`{"country":"","caricNickName":"`+query+`","searchType":"CODE"}`)
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"avatarId":"6137"`) || !strings.Contains(rec.Body.String(), `"totalCount":"1"`) {
+			t.Fatalf("CODE search %q = %d %s", query, rec.Code, rec.Body.String())
+		}
+	}
+
+	// Non-matching code returns 200 with empty items.
+	miss := socialTestRequestAs(t, "t1", http.MethodPost, "/v4/square/friends/search?page=0&size=20",
+		`{"country":"","caricNickName":"ZZ-9999-9999","searchType":"CODE"}`)
+	if miss.Code != http.StatusOK || !strings.Contains(miss.Body.String(), `"totalCount":"0"`) || !strings.Contains(miss.Body.String(), `"items":[]`) {
+		t.Fatalf("miss CODE search = %d %s", miss.Code, miss.Body.String())
 	}
 }
 

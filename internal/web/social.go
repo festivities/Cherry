@@ -307,7 +307,8 @@ func profileJSON(w http.ResponseWriter, body any) {
 }
 
 // Client ResRecommandMyCodeURL (libgame 0x1a5b768) reads result.recommendCode.
-// Friend search's CODE type matches the avatar id, so the code is the aid.
+// Returns the avatar's AA-DDDD-DDDD Avatar Code (handleFriendSearch's CODE mode
+// matches both this code and legacy numeric aids).
 func handleRecommendCode(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		httpx.ServeNotFound(w)
@@ -318,7 +319,11 @@ func handleRecommendCode(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusNotFound, httpx.UnknownSessionBody)
 		return
 	}
-	httpx.WriteObj(w, map[string]any{"result": map[string]string{"recommendCode": acc.Aid}})
+	code := store.AvatarCodeForID(acc.Aid)
+	if code == "" {
+		code = acc.Aid
+	}
+	httpx.WriteObj(w, map[string]any{"result": map[string]string{"recommendCode": code}})
 }
 
 // Badge-set response handler is a no-op in the client; just acknowledge.
@@ -1550,11 +1555,17 @@ func handleFriendSearch(w http.ResponseWriter, r *http.Request) {
 	}
 	raw, err := httpx.ReadNativeBody(r)
 	var req friendSearchRequest
-	if err != nil || func() bool { _, e := httpx.UnmarshalNativeJSON(raw, &req); return e != nil }() || strings.TrimSpace(req.Country) == "" || len(req.Country) > 8 || len(req.CaricNickName) > 128 {
+	// Client ReqAddFriendLayerSearchWithText (0x1bcda84) sends NaDataInvoker+208 as country, which is
+	// empty ("") for accounts created without a nationCode; allow empty country and multi-byte UTF-8 queries.
+	if err != nil || func() bool { _, e := httpx.UnmarshalNativeJSON(raw, &req); return e != nil }() || len(req.Country) > 16 || len(req.CaricNickName) > 256 {
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
 		return
 	}
 	searchType := strings.ToUpper(strings.TrimSpace(req.SearchType))
+	if searchType == "" {
+		// Legacy ReqFriendSearchWithText (0x1bcd81c) omits searchType.
+		searchType = "NICK"
+	}
 	query := strings.TrimSpace(req.CaricNickName)
 	if (searchType != "CODE" && searchType != "NICK") || query == "" {
 		httpx.WriteJSON(w, http.StatusBadRequest, httpx.BadRequestBody)
@@ -1566,21 +1577,46 @@ func handleFriendSearch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var items []friendSearchItem
-	if syntheticFriendEnabled() {
-		status := "1"
-		store.SocialMu.Lock()
-		removed := store.FriendRemoved
-		store.SocialMu.Unlock()
-		if removed {
-			status = strconv.Itoa(relNone)
-		}
-		items = append(items, friendSearchItem{AvatarID: store.FriendAID, CaricNickName: store.FriendName(), FriendStatus: status})
+	normCodeQuery := ""
+	lowerNickQuery := ""
+	if searchType == "CODE" {
+		normCodeQuery = store.NormalizeAvatarCode(query)
+	} else {
+		lowerNickQuery = strings.ToLower(query)
 	}
+	matchesAccount := func(aid, name string) bool {
+		if searchType == "NICK" {
+			return strings.Contains(strings.ToLower(name), lowerNickQuery)
+		}
+		if normCodeQuery == "" {
+			return false
+		}
+		if aid == normCodeQuery {
+			return true
+		}
+		if code := store.AvatarCodeForID(aid); code != "" && store.NormalizeAvatarCode(code) == normCodeQuery {
+			return true
+		}
+		return false
+	}
+
+	// Filter matching accounts before touching SocialMu so a search only computes
+	// friendRelation for the <=size items on the returned page instead of every account.
+	var matches []friendSearchItem
+	if syntheticFriendEnabled() {
+		friendName := store.FriendName()
+		if matchesAccount(store.FriendAID, friendName) {
+			matches = append(matches, friendSearchItem{AvatarID: store.FriendAID, CaricNickName: friendName, FriendStatus: strconv.Itoa(relNone)})
+		}
+	}
+	sortStart := len(matches)
 	store.AccountsMu.Lock()
-	byID := make(map[string]friendSearchItem, store.AccountCountLocked())
+	byID := make(map[string]friendSearchItem)
 	for _, acc := range store.AllAccountsLocked() {
 		if acc == nil || !store.ValidAvatarID(acc.Aid) || acc.Aid == "0" || acc.Aid == store.FriendAID {
+			continue
+		}
+		if !matchesAccount(acc.Aid, acc.Name) {
 			continue
 		}
 		img, wb, bg := acc.ProfileImage.Fields()
@@ -1594,30 +1630,10 @@ func handleFriendSearch(w http.ResponseWriter, r *http.Request) {
 		byID[acc.Aid] = candidate
 	}
 	store.AccountsMu.Unlock()
-	searcher, searcherOK := store.AccountForRequest(r)
-	store.SocialMu.Lock()
-	for aid, item := range byID {
-		if searcherOK {
-			item.FriendStatus = strconv.Itoa(friendRelation(searcher.Aid, searcher.Blocked, true, aid))
-			byID[aid] = item
-		}
-	}
-	store.SocialMu.Unlock()
-	sortStart := len(items)
 	for _, item := range byID {
-		items = append(items, item)
+		matches = append(matches, item)
 	}
-	sort.Slice(items[sortStart:], func(i, j int) bool { return items[sortStart+i].AvatarID < items[sortStart+j].AvatarID })
-	matches := make([]friendSearchItem, 0, len(items))
-	for _, item := range items {
-		match := item.AvatarID == strings.ReplaceAll(query, "-", "") // the client groups a typed code: 1001 arrives as "10-01"
-		if searchType == "NICK" {
-			match = strings.Contains(strings.ToLower(item.CaricNickName), strings.ToLower(query))
-		}
-		if match {
-			matches = append(matches, item)
-		}
-	}
+	sort.Slice(matches[sortStart:], func(i, j int) bool { return matches[sortStart+i].AvatarID < matches[sortStart+j].AvatarID })
 	if len(matches) == 0 {
 		log.Printf("cherry: friend search no match type=%q query=%q country=%q bytes=%d", req.SearchType, req.CaricNickName, req.Country, len(raw))
 	}
@@ -1632,6 +1648,24 @@ func handleFriendSearch(w http.ResponseWriter, r *http.Request) {
 	pageItems := append([]friendSearchItem(nil), matches[start:end]...)
 	if pageItems == nil {
 		pageItems = []friendSearchItem{}
+	}
+	if len(pageItems) > 0 {
+		searcher, searcherOK := store.AccountForRequest(r)
+		store.SocialMu.Lock()
+		for i := range pageItems {
+			if pageItems[i].AvatarID == store.FriendAID {
+				if !store.FriendRemoved {
+					pageItems[i].FriendStatus = "1"
+				} else {
+					pageItems[i].FriendStatus = strconv.Itoa(relNone)
+				}
+				continue
+			}
+			if searcherOK {
+				pageItems[i].FriendStatus = strconv.Itoa(friendRelation(searcher.Aid, searcher.Blocked, true, pageItems[i].AvatarID))
+			}
+		}
+		store.SocialMu.Unlock()
 	}
 	previous, next := "0", "0"
 	if page > 0 {

@@ -1043,7 +1043,7 @@ func handleCreateAvatar(w http.ResponseWriter, r *http.Request) {
 		Name:        req.Name,
 		Gender:      req.AvatarType,
 		SessionKey:  sessionKey,
-		AvatarCode:  "ac",
+		AvatarCode:  store.AvatarCodeForID(aid),
 		Items:       store.AvatarItemsFromCodes(itemCodes),
 		PetProfiles: []string{},
 	}})

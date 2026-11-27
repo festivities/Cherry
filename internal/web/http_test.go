@@ -1352,8 +1352,8 @@ func TestCreateAvatar(t *testing.T) {
 	if want := decodeSession(t, createA).SessionKey; res.SessionKey != want {
 		t.Errorf("sessionKey = %q, want %q", res.SessionKey, want)
 	}
-	if res.AvatarCode != "ac" {
-		t.Errorf("avatarCode = %q, want %q", res.AvatarCode, "ac")
+	if want := store.AvatarCodeForID(res.AvatarID); res.AvatarCode != want || !store.IsAvatarCode(res.AvatarCode) {
+		t.Errorf("avatarCode = %q, want %q (AA-DDDD-DDDD)", res.AvatarCode, want)
 	}
 	var items []store.AvatarItem
 	if err := json.Unmarshal(raw.Result["items"], &items); err != nil {
