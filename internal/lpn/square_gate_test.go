@@ -107,7 +107,13 @@ func TestSquareLineCityNpcs(t *testing.T) {
 	if n := len(squareRepeated(t, list, 1)); n != 2 {
 		t.Fatalf("LINE City has %d NPCs, want the race entrance and the Ride Point shop", n)
 	}
-	if got := squareUint(t, squareNested(t, squareFirstInteriorNpc(t, list, 0), 2), 5); got != squareRacingInteriorID {
-		t.Fatalf("first LINE City NPC host = %d, want the race balloon %d", got, squareRacingInteriorID)
+	race := squareFirstInteriorNpc(t, list, 0)
+	if got := squareUint(t, squareNested(t, race, 2), 5); got != squareRacingInteriorID {
+		t.Fatalf("first LINE City NPC host = %d, want the race pole %d", got, squareRacingInteriorID)
+	}
+	for _, f := range []uint64{75, 76} { // the pole stays, its race bubble is gone (owner, 2026-11-28)
+		if _, found := protobufUintField(race, f); found {
+			t.Fatalf("race pole carries bubble field %d", f)
+		}
 	}
 }

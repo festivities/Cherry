@@ -30,11 +30,11 @@ const (
 )
 
 // The race entrance is an _SQInteriorNpc NpcIndex 0x3010035 (NaWorldInteriorManager::Create case 53,
-// NaAniButtonInterior): AniEventType (76) 4 draws the pet minigame bubble (world_icon 77_pet_minigame_r)
-// and its tap sends cr64; AniButtonVisible (75) 1 shows it. Like the exchange office it links to a unique
-// root floor the client keeps in its object cache: RUGO002JK (122003296) at tile (88,77), near the spawn
-// (racing-spec "Square racing NPC"). The Square home MENU cannot reach "Riding Pet Info" from inside the
-// Square, so this bubble is the entry.
+// NaAniButtonInterior) on a unique root floor the client keeps in its object cache: RUGO002JK (122003296) at
+// tile (88,77), near the spawn (racing-spec "Square racing NPC"); it draws the streetlight pole. AniEventType (76) 4
+// with AniButtonVisible (75) 1 would add the pet minigame bubble (world_icon 77_pet_minigame_r, tap sends cr64);
+// the owner removed the bubble (2026-11-28: it was not in LINE City in the original game) and kept the pole, so
+// neither field is sent and the race has no in-game entry (the Square MENU cannot reach "Riding Pet Info").
 const (
 	squareRacingNpcIndex   = 0x3010035
 	squareRacingNpcSerial  = 4
@@ -43,11 +43,9 @@ const (
 	squareRacingNpcPY      = 3080 // Y=20*(2*160-1-88-77)
 )
 
-// squareRacingNpcEntry is one rc_room_enter_res NpcList entry: the race entrance.
+// squareRacingNpcEntry is one rc_room_enter_res NpcList entry: the race entrance pole, without its bubble.
 func squareRacingNpcEntry() []byte {
 	npc := squareInteriorNpc(squareRacingNpcSerial, squareRacingNpcIndex, squareRacingInteriorID, squareRacingNpcPX, squareRacingNpcPY)
-	npc = pbVar(npc, 75, 1) // AniButtonVisible
-	npc = pbVar(npc, 76, 4) // AniEventType 4: the minigame entrance (cr64)
 	return pbLen(nil, 1, pbLen(nil, 2, npc))
 }
 

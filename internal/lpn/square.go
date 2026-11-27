@@ -57,13 +57,14 @@ func squareNpcList(theme uint64) []byte {
 	return nil
 }
 
-// squareRoomEnter is rc_room_enter_res (idx 6): npcs is the NpcList field (nil = none), number the room the banner shows
+// squareRoomEnter is rc_room_enter_res (idx 6): npcs is the NpcList field (nil = no NPCs), number the room the banner shows
 // ([0001]) when non-zero (omitted for public rooms so the client shows no code suffix), theme the world type the client switches to.
+// NpcList is always sent, empty when there are none: the client replaces its NPC list (NaWorldManager::SetNpcInfoList)
+// only when the field is present (RoomEnterCommonProcess::ResponseProcessCommon 0x20933ec) and a Square-to-Square
+// change never clears it, so an omitted field re-spawned the previous Square's NPCs (LINE City's race pole in LINE Café).
 func squareRoomEnter(npcs []byte, number, theme uint64, mapFile string) []byte {
 	body := pbVar(nil, 1, squareEnterResult)
-	if npcs != nil {
-		body = pbLen(body, 2, npcs)
-	}
+	body = pbLen(body, 2, npcs)
 	if number != 0 {
 		body = pbVar(body, 3, number) // squareCode: private code rooms and boss/race transfers
 	}

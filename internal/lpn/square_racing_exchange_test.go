@@ -69,8 +69,8 @@ func TestRideShopNpcEncoding(t *testing.T) {
 		t.Fatalf("f63/f75/f76 = %d/%d/%d, want 1/1/2", squareUint(t, npc, 63), squareUint(t, npc, 75), squareUint(t, npc, 76))
 	}
 	race := squareFirstInteriorNpc(t, list, 0)
-	if squareUint(t, race, 1) != 4 || squareUint(t, race, 76) != 4 {
-		t.Fatalf("race entrance serial/state = %d/%d, want 4/4", squareUint(t, race, 1), squareUint(t, race, 76))
+	if squareUint(t, race, 1) != 4 {
+		t.Fatalf("race pole serial = %d, want 4", squareUint(t, race, 1))
 	}
 }
 

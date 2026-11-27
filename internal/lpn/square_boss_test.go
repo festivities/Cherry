@@ -85,8 +85,8 @@ func TestSquareBossTryEntersBossWorld(t *testing.T) {
 	if name, _, _ := pbBytesField(enter, 6); string(name) != squareBossMapFileName {
 		t.Fatalf("boss room map = %q", name)
 	}
-	if _, found, _ := pbBytesField(enter, 2); found { // no fishing spot NpcList in the boss room
-		t.Fatalf("boss room enter carries an NpcList")
+	if list, found, _ := pbBytesField(enter, 2); !found || len(list) != 0 { // an empty NpcList: no Treasure Island NPCs in the boss room
+		t.Fatalf("boss room NpcList = %x (found %v), want present and empty", list, found)
 	}
 	c.none() // no relaystart is needed, and nothing follows the enter
 }

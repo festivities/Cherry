@@ -155,18 +155,20 @@ func (c *sqClient) joinTheme(aid, theme uint64) []byte {
 }
 
 // checkEnter decodes rc_room_enter_res (result, NpcList, SquareCode, ThemeId4, MapFileName6,
-// PlayerType) and fails unless it names theme and map; it reports whether an NpcList came along. Callers that expect a
+// PlayerType) and fails unless it names theme and map and carries NpcList (always present, empty when the Square has no
+// NPCs, so the client drops the previous Square's); it reports whether the list holds NPCs. Callers that expect a
 // specific SquareCode check enterRoom(enter) directly (public rooms omit field 3).
 func (c *sqClient) checkEnter(enter []byte, theme uint64, mapName string) (hasNpc bool) {
 	c.t.Helper()
 	var result, themeID, playerType uint64
 	var mapFile string
+	var npcList bool
 	ok := pbScan(enter, func(f, v uint64, d []byte) {
 		switch f {
 		case 1:
 			result = v
 		case 2:
-			hasNpc = true
+			npcList, hasNpc = true, len(d) > 0
 		case 4:
 			themeID = v
 		case 6:
@@ -175,7 +177,7 @@ func (c *sqClient) checkEnter(enter []byte, theme uint64, mapName string) (hasNp
 			playerType = v
 		}
 	})
-	if !ok || result != squareEnterResult || themeID != theme || mapFile != mapName || playerType != 0 {
+	if !ok || !npcList || result != squareEnterResult || themeID != theme || mapFile != mapName || playerType != 0 {
 		c.t.Fatalf("room enter = %x, want theme %d map %s", enter, theme, mapName)
 	}
 	return hasNpc
