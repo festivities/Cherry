@@ -203,6 +203,9 @@ func reloadOtherStoresLocked(d *DB) error {
 	if err := loadGeoCountries(d); err != nil {
 		return err
 	}
+	if err := loadItemNames(d); err != nil {
+		return err
+	}
 	return loadTreasureFromDB(d)
 }
 
@@ -232,6 +235,7 @@ func CloseStore() error {
 	d := database.Load()
 	database.Store(nil)
 	AccountsMu.Unlock()
+	clearItemNames()
 	if d == nil {
 		return nil
 	}

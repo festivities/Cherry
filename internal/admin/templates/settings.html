@@ -152,14 +152,23 @@
 </section>
 
 <h2>Staff members</h2>
-<p class="muted">Staff sign in at this panel with Discord. Their account needs two-factor authentication turned on in Discord, or the sign-in is refused. A staff member gets every staff action except mail to every account and this page. Removing one ends their open sessions at once.</p>
-{{if .Settings.Allowlist}}<p class="small">A staff allowlist file is also configured: the people listed in it can sign in too. Its contents are not shown here.</p>{{else}}<p class="small muted">No staff allowlist file is configured. Only the owner and the members below can sign in.</p>{{end}}
+<p class="muted">Staff sign in at this panel with Discord (two-factor authentication required). <strong>Owner</strong> has full access (Settings, Operator Documents, Broadcast, All balances, mass mail, avatar move/restore). <strong>Moderator</strong> handles Dashboard, Players (incl. single-player grants and mail), Moderation, Insights, Item names and Audit log. <strong>Helper</strong> has access to <a href="/items">Item names</a> only and lands straight there on sign-in. Changing a role or removing someone ends their open sessions at once.</p>
+{{if .Settings.Allowlist}}<p class="small">A staff allowlist file is also configured: the people listed in it sign in as Moderators. Its contents are not shown here.</p>{{else}}<p class="small muted">No staff allowlist file is configured. Only the owner and the members below can sign in.</p>{{end}}
 <div class="scroll"><table>
-<thead><tr><th>Identity</th><th>Note</th><th>Added (UTC)</th><th>Added by</th><th>Remove</th></tr></thead>
+<thead><tr><th>Identity</th><th>Role</th><th>Note</th><th>Added (UTC)</th><th>Added by</th><th>Remove</th></tr></thead>
 <tbody>
-<tr><td class="mono">{{.Settings.Owner}}</td><td><span class="pill">Owner</span> from the server's configuration</td><td class="muted">—</td><td class="muted">—</td><td class="muted">not removable</td></tr>
+<tr><td class="mono">{{.Settings.Owner}}</td><td><span class="role owner">Owner</span></td><td class="muted">from the server's configuration</td><td class="muted">—</td><td class="muted">—</td><td class="muted">not removable</td></tr>
 {{range .Settings.Members}}<tr>
 <td class="mono">{{.Identity}}</td>
+<td><form method="post" action="/settings/staff/role" class="row-form">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<input type="hidden" name="identity" value="{{.Identity}}">
+<select name="role" aria-label="Role for {{.Identity}}">
+<option value="helper"{{if eq .Role "helper"}} selected{{end}}>Helper</option>
+<option value="moderator"{{if eq .Role "moderator"}} selected{{end}}>Moderator</option>
+</select>
+<button type="submit" class="ghost">Update</button>
+</form></td>
 <td>{{with .Note}}{{.}}{{else}}<span class="muted">—</span>{{end}}</td>
 <td>{{utc .Added}}</td>
 <td class="mono">{{.By}}</td>
@@ -169,7 +178,7 @@
 <button type="submit" class="danger">Remove</button>
 </form></td>
 </tr>
-{{else}}<tr class="empty"><td colspan="5">No staff member was added from this panel.</td></tr>
+{{else}}<tr class="empty"><td colspan="6">No staff member was added from this panel.</td></tr>
 {{end}}</tbody>
 </table></div>
 
@@ -179,6 +188,12 @@
 <label><span class="label">Discord user ID</span>
 <input type="text" name="identity" required maxlength="40"{{if not .Settings.DevNames}} inputmode="numeric"{{end}} placeholder="e.g. 123456789012345678">
 <small class="help">The person's Discord user ID, digits only.{{if .Settings.DevNames}} In dev-fake mode a dev name works too: dev-&lt;name&gt;.{{end}} To find a user ID, turn on Developer Mode in Discord (User Settings, Advanced), then right-click the user and choose Copy User ID.</small></label>
+<label><span class="label">Role</span>
+<select name="role" required>
+<option value="helper">Helper (Item names only)</option>
+<option value="moderator">Moderator (Players, Moderation, Insights, Item names)</option>
+</select>
+<small class="help">Helpers see only the Item names page and cannot access player accounts, chat logs, reports or server settings.</small></label>
 <label><span class="label">Note (optional)</span>
 <input type="text" name="note" maxlength="100" placeholder="Who this is">
 <small class="help">Up to 100 characters. Shown in this list only.</small></label>

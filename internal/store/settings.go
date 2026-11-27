@@ -30,9 +30,14 @@ const (
 	maintenanceWhitelistKey  = "maintenance.whitelist"
 	// ChatDaysMax is the longest retention the panel takes: ten years.
 	ChatDaysMax       = 3650
-	staffMax          = 50  // staff members the panel keeps
+	staffMax          = 100 // staff members the panel keeps
 	staffNoteMax      = 100 // characters of a member's note
 	maintWhitelistMax = 200 // accounts the maintenance whitelist keeps
+
+	// Staff roles stored on StaffMember entries (owner comes from server configuration).
+	StaffRoleOwner     = "owner"
+	StaffRoleModerator = "moderator"
+	StaffRoleHelper    = "helper"
 	// SquareRoomCapDefault is the players a Square room holds when the panel sets no value; the panel takes
 	// SquareRoomCapMin to SquareRoomCapMax.
 	SquareRoomCapDefault = 20
@@ -65,13 +70,19 @@ var (
 	staffDevRe     = regexp.MustCompile(`^dev-[A-Za-z0-9_-]{1,24}$`)
 )
 
-// StaffMember is one staff member added from the panel: the identity, the owner's note, when it was added (RFC 3339, UTC) and
-// the identity that added it.
+// StaffMember is one staff member added from the panel: the identity, their role ("moderator" or "helper"; legacy rows
+// without a role read as "moderator"), the owner's note, when it was added (RFC 3339, UTC) and the identity that added it.
 type StaffMember struct {
 	Identity string `json:"identity"`
+	Role     string `json:"role,omitempty"`
 	Note     string `json:"note"`
 	Added    string `json:"added"`
 	By       string `json:"by"`
+}
+
+// ValidStaffRole reports whether role is one of the assignable panel roles ("moderator" or "helper").
+func ValidStaffRole(role string) bool {
+	return role == StaffRoleModerator || role == StaffRoleHelper
 }
 
 // MaintenanceWhitelistEntry is one account on the maintenance whitelist: the avatar ID, the owner's note, when it was
@@ -288,7 +299,7 @@ func ClearSquareRoomCap(actor string) error {
 	})
 }
 
-// staffListOf reads the staff list; an absent value is an empty list.
+// staffListOf reads the staff list; an absent value is an empty list. Legacy rows with no stored role default to moderator.
 func staffListOf(q Querier) ([]StaffMember, error) {
 	v, err := metaValue(q, staffMembersKey)
 	if err != nil || v == "" {
@@ -297,6 +308,11 @@ func staffListOf(q Querier) ([]StaffMember, error) {
 	var list []StaffMember
 	if err := json.Unmarshal([]byte(v), &list); err != nil {
 		return nil, err
+	}
+	for i := range list {
+		if !ValidStaffRole(list[i].Role) {
+			list[i].Role = StaffRoleModerator
+		}
 	}
 	return list, nil
 }
@@ -328,32 +344,52 @@ func StaffMembers() ([]StaffMember, error) {
 	return list, err
 }
 
+// StaffRoleOf returns the stored panel role ("moderator" or "helper") for identity, or ("", false) when identity is not on
+// the panel staff list or the database cannot be read.
+func StaffRoleOf(identity string) (string, bool) {
+	d, err := docDB()
+	if err != nil {
+		return "", false
+	}
+	var role string
+	var found bool
+	err = d.View(func(q Querier) error {
+		list, err := staffListOf(q)
+		for _, m := range list {
+			if m.Identity == identity {
+				role = m.Role
+				found = true
+				break
+			}
+		}
+		return err
+	})
+	if err != nil || !found {
+		return "", false
+	}
+	return role, true
+}
+
 // IsStaffMember reports whether identity was added from the panel. Without a database, or when the list cannot be read, it is
 // false.
 func IsStaffMember(identity string) bool {
-	d, err := docDB()
-	if err != nil {
-		return false
-	}
-	found := false
-	err = d.View(func(q Querier) error {
-		list, err := staffListOf(q)
-		found = slices.ContainsFunc(list, func(m StaffMember) bool { return m.Identity == identity })
-		return err
-	})
-	return err == nil && found
+	_, ok := StaffRoleOf(identity)
+	return ok
 }
 
-// AddStaffMember adds identity to the staff list with its note, the time and the actor, and writes the audit row, in one
-// transaction. identity is discord:<17 to 20 digits>, or with devNames (dev-fake) dev-<name>. The note is trimmed and at most
-// 100 characters. A duplicate, a list of 50 and a bad identity or note are ErrBadInput.
-func AddStaffMember(identity, note, actor string, now time.Time, devNames bool) error {
+// AddStaffMember adds identity to the staff list with its role ("moderator" or "helper"), note, time and actor, and writes
+// the audit row, in one transaction. identity is discord:<17 to 20 digits>, or with devNames (dev-fake) dev-<name>. The
+// note is trimmed and at most 100 characters. A duplicate, a full list, and a bad identity, role or note are ErrBadInput.
+func AddStaffMember(identity, role, note, actor string, now time.Time, devNames bool) error {
 	if !validStaffIdentity(identity, devNames) {
 		want := "discord:<17 to 20 digits>"
 		if devNames {
 			want += " or dev-<name>"
 		}
 		return fmt.Errorf("%w: the identity is %s", ErrBadInput, want)
+	}
+	if !ValidStaffRole(role) {
+		return fmt.Errorf("%w: the role must be moderator or helper", ErrBadInput)
 	}
 	note = strings.TrimSpace(note)
 	if utf8.RuneCountInString(note) > staffNoteMax {
@@ -374,11 +410,41 @@ func AddStaffMember(identity, note, actor string, now time.Time, devNames bool) 
 		if len(list) >= staffMax {
 			return fmt.Errorf("%w: at most %d staff members", ErrBadInput, staffMax)
 		}
-		list = append(list, StaffMember{Identity: identity, Note: note, Added: now.UTC().Format(time.RFC3339), By: actor})
+		list = append(list, StaffMember{Identity: identity, Role: role, Note: note, Added: now.UTC().Format(time.RFC3339), By: actor})
 		if err := writeStaffListTx(tx, list); err != nil {
 			return err
 		}
-		return auditTx(tx, actor, "staff-add", "staff", map[string]any{"identity": identity, "note": note})
+		return auditTx(tx, actor, "staff-add", "staff", map[string]any{"identity": identity, "role": role, "note": note})
+	})
+}
+
+// SetStaffRole changes the role of an existing panel staff member and writes an audit row in one transaction.
+func SetStaffRole(identity, role, actor string) error {
+	if !ValidStaffRole(role) {
+		return fmt.Errorf("%w: the role must be moderator or helper", ErrBadInput)
+	}
+	d, err := docDB()
+	if err != nil {
+		return err
+	}
+	return d.Update(func(tx *sql.Tx) error {
+		list, err := staffListOf(tx)
+		if err != nil {
+			return err
+		}
+		i := slices.IndexFunc(list, func(m StaffMember) bool { return m.Identity == identity })
+		if i < 0 {
+			return fmt.Errorf("%w: not a staff member", ErrBadInput)
+		}
+		old := list[i].Role
+		if old == role {
+			return nil
+		}
+		list[i].Role = role
+		if err := writeStaffListTx(tx, list); err != nil {
+			return err
+		}
+		return auditTx(tx, actor, "staff-role", "staff", map[string]any{"identity": identity, "old": old, "new": role})
 	})
 }
 

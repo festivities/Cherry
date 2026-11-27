@@ -75,7 +75,8 @@ func TestPagesHaveNoInlineMarkup(t *testing.T) {
 	}
 	base := playerURL(id)
 	targets := []string{
-		"/", "/docs", "/docs/cherrytips.json", "/docs/cherrytips.json/1", "/audit", "/audit?action=draft&from=2000-01-01",
+		"/", "/items", "/items?group=faces&status=unnamed", "/items?status=custom", "/items?q=GULS&sort=recent",
+		"/docs", "/docs/cherrytips.json", "/docs/cherrytips.json/1", "/audit", "/audit?action=draft&from=2000-01-01",
 		"/players", "/players?q=render", base, "/docs?notice=draft-saved", "/players/999999",
 		"/players/deleted", "/players/deleted/999999",
 		"/reports", "/reports?status=all", "/reports/999999",

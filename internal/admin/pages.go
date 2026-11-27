@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -16,10 +15,11 @@ import (
 	"cherry/internal/store"
 )
 
-// link is one navigation entry or breadcrumb: Href (empty for the current page) and Label.
+// link is one navigation entry or breadcrumb: Href (empty for the current page), Label, and the minimum role that sees it.
 type link struct {
 	Href, Label string
 	Current     bool
+	MinRole     staffRole
 }
 
 // navGroup is one heading of the sidebar and the pages under it. Only pages that exist are listed.
@@ -29,12 +29,35 @@ type navGroup struct {
 }
 
 var navGroups = []navGroup{
-	{"Overview", []link{{Href: "/", Label: "Dashboard"}}},
-	{"Players", []link{{Href: "/players", Label: "Players"}, {Href: "/players/deleted", Label: "Deleted avatars"}, {Href: "/mail", Label: "Mail"}, {Href: "/balances", Label: "All balances"}, {Href: "/broadcast", Label: "Broadcast"}}},
-	{"Moderation", []link{{Href: "/reports", Label: "Reports"}, {Href: "/chat", Label: "Chat log"}, {Href: "/diary", Label: "Diary entries"}, {Href: "/circles", Label: "Circles"}, {Href: "/photos", Label: "Photos"}}},
-	{"Insights", []link{{Href: "/online", Label: "Online now"}, {Href: "/economy", Label: "Economy"}, {Href: "/activity", Label: "Activity"}, {Href: "/geography", Label: "Geography"}}},
-	{"Content", []link{{Href: "/docs", Label: "Documents"}}},
-	{"System", []link{{Href: "/audit", Label: "Audit log"}, {Href: "/settings", Label: "Settings"}}},
+	{"Overview", []link{{Href: "/", Label: "Dashboard", MinRole: roleModerator}}},
+	{"Players", []link{
+		{Href: "/players", Label: "Players", MinRole: roleModerator},
+		{Href: "/players/deleted", Label: "Deleted avatars", MinRole: roleModerator},
+		{Href: "/mail", Label: "Mail", MinRole: roleModerator},
+		{Href: "/balances", Label: "All balances", MinRole: roleOwner},
+		{Href: "/broadcast", Label: "Broadcast", MinRole: roleOwner},
+	}},
+	{"Moderation", []link{
+		{Href: "/reports", Label: "Reports", MinRole: roleModerator},
+		{Href: "/chat", Label: "Chat log", MinRole: roleModerator},
+		{Href: "/diary", Label: "Diary entries", MinRole: roleModerator},
+		{Href: "/circles", Label: "Circles", MinRole: roleModerator},
+		{Href: "/photos", Label: "Photos", MinRole: roleModerator},
+	}},
+	{"Insights", []link{
+		{Href: "/online", Label: "Online now", MinRole: roleModerator},
+		{Href: "/economy", Label: "Economy", MinRole: roleModerator},
+		{Href: "/activity", Label: "Activity", MinRole: roleModerator},
+		{Href: "/geography", Label: "Geography", MinRole: roleModerator},
+	}},
+	{"Content", []link{
+		{Href: "/items", Label: "Item names", MinRole: roleHelper},
+		{Href: "/docs", Label: "Documents", MinRole: roleOwner},
+	}},
+	{"System", []link{
+		{Href: "/audit", Label: "Audit log", MinRole: roleModerator},
+		{Href: "/settings", Label: "Settings", MinRole: roleOwner},
+	}},
 }
 
 // notices are the flash texts a redirect may name with ?notice=<code>. The code picks a fixed text; a code that is not in the
@@ -77,7 +100,10 @@ var notices = map[string]string{
 	"limit-saved":               "The server limit is saved and applies now. Frame limits reach only connections opened from now on; open connections keep the values they had.",
 	"limit-reset":               "The server limit uses the server's configured value again. Frame limits reach only connections opened from now on.",
 	"staff-added":               "The staff member is added. They can sign in at this panel from now on.",
+	"staff-role-saved":          "The staff member's role is updated. Their open sessions end now so the new role applies at their next sign-in.",
 	"staff-removed":             "The staff member is removed. Their open sessions end now.",
+	"item-name-saved":           "The item name is saved and live in the game now.",
+	"item-name-reset":           "The item name is reset to its default.",
 	"maint-whitelist-added":     "The account is added to the maintenance whitelist. It now bypasses maintenance popups.",
 	"maint-whitelist-removed":   "The account is removed from the maintenance whitelist.",
 	"report-resolved":           "The report is resolved. The audit trail has the line and your note.",
@@ -100,14 +126,15 @@ type check struct {
 
 // view is what the templates read. A page fills the fields it shows; the rest stay empty.
 type view struct {
-	Title, Server, Who, Role, CSRF string
-	SessionLeft                    string // how long the session lasts without a request, shown in the header
-	SearchQuery                    string // the header search box's value on the search page
-	Nav                            bool
-	NavGroups                      []navGroup
-	Crumbs                         []link
-	Notice                         string // the flash of a successful action
-	Text, Login, Next              string
+	Title, Server, Who, Role, RoleClass, CSRF string
+	CanSearch                                 bool   // moderators and the owner get the topbar global search
+	SessionLeft                               string // how long the session lasts without a request, shown in the header
+	SearchQuery                               string // the header search box's value on the search page
+	Nav                                       bool
+	NavGroups                                 []navGroup
+	Crumbs                                    []link
+	Notice                                    string // the flash of a successful action
+	Text, Login, Next                         string
 
 	// dashboard
 	Stats   stats
@@ -189,19 +216,32 @@ type view struct {
 	// circles (circles.go): the list and one circle's detail page
 	Circles circlesPage
 	Circle  circleDetailPage
+
+	// item names (items.go)
+	Items itemsPage
+}
+
+// handleRoot sends Helpers straight to /items so they land on the item-naming view with zero clutter, and shows the
+// Dashboard to Moderators and the Owner.
+func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request, sess session) {
+	if s.roleOf(sess.identity) == roleHelper {
+		redirect(w, http.StatusSeeOther, "/items")
+		return
+	}
+	s.handleDashboard(w, r, sess)
 }
 
 // base is the view of a signed-in page: the sidebar, the identity and role in the header, the session's CSRF token and the
 // flash the request names (?notice=, mapped through notices).
 func (s *Server) base(r *http.Request, sess session, title string) view {
-	role := "Staff"
-	if sess.identity == s.owner {
-		role = "Owner"
+	role := s.roleOf(sess.identity)
+	nav := navFor(r.URL.Path, role)
+	if role >= roleModerator {
+		reportsBadge(nav)
 	}
-	nav := navFor(r.URL.Path, s.isOwner(sess))
-	reportsBadge(nav)
 	return view{
-		Title: title, Server: s.cfg.ServerName, Who: whoOf(sess), Role: role, CSRF: sess.csrf, SessionLeft: sessionLeft(sess, s.now()),
+		Title: title, Server: s.cfg.ServerName, Who: whoOf(sess), Role: role.Label(), RoleClass: role.Slug(),
+		CanSearch: role >= roleModerator, CSRF: sess.csrf, SessionLeft: sessionLeft(sess, s.now()),
 		Nav: true, NavGroups: nav, Notice: notices[r.URL.Query().Get("notice")],
 	}
 }
@@ -220,9 +260,6 @@ func reportsBadge(groups []navGroup) {
 		}
 	}
 }
-
-// isOwner reports whether the session is the owner's (the only identity that may send mail to every account).
-func (s *Server) isOwner(sess session) bool { return sess.identity == s.owner }
 
 // sessionLeft is the time a session lasts from now: to the idle timeout after its last request, or the absolute lifetime,
 // whichever is first. Less than a minute is "under a minute".
@@ -247,22 +284,24 @@ func whoOf(sess session) string {
 	return id
 }
 
-// ownerLinks are the sidebar entries the owner alone sees (Settings, Broadcast, and the balances of every player).
-var ownerLinks = []string{"/settings", "/balances", "/broadcast"}
-
-// navFor copies the sidebar and marks the entry of the area p is in ("/players/5" is in "/players"). The owner's entries are
-// left out of the copy for anyone else.
-func navFor(p string, owner bool) []navGroup {
+// navFor copies the sidebar filtered to what role may access, drops empty groups, and marks the entry of the area p is in
+// ("/players/5" is in "/players").
+func navFor(p string, role staffRole) []navGroup {
 	area := "/" + strings.Split(strings.TrimPrefix(p, "/"), "/")[0]
-	out := make([]navGroup, len(navGroups))
-	for i, g := range navGroups {
-		out[i] = navGroup{Title: g.Title, Links: slices.Clone(g.Links)}
-		if !owner {
-			out[i].Links = slices.DeleteFunc(out[i].Links, func(l link) bool { return slices.Contains(ownerLinks, l.Href) })
+	out := make([]navGroup, 0, len(navGroups))
+	for _, g := range navGroups {
+		var links []link
+		for _, l := range g.Links {
+			if role < l.MinRole {
+				continue
+			}
+			l.Current = l.Href == area
+			links = append(links, l)
 		}
-		for j := range out[i].Links {
-			out[i].Links[j].Current = out[i].Links[j].Href == area
+		if len(links) == 0 {
+			continue
 		}
+		out = append(out, navGroup{Title: g.Title, Links: links})
 	}
 	return out
 }

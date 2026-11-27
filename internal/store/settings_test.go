@@ -129,26 +129,29 @@ func TestChatRetentionWithoutDatabase(t *testing.T) {
 	if _, err := StaffMembers(); !errors.Is(err, ErrNoDatabase) {
 		t.Fatalf("StaffMembers = %v, want ErrNoDatabase", err)
 	}
-	if err := AddStaffMember("dev-helper", "", "dev-owner", time.Now(), true); !errors.Is(err, ErrNoDatabase) {
+	if err := AddStaffMember("dev-helper", StaffRoleHelper, "", "dev-owner", time.Now(), true); !errors.Is(err, ErrNoDatabase) {
 		t.Fatalf("AddStaffMember = %v, want ErrNoDatabase", err)
+	}
+	if err := SetStaffRole("dev-helper", StaffRoleModerator, "dev-owner"); !errors.Is(err, ErrNoDatabase) {
+		t.Fatalf("SetStaffRole = %v, want ErrNoDatabase", err)
 	}
 }
 
-// TestStaffMembersRoundTrip: members come back in the order added, with the note trimmed, the time in UTC and the actor; a
-// removal keeps the others' order; IsStaffMember follows the list; each change is audited.
+// TestStaffMembersRoundTrip: members come back in the order added, with their role, note trimmed, time in UTC and actor;
+// legacy rows without a role read as moderator; role changes and removals keep order and are audited.
 func TestStaffMembersRoundTrip(t *testing.T) {
 	docStore(t)
 	now := time.Date(2026, 11, 17, 9, 30, 0, 0, time.FixedZone("CET", 3600))
 	if list, err := StaffMembers(); err != nil || len(list) != 0 {
 		t.Fatalf("empty list: %v %v", list, err)
 	}
-	if err := AddStaffMember("discord:123456789012345678", "  Ana  ", "dev-owner", now, false); err != nil {
+	if err := AddStaffMember("discord:123456789012345678", StaffRoleModerator, "  Ana  ", "dev-owner", now, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := AddStaffMember("discord:223456789012345678", "", "dev-owner", now, false); err != nil {
+	if err := AddStaffMember("discord:223456789012345678", StaffRoleHelper, "", "dev-owner", now, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := AddStaffMember("dev-helper", "Helper", "dev-owner", now, true); err != nil {
+	if err := AddStaffMember("dev-helper", StaffRoleHelper, "Helper", "dev-owner", now, true); err != nil {
 		t.Fatal(err)
 	}
 	list, err := StaffMembers()
@@ -159,14 +162,31 @@ func TestStaffMembersRoundTrip(t *testing.T) {
 		t.Fatalf("%d members, want 3", len(list))
 	}
 	first := list[0]
-	if first.Identity != "discord:123456789012345678" || first.Note != "Ana" || first.By != "dev-owner" || first.Added != "2026-11-17T08:30:00Z" {
+	if first.Identity != "discord:123456789012345678" || first.Role != StaffRoleModerator || first.Note != "Ana" || first.By != "dev-owner" || first.Added != "2026-11-17T08:30:00Z" {
 		t.Fatalf("first member: %+v", first)
 	}
-	if list[1].Note != "" || list[2].Identity != "dev-helper" {
-		t.Fatalf("order or empty note: %+v", list)
+	if list[1].Role != StaffRoleHelper || list[1].Note != "" || list[2].Identity != "dev-helper" || list[2].Role != StaffRoleHelper {
+		t.Fatalf("order, role or empty note: %+v", list)
+	}
+	if role, ok := StaffRoleOf("dev-helper"); !ok || role != StaffRoleHelper {
+		t.Fatalf("StaffRoleOf(dev-helper) = %q %t, want helper true", role, ok)
 	}
 	if !IsStaffMember("dev-helper") || IsStaffMember("dev-nobody") {
 		t.Fatal("IsStaffMember does not follow the list")
+	}
+
+	// Promote helper to moderator and verify audit + live lookup.
+	if err := SetStaffRole("dev-helper", StaffRoleModerator, "dev-owner"); err != nil {
+		t.Fatal(err)
+	}
+	if role, ok := StaffRoleOf("dev-helper"); !ok || role != StaffRoleModerator {
+		t.Fatalf("after promote StaffRoleOf(dev-helper) = %q %t, want moderator true", role, ok)
+	}
+	if err := SetStaffRole("dev-helper", "owner", "dev-owner"); !errors.Is(err, ErrBadInput) {
+		t.Fatalf("invalid role = %v, want ErrBadInput", err)
+	}
+	if err := SetStaffRole("dev-nobody", StaffRoleHelper, "dev-owner"); !errors.Is(err, ErrBadInput) {
+		t.Fatalf("unknown identity role = %v, want ErrBadInput", err)
 	}
 
 	if err := RemoveStaffMember("discord:123456789012345678", "dev-owner"); err != nil {
@@ -189,19 +209,30 @@ func TestStaffMembersRoundTrip(t *testing.T) {
 		t.Fatalf("after emptying one: %v %v", list, err)
 	}
 
-	for _, action := range []string{"staff-add", "staff-remove"} {
+	for _, action := range []string{"staff-add", "staff-role", "staff-remove"} {
 		if _, ok := settingAudit(t, action, "staff"); !ok {
 			t.Fatalf("no %s audit row", action)
 		}
 	}
 	row, _ := settingAudit(t, "staff-add", "staff")
-	if !strings.Contains(row.Detail, `"identity":"dev-helper"`) || !strings.Contains(row.Detail, `"note":"Helper"`) {
+	if !strings.Contains(row.Detail, `"identity":"dev-helper"`) || !strings.Contains(row.Detail, `"role":"helper"`) || !strings.Contains(row.Detail, `"note":"Helper"`) {
 		t.Fatalf("staff-add detail: %s", row.Detail)
+	}
+
+	// Legacy JSON row without a role field reads as moderator.
+	d := attachedDB()
+	if err := d.Update(func(tx *sql.Tx) error {
+		return setMetaTx(tx, staffMembersKey, `[{"identity":"discord:323456789012345678","note":"Legacy","added":"2026-11-17T00:00:00Z","by":"dev-owner"}]`)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if role, ok := StaffRoleOf("discord:323456789012345678"); !ok || role != StaffRoleModerator {
+		t.Fatalf("legacy member role = %q %t, want moderator true", role, ok)
 	}
 }
 
-// TestStaffMemberBounds: the identity forms (a dev name only with devNames, at most 24 characters after dev-), the note
-// (at most 100 characters), the duplicate, the cap of 50 and an unknown removal are all ErrBadInput and change nothing.
+// TestStaffMemberBounds: the identity forms (a dev name only with devNames, at most 24 characters after dev-), the role,
+// the note (at most 100 characters), the duplicate, the cap and an unknown removal are all ErrBadInput and change nothing.
 func TestStaffMemberBounds(t *testing.T) {
 	docStore(t)
 	now := time.Now()
@@ -221,24 +252,27 @@ func TestStaffMemberBounds(t *testing.T) {
 		{"owner", true},
 	}
 	for _, b := range bad {
-		if err := AddStaffMember(b.identity, "", "dev-owner", now, b.devNames); !errors.Is(err, ErrBadInput) {
+		if err := AddStaffMember(b.identity, StaffRoleModerator, "", "dev-owner", now, b.devNames); !errors.Is(err, ErrBadInput) {
 			t.Errorf("AddStaffMember(%q, devNames=%t) = %v, want ErrBadInput", b.identity, b.devNames, err)
 		}
 	}
-	if err := AddStaffMember("dev-"+strings.Repeat("a", 24), "", "dev-owner", now, true); err != nil {
+	if err := AddStaffMember("dev-badrole", "admin", "", "dev-owner", now, true); !errors.Is(err, ErrBadInput) {
+		t.Fatalf("bad role = %v, want ErrBadInput", err)
+	}
+	if err := AddStaffMember("dev-"+strings.Repeat("a", 24), StaffRoleModerator, "", "dev-owner", now, true); err != nil {
 		t.Fatalf("a 24-character dev name: %v", err)
 	}
-	if err := AddStaffMember("discord:12345678901234567890", "", "dev-owner", now, false); err != nil {
+	if err := AddStaffMember("discord:12345678901234567890", StaffRoleHelper, "", "dev-owner", now, false); err != nil {
 		t.Fatalf("a 20-digit id: %v", err)
 	}
 
-	if err := AddStaffMember("dev-note", strings.Repeat("n", 101), "dev-owner", now, true); !errors.Is(err, ErrBadInput) {
+	if err := AddStaffMember("dev-note", StaffRoleModerator, strings.Repeat("n", 101), "dev-owner", now, true); !errors.Is(err, ErrBadInput) {
 		t.Fatalf("a 101-character note = %v, want ErrBadInput", err)
 	}
-	if err := AddStaffMember("dev-note", strings.Repeat("ö", 100), "dev-owner", now, true); err != nil {
+	if err := AddStaffMember("dev-note", StaffRoleModerator, strings.Repeat("ö", 100), "dev-owner", now, true); err != nil {
 		t.Fatalf("a 100-character note (runes): %v", err)
 	}
-	if err := AddStaffMember("dev-note", "", "dev-owner", now, true); !errors.Is(err, ErrBadInput) {
+	if err := AddStaffMember("dev-note", StaffRoleHelper, "", "dev-owner", now, true); !errors.Is(err, ErrBadInput) {
 		t.Fatalf("a duplicate = %v, want ErrBadInput", err)
 	}
 	if err := RemoveStaffMember("dev-nobody", "dev-owner"); !errors.Is(err, ErrBadInput) {
@@ -247,13 +281,13 @@ func TestStaffMemberBounds(t *testing.T) {
 
 	list, _ := StaffMembers()
 	for len(list) < staffMax {
-		if err := AddStaffMember(fmt.Sprintf("dev-m%d", len(list)), "", "dev-owner", now, true); err != nil {
+		if err := AddStaffMember(fmt.Sprintf("dev-m%d", len(list)), StaffRoleHelper, "", "dev-owner", now, true); err != nil {
 			t.Fatal(err)
 		}
 		list, _ = StaffMembers()
 	}
-	if err := AddStaffMember("dev-over", "", "dev-owner", now, true); !errors.Is(err, ErrBadInput) {
-		t.Fatalf("the 51st member = %v, want ErrBadInput", err)
+	if err := AddStaffMember("dev-over", StaffRoleHelper, "", "dev-owner", now, true); !errors.Is(err, ErrBadInput) {
+		t.Fatalf("over staffMax = %v, want ErrBadInput", err)
 	}
 	if list, _ := StaffMembers(); len(list) != staffMax {
 		t.Fatalf("%d members after the cap, want %d", len(list), staffMax)
@@ -271,7 +305,7 @@ func TestStaffMembersConcurrentAdds(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errs <- AddStaffMember(fmt.Sprintf("dev-c%02d", i), "", "dev-owner", time.Now(), true)
+			errs <- AddStaffMember(fmt.Sprintf("dev-c%02d", i), StaffRoleHelper, "", "dev-owner", time.Now(), true)
 		}()
 	}
 	wg.Wait()

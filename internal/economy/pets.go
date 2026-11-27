@@ -10,6 +10,7 @@ import (
 	"cherry/internal/itemcode"
 	"cherry/internal/opdata"
 	"cherry/internal/room"
+	"cherry/internal/store"
 )
 
 // PetCatalog is data/pets.json: the operator-editable Minipet catalog with display names, optional Shop prices
@@ -123,12 +124,20 @@ func PetSpecOf(code string) (PetSpec, bool) {
 	return spec, ok
 }
 
-// PetDisplayName returns the catalog display name for code, or "" if unlisted.
-func PetDisplayName(code string) string {
+// DefaultPetDisplayName returns the pets.json catalog display name for code without any staff override, or "" if unlisted.
+func DefaultPetDisplayName(code string) string {
 	if spec, ok := PetSpecOf(code); ok {
 		return spec.Name
 	}
 	return ""
+}
+
+// PetDisplayName returns the display name for code: a live staff override if set, else the catalog display name, or "" if unlisted.
+func PetDisplayName(code string) string {
+	if custom, ok := store.ItemNameOverride(code); ok {
+		return custom
+	}
+	return DefaultPetDisplayName(code)
 }
 
 // PetRaceStat returns the per-pet racing stats for code when configured, else the racing.json default.

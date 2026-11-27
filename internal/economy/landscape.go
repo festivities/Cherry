@@ -54,8 +54,8 @@ func landscapeItemID(code string) (int64, bool) {
 	return id, true
 }
 
-// listedLandscapes are the landscapes gardens.json lists, in file order. checkGardens has accepted
-// every code, so the id always parses.
+// listedLandscapes are the landscapes gardens.json lists, in file order, with live staff name overrides applied.
+// checkGardens has accepted every code, so the id always parses.
 func listedLandscapes() []Landscape {
 	var out []Landscape
 	for _, e := range gardensFile.Get().Gardens {
@@ -63,9 +63,24 @@ func listedLandscapes() []Landscape {
 			continue
 		}
 		id, _ := landscapeItemID(e.Landscape)
-		out = append(out, Landscape{Code: e.Landscape, ID: id, Map: e.Map, Name: e.Name, Generated: e.Generated})
+		name := e.Name
+		if custom, ok := store.ItemNameOverride(e.Landscape); ok {
+			name = custom
+		}
+		out = append(out, Landscape{Code: e.Landscape, ID: id, Map: e.Map, Name: name, Generated: e.Generated})
 	}
 	return out
+}
+
+// defaultLandscape returns the un-overridden gardens.json entry for code, if listed.
+func defaultLandscape(code string) (Landscape, bool) {
+	for _, e := range gardensFile.Get().Gardens {
+		if e.Landscape == code {
+			id, _ := landscapeItemID(e.Landscape)
+			return Landscape{Code: e.Landscape, ID: id, Map: e.Map, Name: e.Name, Generated: e.Generated}, true
+		}
+	}
+	return Landscape{}, false
 }
 
 // listedLandscape is the listed landscape with item code, if gardens.json lists it.

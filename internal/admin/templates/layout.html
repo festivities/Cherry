@@ -28,14 +28,14 @@
 <button type="button" class="nav-button nav-js" id="nav-button" aria-controls="sidebar" aria-expanded="false">Menu</button>
 <a class="brand" href="/">Cherry staff</a>
 <span class="server">{{.Server}}</span>
-<form method="get" action="/search" class="topsearch" role="search">
+{{if .CanSearch}}<form method="get" action="/search" class="topsearch" role="search">
 <label for="top-search" class="sr-only">Search players, chat, audit and documents</label>
 <input type="search" id="top-search" name="q" maxlength="100" value="{{.SearchQuery}}" placeholder="Search">
 <button type="submit">Search</button>
-</form>
+</form>{{end}}
 <div class="account">
 <span class="who">Signed in as {{.Who}}</span>
-<span class="role{{if eq .Role "Owner"}} owner{{end}}">{{.Role}}</span>
+<span class="role{{with .RoleClass}} {{.}}{{end}}">{{.Role}}</span>
 {{with .SessionLeft}}<span class="session-hint">session ends in {{.}}</span>{{end}}
 <form method="post" action="/auth/logout" class="inline">
 <input type="hidden" name="csrf" value="{{.CSRF}}">

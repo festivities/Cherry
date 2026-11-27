@@ -35,6 +35,9 @@ var chatJS []byte
 //go:embed static/diary.js
 var diaryJS []byte
 
+//go:embed static/items.js
+var itemsJS []byte
+
 //go:embed static/favicon.svg
 var faviconSVG []byte
 
@@ -52,6 +55,7 @@ var staticFiles = map[string]staticFile{
 	"editor.js":   newStaticFile("text/javascript; charset=utf-8", editorJS),
 	"chat.js":     newStaticFile("text/javascript; charset=utf-8", chatJS),
 	"diary.js":    newStaticFile("text/javascript; charset=utf-8", diaryJS),
+	"items.js":    newStaticFile("text/javascript; charset=utf-8", itemsJS),
 	"favicon.svg": newStaticFile("image/svg+xml", faviconSVG),
 }
 

@@ -142,7 +142,7 @@ type Querier interface {
 }
 
 // migrations[i] takes the database from schema version i to i+1. Append only: a shipped step is never edited.
-var migrations = []string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6, schemaV7, schemaV8, schemaV9, schemaV10, schemaV11, schemaV12}
+var migrations = []string{schemaV1, schemaV2, schemaV3, schemaV4, schemaV5, schemaV6, schemaV7, schemaV8, schemaV9, schemaV10, schemaV11, schemaV12, schemaV13}
 
 // migrate applies the missing steps, each in its own transaction together with its user_version bump.
 func migrate(db *sql.DB) error { return migrateTo(db, len(migrations)) }
@@ -537,6 +537,19 @@ CREATE TABLE geo_countries (
 	aid     TEXT PRIMARY KEY,
 	country TEXT NOT NULL,
 	updated TEXT NOT NULL
+) STRICT, WITHOUT ROWID;
+`
+
+// schemaV13 holds operator- and volunteer-supplied display names for catalog items (itemnames.go): one row per canonical
+// 9-character item code (cosmetics, faces, furniture, pets, Garden landscapes, remodeling layouts). Loaded into memory at
+// start so economy.ItemName reads in O(1) without touching the database, and writes commit with an audit row in one
+// transaction so changes take effect live without restarting Cherry. Only a new table: every v12 row carries over.
+const schemaV13 = `
+CREATE TABLE item_names (
+	code       TEXT PRIMARY KEY,
+	name       TEXT NOT NULL,
+	updated    TEXT NOT NULL,
+	updated_by TEXT NOT NULL
 ) STRICT, WITHOUT ROWID;
 `
 

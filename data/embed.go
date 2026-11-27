@@ -193,3 +193,9 @@ var PopupsJSON []byte
 //
 //go:embed news.json
 var NewsJSON []byte
+
+// ItemNamesJSON is the community-contributed built-in item display name table (internal/store/itemnames.go). Exported
+// from the staff panel (/items/export.json) and promoted here so every Cherry server starts with proper item names.
+//
+//go:embed item_names.json
+var ItemNamesJSON []byte

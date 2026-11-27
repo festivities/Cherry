@@ -992,22 +992,48 @@ func registerShopRoutes(mux *http.ServeMux) {
 
 // ---- item names ----
 
-// ItemName is a synthetic display name ("Top 00001"): the stock client shows the placeholder
-// "Item Name" on every cell that resolves a name through items/<dress|room>/some, and the
-// archive has no code-to-name table (itemName.txt in the 2014 item.zip holds resource names such
-// as top_mk1207_0001642, and arts_strings.ast has only UI strings). The category names are
-// Cherry-made (prices.json).
+// ItemName returns the display name of an item code in 3-tier precedence:
+//  1. Live DB override (item_names table) or built-in community default (data/item_names.json)
+//  2. Paired pet's live display name for Minipet room items (RUPI*)
+//  3. Synthetic / operator-file fallback (FallbackItemName)
 func ItemName(code string) string {
 	if len(code) != 9 {
 		return "Item"
 	}
-	if l, ok := listedLandscape(code); ok {
-		return l.Name
+	if custom, ok := store.ItemNameOverride(code); ok {
+		return custom
 	}
 	if pet, ok := MiniPetOfItem(code); ok {
 		return PetDisplayName(pet)
 	}
-	if name, ok := RemodelItemName(code); ok {
+	return FallbackItemName(code)
+}
+
+// DefaultItemName is the display name an item falls back to when no live DB override is set: the built-in community
+// default in data/item_names.json when present, else FallbackItemName.
+func DefaultItemName(code string) string {
+	if len(code) != 9 {
+		return "Item"
+	}
+	if builtin, ok := store.BuiltinItemName(code); ok {
+		return builtin
+	}
+	return FallbackItemName(code)
+}
+
+// FallbackItemName is the synthetic / operator-file display name of an item code before data/item_names.json and
+// before any live DB override ("Top 00001", or the name from gardens.json / pets.json / remodel.json).
+func FallbackItemName(code string) string {
+	if len(code) != 9 {
+		return "Item"
+	}
+	if l, ok := defaultLandscape(code); ok {
+		return l.Name
+	}
+	if pet, ok := MiniPetOfItem(code); ok {
+		return DefaultPetDisplayName(pet)
+	}
+	if name, ok := defaultRemodelItemName(code); ok {
 		return name
 	}
 	label := "Item"
@@ -1022,7 +1048,7 @@ func ItemName(code string) string {
 			label = n
 		}
 	case "PU":
-		if name := PetDisplayName(code); name != "" {
+		if name := DefaultPetDisplayName(code); name != "" {
 			return name
 		}
 		label = "Pet"

@@ -47,9 +47,9 @@
 {{if .Search.AuditMore}}<p class="flash warn">More audit rows match. Use the audit log's filters to narrow them.</p>{{end}}
 {{else}}<p class="empty-state">No audit row names this text.</p>{{end}}
 
-<h2>Documents ({{len .Search.Docs}})</h2>
+{{if .Search.CanDocs}}<h2>Documents ({{len .Search.Docs}})</h2>
 {{if .Search.Docs}}<ul class="codes">{{range .Search.Docs}}<li><a href="{{.Href}}" class="mono">{{.Name}}</a></li>{{end}}</ul>
 {{else}}<p class="empty-state">No document name contains this text.</p>{{end}}
-{{else}}<p class="empty-state">Search for a player's number (#12), avatar id, Discord identity or name; a word from a chat message; an action, target or reason from the audit trail; or a document's name.</p>
+{{end}}{{else}}<p class="empty-state">Search for a player's number (#12), avatar id, Discord identity or name; a word from a chat message; or an action, target or reason from the audit trail{{if .Search.CanDocs}}; or a document's name{{end}}.</p>
 {{end}}
 {{end}}

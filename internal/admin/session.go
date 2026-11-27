@@ -36,71 +36,162 @@ type session struct {
 // handler is a route that runs with the session of the request.
 type handler func(w http.ResponseWriter, r *http.Request, sess session)
 
-// page guards a GET page: a live session, or the sign-in page (401). A GET never changes the session's state except its
-// idle clock.
-func (s *Server) page(h handler) http.HandlerFunc {
+// wantsJSON reports whether the request asks for a JSON answer (used by progressive-enhancement fetch calls such as
+// inline item naming so error replies stay JSON instead of full HTML error pages).
+func wantsJSON(r *http.Request) bool {
+	return strings.Contains(r.Header.Get("Accept"), "application/json")
+}
+
+// page guards a GET page for moderators and the owner (convenience wrapper over pageFor).
+func (s *Server) page(h handler) http.HandlerFunc { return s.pageFor(roleModerator, h) }
+
+// pageFor guards a GET page requiring at least minRole: a live session with sufficient role, else 401 sign-in or 403.
+// A GET never changes the session's state except its idle clock.
+func (s *Server) pageFor(minRole staffRole, h handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sess, ok := s.sessionOf(r)
 		if !ok {
 			s.signInPage(w)
 			return
 		}
-		h(w, r, sess)
-	}
-}
-
-// jsonPage guards a GET that answers JSON: a live session, or 401 with a JSON body (the page guard answers HTML instead). It
-// does not count as activity: the dashboard polls it every 15 seconds, and an open tab must not keep a session alive past
-// the idle timeout.
-func (s *Server) jsonPage(h handler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		sess, ok := s.lookupSession(r, false)
-		if !ok {
-			w.Header().Set("Content-Type", "application/json; charset=utf-8")
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte("{\"error\":\"sign in with Discord first\"}\n"))
+		role := s.roleOf(sess.identity)
+		if role == roleNone {
+			s.endSession(r)
+			clearCookie(w, cookieSession, http.SameSiteStrictMode)
+			s.signInPage(w)
+			return
+		}
+		if role < minRole {
+			s.logger.Printf("cherry: staff page refused role=%s need=%s path=%s", role.Slug(), minRole.Slug(), r.URL.Path)
+			s.fail(w, http.StatusForbidden, roleDeniedText(minRole))
 			return
 		}
 		h(w, r, sess)
 	}
 }
 
-// action guards a POST. In order: the Origin (or, without an Origin, Sec-Fetch-Site same-origin); a live session; a body
-// within maxBody; the CSRF token, compared in constant time; and, when privileged, a Discord login within freshWindow.
-// Only then does h run. Every refusal is one log line that names the reason and the path, never a value.
-func (s *Server) action(privileged bool, maxBody int64, h handler) http.HandlerFunc {
+// jsonPage guards a GET that answers JSON for moderators and the owner (convenience wrapper over jsonPageFor).
+func (s *Server) jsonPage(h handler) http.HandlerFunc { return s.jsonPageFor(roleModerator, h) }
+
+// jsonPageFor guards a GET that answers JSON requiring at least minRole: a live session, or 401/403 with a JSON body.
+// It does not count as activity: polling endpoints must not keep a session alive past the idle timeout.
+func (s *Server) jsonPageFor(minRole staffRole, h handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		sess, ok := s.lookupSession(r, false)
+		if !ok {
+			respondJSON(w, http.StatusUnauthorized, map[string]string{"error": "sign in with Discord first"})
+			return
+		}
+		role := s.roleOf(sess.identity)
+		if role == roleNone {
+			respondJSON(w, http.StatusUnauthorized, map[string]string{"error": "sign in with Discord first"})
+			return
+		}
+		if role < minRole {
+			s.logger.Printf("cherry: staff json refused role=%s need=%s path=%s", role.Slug(), minRole.Slug(), r.URL.Path)
+			respondJSON(w, http.StatusForbidden, map[string]string{"error": roleDeniedText(minRole)})
+			return
+		}
+		h(w, r, sess)
+	}
+}
+
+// action guards a POST for moderators and the owner (convenience wrapper over actionFor).
+func (s *Server) action(privileged bool, maxBody int64, h handler) http.HandlerFunc {
+	return s.actionFor(roleModerator, privileged, maxBody, h)
+}
+
+// actionFor guards a POST requiring at least minRole. In order: the Origin (or, without an Origin, Sec-Fetch-Site
+// same-origin); a live session; live role check; a body within maxBody; the CSRF token, compared in constant time; and,
+// when privileged, a Discord login within freshWindow. Only then does h run. Every refusal is one log line that names
+// the reason and the path, never a value.
+func (s *Server) actionFor(minRole staffRole, privileged bool, maxBody int64, h handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		jsonReply := wantsJSON(r)
 		if !s.originOK(r) {
+			if jsonReply {
+				s.logger.Printf("cherry: staff request refused reason=origin path=%s", r.URL.Path)
+				respondJSON(w, http.StatusForbidden, map[string]string{"error": "This request was refused. Reload the page and try again."})
+				return
+			}
 			s.refuseRequest(w, r, "origin")
 			return
 		}
 		sess, ok := s.sessionOf(r)
 		if !ok {
+			if jsonReply {
+				respondJSON(w, http.StatusUnauthorized, map[string]string{"error": "Sign in with Discord to continue."})
+				return
+			}
 			s.signInPage(w)
+			return
+		}
+		role := s.roleOf(sess.identity)
+		if role == roleNone {
+			s.endSession(r)
+			clearCookie(w, cookieSession, http.SameSiteStrictMode)
+			if jsonReply {
+				respondJSON(w, http.StatusUnauthorized, map[string]string{"error": "Sign in with Discord to continue."})
+				return
+			}
+			s.signInPage(w)
+			return
+		}
+		if role < minRole {
+			s.logger.Printf("cherry: staff action refused role=%s need=%s path=%s", role.Slug(), minRole.Slug(), r.URL.Path)
+			if jsonReply {
+				respondJSON(w, http.StatusForbidden, map[string]string{"error": roleDeniedText(minRole)})
+				return
+			}
+			s.fail(w, http.StatusForbidden, roleDeniedText(minRole))
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
 		if err := r.ParseForm(); err != nil {
 			var big *http.MaxBytesError
 			if errors.As(err, &big) {
+				if jsonReply {
+					respondJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "The form is too large."})
+					return
+				}
 				s.fail(w, http.StatusRequestEntityTooLarge, "The form is too large.")
+				return
+			}
+			if jsonReply {
+				respondJSON(w, http.StatusBadRequest, map[string]string{"error": "The form could not be read."})
 				return
 			}
 			s.fail(w, http.StatusBadRequest, "The form could not be read.")
 			return
 		}
 		if !csrfOK(r.PostFormValue("csrf"), sess.csrf) {
+			if jsonReply {
+				s.logger.Printf("cherry: staff request refused reason=csrf path=%s", r.URL.Path)
+				respondJSON(w, http.StatusForbidden, map[string]string{"error": "This request was refused. Reload the page and try again."})
+				return
+			}
 			s.refuseRequest(w, r, "csrf")
 			return
 		}
 		if privileged && !s.freshLogin(sess) {
 			s.logger.Printf("cherry: staff action needs a fresh sign-in path=%s", r.URL.Path)
+			if jsonReply {
+				respondJSON(w, http.StatusForbidden, map[string]string{"error": "This action needs a Discord sign-in in the last five minutes."})
+				return
+			}
 			// The sign-in returns to the page the action was taken from: the POST path's parent (…/1/publish → …/1).
 			s.render(w, http.StatusForbidden, "error", view{Title: "Sign in again", Text: "This action needs a Discord sign-in in the last five minutes. Sign in again, then repeat it.", Login: loginPath(path.Dir(r.URL.Path))})
 			return
 		}
 		h(w, r, sess)
 	}
+}
+
+func roleDeniedText(need staffRole) string {
+	if need == roleOwner {
+		return "Only the owner has access to this page."
+	}
+	return "Your role does not have access to this page."
 }
 
 // originOK is the Origin check: the Origin must be the staff origin exactly, once. An absent Origin is accepted only with

@@ -18,10 +18,10 @@ import (
 // that the owner sends and that writes its audit row (store.SetChatRetention, store.AddStaffMember, store.RemoveStaffMember).
 // A staff member is admitted at sign-in (mayStaff); a removal also ends that identity's open sessions (endSessionsOf).
 
-// settingsRow is one staff member of the table: the identity in full (this is the owner's page), the note, when it was added
-// and who added it, masked.
+// settingsRow is one staff member of the table: the identity in full (this is the owner's page), their role, the note,
+// when it was added and who added it, masked.
 type settingsRow struct {
-	Identity, Note, Added, By string
+	Identity, Role, RoleLabel, Note, Added, By string
 }
 
 // maintWhitelistRow is one account on the maintenance whitelist table.
@@ -95,7 +95,10 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, sess ses
 	}
 	rows := make([]settingsRow, 0, len(members))
 	for _, m := range members {
-		rows = append(rows, settingsRow{Identity: m.Identity, Note: m.Note, Added: m.Added, By: auth.MaskIdentity(m.By)})
+		rows = append(rows, settingsRow{
+			Identity: m.Identity, Role: m.Role, RoleLabel: roleLabelOf(m.Role),
+			Note: m.Note, Added: m.Added, By: auth.MaskIdentity(m.By),
+		})
 	}
 	maintList, err := store.MaintenanceWhitelist()
 	if err != nil {
@@ -466,7 +469,7 @@ func bareDiscordID(v string) bool {
 }
 
 // handleStaffAdd: POST /settings/staff/add (privileged, owner). The form: identity (a Discord user id, or dev-<name> in dev-fake
-// mode) and an optional note. The store checks the identity, the note, the duplicate and the cap.
+// mode), role ("moderator" or "helper"; defaults to "moderator" if omitted), and an optional note.
 func (s *Server) handleStaffAdd(w http.ResponseWriter, r *http.Request, sess session) {
 	if !s.settingsOwner(w, sess) {
 		return
@@ -479,12 +482,32 @@ func (s *Server) handleStaffAdd(w http.ResponseWriter, r *http.Request, sess ses
 		s.fail(w, http.StatusBadRequest, "The owner already has access.")
 		return
 	}
+	role := strings.TrimSpace(r.PostFormValue("role"))
+	if role == "" {
+		role = store.StaffRoleModerator
+	}
 	devNames := s.cfg.AuthMode == config.AuthDevFake
-	if err := store.AddStaffMember(id, r.PostFormValue("note"), sess.identity, s.now(), devNames); err != nil {
+	if err := store.AddStaffMember(id, role, r.PostFormValue("note"), sess.identity, s.now(), devNames); err != nil {
 		s.storeError(w, err)
 		return
 	}
 	redirect(w, http.StatusSeeOther, "/settings?notice=staff-added")
+}
+
+// handleStaffRole: POST /settings/staff/role (privileged, owner). Changes an existing panel staff member's role between
+// moderator and helper and ends their open sessions so the new role applies immediately.
+func (s *Server) handleStaffRole(w http.ResponseWriter, r *http.Request, sess session) {
+	if !s.settingsOwner(w, sess) {
+		return
+	}
+	id := strings.TrimSpace(r.PostFormValue("identity"))
+	role := strings.TrimSpace(r.PostFormValue("role"))
+	if err := store.SetStaffRole(id, role, sess.identity); err != nil {
+		s.storeError(w, err)
+		return
+	}
+	s.endSessionsOf(id)
+	redirect(w, http.StatusSeeOther, "/settings?notice=staff-role-saved")
 }
 
 // handleStaffRemove: POST /settings/staff/remove (privileged, owner). The form: identity, a staff member added here. Once the

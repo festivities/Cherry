@@ -1,0 +1,86 @@
+{{define "page"}}<div class="items-head">
+<div>
+<h1>Item names</h1>
+<p class="muted">See each item's preview and current name, type the new name and press Enter or Save. Changes take effect live in the game.</p>
+</div>
+{{if .Items.CanExport}}<div class="items-head-actions"><a href="/items/export.json" class="button ghost" id="items-export-btn">Export item_names.json<span id="items-custom-count">{{if .Items.CustomTotal}} ({{.Items.CustomTotal}} new){{end}}</span></a></div>{{end}}
+</div>
+
+<section class="item-progress card" aria-label="Naming progress">
+<div class="item-progress-row">
+<span><strong id="items-named-count">{{.Items.NamedTotal}}</strong> of <strong id="items-total-count">{{.Items.Total}}</strong> items named (<span id="items-named-pct">{{.Items.NamedPct}}</span>)</span>
+<span class="muted small">{{.Items.Filtered}} matching current filter</span>
+</div>
+<div class="bar-track"><div class="bar-fill w-{{.Items.NamedBar}}" id="items-progress-bar"></div></div>
+</section>
+
+<nav class="item-tabs" aria-label="Item groups">
+{{range .Items.Groups}}<a href="{{.Href}}" class="item-tab{{if .Current}} current{{end}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}} <span class="muted small">({{.Count}})</span></a>{{end}}
+</nav>
+
+<form method="get" action="/items" class="filters" role="search">
+{{with .Items.Group}}<input type="hidden" name="group" value="{{.}}">{{end}}
+<label><span class="label">Search</span>
+<input type="search" name="q" value="{{.Items.Query}}" maxlength="100" placeholder="Item code, ID or name"></label>
+<label><span class="label">Category</span>
+<select name="cat">
+<option value="">All categories</option>
+{{range .Items.Categories}}<option value="{{.Key}}"{{if eq .Key $.Items.Category}} selected{{end}}>{{.Label}} ({{.Count}})</option>{{end}}
+</select></label>
+<label><span class="label">Status</span>
+<select name="status">
+<option value=""{{if eq .Items.Status ""}} selected{{end}}>All items</option>
+<option value="unnamed"{{if eq .Items.Status "unnamed"}} selected{{end}}>Needs name</option>
+<option value="named"{{if eq .Items.Status "named"}} selected{{end}}>Named (all)</option>
+<option value="custom"{{if eq .Items.Status "custom"}} selected{{end}}>Custom overrides only</option>
+</select></label>
+<label><span class="label">Sort</span>
+<select name="sort">
+<option value=""{{if eq .Items.Sort ""}} selected{{end}}>Code (A-Z)</option>
+<option value="recent"{{if eq .Items.Sort "recent"}} selected{{end}}>Recently named</option>
+</select></label>
+<div class="actions"><button type="submit">Filter</button> <a href="{{.Items.ClearHref}}" class="button ghost">Clear</a></div>
+</form>
+
+{{if .Items.Rows}}
+<p class="muted small">Showing {{.Items.Start}}–{{.Items.End}} of {{.Items.Filtered}} · page {{.Items.Page}} of {{.Items.TotalPages}}</p>
+<div class="item-grid" data-items-grid>
+{{range .Items.Rows}}<article class="item-card{{if .Custom}} is-named{{else if .Builtin}} is-builtin{{end}}" data-item-card data-code="{{.Code}}" data-default="{{.DefaultName}}">
+<div class="item-preview">
+<img src="{{.PreviewHref}}" alt="{{.Name}}" loading="lazy" width="130" height="100" class="item-img">
+</div>
+<div class="item-body">
+<div class="item-meta">
+<span class="pill">{{.CategoryLabel}}</span>
+{{if .Animated}}<span class="pill warn">Rare</span>{{end}}
+<span class="pill{{if .Custom}} ok{{else if .Builtin}} builtin{{end}}" data-item-badge>{{if .Custom}}Custom{{else if .Builtin}}Built-in{{else}}Default{{end}}</span>
+</div>
+<p class="mono small muted item-code">{{.Code}}{{if .Species}} · {{.Species}}{{end}}</p>
+<form method="post" action="/items/{{.Code}}/name" class="item-name-form">
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<input type="hidden" name="return" value="{{$.Items.ReturnURL}}">
+<input type="text" name="name" value="{{.Name}}" maxlength="80" required autocomplete="off" aria-label="Item name for {{.Code}}" class="item-name-input">
+<button type="submit">Save</button>
+</form>
+<p class="item-status small" data-item-status role="status" aria-live="polite"></p>
+<div class="item-foot">
+<span class="muted small" data-item-meta>{{if .Custom}}Default: {{.DefaultName}}{{with .Updated}} · {{.}}{{end}}{{with .UpdatedBy}} · {{.}}{{end}}{{else if .Builtin}}Built-in default{{else}}Default name{{end}}</span>
+<form method="post" action="/items/{{.Code}}/reset" class="item-reset-form"{{if not .Custom}} hidden{{end}}>
+<input type="hidden" name="csrf" value="{{$.CSRF}}">
+<input type="hidden" name="return" value="{{$.Items.ReturnURL}}">
+<button type="submit" class="ghost item-reset-btn">Reset</button>
+</form>
+</div>
+</div>
+</article>{{end}}
+</div>
+
+<nav class="pager-bar" aria-label="Pagination">
+{{with .Items.PrevHref}}<a href="{{.}}" class="button ghost">&larr; Previous</a>{{end}}
+<span class="muted small">Page {{.Items.Page}} of {{.Items.TotalPages}}</span>
+{{with .Items.NextHref}}<a href="{{.}}" class="button ghost">Next &rarr;</a>{{end}}
+</nav>
+{{else}}
+<p class="empty-state">No items match this filter.</p>
+{{end}}
+{{end}}

@@ -148,10 +148,23 @@ func remodelByCode(code string) (RemodelRow, int, bool) {
 	return RemodelRow{}, 0, false
 }
 
-// RemodelItemName returns the display name of a Remodeling Shop item code (used by ItemName / items/room/some).
-func RemodelItemName(code string) (string, bool) {
+// defaultRemodelItemName returns the remodel.json name of code without any staff override.
+func defaultRemodelItemName(code string) (string, bool) {
 	r, _, ok := remodelByCode(code)
 	return r.Name, ok
+}
+
+// RemodelItemName returns the display name of a Remodeling Shop item code (used by ItemName / items/room/some),
+// preferring any live staff override.
+func RemodelItemName(code string) (string, bool) {
+	r, _, ok := remodelByCode(code)
+	if !ok {
+		return "", false
+	}
+	if custom, ok := store.ItemNameOverride(code); ok {
+		return custom, true
+	}
+	return r.Name, true
 }
 
 func remodelOwnsRow(rem *store.RoomRemodel, r RemodelRow, floor int) bool {
@@ -216,7 +229,7 @@ func remodelRowJSON(row RemodelRow, owned, inUse bool) map[string]any {
 		invenSeq = strconv.FormatInt(id, 10)
 	}
 	return map[string]any{
-		"itemID": id, "itemCode": row.Code, "name": row.Name, "representImageURL": "", "bigRepresentImageURL": "",
+		"itemID": id, "itemCode": row.Code, "name": ItemName(row.Code), "representImageURL": "", "bigRepresentImageURL": "",
 		"price": row.Price, "discountedPrice": row.Price, "paymentType": payType, "discount": false, "soldout": false,
 		"selling": true, "display": true, "sellingIconType": "", "specialEffects": "", "sellingEnd": "", "discountEnd": "",
 		"dyeType": 0, "roomSize": row.RoomSize, "elementItems": []any{}, "elementItemCodes": []any{},

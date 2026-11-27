@@ -123,16 +123,16 @@ func TestRoleBadgeShowsOwnerOrStaff(t *testing.T) {
 	staff := fx.client()
 	expect(t, staff.discordLogin("c|"+friendID+"|1"), http.StatusOK)
 	r = staff.get("/")
-	if !strings.Contains(topbarRe.FindString(r.body), `<span class="role">Staff</span>`) {
-		t.Error("the allowlisted header lacks the Staff badge")
+	if !strings.Contains(topbarRe.FindString(r.body), `<span class="role moderator">Moderator</span>`) {
+		t.Errorf("the allowlisted header lacks the Moderator badge: %s", topbarRe.FindString(r.body))
 	}
 }
 
 // TestNavMarksTheArea: the sidebar marks the entry of the area the path is in, and the sidebar holds only pages that exist.
 func TestNavMarksTheArea(t *testing.T) {
-	for path, want := range map[string]string{"/": "/", "/players/5": "/players", "/docs/x.json/3": "/docs", "/audit": "/audit"} {
+	for path, want := range map[string]string{"/": "/", "/players/5": "/players", "/items": "/items", "/docs/x.json/3": "/docs", "/audit": "/audit"} {
 		marked := ""
-		for _, g := range navFor(path, true) {
+		for _, g := range navFor(path, roleOwner) {
 			for _, l := range g.Links {
 				if l.Current {
 					marked = l.Href

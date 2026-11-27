@@ -35,6 +35,7 @@ type searchDoc struct{ Name, Href string }
 // searchPage is the search results: the query and each group, with whether the group was cut at searchRows.
 type searchPage struct {
 	Query       string
+	CanDocs     bool
 	Players     []searchPlayer
 	PlayersMore bool
 	Deleted     []deletedRow // deleted avatars by avatar id (exact) or name (deleted.go)
@@ -57,9 +58,10 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request, sess sessi
 	}
 	v := s.base(r, sess, "Search")
 	v.SearchQuery = q
-	v.Search = searchPage{Query: q}
+	canDocs := s.roleOf(sess.identity) >= roleOwner
+	v.Search = searchPage{Query: q, CanDocs: canDocs}
 	if q != "" {
-		if err := s.searchInto(&v.Search, q); err != nil {
+		if err := s.searchInto(&v.Search, q, canDocs); err != nil {
 			s.storeError(w, err)
 			return
 		}
@@ -68,7 +70,7 @@ func (s *Server) handleSearch(w http.ResponseWriter, r *http.Request, sess sessi
 }
 
 // searchInto fills page with the hits of q. Each group reads at most searchRows+1 rows, so "more" is known without a count.
-func (s *Server) searchInto(page *searchPage, q string) error {
+func (s *Server) searchInto(page *searchPage, q string, canDocs bool) error {
 	players, more := store.SearchPlayers(q, searchRows)
 	page.PlayersMore = more
 	for _, p := range players {
@@ -105,14 +107,16 @@ func (s *Server) searchInto(page *searchPage, q string) error {
 		page.Audit = append(page.Audit, searchAudit{Row: row, By: auth.MaskIdentity(row.Actor),
 			Href: auditHref(store.AuditFilter{Target: row.Target}, 0)})
 	}
-	docs, err := store.Live()
-	if err != nil {
-		return err
-	}
-	needle := strings.ToLower(q)
-	for _, d := range docs {
-		if strings.Contains(strings.ToLower(d.Name), needle) {
-			page.Docs = append(page.Docs, searchDoc{Name: d.Name, Href: "/docs/" + d.Name})
+	if canDocs {
+		docs, err := store.Live()
+		if err != nil {
+			return err
+		}
+		needle := strings.ToLower(q)
+		for _, d := range docs {
+			if strings.Contains(strings.ToLower(d.Name), needle) {
+				page.Docs = append(page.Docs, searchDoc{Name: d.Name, Href: "/docs/" + d.Name})
+			}
 		}
 	}
 	return nil

@@ -214,9 +214,13 @@ var csrfField = regexp.MustCompile(`name="csrf" value="([^"]+)"`)
 
 func (c *client) csrf() string {
 	c.fx.t.Helper()
-	m := csrfField.FindStringSubmatch(c.get("/").body)
+	r := c.get("/")
+	if r.StatusCode == http.StatusSeeOther {
+		r = c.follow(r)
+	}
+	m := csrfField.FindStringSubmatch(r.body)
 	if m == nil {
-		c.fx.t.Fatal("no CSRF token on the dashboard: not signed in?")
+		c.fx.t.Fatal("no CSRF token on the landing page: not signed in?")
 	}
 	return m[1]
 }
