@@ -57,3 +57,49 @@ func TestGardenButtons(t *testing.T) {
 		t.Fatal("no remove audit row")
 	}
 }
+
+// TestGardenIcons: a picture is stored with its PNG, once; a picture a button uses cannot be removed; removal drops the
+// PNG; each change writes its audit row.
+func TestGardenIcons(t *testing.T) {
+	docStore(t)
+	now := time.Date(2026, 11, 28, 3, 0, 0, 0, time.UTC)
+	png := []byte("\x89PNG fake")
+	ic := GardenIcon{ID: "0123456789ab", Name: " Mine ", Width: 64, Height: 64}
+	if err := AddGardenIcon(GardenIcon{ID: "bad", Name: "x"}, png, "dev-owner", now); !errors.Is(err, ErrBadInput) {
+		t.Fatalf("bad id = %v", err)
+	}
+	if err := AddGardenIcon(ic, png, "dev-owner", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := AddGardenIcon(ic, png, "dev-owner", now); !errors.Is(err, ErrBadInput) {
+		t.Fatalf("same picture twice = %v", err)
+	}
+	list, err := GardenIconList()
+	if err != nil || len(list) != 1 || list[0].Name != "Mine" || list[0].Bytes != len(png) {
+		t.Fatalf("list = %+v %v", list, err)
+	}
+	if b, err := GardenIconPNG(ic.ID); err != nil || string(b) != string(png) {
+		t.Fatalf("png = %q %v", b, err)
+	}
+	ref := "mainhome_button/cherry_gb_" + ic.ID
+	if err := AddGardenButton(GardenButton{Icon: ref, Label: "Uses it", Link: "goSomewhere(closet)"}, "dev-owner", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveGardenIcon(ic.ID, ref, "dev-owner"); !errors.Is(err, ErrBadInput) {
+		t.Fatalf("removing a used picture = %v", err)
+	}
+	if err := RemoveGardenButton(ref, "dev-owner"); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveGardenIcon(ic.ID, ref, "dev-owner"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := GardenIconPNG(ic.ID); !errors.Is(err, ErrNoRecord) {
+		t.Fatalf("png after removal = %v", err)
+	}
+	for _, action := range []string{"garden-icon-add", "garden-icon-remove"} {
+		if _, ok := settingAudit(t, action, "garden"); !ok {
+			t.Fatalf("no %s audit row", action)
+		}
+	}
+}

@@ -77,6 +77,9 @@ type Store struct {
 	items        *ItemIndex                // the originals index (Items); nil until read
 	readyItems   atomic.Pointer[ItemIndex] // items once read: the redirect check (egress.go) reads it without waiting
 	itemsFailed  time.Time                 // when reading the index last failed; retried after missTTL
+	overlay      *overlaySet               // the animation overlay in use (overlay.go); guarded by loadMu
+	overlayByVer map[int]*overlaySet       // the overlays of recent animation versions; guarded by loadMu
+	overlayVers  []int                     // overlayByVer's versions, oldest first
 }
 
 // Archive is the store the server reads original assets from (economy, thumbs, web). It is nil when
@@ -122,10 +125,13 @@ func (s *Store) Streaming() bool { return s != nil && s.streaming }
 // state is what the manifests produce: the checkresource2 body, one update list per category, and the map
 // packs the update lists name ("<dir>/<name>", mapped to the R2 key that holds the pack).
 type state struct {
-	check string
-	ini   map[string]string
-	packs map[string]string
-	keys  map[string]bool // every original key the lists name: bulk entries and the original map packs (egress.go)
+	check   string
+	ini     map[string]string
+	packs   map[string]string
+	keys    map[string]bool // every original key the lists name: bulk entries and the original map packs (egress.go)
+	mans    []*Manifest     // the category indexes, in Categories order (animation first)
+	pm      *PackManifest
+	overlay *overlaySet // the animation overlay these lists carry (overlay.go)
 }
 
 // New returns a streaming store that reads cfg's bucket and keeps local copies under cacheDir.
@@ -207,6 +213,9 @@ func (s *Store) ServeRoute(w http.ResponseWriter, r *http.Request) bool {
 		_, _ = io.WriteString(w, DirProbeBody)
 		return true
 	}
+	if head, rest, ok := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"), "/"); ok && animationDir("/"+head) && s.serveOverlay(w, head, rest) {
+		return true // Cherry-made overlay files: before the R2 routes and the redirect
+	}
 	if rel, ok := packRel(r.URL.Path); ok {
 		return s.servePack(w, r, rel)
 	}
@@ -248,30 +257,44 @@ func (s *Store) load() (*state, error) {
 	if err != nil {
 		return nil, err
 	}
-	st := &state{ini: make(map[string]string, len(Categories)), packs: make(map[string]string, len(pm.Entries)), keys: map[string]bool{}}
+	for i := range Categories {
+		if errs[i] != nil {
+			return nil, errs[i]
+		}
+	}
+	st := s.buildState(mans, pm)
+	s.state.Store(st)
+	return st, nil
+}
+
+// buildState makes the lists and checkresource2 from the indexes and the overlay in use. Caller holds loadMu.
+func (s *Store) buildState(mans []*Manifest, pm *PackManifest) *state {
+	st := &state{ini: make(map[string]string, len(Categories)), packs: make(map[string]string, len(pm.Entries)), keys: map[string]bool{},
+		mans: mans, pm: pm, overlay: s.overlay}
 	for _, p := range pm.Entries {
 		st.packs[p.Dir+"/"+p.Name] = p.Key()
 		st.keys[p.Key()] = true
 	}
 	versions := make(map[string]int, len(Categories))
 	for i, cat := range Categories {
-		if errs[i] != nil {
-			return nil, errs[i]
-		}
 		for _, e := range mans[i].Entries {
 			st.keys["static/"+cat+"/"+e.Path] = true
 		}
 		var packs []PackEntry
 		versions[cat] = mans[i].Version
-		if cat == "animation" { // the map packs are listed with the animation category only
+		m := mans[i]
+		if cat == "animation" { // the map packs and the overlay are listed with the animation category only
 			packs = pm.Entries
-			versions[cat] = AnimationVersion(mans[i].Entries, packs)
+			m = &Manifest{Cat: cat, Entries: withOverlay(m.Entries, s.overlay)}
+			versions[cat] = AnimationVersion(m.Entries, packs)
+			if s.overlay != nil {
+				s.rememberOverlay(versions[cat], s.overlay)
+			}
 		}
-		st.ini[cat] = mans[i].IniBody(packs)
+		st.ini[cat] = m.IniBody(packs)
 	}
 	st.check = checkResource2Body(versions)
-	s.state.Store(st)
-	return st, nil
+	return st
 }
 
 // fetchPacks reads the pack index. A bucket without it has no map packs, and the animation list keeps only

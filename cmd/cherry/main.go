@@ -130,6 +130,7 @@ func main() {
 		logger.Fatalf("cherry: asset store: %v", err)
 	}
 	web.WarmArchive()
+	economy.StartGardenIcons() // the custom Garden pictures ride in the patcher's animation list (assets overlay)
 	// A failed roster migration leaves the old contracts in place (it restores them) and must not keep Cherry down.
 	if err := economy.MigrateButlerRoster(time.Now()); err != nil {
 		logger.Printf("cherry: butler roster migration skipped: %v", err)

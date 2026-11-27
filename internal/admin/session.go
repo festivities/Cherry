@@ -147,7 +147,11 @@ func (s *Server) actionFor(minRole staffRole, privileged bool, maxBody int64, h 
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxBody)
-		if err := r.ParseForm(); err != nil {
+		parse := r.ParseForm
+		if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") { // a file upload: held in memory, within maxBody
+			parse = func() error { return r.ParseMultipartForm(maxBody) }
+		}
+		if err := parse(); err != nil {
 			var big *http.MaxBytesError
 			if errors.As(err, &big) {
 				if jsonReply {

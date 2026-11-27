@@ -67,6 +67,9 @@ func HandleHomeIntegratedInfo(w http.ResponseWriter, r *http.Request) {
 	}
 	rows := []homeEventIconRow{}
 	for _, b := range store.GardenButtons() {
+		if strings.HasPrefix(b.Icon, gardenIconProject+"/") && !GardenIconLive(b.Icon) {
+			continue // a custom picture the clients cannot have now (gardenicons.go)
+		}
 		rows = append(rows, homeEventIconRow{IconSeq: len(rows) + 1, IconID: b.Icon, IconName: b.Label, LinkTypeCode: b.Link, LinkDetail: b.Detail})
 	}
 	if ic := scheduleAt(NowFunc()).Icon; ic != nil {

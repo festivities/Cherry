@@ -24,6 +24,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -213,6 +214,8 @@ func checkObject(o *object, roots []string) error {
 			return errors.New("Cherry-made item in a device backup is not an original")
 		case strings.Contains(o.key, "/-cherry/") || strings.HasPrefix(path.Base(o.key), "cherry_day"):
 			return errors.New("Cherry-made file (the -cherry/ probe or a cherry_day calendar tile) is not an original")
+		case strings.HasPrefix(o.key, "static/animation/") && strings.HasSuffix(o.key, ".aniproj") && cherryMarkedAniproj(o.path):
+			return errors.New("animation file carries Cherry symbols (a device copy of Cherry's custom-picture superset, economy/gardenicons.go), not an original")
 		}
 		return nil
 	}
@@ -698,4 +701,12 @@ func loadR2() (assets.Config, error) {
 		return assets.Config{}, err
 	}
 	return assets.LoadConfig(p)
+}
+
+// cherryMarkedAniproj reports whether the animation file at p holds Cherry's custom Garden pictures: a device that played on
+// Cherry keeps Cherry's superset of mainhome_button.aniproj (cherry_gb_ symbols, pictures under -cherry/). An unreadable
+// file counts as marked, so it is refused rather than taken as an original.
+func cherryMarkedAniproj(p string) bool {
+	b, err := os.ReadFile(p)
+	return err != nil || bytes.Contains(b, []byte("cherry_gb_")) || bytes.Contains(b, []byte("/-cherry/"))
 }

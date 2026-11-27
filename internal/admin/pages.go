@@ -115,6 +115,8 @@ var notices = map[string]string{
 	"circle-disbanded":          "The circle is disbanded. Its members are removed and the audit trail has the line.",
 	"garden-button-added":       "The Garden button is saved. Players see it the next time their Garden loads.",
 	"garden-button-removed":     "The Garden button is removed. A player who already saw it keeps it until they restart the app.",
+	"garden-picture-added":      "The custom picture is uploaded. Players download it at their next app start; a button can use it now.",
+	"garden-picture-removed":    "The custom picture is removed. Players get the updated button file at their next app start.",
 	"broadcast-sent":            "The announcement was sent to all currently online players. The audit trail has the line.",
 }
 
