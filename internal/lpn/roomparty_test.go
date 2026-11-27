@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -212,22 +213,22 @@ func TestPartyEnterRules(t *testing.T) {
 	a := partyLogin(t, h, 11, 1)
 	b := partyLogin(t, h, 12, 2)
 	c := partyLogin(t, h, 13, 3)
-	b.enter(11) // no room yet
-	b.expect(5, []byte{0x08, 1, 0x10, 11})
-	a.enter(12) // other's room absent -> failure with Aid = host
-	a.expect(5, []byte{0x08, 1, 0x10, 12})
+	b.enter(11) // no room yet -> ENTER_RESULT=3 (party ended) + HostName
+	b.expect(5, pbLen(pbVar(pbVar(nil, 1, partyEnterEnded), 2, 11), 4, []byte("Ann")))
+	a.enter(12) // other's room absent -> ENTER_RESULT=3 + HostName
+	a.expect(5, pbLen(pbVar(pbVar(nil, 1, partyEnterEnded), 2, 12), 4, []byte("Bo")))
 	a.enter(11)
 	a.expect(5, []byte{0x08, 0x00, 0x10, 11, 0x28, 2})
 	a.expect(23, statusBody) // host enter: status push so My Room rejoins the party
 	b.enter(11)              // accepted friend
 	b.expect(5, []byte{0x08, 0x00, 0x10, 11, 0x28, 2})
-	c.enter(11) // pending only -> not a friend
-	c.expect(5, []byte{0x08, 1, 0x10, 11})
+	c.enter(11) // pending only -> not a friend (ENTER_RESULT=1 + HostName)
+	c.expect(5, pbLen(pbVar(pbVar(nil, 1, partyEnterInvalid), 2, 11), 4, []byte("Ann")))
 	a.send(2, nil) // resume = re-enter current room
 	a.expect(5, []byte{0x08, 0x00, 0x10, 11, 0x28, 2})
 	a.expect(23, statusBody)
 	c.send(2, nil) // resume with no room
-	c.expect(5, []byte{0x08, 1, 0x10, 13})
+	c.expect(5, pbLen(pbVar(pbVar(nil, 1, partyEnterInvalid), 2, 13), 4, []byte("Cy")))
 }
 
 func TestPartyRosterRelaysExit(t *testing.T) {
@@ -640,4 +641,378 @@ func serveRoom(t *testing.T, method, target string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, httptest.NewRequest(method, target, nil))
 	return rec
+}
+
+// TestPartyExplodeEndParty verifies the "End Party" button (cr_room_banish_req idx4 Explode=true):
+// host gets idx4 + idx23(Exist=0) + idx2(self, reason=2); guests get idx2(self, reason=2);
+// room is removed; non-host cannot explode; host can start a fresh party afterwards.
+func TestPartyExplodeEndParty(t *testing.T) {
+	h := partySetup(t)
+	a := partyLogin(t, h, 11, 1)
+	b := partyLogin(t, h, 12, 2)
+	a.enterHost(11)
+	a.start(nil)
+	a.read() // idx29
+	b.enter(11)
+	b.read()
+	b.start(nil)
+	for _, p := range []*pc{a, b} {
+		for p.drain() {
+		}
+	}
+
+	// Non-host attempting to explode gets empty idx4, room stays open, nobody kicked.
+	b.send(4, pbVar(nil, 2, 1))
+	b.expect(4, nil)
+	a.none()
+	b.none()
+	h.mu.Lock()
+	stillOpen := h.rooms[11] != nil && len(h.rooms[11].members) == 2
+	h.mu.Unlock()
+	if !stillOpen {
+		t.Fatal("non-host explode modified host room")
+	}
+
+	// Host taps "End Party" (Explode=true).
+	a.send(4, pbVar(nil, 2, 1))
+	a.expect(4, nil)
+	a.expect(23, partyStatusEndedBody())
+	a.expect(2, pbVar(pbVar(nil, 1, 11), 2, partyExitEnded))
+	b.expect(2, pbVar(pbVar(nil, 1, 12), 2, partyExitEnded))
+	a.none()
+	b.none()
+
+	h.mu.Lock()
+	_, exists := h.rooms[11]
+	h.mu.Unlock()
+	if exists {
+		t.Fatal("host room still exists after explode")
+	}
+
+	// Guest trying to enter the ended party gets ENTER_RESULT=3 (ended) + HostName.
+	b.enter(11)
+	b.expect(5, pbLen(pbVar(pbVar(nil, 1, partyEnterEnded), 2, 11), 4, []byte("Ann")))
+
+	// Host relogin has no MyroomExist.
+	a2 := partyLogin(t, h, 11, 5)
+	// Host can start a new party and explode it even while outside the room (guest alone inside).
+	a2.enterHost(11)
+	b.enter(11)
+	b.read()
+	b.start(nil)
+	for _, p := range []*pc{a2, b} {
+		for p.drain() {
+		}
+	}
+	a2.s.host = 0 // host navigated back to Garden / solo My Room
+	a2.send(4, pbVar(nil, 2, 1))
+	a2.expect(4, nil)
+	a2.expect(23, partyStatusEndedBody())
+	b.expect(2, pbVar(pbVar(nil, 1, 12), 2, partyExitEnded))
+	a2.none()
+	b.none()
+}
+
+// TestPartyBanishKickGuest verifies kicking a specific guest (cr_room_banish_req Explode=false):
+// kicked guest gets reason=2, remaining members get reason=0 (+ idx31 on same floor only),
+// and the kicked guest is blocked from re-entering until explicitly re-invited by the host.
+func TestPartyBanishKickGuest(t *testing.T) {
+	h := partySetup(t)
+	store.SocialMu.Lock()
+	store.Friendships = []store.Friendship{
+		{A: "11", B: "12", State: "accepted"},
+		{A: "11", B: "13", State: "accepted"},
+		{A: "11", B: "14", State: "accepted"},
+	}
+	store.SocialMu.Unlock()
+	a := partyLogin(t, h, 11, 1)
+	b := partyLogin(t, h, 12, 2)
+	c := partyLogin(t, h, 13, 3)
+	d := partyLogin(t, h, 14, 4)
+	a.enterHost(11)
+	a.start(nil)
+	for _, p := range []*pc{b, c, d} {
+		p.enter(11)
+		p.read()
+		p.start(nil)
+	}
+	// Move d to floor 2.
+	d.send(24, pbVar(nil, 1, 2))
+	d.read()
+	d.send(25, pbLen(pbVar(nil, 1, 2), 2, pbVar(nil, 1, 1)))
+	for _, p := range []*pc{a, b, c, d} {
+		for p.drain() {
+		}
+	}
+
+	// Host kicks guest 12 (Explode=false).
+	a.send(4, pbVar(pbVar(nil, 1, 12), 2, 0))
+	a.expect(4, nil)
+	b.expect(2, pbVar(pbVar(nil, 1, 12), 2, partyExitEnded))
+	// Host and c (floor 1) get room deluser + floor deluser; d (floor 2) gets room deluser only.
+	a.expect(2, pbVar(pbVar(nil, 1, 12), 2, partyExitNormal))
+	a.expect(31, pbVar(nil, 1, 12))
+	c.expect(2, pbVar(pbVar(nil, 1, 12), 2, partyExitNormal))
+	c.expect(31, pbVar(nil, 1, 12))
+	d.expect(2, pbVar(pbVar(nil, 1, 12), 2, partyExitNormal))
+	d.none()
+
+	// Kicked guest 12 cannot re-enter even though still friends.
+	b.enter(11)
+	b.expect(5, pbLen(pbVar(pbVar(nil, 1, partyEnterInvalid), 2, 11), 4, []byte("Ann")))
+
+	// Host re-invites 12 -> clears banish -> 12 can enter again.
+	a.send(7, pbVar(nil, 1, 12))
+	a.expect(7, []byte{0x08, 12})
+	a.expect(23, statusBody)
+	b.expect(9, []byte{0x08, 11, 0x10, 0xd8, 0x04})
+	b.enter(11)
+	b.expect(5, []byte{0x08, 0x00, 0x10, 11, 0x28, 2})
+}
+
+// TestPartyCapacityAndBlock verifies RoomPartyService::GetMaxVisitor caps (5/7/10/20 by tileSize)
+// and bidirectional block enforcement on invite and enter.
+func TestPartyCapacityAndBlock(t *testing.T) {
+	accs := map[string]*store.Account{
+		"h": {Aid: "11", Name: "Ann", SessionKey: testSessionKey},
+	}
+	var friends []store.Friendship
+	for i := 20; i <= 26; i++ {
+		id := string(rune('a' + (i - 20)))
+		aid := strconv.Itoa(i)
+		accs[id] = &store.Account{Aid: aid, Name: "G" + aid, SessionKey: testSessionKey}
+		friends = append(friends, store.Friendship{A: "11", B: aid, State: "accepted"})
+	}
+	accs["blk"] = &store.Account{Aid: "30", Name: "Blk", Blocked: []string{"11"}, SessionKey: testSessionKey}
+	friends = append(friends, store.Friendship{A: "11", B: "30", State: "accepted"})
+	testutil.InstallAccounts(t, accs)
+	store.SocialMu.Lock()
+	old := store.Friendships
+	store.Friendships = friends
+	store.SocialMu.Unlock()
+	t.Cleanup(func() { store.SocialMu.Lock(); store.Friendships = old; store.SocialMu.Unlock() })
+
+	if got := partyMaxVisitors(11); got != 5 {
+		t.Fatalf("default 12x12 maxVisitors = %d, want 5", got)
+	}
+	h := &partyHub{}
+	host := partyLogin(t, h, 11, 1)
+	host.enterHost(11)
+	host.start(nil)
+	host.read()
+
+	// Blocked user cannot be invited or enter.
+	host.send(7, pbVar(nil, 1, 30))
+	host.expect(7, pbVar(nil, 2, 30))
+	blk := partyLogin(t, h, 30, 9)
+	blk.enter(11)
+	blk.expect(5, pbLen(pbVar(pbVar(nil, 1, partyEnterInvalid), 2, 11), 4, []byte("Ann")))
+
+	// Fill 5 visitor slots (20..24); 6th visitor (25) is refused.
+	for i := uint64(20); i <= 24; i++ {
+		g := partyLogin(t, h, i, byte(i))
+		g.enter(11)
+		g.expect(5, []byte{0x08, 0, 0x10, 11, 0x28, 2})
+		g.start(nil)
+		for g.drain() {
+		}
+	}
+	g6 := partyLogin(t, h, 25, 25)
+	g6.enter(11)
+	g6.expect(5, pbLen(pbVar(pbVar(nil, 1, partyEnterInvalid), 2, 11), 4, []byte("Ann")))
+
+	// Expanding LEVEL_1 to 24x24 raises cap to 7 -> g6 can now enter.
+	store.AccountsMu.Lock()
+	store.AccountByAidLocked("11").Remodel = &store.RoomRemodel{FloorSizes: map[string]int{"LEVEL_1": 24}}
+	store.AccountsMu.Unlock()
+	if got := partyMaxVisitors(11); got != 7 {
+		t.Fatalf("24x24 maxVisitors = %d, want 7", got)
+	}
+	g6.enter(11)
+	g6.expect(5, []byte{0x08, 0, 0x10, 11, 0x28, 2})
+}
+
+// TestPartyPlayerInteraction verifies cr_player_interaction_req (14) -> rc_player_interaction_all (17),
+// late-joiner PlayerInfo field 4 persistence, and clearing on move/floor change.
+func TestPartyPlayerInteraction(t *testing.T) {
+	h := partySetup(t)
+	store.SocialMu.Lock()
+	store.Friendships = []store.Friendship{
+		{A: "11", B: "12", State: "accepted"},
+		{A: "11", B: "13", State: "accepted"},
+	}
+	store.SocialMu.Unlock()
+	a := partyLogin(t, h, 11, 1)
+	b := partyLogin(t, h, 12, 2)
+	c := partyLogin(t, h, 13, 3)
+	a.enterHost(11)
+	a.start(nil)
+	b.enter(11)
+	b.read()
+	b.start(nil)
+	for _, p := range []*pc{a, b} {
+		for p.drain() {
+		}
+	}
+
+	inter := pbVar(pbVar(nil, 1, 100), 7, 2) // _player_interaction
+	a.send(14, pbLen(nil, 1, inter))
+	b.expect(17, pbLen(pbVar(nil, 1, 11), 2, inter))
+	a.none()
+
+	// Late joiner c receives a's active interaction inside PlayerInfo field 4 of idx29.
+	c.enter(11)
+	c.read()
+	c.start(nil)
+	c.read() // idx1 (a)
+	c.read() // idx1 (b)
+	id, body := c.read()
+	if id != 29 {
+		t.Fatalf("late joiner got msgid %d, want 29", id)
+	}
+	if !bytes.Contains(body, pbLen(nil, 4, inter)) {
+		t.Fatalf("late joiner idx29 missing active interaction field 4: %x", body)
+	}
+
+	// Normal move clears active interaction.
+	a.send(8, pbLen(nil, 1, spawnMove(6, 6)))
+	h.mu.Lock()
+	cleared := len(a.s.pm.interaction) == 0
+	h.mu.Unlock()
+	if !cleared {
+		t.Fatal("move did not clear active interaction")
+	}
+}
+
+// TestPartyPetRelaysWakeAndRide verifies pet move/action/interaction relays (21/22/23 -> 25/26/27),
+// pet wake (26 -> 34), pet ride (27 -> 35 with Result=0 OK / 1 refused + late-joiner PetBasicInfo f9/f13),
+// BI telemetry (19), and RTT echo (20 -> 24).
+func TestPartyPetRelaysWakeAndRide(t *testing.T) {
+	testutil.InstallAccounts(t, map[string]*store.Account{
+		"a": {
+			Aid: "11", Name: "Ann", SessionKey: testSessionKey,
+			Pets: []store.PetItem{
+				{ID: 1101, Cd: "PUPE0007V", Name: "RidePet", Rep: true},
+				{ID: 1102, Cd: "PUPE0000G", Name: "WalkPet", Room: "LEVEL_1"},
+			},
+		},
+		"b": {Aid: "12", Name: "Bo", SessionKey: testSessionKey},
+		"c": {Aid: "13", Name: "Cy", SessionKey: testSessionKey},
+	})
+	squarePetFixture(t, map[string][]string{
+		"PUPE0007V": {"skeleton.xml", "dp.png", "ride.aniproj"}, // URIDE
+		"PUPE0000G": {"skeleton.xml", "dp.png"},
+	})
+	store.SocialMu.Lock()
+	old := store.Friendships
+	store.Friendships = []store.Friendship{
+		{A: "11", B: "12", State: "accepted"},
+		{A: "11", B: "13", State: "accepted"},
+	}
+	store.SocialMu.Unlock()
+	t.Cleanup(func() { store.SocialMu.Lock(); store.Friendships = old; store.SocialMu.Unlock() })
+
+	h := &partyHub{}
+	a := partyLogin(t, h, 11, 1)
+	b := partyLogin(t, h, 12, 2)
+	c := partyLogin(t, h, 13, 3)
+	a.enterHost(11)
+	a.start(nil)
+	b.enter(11)
+	b.read()
+	b.start(nil)
+	for _, p := range []*pc{a, b} {
+		for p.drain() {
+		}
+	}
+
+	// Pet move (21 -> 25) to others only.
+	pmove := pbVar(nil, 1, 1101)
+	a.send(21, pbLen(nil, 1, pmove))
+	b.expect(25, pbLen(pbVar(nil, 1, 11), 2, pmove))
+	a.none()
+
+	// Pet action (22 -> 26) to others only.
+	pact := pbVar(pbVar(nil, 1, 3), 2, 1)
+	a.send(22, pbLen(pbVar(nil, 1, 1101), 2, pact))
+	b.expect(26, pbLen(pbVar(pbVar(nil, 1, 11), 2, 1101), 3, pact))
+	a.none()
+
+	// Pet interaction (23 -> 27) to all on floor (incl. sender).
+	pinter := pbVar(pbVar(nil, 1, 0), 7, 28)
+	a.send(23, pbLen(pbVar(nil, 1, 1101), 2, pinter))
+	wantInter := pbLen(pbVar(pbVar(nil, 1, 11), 2, 1101), 3, pinter)
+	a.expect(27, wantInter)
+	b.expect(27, wantInter)
+
+	// Pet wake (26 -> 34) to sender.
+	a.send(26, pbVar(nil, 1, 1102))
+	a.expect(34, pbVar(nil, 1, 1102))
+	b.none()
+
+	// Pet ride (27 -> 35): non-rideable pet refused (Result=1) to sender only.
+	a.send(27, pbVar(pbVar(nil, 1, 1102), 2, 1))
+	a.expect(35, pbVar(pbVar(pbVar(pbVar(nil, 1, 1), 2, 11), 3, 1102), 4, 0))
+	b.none()
+
+	// Owned URIDE rep pet succeeds (Result=0) to all on floor.
+	a.send(27, pbVar(pbVar(nil, 1, 1101), 2, 1))
+	wantRide := pbVar(pbVar(pbVar(pbVar(nil, 1, 0), 2, 11), 3, 1101), 4, 1)
+	a.expect(35, wantRide)
+	b.expect(35, wantRide)
+
+	// Late joiner c receives PetBasicInfo with rideable=1 (f9) and ride=1 (f13).
+	c.enter(11)
+	c.read()
+	c.start(nil)
+	c.read() // idx1 (a)
+	c.read() // idx1 (b)
+	id, body := c.read()
+	if id != 29 {
+		t.Fatalf("late joiner got msgid %d, want 29", id)
+	}
+	if err := lpCheck(body, lpRelay, "rc_floor_relaystart_res"); err != nil {
+		t.Fatalf("late joiner idx29 failed IsInitialized check: %v", err)
+	}
+	var gotRideable, gotRide uint64
+	pbScan(body, func(f, _ uint64, d []byte) {
+		if f != 3 || d == nil {
+			return
+		}
+		var pid, f9, f13 uint64
+		pbScan(d, func(pf, pv uint64, _ []byte) {
+			switch pf {
+			case 2:
+				pid = pv
+			case 9:
+				f9 = pv
+			case 13:
+				f13 = pv
+			}
+		})
+		if pid == 1101 {
+			gotRideable, gotRide = f9, f13
+		}
+	})
+	if gotRideable != 1 || gotRide != 1 {
+		t.Fatalf("late joiner ride pet f9=%d f13=%d, want 1, 1", gotRideable, gotRide)
+	}
+	for _, p := range []*pc{a, b} {
+		for p.drain() {
+		}
+	}
+
+	// Dismount broadcasts RideState=0.
+	a.send(27, pbVar(pbVar(nil, 1, 1101), 2, 0))
+	wantOff := pbVar(pbVar(pbVar(pbVar(nil, 1, 0), 2, 11), 3, 1101), 4, 0)
+	a.expect(35, wantOff)
+	b.expect(35, wantOff)
+	c.expect(35, wantOff)
+
+	// BI telemetry (19) silently accepted; RTT (20 -> 24) echoed.
+	a.send(19, pbVar(nil, 1, 1))
+	a.none()
+	rtt := []byte{0x09, 1, 2, 3, 4, 5, 6, 7, 8}
+	a.send(20, rtt)
+	a.expect(24, rtt)
 }

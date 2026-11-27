@@ -22,27 +22,66 @@ import (
 // Room Party (LPNP, gateway agent 4). Handshake per static research: client
 // open -> type-1 control (never a type-2 ack: at status 6 an ack re-runs
 // OpenTunnel and restarts the retry loop) -> cr_login_req idx0 -> rc_login_res
-// idx0 result 0. Rooms and relays are not implemented yet.
+// idx0 result 0.
 const roomPartyAgent = 4
+
+// LPNP::ENTER_RESULT (LP_rc_room_enter_res @0x1f08374, NaRoomPartyExpirePopup::InitUI @0x19f7cec).
+const (
+	partyEnterOK      = 0
+	partyEnterInvalid = 1 // string 1106: invitation invalid / blocked / banished / full
+	partyEnterExpired = 2 // string 1133: invitation period ended
+	partyEnterEnded   = 3 // string 1134: room party has already ended
+)
+
+// LPNP::EXIT_REASON (LP_rc_room_deluser_all @0x1f0810c, NaRoomPartyLayer::MsgProc case 12645 @0x1fc2460).
+const (
+	partyExitNormal    = 0
+	partyExitAdminKick = 1 // string 1139: kicked by administrator
+	partyExitEnded     = 2 // string 1100: host ended party / banished guest -> Moving to My Garden
+)
 
 // partyMember is one logged-in agent-4 connection. b1/sid come from the login
 // frame (constant per tunnel) so other connections can push to it.
 type partyMember struct {
-	aid   uint64
-	conn  *lockedConn
-	b1    byte
-	sid   [8]byte
-	move  []byte // last _player_move, guarded by partyHub.mu
-	nmov  int    // cr_player_move count, guarded by partyHub.mu
-	floor int    // current floor 1..roomPartyFloors, guarded by partyHub.mu
+	aid         uint64
+	conn        *lockedConn
+	b1          byte
+	sid         [8]byte
+	move        []byte // last _player_move, guarded by partyHub.mu
+	interaction []byte // active _player_interaction (sit/lie/furniture), cleared on move/floor change; guarded by partyHub.mu
+	ridePetID   uint64 // active mounted pet id (0 if not riding); guarded by partyHub.mu
+	rideState   uint64 // non-zero while riding ridePetID; guarded by partyHub.mu
+	nmov        int    // cr_player_move count, guarded by partyHub.mu
+	floor       int    // current floor 1..roomPartyFloors, guarded by partyHub.mu
 }
 
 const partyStatusTimeout = 600 // rc_room_status_push Timeout; client keeps MyRoomAlive 2*Timeout s
 
-// partyStatusBody is rc_room_status_push (idx23) {Exist#1, Timeout#2}. Exist=0 is never
-// sent: it would mark the room exploded on the client.
+// partyStatusBody is rc_room_status_push (idx23) {Exist#1, Timeout#2} for an active room.
 func partyStatusBody() []byte {
 	return pbVar(pbVar(nil, 1, 1), 2, partyStatusTimeout)
+}
+
+// partyStatusEndedBody is rc_room_status_push (idx23) {Exist=0, Timeout=0}: sent to the host
+// when they end their Room Party (RoomPartyService::onRoomStatus sets MyRoomAlive=false, MyRoomExploded=true).
+func partyStatusEndedBody() []byte {
+	return pbVar(pbVar(nil, 1, 0), 2, 0)
+}
+
+// partyMaxVisitors returns the maximum number of non-host visitors for host's room,
+// matching RoomPartyService::GetMaxVisitor (@0x1f08c24): <=23 -> 5, <=29 -> 7, <=35 -> 10, >=36 -> 20.
+func partyMaxVisitors(host uint64) int {
+	sz := room.HostRoomTileSize(host)
+	switch {
+	case sz <= 23:
+		return 5
+	case sz <= 29:
+		return 7
+	case sz <= 35:
+		return 10
+	default:
+		return 20
+	}
 }
 
 // Room grid: tileSize 12 -> one 12x12 sector of 80x40 px tiles (static research,
@@ -119,12 +158,14 @@ func (m *partyMember) send(logger *log.Logger, msgid uint16, body []byte) {
 
 // partyRoom is keyed by host aid. Host-leave policy: the room stays alive
 // while any member remains (the host just gets a deluser like anyone else);
-// it is deleted when its last member leaves and the host has no session.
+// it is deleted when its last member leaves and the host has no session, or
+// immediately when the host ends the party via cr_room_banish_req (Explode=true).
 // Invites live as long as the room (no 600 s expiry).
 type partyRoom struct {
 	host       uint64
 	members    []*partyMember // join order; roster puts the host first
 	invited    map[uint64]bool
+	banished   map[uint64]bool // kicked during this party; cleared on re-invite
 	chatSerial uint64
 }
 
@@ -192,10 +233,21 @@ func (h *partyHub) room(host uint64) *partyRoom { // caller holds mu
 	}
 	r := h.rooms[host]
 	if r == nil {
-		r = &partyRoom{host: host, invited: map[uint64]bool{}}
+		r = &partyRoom{host: host, invited: map[uint64]bool{}, banished: map[uint64]bool{}}
 		h.rooms[host] = r
 	}
 	return r
+}
+
+// visitorCountLocked counts non-host members currently in the room.
+func (r *partyRoom) visitorCountLocked() int {
+	n := 0
+	for _, o := range r.members {
+		if o.aid != r.host {
+			n++
+		}
+	}
+	return n
 }
 
 func (r *partyRoom) index(m *partyMember) int {
@@ -255,9 +307,17 @@ func partyAvatarInfo(aid uint64) []byte {
 
 // partyPlayerInfo encodes PlayerInfo; move is the member's last _player_move.
 func partyPlayerInfo(aid uint64, move []byte) []byte {
+	return partyPlayerInfoFull(aid, move, nil)
+}
+
+// partyPlayerInfoFull encodes PlayerInfo with optional _player_move (f3) and _player_interaction (f4).
+func partyPlayerInfoFull(aid uint64, move, interaction []byte) []byte {
 	b := pbLen(pbVar(nil, 1, aid), 2, partyAvatarInfo(aid))
 	if len(move) > 0 {
 		b = pbLen(b, 3, move)
+	}
+	if len(interaction) > 0 {
+		b = pbLen(b, 4, interaction)
 	}
 	return b
 }
@@ -265,6 +325,14 @@ func partyPlayerInfo(aid uint64, move []byte) []byte {
 type partySnap struct {
 	aid  uint64
 	move []byte
+}
+
+type partyFloorSnap struct {
+	aid         uint64
+	move        []byte
+	interaction []byte
+	ridePetID   uint64
+	rideState   uint64
 }
 
 // rosterLocked lists members on floor, host first; caller holds h.mu.
@@ -278,6 +346,22 @@ func (r *partyRoom) rosterLocked(floor int) []partySnap {
 	for _, o := range r.members {
 		if o.aid != r.host && o.floor == floor {
 			out = append(out, partySnap{o.aid, o.move})
+		}
+	}
+	return out
+}
+
+// floorRosterLocked lists members on floor with interaction and pet-ride state, host first; caller holds h.mu.
+func (r *partyRoom) floorRosterLocked(floor int) []partyFloorSnap {
+	var out []partyFloorSnap
+	for _, o := range r.members {
+		if o.aid == r.host && o.floor == floor {
+			out = append(out, partyFloorSnap{o.aid, o.move, o.interaction, o.ridePetID, o.rideState})
+		}
+	}
+	for _, o := range r.members {
+		if o.aid != r.host && o.floor == floor {
+			out = append(out, partyFloorSnap{o.aid, o.move, o.interaction, o.ridePetID, o.rideState})
 		}
 	}
 	return out
@@ -408,28 +492,44 @@ func partyAidList(data []byte) ([]uint64, bool) {
 
 func partyEnterBody(result, host uint64) []byte {
 	b := pbVar(pbVar(nil, 1, result), 2, host)
-	if result == 0 {
+	if result == partyEnterOK {
 		b = pbVar(b, 5, uint64(room.HostMaxFloor(host))) // ExtendFloors
+	} else {
+		// Field 4 (HostName) supplies "%s" to NaShowRoomPartyExpirePopup so the client never
+		// falls back to string 10053 ("This avatar has been deleted.").
+		b = pbLen(b, 4, partyName(host))
 	}
 	return b
 }
 
 // enter answers cr_room_enter_req for host. Success when the requester is the
-// host (room created/kept) or the room exists and the requester is the host's
+// host (room created/kept) or the room exists, the requester is not blocked or
+// banished, the room is below visitor capacity, and the requester is the host's
 // accepted friend or was invited.
 func (s *roomPartySession) enter(frame []byte, host uint64) error {
 	h := s.h()
-	ok := host == s.aid
-	if !ok {
-		friend := partyAccepted(s.aid, host) // socialMu never nests inside hub.mu
+	result := uint64(partyEnterOK)
+	if host != s.aid {
+		aidStr := strconv.FormatUint(s.aid, 10)
+		hostStr := strconv.FormatUint(host, 10)
+		blocked := store.BlockedBetween(aidStr, hostStr)
+		friend := !blocked && partyAccepted(s.aid, host) // socialMu never nests inside hub.mu
+		maxVis := partyMaxVisitors(host)
 		h.mu.Lock()
 		r := h.rooms[host]
-		ok = r != nil && (friend || r.invited[s.aid])
+		switch {
+		case r == nil:
+			result = partyEnterEnded
+		case blocked || r.banished[s.aid]:
+			result = partyEnterInvalid
+		case !friend && !r.invited[s.aid]:
+			result = partyEnterInvalid
+		case !r.has(s.aid) && r.visitorCountLocked() >= maxVis:
+			result = partyEnterInvalid
+		}
 		h.mu.Unlock()
 	}
-	result := uint64(1)
-	if ok {
-		result = 0
+	if result == partyEnterOK {
 		if s.joined != nil && s.joined.host != host {
 			s.leaveRoom()
 		}
@@ -442,7 +542,7 @@ func (s *roomPartySession) enter(frame []byte, host uint64) error {
 	if err := s.reply(frame, 5, partyEnterBody(result, host)); err != nil {
 		return err
 	}
-	if result == 0 && host == s.aid { // lets the host's My Room menu rejoin this party
+	if result == partyEnterOK && host == s.aid { // lets the host's My Room menu rejoin this party
 		s.pm.send(s.logger, 23, partyStatusBody())
 		h.startStatusLoop(s.logger)
 	}
@@ -501,6 +601,8 @@ func (s *roomPartySession) handleData(frame []byte) error {
 		s.leaveRoom()
 		s.host = 0
 		return err
+	case 4: // cr_room_banish_req (AidList#1, Explode#2) -> rc_room_banish_res idx4 + deluser/status
+		return s.banish(frame, data)
 	case 5: // cr_room_relaystart_req
 		return s.relayStart(frame, data)
 	case 6: // cr_friend_invite_list_req -> idx8
@@ -518,6 +620,14 @@ func (s *roomPartySession) handleData(frame []byte) error {
 	case 13: // cr_report_chat: stored, no reply (report.go)
 		s.report(data)
 		return nil
+	case 19: // cr_player_bi: client action telemetry, no reply
+		return nil
+	case 20: // RoundTripdelayTimeReq -> RoundTripdelayTimeRes idx24
+		return s.reply(frame, 24, data)
+	case 26: // cr_pet_wake_req (PetId#1) -> rc_pet_wake_res idx34
+		return s.petWake(frame, data)
+	case 27: // cr_pet_ride_req (PetId#1, RideState#2) -> rc_pet_ride_res idx35
+		return s.petRide(frame, data)
 	}
 	return s.relay(msgid, data)
 }
@@ -643,13 +753,17 @@ func (s *roomPartySession) relayStart(frame, data []byte) error {
 	if assigned == nil {
 		assigned, tx, ty = r.spawnLocked(move)
 	}
+	if idx >= 0 && oldFloor != floor {
+		m.interaction = nil
+	}
 	m.move, m.floor = assigned, floor
 	if idx >= 0 {
 		r.members[idx] = m
 	} else {
 		r.members = append(r.members, m)
 	}
-	roster := r.rosterLocked(floor)
+	roster := r.floorRosterLocked(floor)
+	selfSnap := partyFloorSnap{m.aid, m.move, m.interaction, m.ridePetID, m.rideState}
 	all := r.allRosterLocked()
 	hostSession := h.sessions[r.host]
 	hostIn := r.has(r.host) && r.host != m.aid
@@ -682,7 +796,7 @@ func (s *roomPartySession) relayStart(frame, data []byte) error {
 			m.send(s.logger, 1, pbLen(nil, 1, partyPlayerInfo(p.aid, p.move)))
 		}
 	}
-	m.send(s.logger, 29, partyFloorRes(roster, s.host, floor))
+	m.send(s.logger, 29, partyFloorResWithState(roster, s.host, floor))
 	if idx >= 0 && oldFloor == floor {
 		return nil
 	}
@@ -692,7 +806,7 @@ func (s *roomPartySession) relayStart(frame, data []byte) error {
 			o.send(s.logger, 1, add)
 		}
 	}
-	floorAdd := partyFloorAdd(partySnap{m.aid, m.move}, s.host, floor)
+	floorAdd := partyFloorAddWithState(selfSnap, s.host, floor)
 	for _, o := range sameFloor {
 		o.send(s.logger, 30, floorAdd)
 	}
@@ -759,8 +873,12 @@ func (s *roomPartySession) floorRelayStart(data []byte) error {
 	} else {
 		assigned, tx, ty = r.spawnLocked(move)
 	}
+	if oldFloor != floor {
+		m.interaction = nil
+	}
 	m.move, m.floor = assigned, floor
-	roster := r.rosterLocked(floor)
+	roster := r.floorRosterLocked(floor)
+	selfSnap := partyFloorSnap{m.aid, m.move, m.interaction, m.ridePetID, m.rideState}
 	newMates := r.onFloor(m, floor)
 	var oldMates []*partyMember
 	if oldFloor != floor {
@@ -769,11 +887,11 @@ func (s *roomPartySession) floorRelayStart(data []byte) error {
 	others := r.others(m)
 	h.mu.Unlock()
 	s.logger.Printf("ROOMPARTY floor-relaystart aid=%d floor=%d->%d clientCur=(%d,%d) assignedTile=(%d,%d) roster=%d", s.aid, oldFloor, floor, cx, cy, tx, ty, len(roster))
-	m.send(s.logger, 29, pbVar(partyFloorRes(roster, s.host, floor), 4, f))
+	m.send(s.logger, 29, pbVar(partyFloorResWithState(roster, s.host, floor), 4, f))
 	if oldFloor == floor {
 		return nil
 	}
-	add := partyFloorAdd(partySnap{m.aid, m.move}, s.host, floor)
+	add := partyFloorAddWithState(selfSnap, s.host, floor)
 	for _, o := range newMates {
 		o.send(s.logger, 30, add)
 	}
@@ -804,9 +922,11 @@ func (s *roomPartySession) invite(frame, data []byte) error {
 	}
 	var good []uint64
 	var body, failBody []byte
+	actorAidStr := strconv.FormatUint(s.aid, 10)
 	for _, a := range aids {
-		_, real := store.AccountByAvatarID(strconv.FormatUint(a, 10))
-		if real && a != s.aid && partyAccepted(s.aid, a) {
+		targetStr := strconv.FormatUint(a, 10)
+		_, real := store.AccountByAvatarID(targetStr)
+		if real && a != s.aid && !store.BlockedBetween(actorAidStr, targetStr) && partyAccepted(s.aid, a) {
 			good = append(good, a)
 			body = pbVar(body, 1, a)
 		} else {
@@ -817,6 +937,7 @@ func (s *roomPartySession) invite(frame, data []byte) error {
 	r := h.room(host)
 	var pushes []*partyMember
 	for _, a := range good {
+		delete(r.banished, a) // explicit re-invite lifts a prior kick from this party
 		r.invited[a] = true
 		if t := h.sessions[a]; t != nil {
 			pushes = append(pushes, t)
@@ -832,7 +953,7 @@ func (s *roomPartySession) invite(frame, data []byte) error {
 		t.send(s.logger, 9, push)
 	}
 	if len(good) > 0 {
-		actorAid := strconv.FormatUint(s.aid, 10)
+		actorAid := actorAidStr
 		actorName := ""
 		if snap, ok := store.AccountByAvatarID(actorAid); ok {
 			actorName = snap.Name
@@ -851,7 +972,188 @@ func (s *roomPartySession) invite(frame, data []byte) error {
 		h.mu.Unlock()
 		if hs != nil {
 			hs.send(s.logger, 23, partyStatusBody())
+			h.startStatusLoop(s.logger)
 		}
+	}
+	return nil
+}
+
+// banish handles cr_room_banish_req idx4 {AidList#1, Explode#2}:
+//   - Explode=true ("End Party", RoomPartyService::RoomExplosion @0x1fbd7bc): closes the host's
+//     Room Party, sends rc_room_status_push(Exist=0, Timeout=0) to the host (setting MyRoomAlive=false,
+//     MyRoomExploded=true), and sends rc_room_deluser_all(self, EXIT_REASON=2) to every member so
+//     guests see string 1100 ("The host has ended their room party. Moving to My Garden.") and the
+//     host exits scene 303 cleanly.
+//   - Explode=false (kick guest, RoomPartyService::SendBanish @0x1fbdaa8): removes the named guest(s)
+//     from the party, marks them banished until re-invited, sends EXIT_REASON=2 to the kicked guest,
+//     and notifies remaining members with idx2 (deluser) and idx31 (floor deluser).
+func (s *roomPartySession) banish(frame, data []byte) error {
+	var aids []uint64
+	var explode bool
+	ok := pbScan(data, func(f, v uint64, d []byte) {
+		switch f {
+		case 1:
+			if len(aids) >= 100 {
+				return
+			}
+			if d == nil {
+				aids = append(aids, v)
+				return
+			}
+			for len(d) > 0 && len(aids) < 100 {
+				x, n := binary.Uvarint(d)
+				if n <= 0 {
+					return
+				}
+				aids = append(aids, x)
+				d = d[n:]
+			}
+		case 2:
+			if d == nil {
+				explode = v != 0
+			}
+		}
+	})
+	if !ok {
+		s.logger.Printf("ROOMPARTY banish invalid aid=%d", s.aid)
+		return nil
+	}
+	// Always reply with empty rc_room_banish_res (idx4).
+	if err := s.reply(frame, 4, nil); err != nil {
+		return err
+	}
+	host := s.host
+	if host == 0 {
+		host = s.aid
+	}
+	if host != s.aid {
+		s.logger.Printf("ROOMPARTY banish refused aid=%d: not the host of room %d", s.aid, host)
+		return nil
+	}
+	h := s.h()
+	if explode {
+		h.mu.Lock()
+		r := h.rooms[s.aid]
+		var members []*partyMember
+		if r != nil {
+			members = append([]*partyMember(nil), r.members...)
+			r.members = nil
+			r.invited = nil
+			r.banished = nil
+			delete(h.rooms, s.aid)
+		}
+		h.mu.Unlock()
+		if s.joined != nil && s.joined.host == s.aid {
+			s.joined = nil
+		}
+		if s.host == s.aid {
+			s.host = 0
+		}
+		s.logger.Printf("ROOMPARTY explode aid=%d members=%d", s.aid, len(members))
+		s.pm.send(s.logger, 23, partyStatusEndedBody())
+		for _, o := range members {
+			o.send(s.logger, 2, pbVar(pbVar(nil, 1, o.aid), 2, partyExitEnded))
+		}
+		return nil
+	}
+	type kickedInfo struct {
+		member    *partyMember
+		rest      []*partyMember
+		sameFloor []*partyMember
+	}
+	var kicked []kickedInfo
+	h.mu.Lock()
+	if r := h.rooms[s.aid]; r != nil {
+		for _, target := range aids {
+			if target == s.aid {
+				continue
+			}
+			delete(r.invited, target)
+			if r.banished == nil {
+				r.banished = map[uint64]bool{}
+			}
+			r.banished[target] = true
+			for i, o := range r.members {
+				if o.aid == target {
+					floor := o.floor
+					r.members = append(r.members[:i], r.members[i+1:]...)
+					kicked = append(kicked, kickedInfo{
+						member:    o,
+						rest:      r.others(nil),
+						sameFloor: r.onFloor(nil, floor),
+					})
+					break
+				}
+			}
+		}
+	}
+	h.mu.Unlock()
+	s.logger.Printf("ROOMPARTY banish aid=%d targets=%d kicked=%d", s.aid, len(aids), len(kicked))
+	for _, k := range kicked {
+		k.member.send(s.logger, 2, pbVar(pbVar(nil, 1, k.member.aid), 2, partyExitEnded))
+		delRoom := pbVar(pbVar(nil, 1, k.member.aid), 2, partyExitNormal)
+		delFloor := pbVar(nil, 1, k.member.aid)
+		for _, o := range k.rest {
+			o.send(s.logger, 2, delRoom)
+		}
+		for _, o := range k.sameFloor {
+			o.send(s.logger, 31, delFloor)
+		}
+	}
+	return nil
+}
+
+// petWake handles cr_pet_wake_req idx26 {PetId#1} -> rc_pet_wake_res idx34 {PetId#1}.
+func (s *roomPartySession) petWake(frame, data []byte) error {
+	petID, found := protobufUintField(data, 1)
+	if !found || petID == 0 {
+		return nil
+	}
+	s.logger.Printf("ROOMPARTY pet-wake aid=%d pet=%d", s.aid, petID)
+	return s.reply(frame, 34, pbVar(nil, 1, petID))
+}
+
+// petRide handles cr_pet_ride_req idx27 {PetId#1, RideState#2} -> rc_pet_ride_res idx35
+// {Result#1 (0=OK, 1=error), Aid#2, PetId#3, RideState#4} broadcast to same floor.
+func (s *roomPartySession) petRide(frame, data []byte) error {
+	r := s.member()
+	if r == nil {
+		return nil
+	}
+	var petID, rideState uint64
+	if !pbScan(data, func(f, v uint64, _ []byte) {
+		switch f {
+		case 1:
+			petID = v
+		case 2:
+			rideState = v
+		}
+	}) {
+		return nil
+	}
+	if rideState != 0 {
+		rideState = 1
+		p, ok := squareFollowPet(s.aid)
+		if !ok || uint64(p.ID) != petID || economy.PetCategoryCode(p.Cd) != "URIDE" {
+			s.logger.Printf("ROOMPARTY pet-ride refused aid=%d pet=%d", s.aid, petID)
+			body := pbVar(pbVar(pbVar(pbVar(nil, 1, 1), 2, s.aid), 3, petID), 4, 0)
+			return s.reply(frame, 35, body)
+		}
+	}
+	h := s.h()
+	h.mu.Lock()
+	if rideState != 0 {
+		s.pm.ridePetID, s.pm.rideState = petID, rideState
+		s.pm.interaction = nil
+	} else {
+		s.pm.ridePetID, s.pm.rideState = 0, 0
+	}
+	sameFloor := r.onFloor(nil, s.pm.floor)
+	h.mu.Unlock()
+	s.logger.Printf("ROOMPARTY pet-ride aid=%d pet=%d state=%d to=%d", s.aid, petID, rideState, len(sameFloor))
+	body := pbVar(pbVar(pbVar(pbVar(nil, 1, 0), 2, s.aid), 3, petID), 4, rideState)
+	for _, o := range sameFloor {
+		o.send(s.logger, 35, body)
 	}
 	return nil
 }
@@ -940,6 +1242,7 @@ func (s *roomPartySession) relay(msgid uint16, data []byte) error {
 		}
 		h.mu.Lock()
 		s.pm.move = append([]byte(nil), move...)
+		s.pm.interaction = nil // walking clears any active furniture interaction
 		s.pm.nmov++
 		n := s.pm.nmov
 		others := r.onFloor(s.pm, s.pm.floor)
@@ -991,6 +1294,85 @@ func (s *roomPartySession) relay(msgid uint16, data []byte) error {
 		body := pbLen(pbVar(nil, 1, s.aid), 2, action)
 		for _, o := range others {
 			o.send(s.logger, 13, body)
+		}
+	case 14: // cr_player_interaction_req (f1 _player_interaction) -> rc_player_interaction_all idx17 to same-floor others
+		inter, found, ok := pbBytesField(data, 1)
+		if !ok || !found || len(inter) == 0 || len(inter) > maxRelayPayload {
+			s.logger.Printf("ROOMPARTY interaction invalid aid=%d", s.aid)
+			return nil
+		}
+		h.mu.Lock()
+		s.pm.interaction = append([]byte(nil), inter...)
+		others := r.onFloor(s.pm, s.pm.floor)
+		h.mu.Unlock()
+		body := pbLen(pbVar(nil, 1, s.aid), 2, inter)
+		for _, o := range others {
+			o.send(s.logger, 17, body)
+		}
+	case 21: // cr_pet_move_req (f1 repeated PetMoveInfo) -> rc_pet_move_all idx25 (f1 owner, f2 repeated PetMoveInfo)
+		if len(data) > maxRelayPayload {
+			return nil
+		}
+		var moves [][]byte
+		ok := pbScan(data, func(f, _ uint64, d []byte) {
+			if f == 1 && len(d) > 0 {
+				moves = append(moves, d)
+			}
+		})
+		if !ok || len(moves) == 0 {
+			return nil
+		}
+		h.mu.Lock()
+		others := r.onFloor(s.pm, s.pm.floor)
+		h.mu.Unlock()
+		body := pbVar(nil, 1, s.aid)
+		for _, mv := range moves {
+			body = pbLen(body, 2, mv)
+		}
+		for _, o := range others {
+			o.send(s.logger, 25, body)
+		}
+	case 22: // cr_pet_action_req (f1 petId, f2 PlayerAction) -> rc_pet_action_all idx26 (f1 owner, f2 petId, f3 PlayerAction)
+		var pid uint64
+		var action []byte
+		ok := pbScan(data, func(f, v uint64, d []byte) {
+			switch f {
+			case 1:
+				pid = v
+			case 2:
+				action = d
+			}
+		})
+		if !ok || pid == 0 || len(action) == 0 || len(action) > maxRelayPayload {
+			return nil
+		}
+		h.mu.Lock()
+		others := r.onFloor(s.pm, s.pm.floor)
+		h.mu.Unlock()
+		body := pbLen(pbVar(pbVar(nil, 1, s.aid), 2, pid), 3, action)
+		for _, o := range others {
+			o.send(s.logger, 26, body)
+		}
+	case 23: // cr_pet_interaction_req (f1 petId, f2 _player_interaction) -> rc_pet_interaction_all idx27 to all on floor
+		var pid uint64
+		var inter []byte
+		ok := pbScan(data, func(f, v uint64, d []byte) {
+			switch f {
+			case 1:
+				pid = v
+			case 2:
+				inter = d
+			}
+		})
+		if !ok || pid == 0 || len(inter) == 0 || len(inter) > maxRelayPayload {
+			return nil
+		}
+		h.mu.Lock()
+		sameFloor := r.onFloor(nil, s.pm.floor)
+		h.mu.Unlock()
+		body := pbLen(pbVar(pbVar(nil, 1, s.aid), 2, pid), 3, inter)
+		for _, o := range sameFloor {
+			o.send(s.logger, 27, body)
 		}
 	default:
 		s.logger.Printf("ROOMPARTY msgid=%d%s", msgid, pbSummary(data))
@@ -1206,6 +1588,10 @@ func partyPetMove(slot int) []byte {
 
 // partyPetInfo encodes one fully initialized LPNP::PetBasicInfo; move (may be nil) is field 4.
 func partyPetInfo(owner uint64, p store.PetItem, move []byte) []byte {
+	return partyPetInfoWithRide(owner, p, move, 0)
+}
+
+func partyPetInfoWithRide(owner uint64, p store.PetItem, move []byte, rideState uint64) []byte {
 	id := uint64(p.ID)
 	f := pbVar(pbVar(nil, 1, id), 2, owner)
 	f = pbLen(f, 3, []byte(p.Name))
@@ -1216,13 +1602,24 @@ func partyPetInfo(owner uint64, p store.PetItem, move []byte) []byte {
 	if move != nil {
 		b = pbLen(b, 4, move)
 	}
-	return pbVar(pbVar(b, 11, 1), 12, 1)
+	if economy.PetCategoryCode(p.Cd) == "URIDE" {
+		b = pbVar(b, 9, 1) // rideable
+	}
+	b = pbVar(pbVar(b, 11, 1), 12, 1)
+	if rideState != 0 {
+		b = pbVar(b, 13, rideState)
+	}
+	return b
 }
 
 // partyPets lists the PetBasicInfo of aid on floor: its representative pet, plus, for the
 // host, the pets arranged on that floor's My Room level. Caller must not hold h.mu
 // (petsOfAid takes accountsMu).
 func partyPets(aid, host uint64, floor int) [][]byte {
+	return partyPetsWithRide(aid, host, floor, 0, 0)
+}
+
+func partyPetsWithRide(aid, host uint64, floor int, ridePetID, rideState uint64) [][]byte {
 	level := "LEVEL_" + strconv.Itoa(floor)
 	var out [][]byte
 	slot := 0
@@ -1235,19 +1632,31 @@ func partyPets(aid, host uint64, floor int) [][]byte {
 		if arranged {
 			move, slot = partyPetMove(slot), slot+1
 		}
-		out = append(out, partyPetInfo(aid, p, move))
+		rs := uint64(0)
+		if rideState != 0 && uint64(p.ID) == ridePetID {
+			rs = rideState
+		}
+		out = append(out, partyPetInfoWithRide(aid, p, move, rs))
 	}
 	return out
 }
 
 // partyFloorRes is rc_floor_relaystart_res idx29: Result 0, PlayerList#2, PetList#3.
 func partyFloorRes(roster []partySnap, host uint64, floor int) []byte {
+	snaps := make([]partyFloorSnap, len(roster))
+	for i, p := range roster {
+		snaps[i] = partyFloorSnap{aid: p.aid, move: p.move}
+	}
+	return partyFloorResWithState(snaps, host, floor)
+}
+
+func partyFloorResWithState(roster []partyFloorSnap, host uint64, floor int) []byte {
 	res := pbVar(nil, 1, 0)
 	for _, p := range roster {
-		res = pbLen(res, 2, partyPlayerInfo(p.aid, p.move))
+		res = pbLen(res, 2, partyPlayerInfoFull(p.aid, p.move, p.interaction))
 	}
 	for _, p := range roster {
-		for _, pet := range partyPets(p.aid, host, floor) {
+		for _, pet := range partyPetsWithRide(p.aid, host, floor, p.ridePetID, p.rideState) {
 			res = pbLen(res, 3, pet)
 		}
 	}
@@ -1256,8 +1665,12 @@ func partyFloorRes(roster []partySnap, host uint64, floor int) []byte {
 
 // partyFloorAdd is rc_floor_adduser_all idx30: Player#1, PetList#2.
 func partyFloorAdd(p partySnap, host uint64, floor int) []byte {
-	b := pbLen(nil, 1, partyPlayerInfo(p.aid, p.move))
-	for _, pet := range partyPets(p.aid, host, floor) {
+	return partyFloorAddWithState(partyFloorSnap{aid: p.aid, move: p.move}, host, floor)
+}
+
+func partyFloorAddWithState(p partyFloorSnap, host uint64, floor int) []byte {
+	b := pbLen(nil, 1, partyPlayerInfoFull(p.aid, p.move, p.interaction))
+	for _, pet := range partyPetsWithRide(p.aid, host, floor, p.ridePetID, p.rideState) {
 		b = pbLen(b, 2, pet)
 	}
 	return b

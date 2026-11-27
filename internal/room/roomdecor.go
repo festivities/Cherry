@@ -707,6 +707,15 @@ func HostMaxFloor(aid uint64) int {
 	return RoomPartyFloors
 }
 
+// HostRoomTileSize returns the host's LEVEL_1 room tileSize (12..36), used to compute
+// Room Party visitor capacity matching RoomPartyService::GetMaxVisitor.
+func HostRoomTileSize(aid uint64) int {
+	if acc, ok := store.AccountByAvatarID(strconv.FormatUint(aid, 10)); ok {
+		return acc.Remodel.FloorTileSize("LEVEL_1")
+	}
+	return store.DefaultRoomTileSize
+}
+
 // HandleGroundLevelStatus serves GET room/groundlevel/status/<aid>, the Remodeling Shop's floor level
 // (NaDispatcherRoom::ResRoomGroundLevelStatus 0x1a8771c). The client strips "LEVEL_" from ownMaxGroundLevel
 // and atoi's the rest; that number selects the shop tier (11741 → NaRemodelingShopLayer::LoadCurrentLevelShop).

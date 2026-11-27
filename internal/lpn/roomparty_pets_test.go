@@ -21,7 +21,7 @@ var (
 	lpPetFi  = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 2, req: true}, 4: {wire: 2, req: true}, 5: {wire: 2, req: true}, 6: {wire: 2}}            // mask 0x37 @0x277e0c4
 	lpPetBas = lpMsg{1: {wire: 0, req: true}, 2: {wire: 0, req: true}, 3: {wire: 2, req: true, msg: lpPetFi}, 4: {wire: 2, msg: lpMove}, 7: {wire: 0}, 8: {wire: 0}, 9: {wire: 0}, 10: {wire: 0}, 11: {wire: 0}, 12: {wire: 0}, 13: {wire: 0}}
 	lpAvatar = lpMsg{} // opaque: only length-delimited/varint well-formedness is checked
-	lpPlayer = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, req: true, msg: lpAvatar}, 3: {wire: 2, msg: lpMove}}
+	lpPlayer = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, req: true, msg: lpAvatar}, 3: {wire: 2, msg: lpMove}, 4: {wire: 2}}
 	lpRelay  = lpMsg{1: {wire: 0, req: true}, 2: {wire: 2, rep: true, msg: lpPlayer}, 3: {wire: 2, rep: true, msg: lpPetBas}, 4: {wire: 0}} // rc_floor_relaystart_res @0x25430b4
 	lpAdd    = lpMsg{1: {wire: 2, req: true, msg: lpPlayer}, 2: {wire: 2, rep: true, msg: lpPetBas}}                                        // rc_floor_adduser_all @0x25430fc
 )
