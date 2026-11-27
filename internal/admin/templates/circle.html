@@ -25,9 +25,9 @@
 <label><span class="label">Intro</span>
 <input type="text" name="intro" value="{{.Circle.Intro}}" maxlength="50">
 <small class="help">At most 50 characters, no control characters. Leave empty to clear.</small></label>
-<label><span class="label">Reason</span>
-<input type="text" name="reason" maxlength="200" required>
-<small class="help">Written to the audit trail (1 to 200 characters). Needs a Discord sign-in in the last five minutes.</small></label>
+<label><span class="label">Reason (optional)</span>
+<input type="text" name="reason" maxlength="200">
+<small class="help">Written to the audit trail (up to 200 characters). Needs a Discord sign-in in the last five minutes.</small></label>
 <div class="actions"><button type="submit">Save changes</button></div>
 </form>
 </div>
@@ -46,7 +46,7 @@
 <form method="post" action="/circles/{{$.Circle.ID}}/kick-member" class="row-form" data-confirm="Remove this member from the circle? The audit trail keeps the line and your reason.">
 <input type="hidden" name="csrf" value="{{$.CSRF}}">
 <input type="hidden" name="aid" value="{{.Aid}}">
-<input type="text" name="reason" maxlength="200" placeholder="Reason" aria-label="Reason for removing {{.Aid}}" required>
+<input type="text" name="reason" maxlength="200" placeholder="Reason (optional)" aria-label="Reason for removing {{.Aid}}">
 <button type="submit" class="danger">Remove</button>
 </form>{{end}}</td>
 </tr>
@@ -60,8 +60,8 @@
 <div class="card">
 <form method="post" action="/circles/{{.Circle.ID}}/disband" class="stack" data-confirm="Disband this circle? All members will be removed and the circle cannot be restored. The audit trail keeps the line and your reason.">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
-<label><span class="label">Reason</span>
-<input type="text" name="reason" maxlength="200" required>
+<label><span class="label">Reason (optional)</span>
+<input type="text" name="reason" maxlength="200">
 <small class="help">Deletes the circle and removes all members. Needs a Discord sign-in in the last five minutes.</small></label>
 <div class="actions"><button type="submit" class="danger">Disband circle</button></div>
 </form>

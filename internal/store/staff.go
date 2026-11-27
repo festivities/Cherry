@@ -100,7 +100,7 @@ func playerTarget(id int64) string { return fmt.Sprintf("player:%d", id) }
 // PlayerTarget is the audit target of the account with row id ("player:<id>"), as the audit rows of a player name it.
 func PlayerTarget(id int64) string { return playerTarget(id) }
 
-// CleanStaffReason trims a staff reason and checks it: 1 to 200 characters (the audit trail keeps it).
+// CleanStaffReason trims a staff reason and checks it: optional, at most 200 characters (the audit trail keeps it).
 func CleanStaffReason(reason string) (string, error) { return cleanReason(reason) }
 
 // PlayerAccountLocked returns the account with row id, or nil. Caller holds AccountsMu.
@@ -112,11 +112,11 @@ func SaveAuditedLocked(actor, action, target string, detail map[string]any, line
 	return saveAuditedLocked(staffAudit{actor, action, target, detail}, lines, accs...)
 }
 
-// cleanReason trims a staff reason and checks it: 1 to 200 characters.
+// cleanReason trims a staff reason and checks it: optional (owner, 2026-11-28), at most 200 characters.
 func cleanReason(reason string) (string, error) {
 	reason = strings.TrimSpace(reason)
-	if n := utf8.RuneCountInString(reason); n < 1 || n > maxReason {
-		return "", fmt.Errorf("%w: the reason is required, 1 to %d characters", ErrBadInput, maxReason)
+	if utf8.RuneCountInString(reason) > maxReason {
+		return "", fmt.Errorf("%w: the reason is at most %d characters", ErrBadInput, maxReason)
 	}
 	return reason, nil
 }

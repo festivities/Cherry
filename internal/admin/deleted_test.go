@@ -219,7 +219,7 @@ func TestDeletedAvatarPictureRemovalFromPhotos(t *testing.T) {
 	if page := c.get("/photos?player=8431"); !strings.Contains(page.body, "/photos/"+strconv.FormatInt(pid, 10)+"/remove") {
 		t.Fatal("the Photos page does not offer the removal of the deleted avatar's picture")
 	}
-	expect(t, c.post("/photos/"+strconv.FormatInt(pid, 10)+"/remove", url.Values{"csrf": {c.csrf()}, "reason": {"  "}}), http.StatusBadRequest)
+	expect(t, c.post("/photos/"+strconv.FormatInt(pid, 10)+"/remove", url.Values{"csrf": {c.csrf()}, "reason": {strings.Repeat("r", 201)}}), http.StatusBadRequest)
 	expect(t, c.post("/photos/"+strconv.FormatInt(pid, 10)+"/remove", url.Values{"csrf": {c.csrf()}, "reason": {"old snap"}}), http.StatusSeeOther)
 	if _, found, _ := store.MediaRowByFile(file); found {
 		t.Fatal("the removed picture's row remains")

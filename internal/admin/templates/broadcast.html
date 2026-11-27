@@ -14,9 +14,9 @@
 <label><span class="label">Duration (minutes)</span>
 <input type="text" name="duration" value="{{.Broadcast.Form.Duration}}" inputmode="numeric" maxlength="4">
 <small class="help">1 to 1440 minutes. Applies to the Maintenance popup only.</small></label>
-<label><span class="label">Reason</span>
-<input type="text" name="reason" value="{{.Broadcast.Form.Reason}}" maxlength="200" required>
-<small class="help">Written to the audit trail. 1 to 200 characters.</small></label>
+<label><span class="label">Reason (optional)</span>
+<input type="text" name="reason" value="{{.Broadcast.Form.Reason}}" maxlength="200">
+<small class="help">Written to the audit trail. Up to 200 characters.</small></label>
 <div class="actions"><button type="submit">Send announcement</button></div>
 </form>
 

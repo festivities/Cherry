@@ -194,7 +194,6 @@ func TestGrantRefusalsChangeNothingHTTP(t *testing.T) {
 		{"too large", url.Values{"currency": {"gems"}, "delta": {"1000001"}, "reason": {"x"}}, http.StatusBadRequest},
 		{"below zero", url.Values{"currency": {"gems"}, "delta": {"-501"}, "reason": {"x"}}, http.StatusBadRequest},
 		{"not a number", url.Values{"currency": {"gems"}, "delta": {"ten"}, "reason": {"x"}}, http.StatusBadRequest},
-		{"no reason", url.Values{"currency": {"gems"}, "delta": {"10"}}, http.StatusBadRequest},
 		{"long reason", url.Values{"currency": {"gems"}, "delta": {"10"}, "reason": {strings.Repeat("r", 201)}}, http.StatusBadRequest},
 		{"no csrf", url.Values{"currency": {"gems"}, "delta": {"10"}, "reason": {"x"}}, http.StatusForbidden},
 		{"wrong csrf", url.Values{"csrf": {"wrong"}, "currency": {"gems"}, "delta": {"10"}, "reason": {"x"}}, http.StatusForbidden},
@@ -237,9 +236,9 @@ func TestBanAndUnbanFromThePage(t *testing.T) {
 	c.signInDev("owner")
 	id := seedPlayer(t, "dev-b1", "6001", "Bo", 0)
 
-	expect(t, c.post(playerURL(id)+"/ban", url.Values{"csrf": {c.csrf()}, "reason": {"  "}}), http.StatusBadRequest)
+	expect(t, c.post(playerURL(id)+"/ban", url.Values{"csrf": {c.csrf()}, "reason": {strings.Repeat("r", 201)}}), http.StatusBadRequest)
 	if p := playerOf(t, id); p.Ban != nil {
-		t.Fatal("a ban without a reason banned the player")
+		t.Fatal("a ban with an over-long reason banned the player")
 	}
 	ban := c.post(playerURL(id)+"/ban", url.Values{"csrf": {c.csrf()}, "reason": {"spam"}})
 	expect(t, ban, http.StatusSeeOther)
@@ -396,7 +395,7 @@ func TestRenameFromThePage(t *testing.T) {
 		expect(t, c.post(rename, url.Values{"csrf": {c.csrf()}, "name": {name}, "reason": {"x"}}), http.StatusBadRequest)
 	}
 	expect(t, c.post(rename, url.Values{"name": {"Nope"}, "reason": {"x"}}), http.StatusForbidden)
-	expect(t, c.post(rename, url.Values{"csrf": {c.csrf()}, "name": {"Fine"}, "reason": {"   "}}), http.StatusBadRequest)
+	expect(t, c.post(rename, url.Values{"csrf": {c.csrf()}, "name": {"Fine"}, "reason": {strings.Repeat("r", 201)}}), http.StatusBadRequest)
 	if p := playerOf(t, id); p.Name != "Old" {
 		t.Fatalf("refused renames changed the name to %q", p.Name)
 	}
@@ -460,7 +459,7 @@ func TestWritingRemovalsFromThePage(t *testing.T) {
 	expect(t, c.post(base+"/posts/999999/remove", url.Values{"csrf": {c.csrf()}, "reason": {"x"}}), http.StatusNotFound)
 	expect(t, c.post(playerURL(other)+"/guestbook/"+entry+"/remove", url.Values{"csrf": {c.csrf()}, "reason": {"x"}}), http.StatusNotFound)
 	expect(t, c.post(base+"/comments/"+comment+"/remove", url.Values{"reason": {"x"}}), http.StatusForbidden)
-	expect(t, c.post(base+"/comments/"+comment+"/remove", url.Values{"csrf": {c.csrf()}, "reason": {" "}}), http.StatusBadRequest)
+	expect(t, c.post(base+"/comments/"+comment+"/remove", url.Values{"csrf": {c.csrf()}, "reason": {strings.Repeat("r", 201)}}), http.StatusBadRequest)
 	for _, path := range []string{"/posts/" + post + "/remove", "/guestbook/" + entry + "/remove", "/comments/" + comment + "/remove", "/rename"} {
 		if r := c.get(base + path); r.StatusCode != http.StatusMethodNotAllowed {
 			t.Errorf("GET %s: status %d, want 405", path, r.StatusCode)
@@ -548,7 +547,7 @@ func TestPictureRemovalFromThePage(t *testing.T) {
 		t.Fatalf("the player page does not offer %s", mediaRemove)
 	}
 	expect(t, c.post(mediaRemove, url.Values{"reason": {"x"}}), http.StatusForbidden)
-	expect(t, c.post(mediaRemove, url.Values{"csrf": {c.csrf()}, "reason": {" "}}), http.StatusBadRequest)
+	expect(t, c.post(mediaRemove, url.Values{"csrf": {c.csrf()}, "reason": {strings.Repeat("r", 201)}}), http.StatusBadRequest)
 	expect(t, c.post(base+"/media/999999/remove", url.Values{"csrf": {c.csrf()}, "reason": {"x"}}), http.StatusNotFound)
 	if r := c.get(mediaRemove); r.StatusCode != http.StatusMethodNotAllowed {
 		t.Fatalf("GET of the removal: status %d, want 405", r.StatusCode)

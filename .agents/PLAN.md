@@ -28,6 +28,7 @@ Earlier handoffs are in [HISTORY.md](HISTORY.md); the latest covers 2026-11-28 ~
 - **Deploy only on an explicit "deploy"** (memory `deploy-needs-explicit-go`); a go covers that deploy only (this session's go covered `0403acf` only).
 - **This session's working rule (owner, 2026-11-28; not carried over unless repeated):** everything was done by the main agent, no subagents.
 - **LINE City race bubble removed, pole kept (owner, 2026-11-28).**
+- **Staff Reason fields are optional (owner, 2026-11-28):** never make a staff action require a reason again.
 - **Volunteer item-name promotion (owner, 2026-11-27):** volunteers sign in as **Helpers** on `/items`; periodically the owner exports `/items/export.json` and replaces `data/item_names.json` in Git.
 - **Backups (owner, 2026-11-27):** daily compressed SQLite snapshot (`cherry-backup.timer`, 14-day R2 lifecycle prune) instead of Litestream.
 - **Text moderation (owner, 2026-11-27):** keep `bannedwords.json` EMPTY until the owner gives words; `httpx.MaxMarks` = 8 changes only with new evidence; offender aids go to the owner in chat, never into tracked files.

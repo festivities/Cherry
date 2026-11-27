@@ -413,8 +413,8 @@ func TestRenameNicknameRule(t *testing.T) {
 			t.Errorf("name %q: err %v, want ErrBadInput", name, err)
 		}
 	}
-	if err := RenamePlayer(id, "Fine", "  ", "discord:1"); !errors.Is(err, ErrBadInput) {
-		t.Errorf("empty reason: err %v, want ErrBadInput", err)
+	if err := RenamePlayer(id, "Fine", strings.Repeat("r", 201), "discord:1"); !errors.Is(err, ErrBadInput) {
+		t.Errorf("over-long reason: err %v, want ErrBadInput", err)
 	}
 	if nameOf(acc) != "Old" || auditCount(t) != before {
 		t.Fatalf("a refused rename changed the name to %q or wrote %d audit rows", nameOf(acc), auditCount(t)-before)

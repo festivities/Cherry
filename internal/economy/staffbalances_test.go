@@ -159,7 +159,6 @@ func TestStaffBalancesRefusesBadChanges(t *testing.T) {
 		"add above the grant":   {SendID: "x-send-0001", Values: map[string]int64{"gems": store.MaxGrant + 1}, Expect: total, Reason: "r"},
 		"set below zero":        {SendID: "x-send-0001", Set: true, Values: map[string]int64{"gems": -1}, Expect: total, Reason: "r"},
 		"set above the balance": {SendID: "x-send-0001", Set: true, Values: map[string]int64{"gems": store.MaxBalance + 1}, Expect: total, Reason: "r"},
-		"no reason":             {SendID: "x-send-0001", Values: map[string]int64{"gems": 5}, Expect: total},
 		"reason of 201 bytes":   {SendID: "x-send-0001", Values: map[string]int64{"gems": 5}, Expect: total, Reason: strings.Repeat("r", 201)},
 		"no send id":            {Values: map[string]int64{"gems": 5}, Expect: total, Reason: "r"},
 		"count changed":         {SendID: "x-send-0001", Values: map[string]int64{"gems": 5}, Expect: total + 1, Reason: "r"},

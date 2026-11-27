@@ -43,7 +43,7 @@
 <td>{{.Rooms}}</td>
 <td>{{if .PlayerID}}<form method="post" action="/players/{{.PlayerID}}/kick" class="row-form" data-confirm="Kick this player? Their live connections close now. This is not a ban: they can sign in again at once.">
 <input type="hidden" name="csrf" value="{{$.CSRF}}">
-<input type="text" name="reason" required maxlength="200" placeholder="Reason" aria-label="Reason for the kick">
+<input type="text" name="reason" maxlength="200" placeholder="Reason (optional)" aria-label="Reason for the kick">
 <button type="submit" class="danger">Kick</button>
 </form>{{else}}<span class="muted">no account</span>{{end}}</td>
 </tr>

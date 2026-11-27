@@ -262,8 +262,8 @@ func TestRemoveDeletedAvatarMedia(t *testing.T) {
 	if err := RemoveDeletedAvatarMedia(live.ID, "not theirs", "dev-owner"); err != ErrNoItem {
 		t.Fatalf("a live account's picture: %v, want ErrNoItem", err)
 	}
-	if err := RemoveDeletedAvatarMedia(gone.ID, "  ", "dev-owner"); err == nil {
-		t.Fatal("an empty reason was accepted")
+	if err := RemoveDeletedAvatarMedia(gone.ID, strings.Repeat("r", 201), "dev-owner"); err == nil {
+		t.Fatal("an over-long reason was accepted")
 	}
 	if err := RemoveDeletedAvatarMedia(gone.ID, "old picture", "dev-owner"); err != nil {
 		t.Fatal(err)

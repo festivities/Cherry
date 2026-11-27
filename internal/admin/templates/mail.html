@@ -26,9 +26,9 @@
 <label><span class="label">Expires after (days)</span>
 <input type="text" name="days" value="{{.Mail.Form.Days}}" inputmode="numeric">
 <small class="help">Empty or 0 is the rewards file's default. At most 3650.</small></label>
-<label><span class="label">Reason</span>
-<input type="text" name="reason" value="{{.Mail.Form.Reason}}" maxlength="200" required>
-<small class="help">Written to the audit trail and the sent mail list. 1 to 200 characters.</small></label>
+<label><span class="label">Reason (optional)</span>
+<input type="text" name="reason" value="{{.Mail.Form.Reason}}" maxlength="200">
+<small class="help">Written to the audit trail and the sent mail list. Up to 200 characters.</small></label>
 <div class="actions"><button type="submit">Review the mail</button></div>
 </form>
 {{end}}

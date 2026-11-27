@@ -233,7 +233,6 @@ func TestBalancesRefusals(t *testing.T) {
 		{"add not a number", balanceForm(csrf, "add", "r", map[string]string{"cash": "ten"}), http.StatusBadRequest},
 		{"set below zero", balanceForm(csrf, "set", "r", map[string]string{"gems": "-1"}), http.StatusBadRequest},
 		{"set above the balance cap", balanceForm(csrf, "set", "r", map[string]string{"gems": "1073741825"}), http.StatusBadRequest},
-		{"no reason", balanceForm(csrf, "add", "", map[string]string{"gems": "5"}), http.StatusBadRequest},
 		{"reason of 201 characters", balanceForm(csrf, "add", strings.Repeat("r", 201), map[string]string{"gems": "5"}), http.StatusBadRequest},
 		{"set that changes nobody", balanceForm(csrf, "set", "r", map[string]string{"smiles": "0"}), http.StatusBadRequest},
 	}

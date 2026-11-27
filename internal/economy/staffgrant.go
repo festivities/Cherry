@@ -127,7 +127,7 @@ func clampLoopbackGrant(acc *store.Account, g StaffGrant, now time.Time) StaffGr
 }
 
 // StaffGrantPlayer applies g to the player with row id for the staff panel. The amounts are whole numbers within ±store.MaxGrant
-// and at least one is not zero; reason is 1 to 200 characters. The ledger lines carry "staff:<actor>:<reason>". The balances,
+// and at least one is not zero; reason is optional, at most 200 characters. The ledger lines carry "staff:<actor>:<reason>". The balances,
 // the ledger lines and the audit row (grant, target player:<id>, the deltas and the reason) are one save. Nothing changes on error.
 func StaffGrantPlayer(id int64, g StaffGrant, reason, actor string, now time.Time) error {
 	reason, err := store.CleanStaffReason(reason)

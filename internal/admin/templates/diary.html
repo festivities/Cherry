@@ -40,7 +40,7 @@
 <input type="hidden" name="csrf" value="{{$.CSRF}}">
 <input type="hidden" name="player_id" value="{{.AuthorPlayerID}}">
 <input type="hidden" name="no" value="{{.No}}">
-<input type="text" name="reason" maxlength="200" placeholder="Reason" aria-label="Reason for removing {{.Kind}} #{{.No}}" required>
+<input type="text" name="reason" maxlength="200" placeholder="Reason (optional)" aria-label="Reason for removing {{.Kind}} #{{.No}}">
 <button type="submit" class="danger">Remove {{if eq .Kind "post"}}post{{else}}comment{{end}}</button>
 </form>{{else}}<span class="muted small">no account</span>{{end}}
 </div>

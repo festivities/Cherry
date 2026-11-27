@@ -12,9 +12,9 @@
 <input type="text" name="{{.Name}}" value="{{index $.Balances.Form.Values .Name}}" inputmode="numeric" maxlength="20">
 </label>
 {{end}}<small class="help">Leave a balance empty to keep it as it is. Add and take away: a whole number from 1 to 1000000. Set: a whole number from 0 to 1073741824.</small>
-<label><span class="label">Reason</span>
-<input type="text" name="reason" value="{{.Balances.Form.Reason}}" maxlength="200" required>
-<small class="help">Written to the audit trail and to every ledger line of the change. 1 to 200 characters.</small></label>
+<label><span class="label">Reason (optional)</span>
+<input type="text" name="reason" value="{{.Balances.Form.Reason}}" maxlength="200">
+<small class="help">Written to the audit trail and to every ledger line of the change. Up to 200 characters.</small></label>
 <div class="actions"><button type="submit">Review the change</button></div>
 </form>
 {{end}}

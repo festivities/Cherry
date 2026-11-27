@@ -112,6 +112,12 @@ func TestBroadcastSendBannerAndMaint(t *testing.T) {
 		t.Fatalf("maint call = (%q, %s), want (%q, 10m)", gotMaintMsg, gotMaintDur, "Emergency maintenance")
 	}
 
+	// The reason is optional (owner, 2026-11-28): a banner without one is sent.
+	expect(t, c.post("/broadcast/send", url.Values{"csrf": {c.csrf()}, "kind": {"banner"}, "message": {"No reason given"}}), http.StatusSeeOther)
+	if gotBannerMsg != "No reason given" {
+		t.Fatalf("banner without a reason: message = %q", gotBannerMsg)
+	}
+
 	rows := auditRows(t)
 	if !hasAudit(rows, "dev-owner", "broadcast-banner", `"reason":"announce event"`) {
 		t.Errorf("missing broadcast-banner audit row: %+v", rows)
@@ -155,7 +161,6 @@ func TestBroadcastSendValidation(t *testing.T) {
 	}{
 		{"empty message", url.Values{"csrf": {csrf}, "kind": {"banner"}, "message": {"   "}, "reason": {"ok"}}},
 		{"message > 400 runes", url.Values{"csrf": {csrf}, "kind": {"banner"}, "message": {tooLongMsg}, "reason": {"ok"}}},
-		{"empty reason", url.Values{"csrf": {csrf}, "kind": {"banner"}, "message": {"hi"}, "reason": {"  "}}},
 		{"reason > 200 runes", url.Values{"csrf": {csrf}, "kind": {"banner"}, "message": {"hi"}, "reason": {tooLongReason}}},
 		{"invalid kind", url.Values{"csrf": {csrf}, "kind": {"popup"}, "message": {"hi"}, "reason": {"ok"}}},
 		{"maint duration 0", url.Values{"csrf": {csrf}, "kind": {"maint"}, "message": {"hi"}, "duration": {"0"}, "reason": {"ok"}}},

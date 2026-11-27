@@ -340,8 +340,8 @@ func TestKickPlayerAuditsAndNamesTheConnections(t *testing.T) {
 	attachTestDB(t)
 	acc, id := staffAccount(t, "dev-kick", "1101", "Kicked", 10)
 	before := auditCount(t)
-	if _, err := KickPlayer(id, "   ", "discord:1"); err == nil {
-		t.Fatal("a kick with no reason is accepted")
+	if _, err := KickPlayer(id, strings.Repeat("r", 201), "discord:1"); err == nil {
+		t.Fatal("a kick with an over-long reason is accepted")
 	}
 	if _, err := KickPlayer(id+999, "spam", "discord:1"); err != ErrNoPlayer {
 		t.Fatalf("kick of an unknown player: %v, want ErrNoPlayer", err)

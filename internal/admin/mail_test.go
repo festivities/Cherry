@@ -200,7 +200,7 @@ func TestMailAttachmentsAreChecked(t *testing.T) {
 		{"expiry above 3650", reviewForm(c.csrf(), "player", fmt.Sprintf("#%d", id), "gems", "5", "", "", "4000", "r"), http.StatusBadRequest},
 		{"expiry not a number", reviewForm(c.csrf(), "player", fmt.Sprintf("#%d", id), "gems", "5", "", "", "soon", "r"), http.StatusBadRequest},
 		{"message of 501 bytes", reviewForm(c.csrf(), "player", fmt.Sprintf("#%d", id), "gems", "5", "", long, "", "r"), http.StatusBadRequest},
-		{"no reason", reviewForm(c.csrf(), "player", fmt.Sprintf("#%d", id), "gems", "5", "", "", "", ""), http.StatusBadRequest},
+		{"reason of 201 characters", reviewForm(c.csrf(), "player", fmt.Sprintf("#%d", id), "gems", "5", "", "", "", strings.Repeat("r", 201)), http.StatusBadRequest},
 		{"no such player", reviewForm(c.csrf(), "player", "#999999", "gems", "5", "", "", "", "r"), http.StatusNotFound},
 		{"a name that matches nobody", reviewForm(c.csrf(), "player", "nobody-here", "gems", "5", "", "", "", "r"), http.StatusNotFound},
 		{"a name that matches two", reviewForm(c.csrf(), "player", "Twin", "gems", "5", "", "", "", "r"), http.StatusBadRequest},

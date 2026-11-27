@@ -199,7 +199,7 @@ func TestOnlinePageListsConnectionsPlacesAndKicks(t *testing.T) {
 		"no account",
 		`action="` + playerURL(id1) + `/kick"`,
 		`action="` + playerURL(id2) + `/kick"`,
-		`name="reason" required maxlength="200"`,
+		`name="reason" maxlength="200"`,
 		`data-confirm="Kick this player?`,
 		"<h2>Players online</h2>\n<p class=\"big\">3</p>\n<p class=\"muted small\">4 connections with a login.</p>",
 	} {
@@ -387,7 +387,7 @@ func TestKickIsRefusedWithoutItsGuards(t *testing.T) {
 	before := len(auditRows(t))
 
 	expect(t, c.post(playerURL(id)+"/kick", url.Values{"reason": {"no token"}}), http.StatusForbidden)
-	expect(t, c.post(playerURL(id)+"/kick", url.Values{"csrf": {c.csrf()}, "reason": {"   "}}), http.StatusBadRequest)
+	expect(t, c.post(playerURL(id)+"/kick", url.Values{"csrf": {c.csrf()}, "reason": {strings.Repeat("r", 201)}}), http.StatusBadRequest)
 	expect(t, c.post("/players/999999/kick", url.Values{"csrf": {c.csrf()}, "reason": {"nobody"}}), http.StatusNotFound)
 	if len(*closed) != 0 || len(auditRows(t)) != before {
 		t.Fatalf("a refused kick closed %v or wrote an audit row", *closed)

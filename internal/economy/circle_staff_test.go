@@ -61,7 +61,7 @@ func TestStaffEditCircle(t *testing.T) {
 		{"control char in name", c1.ID, "Bad\nName", "ok", "reason", store.ErrBadInput},
 		{"control char in intro", c1.ID, "Gamma", "bad\tintro", "reason", store.ErrBadInput},
 		{"del char in intro", c1.ID, "Gamma", "bad\x7fintro", "reason", store.ErrBadInput},
-		{"empty reason", c1.ID, "Gamma", "ok", " ", store.ErrBadInput},
+		{"reason too long", c1.ID, "Gamma", "ok", strings.Repeat("r", 201), store.ErrBadInput},
 		{"duplicate name", c1.ID, "beta", "ok", "reason", store.ErrBadInput},
 	}
 	for _, tc := range cases {
@@ -132,8 +132,8 @@ func TestStaffRemoveCircleMember(t *testing.T) {
 	if err := StaffRemoveCircleMember(1940000999, "1102", "missing circle", "discord:1", circNow); !errors.Is(err, store.ErrNoItem) {
 		t.Fatalf("kick missing circle err = %v, want ErrNoItem", err)
 	}
-	if err := StaffRemoveCircleMember(id, "1102", " ", "discord:1", circNow); !errors.Is(err, store.ErrBadInput) {
-		t.Fatalf("blank reason err = %v, want ErrBadInput", err)
+	if err := StaffRemoveCircleMember(id, "1102", strings.Repeat("r", 201), "discord:1", circNow); !errors.Is(err, store.ErrBadInput) {
+		t.Fatalf("over-long reason err = %v, want ErrBadInput", err)
 	}
 
 	kickAt := circNow.Add(30 * time.Minute)
@@ -185,8 +185,8 @@ func TestStaffDisbandCircle(t *testing.T) {
 	if err := StaffDisbandCircle(1940000999, "missing", "discord:1"); !errors.Is(err, store.ErrNoItem) {
 		t.Fatalf("missing circle err = %v, want ErrNoItem", err)
 	}
-	if err := StaffDisbandCircle(id, " ", "discord:1"); !errors.Is(err, store.ErrBadInput) {
-		t.Fatalf("blank reason err = %v, want ErrBadInput", err)
+	if err := StaffDisbandCircle(id, strings.Repeat("r", 201), "discord:1"); !errors.Is(err, store.ErrBadInput) {
+		t.Fatalf("over-long reason err = %v, want ErrBadInput", err)
 	}
 
 	if err := StaffDisbandCircle(id, "policy violation", "discord:1"); err != nil {

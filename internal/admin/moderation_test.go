@@ -319,7 +319,7 @@ func TestPhotoRemovalFromThePhotoPage(t *testing.T) {
 	if r := c.get(remove); r.StatusCode != http.StatusMethodNotAllowed {
 		t.Fatalf("GET of the removal: status %d, want 405", r.StatusCode)
 	}
-	expect(t, c.post(remove, url.Values{"csrf": {c.csrf()}, "reason": {" "}}), http.StatusBadRequest)
+	expect(t, c.post(remove, url.Values{"csrf": {c.csrf()}, "reason": {strings.Repeat("r", 201)}}), http.StatusBadRequest)
 	expect(t, c.post("/photos/999999/remove", url.Values{"csrf": {c.csrf()}, "reason": {"x"}}), http.StatusNotFound)
 	if _, found, _ := store.MediaRowByFile(row.File); !found {
 		t.Fatal("a refused removal deleted the row")

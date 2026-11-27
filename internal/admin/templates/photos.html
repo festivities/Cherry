@@ -16,7 +16,7 @@
 <p class="muted small">{{.Date}} UTC</p>
 <form method="post" action="/photos/{{.ID}}/remove" class="stack" data-confirm="Remove this picture? The file is deleted, and every post, profile or room thumbnail that shows it loses it.">
 <input type="hidden" name="csrf" value="{{$.CSRF}}">
-<input type="text" name="reason" maxlength="200" placeholder="Reason" aria-label="Reason for removing picture {{.ID}}" required>
+<input type="text" name="reason" maxlength="200" placeholder="Reason (optional)" aria-label="Reason for removing picture {{.ID}}">
 <button type="submit" class="danger">Remove</button>
 </form>
 </figcaption>

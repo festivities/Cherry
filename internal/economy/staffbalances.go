@@ -49,7 +49,7 @@ type StaffBalances struct {
 	Actor, Reason string
 }
 
-// check validates b and returns the reason as it is kept (trimmed, 1 to 200 characters). Refusals are store.ErrBadInput.
+// check validates b and returns the reason as it is kept (trimmed, at most 200 characters, may be empty). Refusals are store.ErrBadInput.
 func (b StaffBalances) check() (string, error) {
 	if b.Set && b.Take {
 		return "", fmt.Errorf("%w: the change is set, take or add", store.ErrBadInput)

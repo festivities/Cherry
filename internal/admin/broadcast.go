@@ -118,8 +118,8 @@ func (s *Server) handleBroadcastSend(w http.ResponseWriter, r *http.Request, ses
 		s.fail(w, http.StatusBadRequest, fmt.Sprintf("The message is 1 to %d characters.", broadcastMessageMax))
 		return
 	}
-	if n := utf8.RuneCountInString(reason); n < 1 || n > broadcastReasonMax {
-		s.fail(w, http.StatusBadRequest, fmt.Sprintf("The reason is 1 to %d characters.", broadcastReasonMax))
+	if utf8.RuneCountInString(reason) > broadcastReasonMax { // optional (owner, 2026-11-28)
+		s.fail(w, http.StatusBadRequest, fmt.Sprintf("The reason is at most %d characters.", broadcastReasonMax))
 		return
 	}
 

@@ -18,8 +18,8 @@
 </dl>
 {{with .Page.Online}}<form method="post" action="/players/{{$.Player.ID}}/kick" class="stack" data-confirm="Close this player's live connections? The player can sign in again at once; this is not a ban.">
 <input type="hidden" name="csrf" value="{{$.CSRF}}">
-<label><span class="label">Reason for the kick</span>
-<input type="text" name="reason" maxlength="200" required>
+<label><span class="label">Reason for the kick (optional)</span>
+<input type="text" name="reason" maxlength="200">
 <small class="help">Closes the live connections only. The player can sign in again at once.</small></label>
 <div class="actions"><button type="submit" class="ghost">Kick: close the live connections</button></div>
 </form>{{end}}
@@ -123,8 +123,8 @@
 </form>
 {{else}}<form method="post" action="/players/{{.Player.ID}}/ban" class="stack" data-confirm="Ban this identity? Its sessions end, its live connections close and its next sign-in is refused.">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
-<label><span class="label">Reason</span>
-<input type="text" name="reason" maxlength="200" required>
+<label><span class="label">Reason (optional)</span>
+<input type="text" name="reason" maxlength="200">
 <small class="help">Written to the audit trail. A ban follows the identity through Delete Avatar.</small></label>
 <div class="actions"><button type="submit" class="danger">Ban this identity</button></div>
 </form>{{end}}
@@ -136,8 +136,8 @@
 <label><span class="label">Nickname</span>
 <input type="text" name="name" maxlength="20" required>
 <small class="help">The game's rule: 1 to 20 characters, not only spaces, no control characters. Diary posts and guestbook entries take the new name.</small></label>
-<label><span class="label">Reason</span>
-<input type="text" name="reason" maxlength="200" required></label>
+<label><span class="label">Reason (optional)</span>
+<input type="text" name="reason" maxlength="200"></label>
 <div class="actions"><button type="submit">Rename</button></div>
 </form>
 </section>
@@ -150,7 +150,7 @@
 <tbody>
 {{range .Posts}}<tr><td>{{.No}}</td><td>{{.Date}}</td><td>{{.Text}}</td><td>{{if .Photo}}yes{{else}}no{{end}}</td><td>
 <form method="post" action="/players/{{$.Player.ID}}/posts/{{.No}}/remove" class="row-form" data-confirm="Remove this diary post? Its comments and likes go with it. The audit trail keeps the number and your reason."><input type="hidden" name="csrf" value="{{$.CSRF}}">
-<input type="text" name="reason" maxlength="200" placeholder="Reason" aria-label="Reason" required> <button type="submit" class="danger">Remove</button></form></td></tr>
+<input type="text" name="reason" maxlength="200" placeholder="Reason (optional)" aria-label="Reason"> <button type="submit" class="danger">Remove</button></form></td></tr>
 {{else}}<tr class="empty"><td colspan="5">No diary posts.</td></tr>{{end}}
 </tbody>
 </table></div>
@@ -161,7 +161,7 @@
 <tbody>
 {{range .Entries}}<tr><td>{{.No}}</td><td>{{.Host}}</td><td>{{.Date}}</td><td>{{.Text}}</td><td>
 <form method="post" action="/players/{{$.Player.ID}}/guestbook/{{.No}}/remove" class="row-form" data-confirm="Remove this guestbook entry and its replies? The audit trail keeps the number and your reason."><input type="hidden" name="csrf" value="{{$.CSRF}}">
-<input type="text" name="reason" maxlength="200" placeholder="Reason" aria-label="Reason" required> <button type="submit" class="danger">Remove</button></form></td></tr>
+<input type="text" name="reason" maxlength="200" placeholder="Reason (optional)" aria-label="Reason"> <button type="submit" class="danger">Remove</button></form></td></tr>
 {{else}}<tr class="empty"><td colspan="5">No guestbook entries.</td></tr>{{end}}
 </tbody>
 </table></div>
@@ -172,7 +172,7 @@
 <tbody>
 {{range .Comments}}<tr><td>{{.No}}</td><td>{{.Post}}</td><td>{{.Host}}</td><td>{{.Date}}</td><td>{{.Text}}</td><td>
 <form method="post" action="/players/{{$.Player.ID}}/comments/{{.No}}/remove" class="row-form" data-confirm="Remove this diary comment? The audit trail keeps the number and your reason."><input type="hidden" name="csrf" value="{{$.CSRF}}">
-<input type="text" name="reason" maxlength="200" placeholder="Reason" aria-label="Reason" required> <button type="submit" class="danger">Remove</button></form></td></tr>
+<input type="text" name="reason" maxlength="200" placeholder="Reason (optional)" aria-label="Reason"> <button type="submit" class="danger">Remove</button></form></td></tr>
 {{else}}<tr class="empty"><td colspan="6">No diary comments.</td></tr>{{end}}
 </tbody>
 </table></div>
@@ -183,7 +183,7 @@
 <tbody>
 {{range .Media}}<tr><td>{{.ID}}</td><td>{{.Kind}}</td><td class="num">{{.KiB}}</td><td>{{.Date}}</td><td>
 <form method="post" action="/players/{{$.Player.ID}}/media/{{.ID}}/remove" class="row-form" data-confirm="Remove this picture? The file is deleted, and every post, profile or room thumbnail that shows it loses it."><input type="hidden" name="csrf" value="{{$.CSRF}}">
-<input type="text" name="reason" maxlength="200" placeholder="Reason" aria-label="Reason" required> <button type="submit" class="danger">Remove</button></form></td></tr>
+<input type="text" name="reason" maxlength="200" placeholder="Reason (optional)" aria-label="Reason"> <button type="submit" class="danger">Remove</button></form></td></tr>
 {{else}}<tr class="empty"><td colspan="5">No pictures.</td></tr>{{end}}
 </tbody>
 </table></div>
@@ -227,8 +227,8 @@
 <label><span class="label">Amount</span>
 <input type="text" name="delta" inputmode="numeric" required>
 <small class="help">A whole number. A negative number takes away; a take-away below zero is refused, and nothing changes.</small></label>
-<label><span class="label">Reason</span>
-<input type="text" name="reason" maxlength="200" required>
+<label><span class="label">Reason (optional)</span>
+<input type="text" name="reason" maxlength="200">
 <small class="help">Written to the audit trail, and to the ledger for a currency.</small></label>
 <div class="actions"><button type="submit">Apply</button> <a href="/mail?player={{.Player.ID}}">Send mail instead</a></div>
 </form>

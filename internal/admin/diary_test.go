@@ -205,7 +205,7 @@ func TestDiaryRemovePostAndComment(t *testing.T) {
 	expect(t, c.post("/diary/remove-post", url.Values{"player_id": {strconv.FormatInt(pidAuthor, 10)}, "no": {"21"}, "reason": {"spam"}}), http.StatusForbidden)
 	expect(t, c.post("/diary/remove-post", url.Values{"csrf": {c.csrf()}, "player_id": {"0"}, "no": {"21"}, "reason": {"spam"}}), http.StatusBadRequest)
 	expect(t, c.post("/diary/remove-post", url.Values{"csrf": {c.csrf()}, "player_id": {strconv.FormatInt(pidAuthor, 10)}, "no": {"abc"}, "reason": {"spam"}}), http.StatusBadRequest)
-	expect(t, c.post("/diary/remove-post", url.Values{"csrf": {c.csrf()}, "player_id": {strconv.FormatInt(pidAuthor, 10)}, "no": {"21"}, "reason": {"  "}}), http.StatusBadRequest)
+	expect(t, c.post("/diary/remove-post", url.Values{"csrf": {c.csrf()}, "player_id": {strconv.FormatInt(pidAuthor, 10)}, "no": {"21"}, "reason": {strings.Repeat("r", 201)}}), http.StatusBadRequest)
 
 	// Fresh login check: stale login returns 403 and redirects back to /diary after re-login.
 	fx.clk.advance(6 * time.Minute)
