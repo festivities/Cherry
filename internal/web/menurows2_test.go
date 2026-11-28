@@ -2,12 +2,14 @@ package web
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"slices"
 	"strconv"
 	"testing"
 	"time"
 
+	"cherry/internal/economy"
 	"cherry/internal/store"
 )
 
@@ -202,5 +204,20 @@ func TestRecommendPostListRankingPagingAndShape(t *testing.T) {
 	}
 	if rec := serve(t, http.MethodGet, "/v4/rcmdpost/list?size=0"); rec.Code != http.StatusBadRequest {
 		t.Fatalf("size=0 status %d, want 400", rec.Code)
+	}
+
+	// The scores themselves. The owner is the post's owner, not the like or comment row's copy: bob's own like and
+	// comment on post 2 (rows without OwnerAvatarID) still add nothing.
+	store.SocialMu.Lock()
+	store.DiaryLikes = append(store.DiaryLikes, store.DiaryLike{LikeNo: "7", DiaryNo: "2", LikeAvatarID: "9502", LikeType: 1})
+	store.DiaryComments = append(store.DiaryComments, store.DiaryComment{CommentNo: "5", DiaryNo: "2", CommentAvatarID: "9502", Content: "own"})
+	ranked := bestRankLocked(economy.ActiveNews(), func(post store.DiaryPost) bool { return post.OpenState == "public" && !post.Blind })
+	store.SocialMu.Unlock()
+	scores := map[string]int{}
+	for _, b := range ranked {
+		scores[b.post.DiaryNo] = b.score
+	}
+	if want := map[string]int{"5": 3, "1": 2, "2": 0}; !maps.Equal(scores, want) {
+		t.Fatalf("scores %v, want %v", scores, want)
 	}
 }

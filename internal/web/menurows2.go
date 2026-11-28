@@ -108,37 +108,21 @@ type bestPost struct {
 }
 
 // bestRankLocked ranks the diary posts keep accepts by activity, highest first, newest first on a tie: each
-// distinct player other than the owner who liked the post adds cfg.BestLikePoints, each who commented adds
-// cfg.BestCommentPoints. With cfg.BestWindowHours > 0 only posts made within that many hours count; the window is
-// on the wall clock, like a post's RegDate (social.go), not the game clock. Caller holds store.SocialMu.
+// distinct player other than the post's owner who likes the post adds cfg.BestLikePoints, each who commented on it
+// adds cfg.BestCommentPoints. With cfg.BestWindowHours > 0 only posts made within that many hours count; the window
+// is on the wall clock, like a post's RegDate (social.go), not the game clock. Caller holds store.SocialMu.
 // ponytail: scans every like and comment per call (fine at a few thousand posts); keep per-post counters if it shows.
 func bestRankLocked(cfg *economy.NewsConfig, keep func(store.DiaryPost) bool) []bestPost {
 	since := int64(0)
 	if cfg.BestWindowHours > 0 {
 		since = time.Now().Add(-time.Duration(cfg.BestWindowHours) * time.Hour).UnixMilli()
 	}
-	type actorKey struct{ diaryNo, aid string }
-	seen := make(map[actorKey]bool)
-	score := make(map[string]int)
-	add := func(diaryNo, owner, actor, kind string, points int) {
-		key := actorKey{diaryNo, kind + actor}
-		if points == 0 || actor == "" || actor == owner || seen[key] {
-			return
-		}
-		seen[key] = true
-		score[diaryNo] += points
-	}
-	for _, like := range store.DiaryLikes {
-		add(like.DiaryNo, like.OwnerAvatarID, like.LikeAvatarID, "l", cfg.BestLikePoints)
-	}
-	for _, comment := range store.DiaryComments {
-		add(comment.DiaryNo, comment.OwnerAvatarID, comment.CommentAvatarID, "c", cfg.BestCommentPoints)
-	}
-	type ranked struct {
+	type candidate struct {
 		bestPost
 		seq uint64
 	}
-	var found []ranked
+	var found []*candidate
+	byNo := make(map[string]*candidate)
 	for _, post := range store.DiaryPosts {
 		seq, err := strconv.ParseUint(post.DiaryNo, 10, 64)
 		if err != nil || !keep(post) {
@@ -149,7 +133,30 @@ func bestRankLocked(cfg *economy.NewsConfig, keep func(store.DiaryPost) bool) []
 				continue
 			}
 		}
-		found = append(found, ranked{bestPost{post, score[post.DiaryNo]}, seq})
+		c := &candidate{bestPost{post: post}, seq}
+		found = append(found, c)
+		byNo[post.DiaryNo] = c
+	}
+	type actorKey struct {
+		diaryNo, actor string
+		comment        bool
+	}
+	seen := make(map[actorKey]bool)
+	add := func(key actorKey, points int) {
+		c := byNo[key.diaryNo]
+		if c == nil || points == 0 || key.actor == "" || key.actor == c.post.AvatarID || seen[key] {
+			return
+		}
+		seen[key] = true
+		c.score += points
+	}
+	for _, like := range store.DiaryLikes {
+		if like.LikeType > 0 { // an unlike deletes the row; 0 would be one anyway
+			add(actorKey{like.DiaryNo, like.LikeAvatarID, false}, cfg.BestLikePoints)
+		}
+	}
+	for _, comment := range store.DiaryComments {
+		add(actorKey{comment.DiaryNo, comment.CommentAvatarID, true}, cfg.BestCommentPoints)
 	}
 	sort.Slice(found, func(i, j int) bool {
 		if found[i].score != found[j].score {
@@ -158,8 +165,8 @@ func bestRankLocked(cfg *economy.NewsConfig, keep func(store.DiaryPost) bool) []
 		return found[i].seq > found[j].seq
 	})
 	out := make([]bestPost, len(found))
-	for i, f := range found {
-		out[i] = f.bestPost
+	for i, c := range found {
+		out[i] = c.bestPost
 	}
 	return out
 }
