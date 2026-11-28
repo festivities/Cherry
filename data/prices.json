@@ -1,6 +1,6 @@
 {
   "origin": "mixed",
-  "note": "Mixed. ORIGINAL: the category keys of the clothing prices (HA, ON, TO, PA, SH, AH, AE, FE: the client's item-code categories) and the room category keys (UWLPP to UFLDC). CHERRY-MADE: every price, rate and percentage, the category names (Hair, Outfit, ...), the Face Shop ticket codes and names, and the deal and sell-back rules.",
+  "note": "Mixed. ORIGINAL: the category keys of the clothing prices (HA, ON, TO, PA, SH, AH, AE, FE: the client's item-code categories) and the room category keys (UWLPP to UFLDC). CHERRY-MADE: every price, rate and percentage, the category names (Hair, Outfit, ...), the Face Shop ticket codes and names, and the deal and sell-back rules, and the Gift Shop selection (gift_shop row counts; which items are picked).",
   "clothing_prices": {"HA": 200, "ON": 250, "TO": 150, "PA": 150, "SH": 120, "AH": 120, "FE": 120, "AE": 100},
   "interior_price": 150,
   "interior_prices": {"WA": 100, "TI": 100},
@@ -12,6 +12,7 @@
   "face_ticket_cost": 1,
   "deal_paid_percent": 70,
   "deals_per_kind": 3,
+  "gift_shop": {"best": 20, "premium": 40, "daily": 120},
   "clothing_names": {
     "HA": "Hair", "ON": "Outfit", "TO": "Top", "PA": "Bottoms", "SH": "Shoes",
     "AH": "Accessory", "AE": "Accessory", "FE": "Accessory", "HE": "Face", "EB": "Eyebrows",

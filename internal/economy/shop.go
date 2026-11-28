@@ -45,6 +45,9 @@ import (
 //	face_ticket_cost   Face Shop tickets one face change costs (0 or more)
 //	deal_paid_percent  a daily deal charges this percent of the table price (1 to 100; 70 = 30% off)
 //	deals_per_kind     daily deals per shop kind (clothing, furniture)
+//	gift_shop          {best, premium, daily}: Gift Shop rows per tab (giftshop.go), each 0 to 500: the most-wished
+//	                   items (BEST tab), a daily pick of animated items (PREMIUM tab) and a daily pick of the rest,
+//	                   after the day's deals; absent = 20/40/120 (an older override file)
 //	clothing_names     {letters: name}, room_names {category code: name}: the names Cherry shows
 //	face_tickets[]     {code, tickets, standard, price, name}: Face Shop ticket packs sold for Gems
 //	                   (price 0 to standard; standard at least 1)
@@ -61,6 +64,7 @@ type Prices struct {
 	FaceTicketCost  int64             `json:"face_ticket_cost"`
 	DealPaidPercent int64             `json:"deal_paid_percent"`
 	DealsPerKind    int               `json:"deals_per_kind"`
+	GiftShop        *GiftShopRows     `json:"gift_shop,omitempty"`
 	ClothingNames   map[string]string `json:"clothing_names"`
 	RoomNames       map[string]string `json:"room_names"`
 	FaceTickets     []FaceTicket      `json:"face_tickets"`
@@ -109,6 +113,9 @@ func checkPrices(p *Prices) error {
 	}
 	if p.DealsPerKind < 0 {
 		return errors.New("deals_per_kind must not be negative")
+	}
+	if g := p.GiftShop; g != nil && (g.Best < 0 || g.Premium < 0 || g.Daily < 0 || max(g.Best, g.Premium, g.Daily) > giftShopRowsMax) {
+		return fmt.Errorf("gift_shop counts must be 0 to %d", giftShopRowsMax)
 	}
 	for _, names := range []map[string]string{p.ClothingNames, p.RoomNames} {
 		for _, code := range slices.Sorted(maps.Keys(names)) {

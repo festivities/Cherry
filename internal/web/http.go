@@ -497,6 +497,7 @@ func newMux(svc *auth.Service) http.Handler {
 	mux.HandleFunc("/v4/faceshop/saveAndPurchase/v2", economy.HandleFaceShopPurchase)
 	mux.HandleFunc("/v4/shop/gift/list/", economy.HandleGiftShopList)
 	mux.HandleFunc("/v4/gift/send", economy.HandleGiftSend)
+	mux.HandleFunc("/v4/shop/gift/item/detail/", economy.HandleGiftItemDetail)
 	economy.RegisterEconomyRoutes(mux)
 	economy.RegisterModelHouseRoutes(mux)
 	economy.RegisterDyeRoutes(mux)

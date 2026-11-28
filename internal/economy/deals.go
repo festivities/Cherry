@@ -45,8 +45,7 @@ func dealsOn(now time.Time) dealSet {
 			if limited, _, _ := limitedSale(it.Code, now); limited {
 				continue // limited items never become deals, whatever their window
 			}
-			h := sha256.Sum256([]byte(strconv.FormatInt(day, 10) + "/" + it.Code)) // fnv clustered codes differing in the last byte
-			cands = append(cands, dealRanked{code: it.Code, rank: binary.BigEndian.Uint64(h[:8])})
+			cands = append(cands, dealRanked{code: it.Code, rank: dayRank(day, it.Code)})
 		}
 		slices.SortFunc(cands, func(a, b dealRanked) int { return cmp.Compare(a.rank, b.rank) })
 		for _, d := range cands[:min(ActivePrices().DealsPerKind, len(cands))] {
@@ -55,6 +54,13 @@ func dealsOn(now time.Time) dealSet {
 		}
 	}
 	return deals
+}
+
+// dayRank is a code's place in one game day's draw (deals, the Gift Shop's daily picks): sha256 of (day, code), so
+// it depends only on the day and the code (fnv clustered codes differing in the last byte).
+func dayRank(day int64, code string) uint64 {
+	h := sha256.Sum256([]byte(strconv.FormatInt(day, 10) + "/" + code))
+	return binary.BigEndian.Uint64(h[:8])
 }
 
 // saleKeys sets a catalog row's sale fields. A daily deal shows discount, its deal price and SALE,

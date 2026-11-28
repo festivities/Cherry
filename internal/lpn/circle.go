@@ -32,6 +32,11 @@ const (
 	circleMaxChatLen = 512 // bytes, as Square's chat
 	circleChatCap    = 200 // messages kept per circle
 	circleChatPage   = 50  // messages in one old-chat reply
+
+	// sc_old_chat_res Result (oldChat): the client stops paging only on 393217 or 393220 [S].
+	circleChatMore = 0      // older pages follow
+	circleChatLast = 393217 // the last page
+	circleChatNone = 393220 // nothing (more) to show, also the refusal
 )
 
 // Outbound (client to server) msgids, cs_* GetIndex (appendix B).
@@ -336,6 +341,19 @@ func (cc *circleChats) before(id, serial int64, n int) []circleChatMsg {
 		}
 	}
 	return slices.Clone(msgs[max(0, end-n):end])
+}
+
+// page is one old-chat reply: up to circleChatPage messages older than serial and the Result (oldChat): none when
+// empty, last when nothing older is left, else more.
+func (cc *circleChats) page(id, serial int64) (uint64, []circleChatMsg) {
+	msgs := cc.before(id, serial, circleChatPage)
+	switch {
+	case len(msgs) == 0:
+		return circleChatNone, nil
+	case len(cc.before(id, msgs[0].serial, 1)) > 0:
+		return circleChatMore, msgs
+	}
+	return circleChatLast, msgs
 }
 
 // circleSession is the per-connection agent-8 state, used from the single handler goroutine of that connection.
@@ -663,14 +681,20 @@ func (s *circleSession) chat(data []byte) {
 }
 
 // oldChat answers cs_old_chat_req (msgid 15) with up to circleChatPage messages older than the given serial, oldest
-// first. [I] the order and the paging rule.
+// first. The Result decides the client's paging (NaCircleChatMgr::SetCircleChatMsgInfo 0x25172c8 [S]): 393217 or
+// 393220 ends it and shows the chat; any other value makes it ask at once for the page older than the smallest serial
+// it holds, read as **(vector begin) with no empty check, so a non-final reply to a client holding no message (a new
+// circle, or any circle after a restart: the log is in memory) is a null dereference: the app died and came back in the
+// Garden (production 2026-11-28: 16 of 30 crash-like room visits ended on this request). So the last page, an empty one
+// and a refusal are always final; 0 means "older pages follow".
 func (s *circleSession) oldChat(frame, data []byte) error {
 	if !s.isMember() {
-		return s.reply(frame, circleRcOldChat, pbVar(nil, 1, circleRefused))
+		return s.reply(frame, circleRcOldChat, pbVar(nil, 1, circleChatNone))
 	}
 	serial, _ := protobufUintField(data, 1)
-	body := pbVar(nil, 1, 0)
-	for _, m := range s.chats.before(s.circleID, int64(serial), circleChatPage) {
+	result, msgs := s.chats.page(s.circleID, int64(serial))
+	body := pbVar(nil, 1, result)
+	for _, m := range msgs {
 		body = pbLen(body, 2, circleChatInfo(m))
 	}
 	return s.reply(frame, circleRcOldChat, body)

@@ -453,6 +453,10 @@ func TestCircleRoomRelayAndLeave(t *testing.T) {
 	b.none()
 	c.none()
 
+	// old chat with no history: final (393220), never "more", or the client dereferences its empty serial list
+	c.send(circleCsOldChat, pbVar(nil, 1, 0))
+	c.expect(circleRcOldChat, pbVar(nil, 1, circleChatNone))
+
 	// chat: everyone in the room, the sender included; a text that is not UTF-8 is dropped
 	a.send(circleCsChat, pbLen(pbVar(nil, 2, 0), 1, []byte("hello")))
 	for _, cl := range []*cirClient{a, b, c} {
@@ -472,17 +476,20 @@ func TestCircleRoomRelayAndLeave(t *testing.T) {
 	}
 	other.none()
 
-	// old chat: the newest page, oldest first; then the page older than serial 2
+	// old chat: the newest page, oldest first, final because nothing older is left; then the page older than serial 2
 	c.send(circleCsOldChat, pbVar(nil, 1, 0))
 	old := c.expectID(circleRcOldChat)
 	msgs := cirList(old, 2)
-	if cirVar(old, 1) != 0 || len(msgs) != 2 || cirVar(msgs[0], 3) != 1 || cirVar(msgs[1], 3) != 2 {
+	if cirVar(old, 1) != circleChatLast || len(msgs) != 2 || cirVar(msgs[0], 3) != 1 || cirVar(msgs[1], 3) != 2 {
 		t.Fatalf("old chat = %x", old)
 	}
 	c.send(circleCsOldChat, pbVar(nil, 1, 2))
-	if older := cirList(c.expectID(circleRcOldChat), 2); len(older) != 1 || cirVar(older[0], 3) != 1 {
-		t.Fatalf("old chat before serial 2 has %d messages", len(older))
+	older := c.expectID(circleRcOldChat)
+	if l := cirList(older, 2); cirVar(older, 1) != circleChatLast || len(l) != 1 || cirVar(l[0], 3) != 1 {
+		t.Fatalf("old chat before serial 2 = %x", older)
 	}
+	c.send(circleCsOldChat, pbVar(nil, 1, 1))
+	c.expect(circleRcOldChat, pbVar(nil, 1, circleChatNone))
 
 	// exit: an empty reply, and the rest get deluser
 	c.send(circleCsRoomExit, nil)
@@ -711,7 +718,24 @@ func TestCircleRefusalsForNonMembers(t *testing.T) {
 	s.send(circleCsMemberList, nil)
 	s.expect(circleRcMemberList, pbVar(nil, 1, circleRefused))
 	s.send(circleCsOldChat, pbVar(nil, 1, 0))
-	s.expect(circleRcOldChat, pbVar(nil, 1, circleRefused))
+	s.expect(circleRcOldChat, pbVar(nil, 1, circleChatNone)) // final: a non-final refusal crashed the client
+}
+
+// TestCircleOldChatPagesEndFinal: a history longer than a page answers "more" (0) until the oldest page, which is final.
+func TestCircleOldChatPagesEndFinal(t *testing.T) {
+	cc := &circleChats{}
+	for range circleChatPage + 10 {
+		cc.add(7, circleChatMsg{sendAid: 1, text: []byte("x")})
+	}
+	if r, msgs := cc.page(7, 0); r != circleChatMore || len(msgs) != circleChatPage || msgs[0].serial != 11 {
+		t.Fatalf("newest page = %d, %d messages", r, len(msgs))
+	}
+	if r, msgs := cc.page(7, 11); r != circleChatLast || len(msgs) != 10 || msgs[0].serial != 1 {
+		t.Fatalf("second page = %d, %d messages", r, len(msgs))
+	}
+	if r, msgs := cc.page(7, 1); r != circleChatNone || msgs != nil {
+		t.Fatalf("past the oldest = %d, %d messages", r, len(msgs))
+	}
 }
 
 // TestCircleShapeCheckerRejectsDrift: the strict table refuses a reply with a missing required field, an extra field or

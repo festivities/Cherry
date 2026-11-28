@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"cherry/data"
 	"cherry/internal/store"
 	"cherry/internal/testutil"
 )
@@ -127,6 +130,108 @@ func TestGiftListShape(t *testing.T) {
 	for _, cat := range []string{"FACE", "GARDEN", "BOGUS"} {
 		if got := giftList(t, cat, "ALL"); got != emptyItems {
 			t.Errorf("%s = %s, want %s", cat, got, emptyItems)
+		}
+	}
+}
+
+// giftPrices loads prices.json with the given gift_shop counts and no daily deals, until the test ends.
+func giftPrices(t *testing.T, best, premium, daily int) {
+	t.Helper()
+	text := strings.Replace(string(data.PricesJSON), `"gift_shop": {"best": 20, "premium": 40, "daily": 120}`,
+		fmt.Sprintf(`"gift_shop": {"best": %d, "premium": %d, "daily": %d}`, best, premium, daily), 1)
+	text = strings.Replace(text, `"deals_per_kind": 3`, `"deals_per_kind": 0`, 1)
+	if !strings.Contains(text, fmt.Sprintf(`"daily": %d}`, daily)) || !strings.Contains(text, `"deals_per_kind": 0`) {
+		t.Fatal("prices.json no longer has the gift_shop or deals_per_kind line this test rewrites")
+	}
+	path := filepath.Join(t.TempDir(), "prices.json")
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := pricesFile.LoadFrom(path); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pricesFile.Reset)
+}
+
+// giftItems decodes a gift list into itemCode -> grade, in order.
+func giftItems(t *testing.T, body string) (codes []string, grades map[string]string) {
+	t.Helper()
+	var out struct {
+		Result struct {
+			Items []map[string]any `json:"items"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(body), &out); err != nil {
+		t.Fatalf("gift list %q: %v", body, err)
+	}
+	grades = map[string]string{}
+	for _, it := range out.Result.Items {
+		code, _ := it["itemCode"].(string)
+		if _, dup := grades[code]; dup {
+			t.Fatalf("%s listed twice", code)
+		}
+		grades[code], _ = it["grade"].(string)
+		codes = append(codes, code)
+	}
+	return codes, grades
+}
+
+// TestGiftShopSelection: the list is bounded by gift_shop: the most-wished items first as BEST, then animated items as
+// PREMIUM (the client's PREMIUM and BEST tabs match grade exactly), then the daily pick; each item once.
+func TestGiftShopSelection(t *testing.T) {
+	phaseEClock(t, time.Date(2026, time.October, 28, 12, 0, 0, 0, time.UTC))
+	files := map[string][]string{"interior/120400001": {"dp.png"}, "dress/225000007": {"dp.png", "x.aniproj"}}
+	for i := 1; i <= 6; i++ {
+		files[fmt.Sprintf("dress/22500000%d", i)] = []string{"dp.png"}
+	}
+	shopFixture(t, files)
+	testutil.InstallAccounts(t, map[string]*store.Account{
+		"w1": {AccessToken: "w1", Aid: "9701", Wishes: []string{"CUTO00003", "CUTO00005"}},
+		"w2": {AccessToken: "w2", Aid: "9702", Wishes: []string{"CUTO00005"}},
+	})
+	giftPrices(t, 1, 1, 2)
+	codes, grades := giftItems(t, giftList(t, "DRESS", "ALL"))
+	if len(codes) != 4 || codes[0] != "CUTO00005" || grades["CUTO00005"] != giftGradeBest || codes[1] != "CUTO00007" || grades["CUTO00007"] != giftGradePremium {
+		t.Fatalf("DRESS = %v %v, want the most-wished CUTO00005 (BEST), the animated CUTO00007 (PREMIUM), then 2 daily picks", codes, grades)
+	}
+	for _, code := range codes[2:] {
+		if grades[code] != giftGradeNormal {
+			t.Errorf("daily pick %s grade %q, want %q", code, grades[code], giftGradeNormal)
+		}
+	}
+	if again, _ := giftItems(t, giftList(t, "DRESS", "BEST")); !slices.Equal(again, codes) {
+		t.Errorf("DRESS/BEST = %v, want the same rows as ALL %v (the client filters by grade)", again, codes)
+	}
+	if room, _ := giftItems(t, giftList(t, "ROOM", "ALL")); !slices.Equal(room, []string{"RUCH00001"}) {
+		t.Errorf("ROOM = %v, want RUCH00001", room)
+	}
+	giftPrices(t, 0, 0, 0)
+	if codes, _ := giftItems(t, giftList(t, "DRESS", "ALL")); len(codes) != 0 {
+		t.Errorf("all counts 0 = %v, want no rows", codes)
+	}
+}
+
+// TestGiftItemDetail: the wish list's gift button asks shop/gift/item/detail/<code> and opens the send popup from its
+// result object; anything that cannot be gifted stays 404.
+func TestGiftItemDetail(t *testing.T) {
+	phaseEClock(t, time.Date(2026, time.October, 28, 12, 0, 0, 0, time.UTC))
+	giftFixture(t, 0, "accepted")
+	get := func(method, code string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		HandleGiftItemDetail(rec, httptest.NewRequest(method, "/v4/shop/gift/item/detail/"+code, nil))
+		return rec
+	}
+	const code = "CUTO00001"
+	rec := get(http.MethodGet, code)
+	res := giftReply(t, rec)
+	want := giftPrice(code, dealsOn(NowFunc()))
+	if rec.Code != http.StatusOK || res["itemCode"] != code || res["itemId"] != float64(225000001) || res["discountedPrice"] != float64(want) ||
+		res["paymentType"] != "GEM" || res["selling"] != true || res["itemName"] == "" || res["representImagePath"] != "" {
+		t.Fatalf("detail = %d %v", rec.Code, res)
+	}
+	for _, c := range []struct{ method, code string }{{http.MethodGet, "GULS00003"}, {http.MethodGet, "BOGUS"}, {http.MethodGet, ""}, {http.MethodPost, code}} {
+		if rec := get(c.method, c.code); rec.Code != http.StatusNotFound {
+			t.Errorf("%s %q = %d, want 404", c.method, c.code, rec.Code)
 		}
 	}
 }
