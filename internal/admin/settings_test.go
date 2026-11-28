@@ -353,8 +353,13 @@ func TestRestart(t *testing.T) {
 	}
 	expect(t, owner.post("/settings/restart", url.Values{"csrf": {owner.csrf()}}), http.StatusConflict)
 
-	calls := 0
-	fx.s.restart = func() { calls++ }
+	calls, broadcasts := 0, 0
+	fx.s.restart = func(broadcast bool) {
+		calls++
+		if broadcast {
+			broadcasts++
+		}
+	}
 	st := fx.client()
 	st.signInDev("staff")
 	expect(t, st.post("/settings/restart", url.Values{"csrf": {st.csrf()}}), http.StatusForbidden)
@@ -367,19 +372,27 @@ func TestRestart(t *testing.T) {
 		t.Fatal("a refused restart called the hook")
 	}
 
-	if page := owner.get("/settings"); !strings.Contains(page.body, `action="/settings/restart"`) {
-		t.Fatal("with a restart hook the page must show the button")
+	if page := owner.get("/settings"); !strings.Contains(page.body, `action="/settings/restart"`) || !strings.Contains(page.body, `name="broadcast" value="1"`) {
+		t.Fatal("with a restart hook the page must show the button and the broadcast tickbox")
 	}
 	r := owner.post("/settings/restart", url.Values{"csrf": {owner.csrf()}})
 	expect(t, r, http.StatusOK)
-	if !strings.Contains(r.body, "Cherry is restarting") || calls != 1 {
-		t.Fatalf("restart: calls %d, body lacks the notice: %v", calls, !strings.Contains(r.body, "Cherry is restarting"))
+	if !strings.Contains(r.body, "Cherry is restarting") || calls != 1 || broadcasts != 0 || strings.Contains(r.body, "in-game banner") {
+		t.Fatalf("restart without the tickbox: calls %d, broadcasts %d", calls, broadcasts)
 	}
-	found := false
+	// Ticked: the hook is asked for the broadcast and the answer says so.
+	r = owner.post("/settings/restart", url.Values{"csrf": {owner.csrf()}, "broadcast": {"1"}})
+	expect(t, r, http.StatusOK)
+	if calls != 2 || broadcasts != 1 || !strings.Contains(r.body, "in-game banner") {
+		t.Fatalf("restart with the tickbox: calls %d, broadcasts %d", calls, broadcasts)
+	}
+	var details []string
 	for _, row := range auditRows(t) {
-		found = found || (row.Action == "restart" && row.Target == "server")
+		if row.Action == "restart" && row.Target == "server" {
+			details = append(details, row.Detail)
+		}
 	}
-	if !found {
-		t.Fatal("no restart audit row")
+	if len(details) != 2 || strings.Contains(details[0], `"broadcast":true`) == strings.Contains(details[1], `"broadcast":true`) {
+		t.Fatalf("restart audit rows %v, want one with and one without the broadcast", details)
 	}
 }

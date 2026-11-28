@@ -65,9 +65,10 @@ type settingsPage struct {
 	CanRestart                bool                // the Restart button works here (OnRestart is set)
 }
 
-// OnRestart asks cmd/cherry for a restart: the graceful shutdown, then the binary again (cmd/cherry restart_unix.go). It is
+// OnRestart asks cmd/cherry for a restart: the graceful shutdown, then the binary again (cmd/cherry restart_unix.go). With
+// broadcast, the players online get the in-game restart banner first (the owner's "Broadcast to server?" tickbox). It is
 // set before Start, and only where the process can start itself again; nil hides the Restart button.
-var OnRestart func()
+var OnRestart func(broadcast bool)
 
 // settingsOwner answers the refusal for anyone but the owner and reports whether the request may go on. The log line names
 // no value.
@@ -202,7 +203,9 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request, sess ses
 }
 
 // handleRestart: POST /settings/restart (privileged, owner). Writes the audit row, answers, then asks for the restart: the
-// staff listener's graceful shutdown lets this answer finish first. Every game connection drops; clients reconnect.
+// staff listener's graceful shutdown lets this answer finish first. Every game connection drops; clients reconnect. The
+// optional form field broadcast=1 (the "Broadcast to server?" tickbox) sends the players online the restart banner
+// first (cmd/cherry announceRestart).
 func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request, sess session) {
 	if !s.settingsOwner(w, sess) {
 		return
@@ -212,15 +215,20 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request, sess sess
 		return
 	}
 	players := s.onlinePlayers()
-	if err := store.Audit(sess.identity, "restart", "server", map[string]any{"players": players}); err != nil {
+	broadcast := r.PostFormValue("broadcast") == "1"
+	if err := store.Audit(sess.identity, "restart", "server", map[string]any{"players": players, "broadcast": broadcast}); err != nil {
 		s.storeError(w, err) // a staff action that cannot be recorded must not run
 		return
 	}
-	s.logger.Printf("cherry: restart requested by %s from the staff UI (%d players online)", auth.MaskIdentity(sess.identity), players)
+	s.logger.Printf("cherry: restart requested by %s from the staff UI (%d players online, broadcast %t)", auth.MaskIdentity(sess.identity), players, broadcast)
 	v := s.base(r, sess, "Restarting")
-	v.Notice = fmt.Sprintf("Cherry is restarting. %d players were online; their game connections drop and they reconnect. This panel answers again in about 15 seconds, and you will need to sign in again.", players)
+	told := ""
+	if broadcast {
+		told = " They see an in-game banner that the server is restarting a few seconds before."
+	}
+	v.Notice = fmt.Sprintf("Cherry is restarting. %d players were online; their game connections drop and they reconnect.%s This panel answers again in about 15 seconds, and you will need to sign in again.", players, told)
 	s.render(w, http.StatusOK, "result", v)
-	s.restart()
+	s.restart(broadcast)
 }
 
 // handleSquareRoomCap: POST /settings/square-room-cap (privileged, owner). The form: players, 2 to 100 (the store refuses

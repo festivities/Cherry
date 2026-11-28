@@ -240,7 +240,9 @@
 {{if .Settings.CanRestart}}<p>Stops Cherry cleanly (saved data stays; the queued chat log and token times are written first) and starts it again. Every player's game connection drops, and staff sign-ins end. The game is back in about 15 seconds. Use it after publishing a document that applies at the next restart.</p>
 <form method="post" action="/settings/restart" data-confirm="Restart Cherry now? Every player online is disconnected for about 15 seconds.">
 <input type="hidden" name="csrf" value="{{$.CSRF}}">
-<div class="actions"><button type="submit" class="danger">Restart server</button></div>
+<div class="actions"><button type="submit" class="danger">Restart server</button>
+<label class="check"><input type="checkbox" name="broadcast" value="1"> Broadcast to server?</label></div>
+<small class="help">Ticked: every player online first sees an in-game banner that the server is restarting, about 5 seconds before the restart. A deploy or a restart from the host always sends it.</small>
 </form>{{else}}<p class="muted">Not available on this host: Cherry restarts itself only on Linux or another Unix system. Restart it from the host.</p>{{end}}
 </section>
 {{end}}

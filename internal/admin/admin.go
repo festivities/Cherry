@@ -66,7 +66,7 @@ type Server struct {
 	sessionCount    func() int                                              // lpn.SessionCount
 	broadcastBanner func(message string) (int, int)                         // lpn.BroadcastBanner
 	broadcastMaint  func(message string, duration time.Duration) (int, int) // lpn.BroadcastMaintPopup
-	restart         func()                                                  // OnRestart; nil = this process cannot restart itself
+	restart         func(broadcast bool)                                    // OnRestart; nil = this process cannot restart itself
 	memo            memo                                                    // the Insights aggregates, kept for insightsTTL
 
 	srv *http.Server

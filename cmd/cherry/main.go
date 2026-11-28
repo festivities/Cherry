@@ -159,12 +159,13 @@ func main() {
 	// A staff ban and a logout end the account's live connections (store.OnRevoke).
 	store.OnRevoke = lpn.CloseAid
 	store.OnTakeover = lpn.KickAid // a sign-in on another device: the older one is told, then closed
-	// The staff UI's Restart button (owner) ends main's wait like a signal; main then starts the binary again (reexec).
-	restartReq := make(chan struct{}, 1)
+	// The staff UI's Restart button (owner) ends main's wait like a signal; main then starts the binary again (reexec). The
+	// value says whether the owner ticked "Broadcast to server?".
+	restartReq := make(chan bool, 1)
 	if canReexec {
-		admin.OnRestart = func() {
+		admin.OnRestart = func(broadcast bool) {
 			select {
-			case restartReq <- struct{}{}:
+			case restartReq <- broadcast:
 			default: // a restart is already on its way
 			}
 		}
@@ -257,15 +258,21 @@ func main() {
 	defer maintStop()
 	go maintain(maintCtx, logger, cfg)
 
-	restarting := false
+	restarting, announce := false, false
 	select {
 	case err := <-errc:
 		logger.Fatalf("cherry: https serve: %v", err)
 	case <-ctx.Done():
+		// A deploy, a rollback or a restart from the host (systemctl restart/stop: every agent-initiated restart) always
+		// tells the players (owner, 2026-11-28).
+		announce = true
 		logger.Printf("cherry: signal received, shutting down")
-	case <-restartReq:
+	case announce = <-restartReq:
 		restarting = true
 		logger.Printf("cherry: restart requested, shutting down")
+	}
+	if announce {
+		announceRestart(logger)
 	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -298,4 +305,25 @@ func main() {
 		err := reexec()
 		logger.Fatalf("cherry: restart: %v", err)
 	}
+}
+
+// restartNotice is the in-game banner a restart sends (Cherry-made text); restartNoticeLead is how long the players
+// online keep their connections after it, so the banner shows before the drop.
+const (
+	restartNotice     = "The server is restarting now. Please reconnect in a minute."
+	restartNoticeLead = 5 * time.Second
+)
+
+// announceRestart sends every live session the restart banner (lpn.BroadcastBanner, the staff Broadcast page's banner)
+// and waits restartNoticeLead while the game still runs. With no one online it does not wait. The send runs on its own:
+// it writes the sessions one after another and a stalled peer holds a write for up to 5 s (squareWriteTTL), which must
+// not stretch the shutdown towards systemd's stop timeout (30 s on the host); live peers get it within milliseconds.
+func announceRestart(logger *log.Logger) {
+	n := lpn.SessionCount()
+	if n == 0 {
+		return
+	}
+	go lpn.BroadcastBanner(restartNotice)
+	logger.Printf("cherry: restart banner going to %d sessions; shutting down in %s", n, restartNoticeLead)
+	time.Sleep(restartNoticeLead)
 }
