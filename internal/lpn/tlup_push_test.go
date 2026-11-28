@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -72,13 +73,22 @@ func TestHeartButtonFrames(t *testing.T) {
 // TestHeartButtonShowConditions: the show push needs hearts left and a Garden that is not the
 // viewer's own. A capped viewer and an own Garden push nothing.
 func TestHeartButtonShowConditions(t *testing.T) {
-	testutil.InstallAccounts(t, map[string]*store.Account{
-		"hbv": {AccessToken: "hbv", SessionKey: "sk", Aid: "9721", Name: "V"},
-		"hbo": {AccessToken: "hbo", SessionKey: "sk", Aid: "9722", Name: "O"},
-		"hbt": {AccessToken: "hbt", SessionKey: "sk", Aid: "9723", Name: "T"},
-	})
+	accts := map[string]*store.Account{
+		"hb-1": {AccessToken: "hb-1", SessionKey: "sk", Aid: "9721", Name: "V"},
+		"hb-2": {AccessToken: "hb-2", SessionKey: "sk", Aid: "9722", Name: "O"},
+		"hb-3": {AccessToken: "hb-3", SessionKey: "sk", Aid: "9723", Name: "T"},
+	}
+	base := int(economy.HeartBase())
+	for i := range base {
+		aid := strconv.Itoa(97600 + i)
+		accts["hb-t-"+aid] = &store.Account{AccessToken: "hb-t-" + aid, SessionKey: "sk", Aid: aid, Name: "T" + aid}
+	}
+	testutil.InstallAccounts(t, accts)
 	for _, aid := range []string{"9721", "9722", "9723"} {
 		testutil.SetLab(t, aid, false)
+	}
+	for i := range base {
+		testutil.SetLab(t, strconv.Itoa(97600+i), false)
 	}
 	now := time.Date(2026, time.October, 22, 12, 0, 0, 0, time.UTC)
 	old := economy.NowFunc
@@ -86,25 +96,33 @@ func TestHeartButtonShowConditions(t *testing.T) {
 	t.Cleanup(func() { economy.NowFunc = old })
 	var logs bytes.Buffer
 	logger := log.New(&logs, "", 0)
-	show := func(viewer, owner uint64) []byte {
+	show := func(viewer, owner uint64, at time.Time) []byte {
 		rc := &recordConn{}
-		if err := heartButtonShow(&lockedConn{Conn: rc}, heartTestSession, viewer, owner, now, logger); err != nil {
+		if err := heartButtonShow(&lockedConn{Conn: rc}, heartTestSession, viewer, owner, at, logger); err != nil {
 			t.Fatalf("show %d/%d: %v", viewer, owner, err)
 		}
 		return rc.out.Bytes()
 	}
 	wantShow := tlupDFrame(heartTestSession, tlupQuestEventMsg, tlupQuestActionBody(heartButtonShowID))
 
-	if got := show(9721, 9721); len(got) != 0 {
+	if got := show(9721, 9721, now); len(got) != 0 {
 		t.Fatalf("own Garden pushed %x", got)
 	}
-	if got := show(9721, 9722); !bytes.Equal(got, wantShow) {
+	if got := show(9721, 9722, now); !bytes.Equal(got, wantShow) {
 		t.Fatalf("friend Garden push = %x, want %x", got, wantShow)
 	}
-	for range economy.HeartBase() {
-		economy.HeartSend("9721", "9723", now)
+	// After hearting 9723, heartButtonShow for 9723 is suppressed during cooldown, then re-enabled at expiry.
+	economy.HeartSend("9721", "9723", now)
+	if got := show(9721, 9723, now.Add(time.Hour)); len(got) != 0 {
+		t.Fatalf("cooldown host pushed %x", got)
 	}
-	if got := show(9721, 9722); len(got) != 0 {
+	if got := show(9721, 9723, now.Add(economy.HeartCooldown())); !bytes.Equal(got, wantShow) {
+		t.Fatalf("post-cooldown host push = %x, want %x", got, wantShow)
+	}
+	for i := range base - 1 {
+		economy.HeartSend("9721", strconv.Itoa(97600+i), now)
+	}
+	if got := show(9721, 9722, now); len(got) != 0 {
 		t.Fatalf("capped viewer pushed %x", got)
 	}
 	if n := strings.Count(logs.String(), "cherry: heart button show aid=9721 owner=9722\n"); n != 1 {
@@ -211,16 +229,25 @@ func roomLoad(t *testing.T, token, path string) {
 // another player leaves it up; a counted heart to the visited owner hides it. Own rooms, capped
 // viewers and Garden loads get no show.
 func TestRoomHeartButtonFlow(t *testing.T) {
-	testutil.InstallAccounts(t, map[string]*store.Account{
+	accts := map[string]*store.Account{
 		"hv-1": {AccessToken: "hv-1", SessionKey: "sk", Aid: "9741", Name: "V"},
 		"hv-2": {AccessToken: "hv-2", SessionKey: "sk", Aid: "9742", Name: "O"},
 		"hv-3": {AccessToken: "hv-3", SessionKey: "sk", Aid: "9743", Name: "T"},
 		"hv-4": {AccessToken: "hv-4", SessionKey: "sk", Aid: "9744", Name: "R"},
 		"hv-5": {AccessToken: "hv-5", SessionKey: "sk", Aid: "9745", Name: "C"},
 		"hv-6": {AccessToken: "hv-6", SessionKey: "sk", Aid: "9746", Name: "G"},
-	})
+	}
+	base := int(economy.HeartBase())
+	for i := range base {
+		aid := strconv.Itoa(97700 + i)
+		accts["hv-t-"+aid] = &store.Account{AccessToken: "hv-t-" + aid, SessionKey: "sk", Aid: aid, Name: "T" + aid}
+	}
+	testutil.InstallAccounts(t, accts)
 	for _, aid := range []string{"9741", "9742", "9743", "9744", "9745", "9746"} {
 		testutil.SetLab(t, aid, false)
+	}
+	for i := range base {
+		testutil.SetLab(t, strconv.Itoa(97700+i), false)
 	}
 	now := time.Date(2026, time.October, 22, 12, 0, 0, 0, time.UTC)
 	old := economy.NowFunc
@@ -284,8 +311,8 @@ func TestRoomHeartButtonFlow(t *testing.T) {
 	})
 
 	t.Run("capped viewer pushes nothing", func(t *testing.T) {
-		for range economy.HeartBase() {
-			economy.HeartSend("9745", "9743", now)
+		for i := range base {
+			economy.HeartSend("9745", strconv.Itoa(97700+i), now)
 		}
 		client, stop := heartGateway(t)
 		defer stop()

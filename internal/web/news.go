@@ -210,7 +210,7 @@ func buildAlertEnvelope(viewerAid string, alert store.NewsAlert, actor newsActor
 	heartReceivable := false
 	switch alert.Type {
 	case "HEART_RECEIVE":
-		heartReceivable = economy.HeartReceivable(viewerAid, alert.Actor)
+		heartReceivable = economy.HeartReceivableAt(viewerAid, alert.Actor, economy.NowFunc())
 	case "DIARY_STICKER_SAVE", "DIARY_COMMENT_SAVE", "GUESTBOOK_WRITE_SAVE", "GUESTBOOK_COMMENT_SAVE":
 		data.GiftBoxID = alert.Ref
 		data.Message = alert.Message

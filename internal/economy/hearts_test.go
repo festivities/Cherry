@@ -3,6 +3,7 @@ package economy
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
@@ -35,29 +36,41 @@ func heartAccount(t *testing.T, aid string) store.Account {
 	return *acc
 }
 
-func sendHearts(t *testing.T, from, to string, n int, now time.Time) {
+func heartTargetIDs(prefix, count int) []string {
+	out := make([]string, count)
+	for i := range count {
+		out[i] = strconv.Itoa(prefix + i)
+	}
+	return out
+}
+
+func sendHeartsToTargets(t *testing.T, from string, targets []string, now time.Time) {
 	t.Helper()
-	for i := range n {
+	for i, to := range targets {
 		if sent, _ := HeartSend(from, to, now); !sent {
 			t.Fatalf("heart %d from %s to %s refused", i+1, from, to)
 		}
 	}
 }
 
-// TestHeartSendCapsAtBase: repeats to one target count, the heart past the daily allowance is refused
-// and changes nothing, and the target's received total follows the counted hearts only.
+// TestHeartSendCapsAtBase: hearts to distinct targets count up to the daily allowance, the heart past
+// the daily allowance is refused and changes nothing, and each target's received total follows counted hearts.
 func TestHeartSendCapsAtBase(t *testing.T) {
-	heartAccounts(t, "9801", "9802")
+	targets := heartTargetIDs(9802, int(HeartBase())+1)
+	heartAccounts(t, append([]string{"9801"}, targets...)...)
 	now := jstAt(22, 12, 0)
-	sendHearts(t, "9801", "9802", int(HeartBase()), now)
-	if sent, _ := HeartSend("9801", "9802", now); sent {
+	sendHeartsToTargets(t, "9801", targets[:HeartBase()], now)
+	if sent, _ := HeartSend("9801", targets[HeartBase()], now); sent {
 		t.Fatal("heart past the daily allowance counted")
 	}
 	if left, _ := HeartsLeft("9801", now); left != 0 {
 		t.Fatalf("left = %d, want 0", left)
 	}
-	if got := HeartsReceived("9802"); got != HeartBase() {
-		t.Fatalf("received = %d, want %d", got, HeartBase())
+	if got := HeartsReceived(targets[0]); got != 1 {
+		t.Fatalf("received[0] = %d, want 1", got)
+	}
+	if got := HeartsReceived(targets[HeartBase()]); got != 0 {
+		t.Fatalf("received[over-cap] = %d, want 0", got)
 	}
 	if got := heartAccount(t, "9801").Hearts.Sent; got != HeartBase() {
 		t.Fatalf("sent = %d, want %d", got, HeartBase())
@@ -67,22 +80,23 @@ func TestHeartSendCapsAtBase(t *testing.T) {
 // TestHeartRewardOncePerDay: the HeartQuestCount()-th heart credits HeartRewardCash() once, and the
 // hearts after it up to the daily allowance do not pay again; the next game day can earn it again.
 func TestHeartRewardOncePerDay(t *testing.T) {
-	heartAccounts(t, "9803", "9804")
+	targets := heartTargetIDs(98100, int(HeartBase()))
+	heartAccounts(t, append([]string{"9803"}, targets...)...)
 	day1 := jstAt(22, 12, 0)
-	sendHearts(t, "9803", "9804", int(HeartQuestCount()-1), day1)
+	sendHeartsToTargets(t, "9803", targets[:HeartQuestCount()-1], day1)
 	if acc := heartAccount(t, "9803"); acc.Cash != 0 || acc.Gems != 0 {
 		t.Fatalf("balances before the quest heart = cash %d gems %d, want 0/0", acc.Cash, acc.Gems)
 	}
-	sendHearts(t, "9803", "9804", 1, day1)
+	sendHeartsToTargets(t, "9803", targets[HeartQuestCount()-1:HeartQuestCount()], day1)
 	if acc := heartAccount(t, "9803"); acc.Cash != HeartRewardCash() || acc.Gems != 0 {
 		t.Fatalf("balances after quest heart = cash %d gems %d, want %d/0", acc.Cash, acc.Gems, HeartRewardCash())
 	}
-	sendHearts(t, "9803", "9804", int(HeartBase()-HeartQuestCount()), day1)
+	sendHeartsToTargets(t, "9803", targets[HeartQuestCount():HeartBase()], day1)
 	if acc := heartAccount(t, "9803"); acc.Cash != HeartRewardCash() || acc.Gems != 0 {
 		t.Fatalf("balances after the rest of the allowance = cash %d gems %d, want %d/0", acc.Cash, acc.Gems, HeartRewardCash())
 	}
 	day2 := jstAt(23, 12, 0)
-	sendHearts(t, "9803", "9804", int(HeartQuestCount()), day2)
+	sendHeartsToTargets(t, "9803", targets[:HeartQuestCount()], day2)
 	if acc := heartAccount(t, "9803"); acc.Cash != 2*HeartRewardCash() || acc.Gems != 0 {
 		t.Fatalf("balances after day 2 = cash %d gems %d, want %d/0", acc.Cash, acc.Gems, 2*HeartRewardCash())
 	}
@@ -92,28 +106,29 @@ func TestHeartRewardOncePerDay(t *testing.T) {
 // hearts; with three extra hearts (a staff grant) the next two are sent and one is left; the left-over extra
 // heart survives the game day while the daily count resets, and the last one is spent after the allowance.
 func TestHeartExtraHearts(t *testing.T) {
-	heartAccounts(t, "9860", "9861")
+	targets := heartTargetIDs(98200, int(HeartBase())+4)
+	heartAccounts(t, append([]string{"9860"}, targets...)...)
 	if HeartQuestCount() >= HeartBase() {
 		t.Fatal("this test needs hearts.quest below hearts.base")
 	}
 	day1, day2 := jstAt(22, 12, 0), jstAt(23, 12, 0)
-	sendHearts(t, "9860", "9861", int(HeartBase()), day1)
-	if sent, _ := HeartSend("9860", "9861", day1); sent {
+	sendHeartsToTargets(t, "9860", targets[:HeartBase()], day1)
+	if sent, _ := HeartSend("9860", targets[HeartBase()], day1); sent {
 		t.Fatal("heart past the allowance counted without extra hearts")
 	}
 	grantExtra(t, "9860", 3, day1)
 	if left, _ := HeartsLeft("9860", day1); left != 3 {
 		t.Fatalf("left after the grant = %d, want 3", left)
 	}
-	sendHearts(t, "9860", "9861", 2, day1)
+	sendHeartsToTargets(t, "9860", targets[HeartBase():HeartBase()+2], day1)
 	if acc := heartAccount(t, "9860"); acc.Hearts.Extra != 1 || acc.Hearts.Sent != HeartBase()+2 || acc.Cash != HeartRewardCash() {
 		t.Fatalf("after the extras: hearts %+v cash %d, want extra 1, sent %d, cash %d", *acc.Hearts, acc.Cash, HeartBase()+2, HeartRewardCash())
 	}
 	if left, _ := HeartsLeft("9860", day2); left != HeartBase()+1 {
 		t.Fatalf("day 2 left = %d, want the allowance and the extra heart (%d)", left, HeartBase()+1)
 	}
-	sendHearts(t, "9860", "9861", int(HeartBase())+1, day2)
-	if sent, _ := HeartSend("9860", "9861", day2); sent {
+	sendHeartsToTargets(t, "9860", targets[:HeartBase()+1], day2)
+	if sent, _ := HeartSend("9860", targets[HeartBase()+1], day2); sent {
 		t.Fatal("heart past the extra hearts counted")
 	}
 	if acc := heartAccount(t, "9860"); acc.Hearts.Sent != HeartBase()+1 || acc.Hearts.Extra != 0 || acc.Cash != 2*HeartRewardCash() {
@@ -121,19 +136,48 @@ func TestHeartExtraHearts(t *testing.T) {
 	}
 }
 
-// TestHeartQuestRules: hearts.quest is from 1 to hearts.base, and an override that leaves it out means hearts.base, so
-// an operator file written before the field existed loads and keeps its meaning.
+// TestHeartQuestRules: hearts.quest is from 1 to hearts.base, and an override that leaves it out means hearts.base;
+// hearts.cooldown_minutes is 0..1440 (omitted defaults to 240, 0 disables the per-target cooldown).
 func TestHeartQuestRules(t *testing.T) {
 	t.Cleanup(resetOperatorData)
 	raw := data.RewardsJSON
 	refuseFile(t, rewardsFile.LoadFrom, "rewards.json", mutateDefault(t, raw, `"quest": 20`, `"quest": 31`), "hearts.quest must be from 1 to hearts.base")
 	refuseFile(t, rewardsFile.LoadFrom, "rewards.json", mutateDefault(t, raw, `"quest": 20`, `"quest": -1`), "hearts.quest must be from 1 to hearts.base")
+	refuseFile(t, rewardsFile.LoadFrom, "rewards.json", mutateDefault(t, raw, `"cooldown_minutes": 240`, `"cooldown_minutes": -1`), "hearts.cooldown_minutes must be from 0 to 1440")
+	refuseFile(t, rewardsFile.LoadFrom, "rewards.json", mutateDefault(t, raw, `"cooldown_minutes": 240`, `"cooldown_minutes": 1441`), "hearts.cooldown_minutes must be from 0 to 1440")
 	path := filepath.Join(t.TempDir(), "rewards.json")
 	if err := os.WriteFile(path, []byte(mutateDefault(t, raw, `"quest": 20, `, ``)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := rewardsFile.LoadFrom(path); err != nil || HeartQuestCount() != HeartBase() {
 		t.Fatalf("override without hearts.quest: err %v, quest %d, base %d", err, HeartQuestCount(), HeartBase())
+	}
+	// Override without cooldown_minutes falls back to defaultHeartCooldownMinutes (240).
+	noCD := filepath.Join(t.TempDir(), "rewards-nocd.json")
+	if err := os.WriteFile(noCD, []byte(mutateDefault(t, raw, `, "cooldown_minutes": 240`, ``)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := rewardsFile.LoadFrom(noCD); err != nil || HeartCooldownMinutes() != defaultHeartCooldownMinutes {
+		t.Fatalf("override without cooldown_minutes: err %v, got %d, want %d", err, HeartCooldownMinutes(), defaultHeartCooldownMinutes)
+	}
+	// Explicit cooldown_minutes: 0 disables per-target cooldown.
+	zeroCD := filepath.Join(t.TempDir(), "rewards-zerocd.json")
+	if err := os.WriteFile(zeroCD, []byte(mutateDefault(t, raw, `"cooldown_minutes": 240`, `"cooldown_minutes": 0`)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := rewardsFile.LoadFrom(zeroCD); err != nil || HeartCooldownMinutes() != 0 {
+		t.Fatalf("override with cooldown_minutes=0: err %v, got %d", err, HeartCooldownMinutes())
+	}
+	heartAccounts(t, "9871", "9872")
+	now := jstAt(22, 12, 0)
+	if sent, _ := HeartSend("9871", "9872", now); !sent {
+		t.Fatal("first heart with cooldown=0 refused")
+	}
+	if !HeartReceivableAt("9871", "9872", now) {
+		t.Fatal("HeartReceivableAt false with cooldown=0")
+	}
+	if sent, _ := HeartSend("9871", "9872", now); !sent {
+		t.Fatal("repeat heart with cooldown=0 refused")
 	}
 }
 
@@ -180,11 +224,12 @@ func TestHeartSelfUnknownAndSynthetic(t *testing.T) {
 // TestHeartDayRollover: a new game day restarts the sender's count and today's sender list, but
 // the lifetime received total carries over.
 func TestHeartDayRollover(t *testing.T) {
-	heartAccounts(t, "9806", "9807")
+	targets := heartTargetIDs(98300, int(HeartBase()))
+	heartAccounts(t, append([]string{"9806"}, targets...)...)
 	day1, day2 := jstAt(22, 12, 0), jstAt(23, 7, 0)
-	sendHearts(t, "9806", "9807", int(HeartBase()), day1)
-	if senders := HeartSenders("9807", day1); int64(len(senders)) != HeartBase() {
-		t.Fatalf("day 1 senders = %d, want %d", len(senders), HeartBase())
+	sendHeartsToTargets(t, "9806", targets, day1)
+	if senders := HeartSenders(targets[0], day1); len(senders) != 1 || senders[0] != "9806" {
+		t.Fatalf("day 1 senders = %v, want [9806]", senders)
 	}
 	if !HaveHeart("9806", day2) {
 		t.Fatal("haveHeart false on the new day")
@@ -192,49 +237,119 @@ func TestHeartDayRollover(t *testing.T) {
 	if HaveHeart("9806", day1) {
 		t.Fatal("haveHeart true at the cap")
 	}
-	if senders := HeartSenders("9807", day2); len(senders) != 0 {
+	if senders := HeartSenders(targets[0], day2); len(senders) != 0 {
 		t.Fatalf("day 2 senders = %v, want none", senders)
 	}
-	if got := HeartsReceived("9807"); got != HeartBase() {
-		t.Fatalf("received after rollover = %d, want %d", got, HeartBase())
+	if got := HeartsReceived(targets[0]); got != 1 {
+		t.Fatalf("received after rollover = %d, want 1", got)
 	}
-	sendHearts(t, "9806", "9807", 1, day2)
-	if got := HeartsReceived("9807"); got != HeartBase()+1 {
-		t.Fatalf("received after day 2 heart = %d, want %d", got, HeartBase()+1)
+	sendHeartsToTargets(t, "9806", targets[:1], day2)
+	if got := HeartsReceived(targets[0]); got != 2 {
+		t.Fatalf("received after day 2 heart = %d, want 2", got)
 	}
 }
 
 // TestHeartSendersBounded: the receiver keeps the newest ActiveRewards().Hearts.FromLimit sender aids of the day.
 func TestHeartSendersBounded(t *testing.T) {
-	aids := []string{"9810", "9811", "9812", "9813", "9814", "9815", "9816", "9817", "9818", "9819", "9820", "9821"}
-	heartAccounts(t, append(aids, "9822")...)
+	sendersIn := heartTargetIDs(98400, ActiveRewards().Hearts.FromLimit+5)
+	heartAccounts(t, append(sendersIn, "9822")...)
 	now := jstAt(22, 12, 0)
-	for _, from := range aids[:11] { // 11 senders x 5 hearts = 55 counted, keep the newest 50
-		sendHearts(t, from, "9822", 5, now)
+	for _, from := range sendersIn {
+		if sent, _ := HeartSend(from, "9822", now); !sent {
+			t.Fatalf("heart from %s to 9822 refused", from)
+		}
 	}
 	senders := HeartSenders("9822", now)
 	if len(senders) != ActiveRewards().Hearts.FromLimit {
 		t.Fatalf("senders = %d, want %d", len(senders), ActiveRewards().Hearts.FromLimit)
 	}
-	if senders[0] != "9811" || senders[len(senders)-1] != "9820" {
-		t.Fatalf("senders first %q last %q, want 9811 and 9820", senders[0], senders[len(senders)-1])
+	if senders[0] != sendersIn[5] || senders[len(senders)-1] != sendersIn[len(sendersIn)-1] {
+		t.Fatalf("senders first %q last %q, want %s and %s", senders[0], senders[len(senders)-1], sendersIn[5], sendersIn[len(sendersIn)-1])
 	}
-	if got := HeartsReceived("9822"); got != 55 {
-		t.Fatalf("received = %d, want 55", got)
+	if got := HeartsReceived("9822"); got != int64(len(sendersIn)) {
+		t.Fatalf("received = %d, want %d", got, len(sendersIn))
 	}
 }
 
 // TestHeartLedgerLine: the reward writes one cash line with reason heart:<yyyymmdd>.
 func TestHeartLedgerLine(t *testing.T) {
-	heartAccounts(t, "9830", "9831")
+	targets := heartTargetIDs(98500, int(HeartQuestCount()))
+	heartAccounts(t, append([]string{"9830"}, targets...)...)
 	testutil.UseDatabase(t)
-	sendHearts(t, "9830", "9831", int(HeartQuestCount()), jstAt(22, 12, 0))
+	sendHeartsToTargets(t, "9830", targets, jstAt(22, 12, 0))
 	lines, err := store.LedgerLines()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(lines) != 1 || lines[0].Aid != "9830" || lines[0].Currency != "cash" || lines[0].Delta != HeartRewardCash() || lines[0].Reason != "heart:20261022" {
 		t.Fatalf("ledger = %+v, want one cash +%d heart:20261022 line", lines, HeartRewardCash())
+	}
+}
+
+// TestHeartPerTargetCooldown verifies that a sender cannot re-heart the same target until
+// HeartCooldown() has elapsed, while other targets and reverse sends remain open, cooldowns
+// survive the 06:00 JST game-day rollover, and expired timestamps are pruned on later sends.
+func TestHeartPerTargetCooldown(t *testing.T) {
+	heartAccounts(t, "9880", "9881", "9882")
+	cd := HeartCooldown()
+	if cd != 4*time.Hour {
+		t.Fatalf("default HeartCooldown = %v, want 4h", cd)
+	}
+	t0 := time.Date(2026, time.October, 22, 5, 50, 0, 0, jst) // 10 min before 06:00 JST rollover
+
+	if !HeartReceivableAt("9880", "9881", t0) {
+		t.Fatal("initial HeartReceivableAt false")
+	}
+	if sent, _ := HeartSend("9880", "9881", t0); !sent {
+		t.Fatal("initial HeartSend refused")
+	}
+	// Immediately and 1 second before expiry: blocked, no extra count or target bump.
+	for _, at := range []time.Time{t0, t0.Add(cd - time.Second)} {
+		if HeartReceivableAt("9880", "9881", at) {
+			t.Fatalf("HeartReceivableAt true during cooldown at +%v", at.Sub(t0))
+		}
+		if sent, _ := HeartSend("9880", "9881", at); sent {
+			t.Fatalf("HeartSend counted during cooldown at +%v", at.Sub(t0))
+		}
+	}
+	// Different target and reverse direction are unaffected.
+	if !HeartReceivableAt("9880", "9882", t0) || !HeartReceivableAt("9881", "9880", t0) {
+		t.Fatal("cooldown leaked to another target or reverse direction")
+	}
+	if sent, _ := HeartSend("9881", "9880", t0.Add(time.Minute)); !sent {
+		t.Fatal("reverse HeartSend refused")
+	}
+	// Across the 06:00 JST game-day rollover (15 min after t0): still blocked!
+	afterRollover := t0.Add(15 * time.Minute)
+	if HeartReceivableAt("9880", "9881", afterRollover) {
+		t.Fatal("game-day rollover bypassed per-target cooldown")
+	}
+	if sent, _ := HeartSend("9880", "9881", afterRollover); sent {
+		t.Fatal("HeartSend succeeded across game-day rollover during cooldown")
+	}
+	// Receiving a heart on the new day must not wipe 9880's outgoing cooldown.
+	if sent, _ := HeartSend("9882", "9880", afterRollover); !sent {
+		t.Fatal("9882 -> 9880 refused")
+	}
+	if HeartReceivableAt("9880", "9881", afterRollover) {
+		t.Fatal("receiving a heart wiped outgoing cooldown")
+	}
+	// Exact expiry: allowed again, and expired entries get pruned on send.
+	atExpiry := t0.Add(cd)
+	if !HeartReceivableAt("9880", "9881", atExpiry) {
+		t.Fatal("HeartReceivableAt still false at exact cooldown expiry")
+	}
+	if sent, _ := HeartSend("9880", "9882", atExpiry); !sent {
+		t.Fatal("HeartSend to 9882 at expiry refused")
+	}
+	if _, stale := heartAccount(t, "9880").Hearts.SentAt["9881"]; stale {
+		t.Fatal("expired SentAt entry for 9881 was not pruned")
+	}
+	if sent, _ := HeartSend("9880", "9881", atExpiry); !sent {
+		t.Fatal("HeartSend to 9881 at exact expiry refused")
+	}
+	if got := HeartsReceived("9881"); got != 2 {
+		t.Fatalf("9881 received = %d, want 2", got)
 	}
 }
 

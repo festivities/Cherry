@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
@@ -177,15 +178,24 @@ func TestPushFriendNoti(t *testing.T) {
 }
 
 func TestTLUPHeartGatewayPush(t *testing.T) {
-	testutil.InstallAccounts(t, map[string]*store.Account{
+	base := int(economy.HeartBase())
+	accts := map[string]*store.Account{
 		"th-9761": {AccessToken: "th-9761", SessionKey: "sk-9761", Aid: "9761", Name: "Sender"},
 		"th-9762": {AccessToken: "th-9762", SessionKey: "sk-9762", Aid: "9762", Name: "Receiver"},
-	})
+	}
+	for i := range base {
+		aid := strconv.Itoa(9763 + i)
+		accts["th-"+aid] = &store.Account{AccessToken: "th-" + aid, SessionKey: "sk-" + aid, Aid: aid, Name: "Other" + aid}
+	}
+	testutil.InstallAccounts(t, accts)
 	testutil.SetLab(t, "9761", false)
 	testutil.SetLab(t, "9762", false)
-	now := time.Date(2026, time.November, 24, 12, 0, 0, 0, time.FixedZone("JST", 9*3600))
+	for i := range base {
+		testutil.SetLab(t, strconv.Itoa(9763+i), false)
+	}
+	clock := time.Date(2026, time.November, 24, 12, 0, 0, 0, time.FixedZone("JST", 9*3600))
 	old := economy.NowFunc
-	economy.NowFunc = func() time.Time { return now }
+	economy.NowFunc = func() time.Time { return clock }
 	t.Cleanup(func() { economy.NowFunc = old })
 
 	recvConn := inviteeSession(t, "sk-9762")
@@ -209,17 +219,34 @@ func TestTLUPHeartGatewayPush(t *testing.T) {
 	expectNoSessionPush(t, senderConn)
 	expectNoSessionPush(t, recvConn)
 
-	// Valid hearts push to receiver until the daily cap is reached.
-	for i := byte(1); i <= byte(economy.HeartBase()); i++ {
-		sendTLUPHeart(i+1, 9762)
-		op, txn, payload := readLOPush(t, recvConn)
-		if op != loOpPush || txn != 0 {
-			t.Fatalf("heart %d push op=%#02x txn=%d", i, op, txn)
-		}
-		assertPushNotiJSON(t, payload, "heart", "1795489200000", "9761", "Sender sent you a Heart!", "HTR", 1, nil)
+	// Valid heart pushes to receiver.
+	sendTLUPHeart(2, 9762)
+	op, txn, payload := readLOPush(t, recvConn)
+	if op != loOpPush || txn != 0 {
+		t.Fatalf("first heart push op=%#02x txn=%d", op, txn)
 	}
+	assertPushNotiJSON(t, payload, "heart", strconv.FormatInt(clock.UnixMilli(), 10), "9761", "Sender sent you a Heart!", "HTR", 1, nil)
 
-	// Over-cap heart is refused and must not push.
+	// Immediate repeat to 9762 during cooldown is refused and must not push.
+	sendTLUPHeart(3, 9762)
+	expectNoSessionPush(t, recvConn)
+
+	// After cooldown expires, another heart to 9762 pushes.
+	clock = clock.Add(economy.HeartCooldown())
+	sendTLUPHeart(4, 9762)
+	op, txn, payload = readLOPush(t, recvConn)
+	if op != loOpPush || txn != 0 {
+		t.Fatalf("post-cooldown heart push op=%#02x txn=%d", op, txn)
+	}
+	assertPushNotiJSON(t, payload, "heart", strconv.FormatInt(clock.UnixMilli(), 10), "9761", "Sender sent you a Heart!", "HTR", 1, nil)
+
+	// Exhaust remaining daily allowance to distinct targets; over-cap heart is refused even after cooldown.
+	for i := 0; i < base-2; i++ {
+		if sent, _ := economy.HeartSend("9761", strconv.Itoa(9763+i), clock); !sent {
+			t.Fatalf("fill heart %d refused", i+3)
+		}
+	}
+	clock = clock.Add(economy.HeartCooldown())
 	sendTLUPHeart(99, 9762)
 	expectNoSessionPush(t, recvConn)
 }

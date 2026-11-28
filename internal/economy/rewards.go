@@ -24,7 +24,8 @@ import (
 //	                  within one season or against quests[].
 //	hearts            base: hearts a sender may send per game day (the daily allowance); quest: hearts sent in
 //	                  one game day that pay the reward (0 = base, else 1 to base); reward_gems and reward_cash:
-//	                  credited once a day with the quest-th heart; from_limit: sender aids kept per receiver per day
+//	                  credited once a day with the quest-th heart; from_limit: sender aids kept per receiver per day;
+//	                  cooldown_minutes: minutes before the same sender may heart the same target again (nil = 240, 0 = off)
 //	mail              sender: the name on staff mail; default_days: expiry when a staff grant gives none;
 //	                  max_amount: largest Gem, Cash or ticket amount per mail row; max_rows: mailbox size
 //	birthday          claim_days: days from the avatar's birthday on which its reward can be claimed;
@@ -95,14 +96,21 @@ type EventQuest struct {
 	Gems   int64  `json:"gems"`
 }
 
+const (
+	defaultHeartCooldownMinutes = 240     // 4 hours between hearts from the same sender to the same target
+	maxHeartCooldownMinutes     = 24 * 60 // at most 24 hours
+)
+
 // HeartRules are the hearts-quest numbers (rewards.json hearts). checkRewards sets Quest to Base when the file
-// leaves it out, so callers read the effective value.
+// leaves it out, so callers read the effective value. CooldownMinutes nil means defaultHeartCooldownMinutes; 0 turns
+// the per-target cooldown off.
 type HeartRules struct {
-	Base       int64 `json:"base"`
-	Quest      int64 `json:"quest"`
-	RewardGems int64 `json:"reward_gems"`
-	RewardCash int64 `json:"reward_cash"`
-	FromLimit  int   `json:"from_limit"`
+	Base            int64 `json:"base"`
+	Quest           int64 `json:"quest"`
+	RewardGems      int64 `json:"reward_gems"`
+	RewardCash      int64 `json:"reward_cash"`
+	FromLimit       int   `json:"from_limit"`
+	CooldownMinutes *int  `json:"cooldown_minutes,omitempty"`
 }
 
 // MailRules are the mailbox numbers (rewards.json mail).
@@ -166,6 +174,8 @@ func checkRewards(r *Rewards) error {
 		return errors.New("hearts.reward_cash must not be negative")
 	case r.Hearts.FromLimit < 1:
 		return errors.New("hearts.from_limit must be at least 1")
+	case r.Hearts.CooldownMinutes != nil && (*r.Hearts.CooldownMinutes < 0 || *r.Hearts.CooldownMinutes > maxHeartCooldownMinutes):
+		return fmt.Errorf("hearts.cooldown_minutes must be from 0 to %d", maxHeartCooldownMinutes)
 	case r.Mail.Sender == "":
 		return errors.New("mail.sender must not be empty")
 	case r.Mail.DefaultDays < 1 || r.Mail.DefaultDays > 3650:

@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -108,13 +109,22 @@ func buildTLUPHeartFrame(sessionKey string, senderAid, packetNo, targetAid uint6
 
 func TestWebHeartNotiDelivery(t *testing.T) {
 	testutil.UseDatabase(t)
-	installSocialTestAccounts(t, map[string]*store.Account{
+	accts := map[string]*store.Account{
 		"hn-9981": {AccessToken: "hn-9981", SessionKey: "sk-hn-9981", Aid: "9981", Name: "Sender"},
 		"hn-9982": {AccessToken: "hn-9982", SessionKey: "sk-hn-9982", Aid: "9982", Name: "Receiver"},
-	})
+	}
+	base := int(economy.HeartBase())
+	for i := range base {
+		aid := strconv.Itoa(9983 + i)
+		accts["hn-"+aid] = &store.Account{AccessToken: "hn-" + aid, SessionKey: "sk-hn-" + aid, Aid: aid, Name: "Other" + aid}
+	}
+	installSocialTestAccounts(t, accts)
 	testutil.SetLab(t, "9981", false)
 	testutil.SetLab(t, "9982", false)
-	heartTestClock(t, heartTestNow())
+	for i := range base {
+		testutil.SetLab(t, strconv.Itoa(9983+i), false)
+	}
+	clock := heartTestClock(t, heartTestNow())
 
 	recvConn := startTestSessionConn(t, "sk-hn-9982", 9982)
 
@@ -154,9 +164,9 @@ func TestWebHeartNotiDelivery(t *testing.T) {
 	sendHeart(1, 9981)
 	expectNoWebSessionPush(t, recvConn)
 
-	// Valid hearts push catg:"heart", params.pType:"HTR".
-	for i := uint64(1); i <= uint64(economy.HeartBase()); i++ {
-		sendHeart(i+1, 9982)
+	// Valid heart pushes catg:"heart", params.pType:"HTR".
+	assertHeartPush := func() {
+		t.Helper()
 		op, txn, payload := readSessionLOFrame(t, recvConn)
 		if op != 0x1B || txn != 0 {
 			t.Fatalf("op=%#02x txn=%d, want 0x1b txn 0", op, txn)
@@ -170,8 +180,25 @@ func TestWebHeartNotiDelivery(t *testing.T) {
 			t.Fatalf("unexpected heart push: %s", payload)
 		}
 	}
+	sendHeart(2, 9982)
+	assertHeartPush()
 
-	// Rejected (over-cap) heart must not push.
+	// Immediate repeat to the same target during cooldown must not push.
+	sendHeart(3, 9982)
+	expectNoWebSessionPush(t, recvConn)
+
+	// After cooldown expires, hearting 9982 again pushes HTR.
+	*clock = clock.Add(economy.HeartCooldown())
+	sendHeart(4, 9982)
+	assertHeartPush()
+
+	// Exhaust remaining daily hearts to distinct targets; over-cap heart to 9982 after cooldown must not push.
+	for i := 0; i < base-2; i++ {
+		if sent, _ := economy.HeartSend("9981", strconv.Itoa(9983+i), *clock); !sent {
+			t.Fatalf("heart %d refused", i+3)
+		}
+	}
+	*clock = clock.Add(economy.HeartCooldown())
 	sendHeart(99, 9982)
 	expectNoWebSessionPush(t, recvConn)
 }

@@ -153,7 +153,7 @@ func tlupQuestDetailPush(conn *lockedConn, session [8]byte, aid uint64, questID 
 // HeartReceivable rules out viewer's own room.
 func heartButtonShow(conn *lockedConn, session [8]byte, viewer, owner uint64, now time.Time, logger *log.Logger) error {
 	v, o := strconv.FormatUint(viewer, 10), strconv.FormatUint(owner, 10)
-	if !economy.HaveHeart(v, now) || !economy.HeartReceivable(v, o) {
+	if !economy.HaveHeart(v, now) || !economy.HeartReceivableAt(v, o, now) {
 		return nil
 	}
 	return heartButtonPush(conn, session, heartButtonShowID, viewer, owner, logger)

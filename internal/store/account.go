@@ -358,13 +358,15 @@ type BossDay struct {
 }
 
 // Hearts is one account's heart state (economy/hearts.go). Sent and From belong to game
-// day Day and count as empty on another day; Received and Extra are lifetime totals.
+// day Day and count as empty on another day; Received, Extra and SentAt carry across days
+// (expired SentAt entries are pruned on send).
 type Hearts struct {
-	Day      int64    `json:"day"`
-	Sent     int64    `json:"sent,omitempty"`     // hearts this account sent on Day, daily and extra
-	Received int64    `json:"received,omitempty"` // hearts received, all days
-	From     []string `json:"from,omitempty"`     // sender aids that hearted this account on Day, bounded
-	Extra    int64    `json:"extra,omitempty"`    // extra hearts to send (staff grants), spent one per heart past the daily allowance
+	Day      int64            `json:"day"`
+	Sent     int64            `json:"sent,omitempty"`     // hearts this account sent on Day, daily and extra
+	Received int64            `json:"received,omitempty"` // hearts received, all days
+	From     []string         `json:"from,omitempty"`     // sender aids that hearted this account on Day, bounded
+	Extra    int64            `json:"extra,omitempty"`    // extra hearts to send (staff grants), spent one per heart past the daily allowance
+	SentAt   map[string]int64 `json:"sentAt,omitempty"`   // target aid -> unix seconds of the last heart sent by this account
 }
 
 const MinAvatarID = 10

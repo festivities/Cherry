@@ -12,8 +12,9 @@ import (
 // heart button, profile, diary and ranking buttons). A sender may send hearts.base hearts on one
 // game day (06:00 JST, like the quests); past that each extra heart it holds (Extra, staff grants)
 // is spent for one more. The hearts.quest-th heart of the day completes the hearts quest (row 9005)
-// and credits hearts.reward_gems and hearts.reward_cash once (rewards.json). Repeats to one target
-// count. Wire notes: %TEMP%\opencode\cherry\phaseDE-20261022\hearts.md.
+// and credits hearts.reward_gems and hearts.reward_cash once (rewards.json). Sending to the same
+// target is gated by a per-target cooldown (hearts.cooldown_minutes, default 240 = 4 hours).
+// Wire notes: %TEMP%\opencode\cherry\phaseDE-20261022\hearts.md.
 
 // HeartBase is the hearts a sender may send per game day without extra hearts.
 func HeartBase() int64 { return ActiveRewards().Hearts.Base }
@@ -28,16 +29,40 @@ func HeartRewardGems() int64 { return ActiveRewards().Hearts.RewardGems }
 // HeartRewardCash is the Cash credited once a day with the HeartQuestCount-th heart.
 func HeartRewardCash() int64 { return ActiveRewards().Hearts.RewardCash }
 
-// heartRecord returns acc's heart record for day. A record from another day keeps only the
-// lifetime Received and Extra counts.
+// HeartCooldownMinutes is the per-target heart cooldown in minutes (default 240 = 4 hours; 0 = off).
+func HeartCooldownMinutes() int {
+	if m := ActiveRewards().Hearts.CooldownMinutes; m != nil {
+		return *m
+	}
+	return defaultHeartCooldownMinutes
+}
+
+// HeartCooldown is the per-target cooldown between hearts from the same sender to the same target.
+func HeartCooldown() time.Duration {
+	return time.Duration(HeartCooldownMinutes()) * time.Minute
+}
+
+// heartRecord returns acc's heart record for day. A record from another day keeps Received, Extra,
+// and active per-target SentAt timestamps.
 func heartRecord(acc *store.Account, day int64) store.Hearts {
 	if acc.Hearts == nil {
 		return store.Hearts{Day: day}
 	}
 	if acc.Hearts.Day != day {
-		return store.Hearts{Day: day, Received: acc.Hearts.Received, Extra: acc.Hearts.Extra}
+		return store.Hearts{Day: day, Received: acc.Hearts.Received, Extra: acc.Hearts.Extra, SentAt: acc.Hearts.SentAt}
 	}
 	return *acc.Hearts
+}
+
+// heartOnCooldownLocked reports whether acc sent a heart to target within the configured per-target
+// cooldown window as of now. Caller holds AccountsMu.
+func heartOnCooldownLocked(acc *store.Account, target string, now time.Time) bool {
+	cdSec := int64(HeartCooldown() / time.Second)
+	if cdSec <= 0 || acc == nil || acc.Hearts == nil {
+		return false
+	}
+	ts, ok := acc.Hearts.SentAt[target]
+	return ok && ts > 0 && ts+cdSec > now.Unix()
 }
 
 // heartExtra is acc's extra hearts to send (a lifetime count, 0 for none).
@@ -69,7 +94,7 @@ func HeartSend(sender, target string, now time.Time) (sent, questDone bool) {
 	defer store.AccountsMu.Unlock()
 	acc := store.AccountByAidLocked(sender)
 	tgt, valid := heartTargetLocked(target)
-	if acc == nil || !valid || sender == target || store.BlockedBetweenLocked(sender, target) {
+	if acc == nil || !valid || sender == target || store.BlockedBetweenLocked(sender, target) || heartOnCooldownLocked(acc, target, now) {
 		return false, false
 	}
 	day := AttendDayKey(now)
@@ -105,6 +130,19 @@ func HeartSend(sender, target string, now time.Time) (sent, questDone bool) {
 		}
 	}
 	rec.Sent++
+	if cdSec := int64(HeartCooldown() / time.Second); cdSec > 0 {
+		nowSec := now.Unix()
+		sentAt := make(map[string]int64, len(rec.SentAt)+1)
+		for k, ts := range rec.SentAt {
+			if ts > 0 && ts+cdSec > nowSec {
+				sentAt[k] = ts
+			}
+		}
+		sentAt[target] = nowSec
+		rec.SentAt = sentAt
+	} else {
+		rec.SentAt = nil
+	}
 	acc.Hearts = &rec
 	questDone = rec.Sent == HeartQuestCount()
 	var lines []store.LedgerLine
@@ -182,16 +220,23 @@ func HaveHeart(viewer string, now time.Time) bool {
 	return ok && left > 0
 }
 
-// HeartReceivable reports whether viewer may send a heart to target: viewer is a known account,
-// target is a known account or the synthetic Friend, and they differ.
-func HeartReceivable(viewer, target string) bool {
+// HeartReceivableAt reports whether viewer may send a heart to target at now: viewer is a known
+// account, target is a known account or the synthetic Friend, they differ, neither blocks the
+// other, and viewer has not hearted target within HeartCooldown().
+func HeartReceivableAt(viewer, target string, now time.Time) bool {
 	store.AccountsMu.Lock()
 	defer store.AccountsMu.Unlock()
-	if store.AccountByAidLocked(viewer) == nil || viewer == target || store.BlockedBetweenLocked(viewer, target) {
+	acc := store.AccountByAidLocked(viewer)
+	if acc == nil || viewer == target || store.BlockedBetweenLocked(viewer, target) || heartOnCooldownLocked(acc, target, now) {
 		return false
 	}
 	_, valid := heartTargetLocked(target)
 	return valid
+}
+
+// HeartReceivable reports whether viewer may send a heart to target at NowFunc().
+func HeartReceivable(viewer, target string) bool {
+	return HeartReceivableAt(viewer, target, NowFunc())
 }
 
 // HeartResetSeconds is the whole seconds from now to the next 06:00 JST game-day start, as the

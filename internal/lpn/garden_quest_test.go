@@ -3,6 +3,7 @@ package lpn
 import (
 	"io"
 	"log"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -32,14 +33,17 @@ func pbFields(t *testing.T, data []byte) (vars map[uint64]uint64, msgs map[uint6
 // and each row's status, progress and Gem reward (quests.md section 10). The hearts row shows
 // the hearts sent today (2 of the quest count here) and is not claimable.
 func TestGardenQuestListEncoding(t *testing.T) {
-	testutil.InstallAccounts(t, map[string]*store.Account{"qlist": {AccessToken: "qlist", SessionKey: "sk", Aid: "9716", Name: "List"}})
+	testutil.InstallAccounts(t, map[string]*store.Account{
+		"qlist":   {AccessToken: "qlist", SessionKey: "sk", Aid: "9716", Name: "List"},
+		"qlist-1": {AccessToken: "qlist-1", SessionKey: "sk", Aid: "9717", Name: "T1"},
+	})
 	testutil.SetLab(t, "9716", false)
+	testutil.SetLab(t, "9717", false)
 	now := time.Date(2026, time.October, 11, 12, 0, 0, 0, time.UTC)
 	economy.MarkQuest("9716", "garden-own", now) // completion credits and claims at once
 	economy.MarkQuest("9716", "square", now)
-	for range 2 {
-		economy.HeartSend("9716", store.FriendAID, now)
-	}
+	economy.HeartSend("9716", store.FriendAID, now)
+	economy.HeartSend("9716", "9717", now)
 	vars, msgs := pbFields(t, gardenQuestList("9716", now))
 	if v, ok := vars[1]; !ok || v != 0 {
 		t.Fatalf("error_code = %d present=%v, want present 0", v, ok)
@@ -132,8 +136,17 @@ func quietLogger() *log.Logger { return log.New(io.Discard, "", 0) }
 // TestGardenQuestCompleteAndInfoReplies covers the required fields of the claim, info and
 // accept replies: an unknown id gets error 1, and a QuestInfo that is still present.
 func TestGardenQuestCompleteAndInfoReplies(t *testing.T) {
-	testutil.InstallAccounts(t, map[string]*store.Account{"qlpn": {AccessToken: "qlpn", SessionKey: "sk", Aid: "9711", Name: "Lpn"}})
+	accts := map[string]*store.Account{"qlpn": {AccessToken: "qlpn", SessionKey: "sk", Aid: "9711", Name: "Lpn"}}
+	qCount := int(economy.HeartQuestCount())
+	for i := range qCount {
+		aid := strconv.Itoa(97500 + i)
+		accts["qt-"+aid] = &store.Account{AccessToken: "qt-" + aid, SessionKey: "sk", Aid: aid, Name: "T" + aid}
+	}
+	testutil.InstallAccounts(t, accts)
 	testutil.SetLab(t, "9711", false)
+	for i := range qCount {
+		testutil.SetLab(t, strconv.Itoa(97500+i), false)
+	}
 	now := time.Now()
 	logger := quietLogger()
 
@@ -185,8 +198,8 @@ func TestGardenQuestCompleteAndInfoReplies(t *testing.T) {
 
 	// The hearts row is display-only: the quest count of hearts shows it claimed (status 2, the quest
 	// count sent), and a claim is refused with no reward row, because HeartSend already paid the 600 Cash.
-	for range uint64(economy.HeartQuestCount()) {
-		economy.HeartSend("9711", store.FriendAID, now)
+	for i := range qCount {
+		economy.HeartSend("9711", strconv.Itoa(97500+i), now)
 	}
 	msgid, body = gardenQuestReply(16, 9711, pbVar(nil, 1, uint64(economy.HeartQuest().ID)), now, logger)
 	vars, msgs = pbFields(t, body)

@@ -80,12 +80,13 @@ func handleHeart(w http.ResponseWriter, r *http.Request) {
 	}
 	viewer, _ := store.AccountForRequest(r)
 	kind, target, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/v4/heart/"), "/")
+	now := economy.NowFunc()
 	var result bool
 	switch kind {
 	case "haveHeart":
-		result = economy.HaveHeart(viewer.Aid, economy.NowFunc())
+		result = economy.HaveHeart(viewer.Aid, now)
 	case "receivable":
-		result = economy.HeartReceivable(viewer.Aid, strings.Trim(target, "/"))
+		result = economy.HeartReceivableAt(viewer.Aid, strings.Trim(target, "/"), now)
 	default:
 		httpx.ServeNotFound(w)
 		return
@@ -103,9 +104,15 @@ func handleHeartSenderList(w http.ResponseWriter, r *http.Request) {
 		httpx.ServeNotFound(w)
 		return
 	}
+	viewer, viewerOK := store.AccountForRequest(r)
 	aid := strings.Trim(strings.TrimPrefix(r.URL.Path, "/v4/noti/heart/receive/list/"), "/")
+	viewerAid := aid
+	if viewerOK && viewer.Aid != "" {
+		viewerAid = viewer.Aid
+	}
+	now := economy.NowFunc()
 	rows := []map[string]any{}
-	for _, sender := range economy.HeartSenders(aid, economy.NowFunc()) {
+	for _, sender := range economy.HeartSenders(aid, now) {
 		acc, ok := store.AccountByAvatarID(sender)
 		if !ok {
 			continue
@@ -114,7 +121,7 @@ func handleHeartSenderList(w http.ResponseWriter, r *http.Request) {
 		rows = append(rows, map[string]any{
 			"avatarId": sender, "name": acc.Name, "avatarProfile": img,
 			"obsProfileImagePath": img, "regDate": "", "introduce": "",
-			"heartReceivable": true, "profileBackground": bg,
+			"heartReceivable": economy.HeartReceivableAt(viewerAid, sender, now), "profileBackground": bg,
 		})
 	}
 	body, _ := json.Marshal(map[string]any{"result": rows})
@@ -129,7 +136,7 @@ func heartProfileFields(viewerAid, aid string) map[string]any {
 	return map[string]any{
 		"heartCount":            economy.HeartsReceived(aid),
 		"haveHeart":             economy.HaveHeart(viewerAid, now),
-		"heartReceivable":       economy.HeartReceivable(viewerAid, aid),
+		"heartReceivable":       economy.HeartReceivableAt(viewerAid, aid, now),
 		"haveHeartBalance":      left,
 		"haveExtraHeartBalance": 0,
 	}

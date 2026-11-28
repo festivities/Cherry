@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -105,14 +106,22 @@ func TestTLUPClientEvents(t *testing.T) {
 }
 
 // TestRecordTLUPEvents: the daily allowance of hearts counts, pays the sender's quest reward once through the economy
-// and queues one hearts notice; the heart past the allowance counts nothing. Each event logs its ids and ParamData names only.
+// and queues one hearts notice; a duplicate to the same target during cooldown and the heart past the allowance count
+// nothing. Each event logs its ids and ParamData names only.
 func TestRecordTLUPEvents(t *testing.T) {
-	testutil.InstallAccounts(t, map[string]*store.Account{
+	base := int(economy.HeartBase())
+	accts := map[string]*store.Account{
 		"rtok-9711": {AccessToken: "rtok-9711", SessionKey: "sk", Aid: "9711", Name: "S"},
-		"rtok-9712": {AccessToken: "rtok-9712", SessionKey: "sk", Aid: "9712", Name: "T"},
-	})
+	}
+	for i := range base + 1 {
+		aid := strconv.Itoa(9712 + i)
+		accts["rtok-"+aid] = &store.Account{AccessToken: "rtok-" + aid, SessionKey: "sk", Aid: aid, Name: "T" + aid}
+	}
+	testutil.InstallAccounts(t, accts)
 	testutil.SetLab(t, "9711", false)
-	testutil.SetLab(t, "9712", false)
+	for i := range base + 1 {
+		testutil.SetLab(t, strconv.Itoa(9712+i), false)
+	}
 	now := time.Date(2026, time.October, 22, 12, 0, 0, 0, time.UTC)
 	old := economy.NowFunc
 	economy.NowFunc = func() time.Time { return now }
@@ -120,12 +129,16 @@ func TestRecordTLUPEvents(t *testing.T) {
 	var logs bytes.Buffer
 	logger := log.New(&logs, "", 0)
 
-	for range economy.HeartBase() {
-		recordTLUPEvents(logger, tlupClientEvent(9711, 3, heartEvent(9712)), 0)
+	for i := range base {
+		recordTLUPEvents(logger, tlupClientEvent(9711, uint64(3+i), heartEvent(uint64(9712+i))), 0)
 	}
-	recordTLUPEvents(logger, tlupClientEvent(9711, 4, heartEvent(9712)), 0) // refused: cap
-	if got := economy.HeartsReceived("9712"); got != economy.HeartBase() {
-		t.Fatalf("received = %d, want %d", got, economy.HeartBase())
+	recordTLUPEvents(logger, tlupClientEvent(9711, 90, heartEvent(9712)), 0)              // refused: cooldown
+	recordTLUPEvents(logger, tlupClientEvent(9711, 91, heartEvent(uint64(9712+base))), 0) // refused: cap
+	if got := economy.HeartsReceived("9712"); got != 1 {
+		t.Fatalf("received[9712] = %d, want 1", got)
+	}
+	if got := economy.HeartsReceived(strconv.Itoa(9712 + base)); got != 0 {
+		t.Fatalf("received[over-cap] = %d, want 0", got)
 	}
 	store.AccountsMu.Lock()
 	acc := store.AccountByAidLocked("9711")
@@ -137,8 +150,8 @@ func TestRecordTLUPEvents(t *testing.T) {
 	if notes := takeQuestNotices(9711); len(notes) != 1 || notes[0].ID != economy.HeartQuest().ID {
 		t.Fatalf("notices = %+v, want one hearts notice", notes)
 	}
-	if got := strings.Count(logs.String(), "cherry: tlup event aid=9711 "); got != int(economy.HeartBase())+1 {
-		t.Fatalf("tlup event lines = %d, want %d", got, economy.HeartBase()+1)
+	if got := strings.Count(logs.String(), "cherry: tlup event aid=9711 "); got != base+2 {
+		t.Fatalf("tlup event lines = %d, want %d", got, base+2)
 	}
 	if line := `cherry: tlup event aid=9711 service=102 event=12 params=["youraid"]` + "\n"; !strings.Contains(logs.String(), line) {
 		t.Fatalf("log lacks %q in %q", line, logs.String())

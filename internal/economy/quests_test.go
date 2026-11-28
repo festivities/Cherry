@@ -223,7 +223,8 @@ func TestQuestMarkCreditsLegacyDoneRecord(t *testing.T) {
 // TestHeartRowNeverPaysThroughQuests: the hearts row is display-only. MarkQuest and ClaimQuest
 // refuse it, and the hearts sent to the quest count credit its Cash once, as one heart:<day> ledger line.
 func TestHeartRowNeverPaysThroughQuests(t *testing.T) {
-	questAccount(t, "9701")
+	targets := heartTargetIDs(97100, int(HeartBase()))
+	heartAccounts(t, append([]string{"9701"}, targets...)...)
 	dir := questStore(t)
 	now := jstAt(11, 12, 0)
 	if _, done := MarkQuest("9701", "", now); done {
@@ -232,7 +233,7 @@ func TestHeartRowNeverPaysThroughQuests(t *testing.T) {
 	if gems, code := ClaimQuest("9701", HeartQuest().ID, now); gems != 0 || code != questErrRejected {
 		t.Fatalf("claim before hearts = %d/%d, want refused", gems, code)
 	}
-	sendHearts(t, "9701", store.FriendAID, int(HeartBase()), now)
+	sendHeartsToTargets(t, "9701", targets, now)
 	if gems, code := ClaimQuest("9701", HeartQuest().ID, now); gems != 0 || code != questErrRejected {
 		t.Fatalf("claim after hearts = %d/%d, want refused", gems, code)
 	}

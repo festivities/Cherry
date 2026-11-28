@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -12,20 +13,30 @@ import (
 	"cherry/internal/store"
 )
 
-// heartTestClock pins the economy clock to a fixed JST time for one test.
-func heartTestClock(t *testing.T, now time.Time) {
+// heartTestClock pins the economy clock to a mutable JST time for one test.
+func heartTestClock(t *testing.T, now time.Time) *time.Time {
 	t.Helper()
+	clock := now
 	old := economy.NowFunc
-	economy.NowFunc = func() time.Time { return now }
+	economy.NowFunc = func() time.Time { return clock }
 	t.Cleanup(func() { economy.NowFunc = old })
+	return &clock
 }
 
-func heartTestAccounts(t *testing.T) {
+func heartTestAccounts(t *testing.T) []string {
 	t.Helper()
-	installSocialTestAccounts(t, map[string]*store.Account{
+	accts := map[string]*store.Account{
 		"hq-tok":    {AccessToken: "hq-tok", SessionKey: "sk", Aid: "9901", Name: "Sender"},
 		"hq-friend": {AccessToken: "hq-friend", SessionKey: "sk", Aid: "9902", Name: "Receiver"},
-	})
+	}
+	targets := []string{"9902"}
+	for i := 1; i < int(economy.HeartBase())+2; i++ {
+		aid := strconv.Itoa(99100 + i)
+		accts["hq-t-"+aid] = &store.Account{AccessToken: "hq-t-" + aid, SessionKey: "sk", Aid: aid, Name: "T" + aid}
+		targets = append(targets, aid)
+	}
+	installSocialTestAccounts(t, accts)
+	return targets
 }
 
 func heartTestNow() time.Time {
@@ -36,7 +47,7 @@ func heartTestNow() time.Time {
 // strings; the block follows the caller's own sends.
 func TestQuestStatusHeartBlock(t *testing.T) {
 	heartTestClock(t, heartTestNow())
-	heartTestAccounts(t)
+	targets := heartTestAccounts(t)
 	rec := socialTestRequestAs(t, "hq-tok", http.MethodGet, "/v4/quest/status", "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d %s", rec.Code, rec.Body.String())
@@ -60,12 +71,14 @@ func TestQuestStatusHeartBlock(t *testing.T) {
 	if !ok || !regexp.MustCompile(`^[0-9]+$`).MatchString(expire) || expire != "64800" {
 		t.Fatalf("toExpire = %#v, want decimal string 64800 (18 h to the 06:00 JST reset)", got.Result["toExpire"])
 	}
+	sentIdx := 0
 	sendTo := func(n int64) {
 		t.Helper()
 		for range n {
-			if sent, _ := economy.HeartSend("9901", "9902", heartTestNow()); !sent {
-				t.Fatal("heart refused")
+			if sent, _ := economy.HeartSend("9901", targets[sentIdx], heartTestNow()); !sent {
+				t.Fatalf("heart %d to %s refused", sentIdx+1, targets[sentIdx])
 			}
+			sentIdx++
 		}
 	}
 	sendTo(economy.HeartQuestCount() - 1)
@@ -120,10 +133,11 @@ func TestQuestLaborStatus(t *testing.T) {
 	}
 }
 
-// TestHeartRoutes covers heart/haveHeart and heart/receivable as {"result":<bool>}.
+// TestHeartRoutes covers heart/haveHeart and heart/receivable as {"result":<bool>}, including
+// per-target cooldown gating.
 func TestHeartRoutes(t *testing.T) {
-	heartTestClock(t, heartTestNow())
-	heartTestAccounts(t)
+	clock := heartTestClock(t, heartTestNow())
+	targets := heartTestAccounts(t)
 	get := func(target string) map[string]bool {
 		t.Helper()
 		rec := socialTestRequestAs(t, "hq-tok", http.MethodGet, target, "")
@@ -148,11 +162,25 @@ func TestHeartRoutes(t *testing.T) {
 	if got := get("/v4/heart/haveHeart/9902"); !got["result"] {
 		t.Fatalf("haveHeart under cap = %v", got)
 	}
-	for range economy.HeartBase() {
-		economy.HeartSend("9901", "9902", heartTestNow())
+	// Sending to 9902 puts 9902 on cooldown while other targets remain receivable.
+	if sent, _ := economy.HeartSend("9901", "9902", *clock); !sent {
+		t.Fatal("first heart to 9902 refused")
+	}
+	if got := get("/v4/heart/receivable/9902"); got["result"] {
+		t.Fatalf("receivable during cooldown = %v, want false", got)
+	}
+	if got := get("/v4/heart/receivable/" + targets[1]); !got["result"] {
+		t.Fatalf("receivable other target = %v, want true", got)
+	}
+	for i := 1; i < int(economy.HeartBase()); i++ {
+		economy.HeartSend("9901", targets[i], *clock)
 	}
 	if got := get("/v4/heart/haveHeart/9902"); got["result"] {
 		t.Fatalf("haveHeart at cap = %v", got)
+	}
+	*clock = clock.Add(economy.HeartCooldown())
+	if got := get("/v4/heart/receivable/9902"); !got["result"] {
+		t.Fatalf("receivable after cooldown = %v, want true", got)
 	}
 	if rec := socialTestRequestAs(t, "hq-tok", http.MethodPost, "/v4/heart/receivable/9902", ""); rec.Code != http.StatusNotFound {
 		t.Fatalf("POST receivable = %d, want 404", rec.Code)
@@ -162,26 +190,30 @@ func TestHeartRoutes(t *testing.T) {
 	}
 }
 
-// TestHeartSenderListRoute: the receiver sees today's senders with string fields and a bool;
-// nobody who received nothing gets [].
+// TestHeartSenderListRoute: the receiver sees today's senders with string fields and a cooldown-aware
+// heartReceivable bool; nobody who received nothing gets [].
 func TestHeartSenderListRoute(t *testing.T) {
-	heartTestClock(t, heartTestNow())
+	clock := heartTestClock(t, heartTestNow())
 	heartTestAccounts(t)
 	if rec := socialTestRequestAs(t, "hq-tok", http.MethodGet, "/v4/noti/heart/receive/list/9901?timestamp=0", ""); rec.Body.String() != `{"result":[]}` {
 		t.Fatalf("empty list = %s", rec.Body.String())
 	}
-	economy.HeartSend("9901", "9902", heartTestNow())
-	rec := socialTestRequestAs(t, "hq-tok", http.MethodGet, "/v4/noti/heart/receive/list/9902?timestamp=0", "")
-	var got struct {
-		Result []map[string]any `json:"result"`
+	economy.HeartSend("9901", "9902", *clock)
+	fetchRow := func() map[string]any {
+		t.Helper()
+		rec := socialTestRequestAs(t, "hq-friend", http.MethodGet, "/v4/noti/heart/receive/list/9902?timestamp=0", "")
+		var got struct {
+			Result []map[string]any `json:"result"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("list body %s: %v", rec.Body.String(), err)
+		}
+		if len(got.Result) != 1 {
+			t.Fatalf("rows = %d, want 1 (%s)", len(got.Result), rec.Body.String())
+		}
+		return got.Result[0]
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatalf("list body %s: %v", rec.Body.String(), err)
-	}
-	if len(got.Result) != 1 {
-		t.Fatalf("rows = %d, want 1 (%s)", len(got.Result), rec.Body.String())
-	}
-	row := got.Result[0]
+	row := fetchRow()
 	for _, k := range []string{"avatarId", "name", "avatarProfile", "obsProfileImagePath", "regDate", "introduce", "profileBackground"} {
 		if _, ok := row[k].(string); !ok {
 			t.Fatalf("%s = %#v, want string", k, row[k])
@@ -191,32 +223,53 @@ func TestHeartSenderListRoute(t *testing.T) {
 		t.Fatalf("row = %v", row)
 	}
 	if v, ok := row["heartReceivable"].(bool); !ok || !v {
-		t.Fatalf("heartReceivable = %#v, want true", row["heartReceivable"])
+		t.Fatalf("heartReceivable before hearting back = %#v, want true", row["heartReceivable"])
+	}
+	// Once 9902 hearts 9901 back, the sender list reflects cooldown (heartReceivable: false) until expiry.
+	economy.HeartSend("9902", "9901", *clock)
+	if v, ok := fetchRow()["heartReceivable"].(bool); !ok || v {
+		t.Fatalf("heartReceivable during cooldown = %#v, want false", v)
+	}
+	*clock = clock.Add(economy.HeartCooldown())
+	if v, ok := fetchRow()["heartReceivable"].(bool); !ok || !v {
+		t.Fatalf("heartReceivable after cooldown = %#v, want true", v)
 	}
 }
 
 // TestProfileHeartFields: the profile carries heartCount (number), haveHeart and heartReceivable
-// (bools), haveHeartBalance (number, the viewer's sends left) and haveExtraHeartBalance 0.
+// (bools, with heartReceivable false during per-target cooldown), haveHeartBalance and haveExtraHeartBalance 0.
 func TestProfileHeartFields(t *testing.T) {
-	heartTestClock(t, heartTestNow())
+	clock := heartTestClock(t, heartTestNow())
 	heartTestAccounts(t)
-	economy.HeartSend("9901", "9902", heartTestNow())
-	rec := socialTestRequestAs(t, "hq-tok", http.MethodGet, "/v4/profile/9902", "")
-	var got struct {
-		Result map[string]any `json:"result"`
+	profileOf := func(path string) map[string]any {
+		t.Helper()
+		rec := socialTestRequestAs(t, "hq-tok", http.MethodGet, path, "")
+		var got struct {
+			Result map[string]any `json:"result"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("profile body %s: %v", rec.Body.String(), err)
+		}
+		return got.Result
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatalf("profile body %s: %v", rec.Body.String(), err)
+	before := profileOf("/v4/profile/9902")
+	if before["heartReceivable"] != true || before["haveHeart"] != true {
+		t.Fatalf("before send: haveHeart=%v heartReceivable=%v, want true/true", before["haveHeart"], before["heartReceivable"])
 	}
+	economy.HeartSend("9901", "9902", *clock)
+	during := profileOf("/v4/profile/9902")
 	for k, want := range map[string]float64{"heartCount": 1, "haveHeartBalance": float64(economy.HeartBase() - 1), "haveExtraHeartBalance": 0} {
-		if v, ok := got.Result[k].(float64); !ok || v != want {
-			t.Fatalf("%s = %#v, want number %v", k, got.Result[k], want)
+		if v, ok := during[k].(float64); !ok || v != want {
+			t.Fatalf("%s = %#v, want number %v", k, during[k], want)
 		}
 	}
-	for k, want := range map[string]bool{"haveHeart": true, "heartReceivable": true} {
-		if v, ok := got.Result[k].(bool); !ok || v != want {
-			t.Fatalf("%s = %#v, want %v", k, got.Result[k], want)
-		}
+	if during["haveHeart"] != true || during["heartReceivable"] != false {
+		t.Fatalf("during cooldown: haveHeart=%v heartReceivable=%v, want true/false", during["haveHeart"], during["heartReceivable"])
+	}
+	*clock = clock.Add(economy.HeartCooldown())
+	after := profileOf("/v4/profile/9902")
+	if after["heartReceivable"] != true {
+		t.Fatalf("after cooldown: heartReceivable=%v, want true", after["heartReceivable"])
 	}
 	self := socialTestRequestAs(t, "hq-tok", http.MethodGet, "/v4/profile/9901", "")
 	if regexp.MustCompile(`"heartReceivable":true`).MatchString(self.Body.String()) {
