@@ -231,6 +231,7 @@ func TestHeartSenderListRoute(t *testing.T) {
 		t.Fatalf("heartReceivable during cooldown = %#v, want false", v)
 	}
 	*clock = clock.Add(economy.HeartCooldown())
+	economy.HeartSend("9901", "9902", *clock)
 	if v, ok := fetchRow()["heartReceivable"].(bool); !ok || !v {
 		t.Fatalf("heartReceivable after cooldown = %#v, want true", v)
 	}

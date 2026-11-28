@@ -25,7 +25,7 @@ import (
 //	hearts            base: hearts a sender may send per game day (the daily allowance); quest: hearts sent in
 //	                  one game day that pay the reward (0 = base, else 1 to base); reward_gems and reward_cash:
 //	                  credited once a day with the quest-th heart; from_limit: sender aids kept per receiver per day;
-//	                  cooldown_minutes: minutes before the same sender may heart the same target again (nil = 240, 0 = off)
+//	                  cooldown_minutes: minutes before the same sender may heart the same target again (nil = 1440, 0 = off)
 //	mail              sender: the name on staff mail; default_days: expiry when a staff grant gives none;
 //	                  max_amount: largest Gem, Cash or ticket amount per mail row; max_rows: mailbox size
 //	birthday          claim_days: days from the avatar's birthday on which its reward can be claimed;
@@ -97,8 +97,8 @@ type EventQuest struct {
 }
 
 const (
-	defaultHeartCooldownMinutes = 240     // 4 hours between hearts from the same sender to the same target
-	maxHeartCooldownMinutes     = 24 * 60 // at most 24 hours
+	defaultHeartCooldownMinutes = 24 * 60     // 24 hours between hearts from the same sender to the same target
+	maxHeartCooldownMinutes     = 7 * 24 * 60 // at most 7 days
 )
 
 // HeartRules are the hearts-quest numbers (rewards.json hearts). checkRewards sets Quest to Base when the file

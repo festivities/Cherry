@@ -192,14 +192,13 @@ func TestWebHeartNotiDelivery(t *testing.T) {
 	sendHeart(4, 9982)
 	assertHeartPush()
 
-	// Exhaust remaining daily hearts to distinct targets; over-cap heart to 9982 after cooldown must not push.
-	for i := 0; i < base-2; i++ {
+	// Exhaust remaining daily hearts to distinct targets on the current day; over-cap heart to a fresh target must not push.
+	for i := 0; i < base-1; i++ {
 		if sent, _ := economy.HeartSend("9981", strconv.Itoa(9983+i), *clock); !sent {
-			t.Fatalf("heart %d refused", i+3)
+			t.Fatalf("heart %d refused", i+2)
 		}
 	}
-	*clock = clock.Add(economy.HeartCooldown())
-	sendHeart(99, 9982)
+	sendHeart(99, uint64(9983+base-1))
 	expectNoWebSessionPush(t, recvConn)
 }
 

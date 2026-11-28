@@ -38,7 +38,7 @@
     {"id": 9506, "key": "atelier-craft", "name": "Ep. 6: Atelier", "desc": "Craft your first Atelier item.", "icon": "cherry/quest/quest_symbol_03.png", "npc_icon": "cherry/quest/intro_tutorial_npc_4_2.png", "gems": 300, "goal": 1},
     {"id": 9507, "key": "square-fish", "name": "Ep. 7: Fishing", "desc": "Catch a fish on Treasure Island.", "icon": "cherry/quest/quest_symbol_04.png", "npc_icon": "cherry/quest/anniv_cherry_2.png", "gems": 350, "goal": 1}
   ],
-  "hearts": {"base": 30, "quest": 20, "reward_gems": 0, "reward_cash": 600, "from_limit": 50, "cooldown_minutes": 240},
+  "hearts": {"base": 30, "quest": 20, "reward_gems": 0, "reward_cash": 600, "from_limit": 50, "cooldown_minutes": 1440},
   "mail": {"sender": "Cherry Staff", "default_days": 30, "max_amount": 1000000, "max_rows": 100},
   "birthday": {"claim_days": 7, "gacha_discount_percent": 30, "discount_days": 7}
 }

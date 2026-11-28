@@ -240,13 +240,12 @@ func TestTLUPHeartGatewayPush(t *testing.T) {
 	}
 	assertPushNotiJSON(t, payload, "heart", strconv.FormatInt(clock.UnixMilli(), 10), "9761", "Sender sent you a Heart!", "HTR", 1, nil)
 
-	// Exhaust remaining daily allowance to distinct targets; over-cap heart is refused even after cooldown.
-	for i := 0; i < base-2; i++ {
+	// Exhaust remaining daily allowance to distinct targets on the current day; over-cap heart to a fresh target is refused.
+	for i := 0; i < base-1; i++ {
 		if sent, _ := economy.HeartSend("9761", strconv.Itoa(9763+i), clock); !sent {
-			t.Fatalf("fill heart %d refused", i+3)
+			t.Fatalf("fill heart %d refused", i+2)
 		}
 	}
-	clock = clock.Add(economy.HeartCooldown())
-	sendTLUPHeart(99, 9762)
+	sendTLUPHeart(99, uint64(9763+base-1))
 	expectNoSessionPush(t, recvConn)
 }

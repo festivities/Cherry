@@ -13,7 +13,7 @@ import (
 // game day (06:00 JST, like the quests); past that each extra heart it holds (Extra, staff grants)
 // is spent for one more. The hearts.quest-th heart of the day completes the hearts quest (row 9005)
 // and credits hearts.reward_gems and hearts.reward_cash once (rewards.json). Sending to the same
-// target is gated by a per-target cooldown (hearts.cooldown_minutes, default 240 = 4 hours).
+// target is gated by a per-target cooldown (hearts.cooldown_minutes, default 1440 = 24 hours).
 // Wire notes: %TEMP%\opencode\cherry\phaseDE-20261022\hearts.md.
 
 // HeartBase is the hearts a sender may send per game day without extra hearts.
@@ -29,7 +29,7 @@ func HeartRewardGems() int64 { return ActiveRewards().Hearts.RewardGems }
 // HeartRewardCash is the Cash credited once a day with the HeartQuestCount-th heart.
 func HeartRewardCash() int64 { return ActiveRewards().Hearts.RewardCash }
 
-// HeartCooldownMinutes is the per-target heart cooldown in minutes (default 240 = 4 hours; 0 = off).
+// HeartCooldownMinutes is the per-target heart cooldown in minutes (default 1440 = 24 hours; 0 = off).
 func HeartCooldownMinutes() int {
 	if m := ActiveRewards().Hearts.CooldownMinutes; m != nil {
 		return *m

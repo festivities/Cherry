@@ -137,14 +137,14 @@ func TestHeartExtraHearts(t *testing.T) {
 }
 
 // TestHeartQuestRules: hearts.quest is from 1 to hearts.base, and an override that leaves it out means hearts.base;
-// hearts.cooldown_minutes is 0..1440 (omitted defaults to 240, 0 disables the per-target cooldown).
+// hearts.cooldown_minutes is 0..10080 (omitted defaults to 1440, 0 disables the per-target cooldown).
 func TestHeartQuestRules(t *testing.T) {
 	t.Cleanup(resetOperatorData)
 	raw := data.RewardsJSON
 	refuseFile(t, rewardsFile.LoadFrom, "rewards.json", mutateDefault(t, raw, `"quest": 20`, `"quest": 31`), "hearts.quest must be from 1 to hearts.base")
 	refuseFile(t, rewardsFile.LoadFrom, "rewards.json", mutateDefault(t, raw, `"quest": 20`, `"quest": -1`), "hearts.quest must be from 1 to hearts.base")
-	refuseFile(t, rewardsFile.LoadFrom, "rewards.json", mutateDefault(t, raw, `"cooldown_minutes": 240`, `"cooldown_minutes": -1`), "hearts.cooldown_minutes must be from 0 to 1440")
-	refuseFile(t, rewardsFile.LoadFrom, "rewards.json", mutateDefault(t, raw, `"cooldown_minutes": 240`, `"cooldown_minutes": 1441`), "hearts.cooldown_minutes must be from 0 to 1440")
+	refuseFile(t, rewardsFile.LoadFrom, "rewards.json", mutateDefault(t, raw, `"cooldown_minutes": 1440`, `"cooldown_minutes": -1`), "hearts.cooldown_minutes must be from 0 to 10080")
+	refuseFile(t, rewardsFile.LoadFrom, "rewards.json", mutateDefault(t, raw, `"cooldown_minutes": 1440`, `"cooldown_minutes": 10081`), "hearts.cooldown_minutes must be from 0 to 10080")
 	path := filepath.Join(t.TempDir(), "rewards.json")
 	if err := os.WriteFile(path, []byte(mutateDefault(t, raw, `"quest": 20, `, ``)), 0o600); err != nil {
 		t.Fatal(err)
@@ -152,9 +152,9 @@ func TestHeartQuestRules(t *testing.T) {
 	if err := rewardsFile.LoadFrom(path); err != nil || HeartQuestCount() != HeartBase() {
 		t.Fatalf("override without hearts.quest: err %v, quest %d, base %d", err, HeartQuestCount(), HeartBase())
 	}
-	// Override without cooldown_minutes falls back to defaultHeartCooldownMinutes (240).
+	// Override without cooldown_minutes falls back to defaultHeartCooldownMinutes (1440).
 	noCD := filepath.Join(t.TempDir(), "rewards-nocd.json")
-	if err := os.WriteFile(noCD, []byte(mutateDefault(t, raw, `, "cooldown_minutes": 240`, ``)), 0o600); err != nil {
+	if err := os.WriteFile(noCD, []byte(mutateDefault(t, raw, `, "cooldown_minutes": 1440`, ``)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := rewardsFile.LoadFrom(noCD); err != nil || HeartCooldownMinutes() != defaultHeartCooldownMinutes {
@@ -162,7 +162,7 @@ func TestHeartQuestRules(t *testing.T) {
 	}
 	// Explicit cooldown_minutes: 0 disables per-target cooldown.
 	zeroCD := filepath.Join(t.TempDir(), "rewards-zerocd.json")
-	if err := os.WriteFile(zeroCD, []byte(mutateDefault(t, raw, `"cooldown_minutes": 240`, `"cooldown_minutes": 0`)), 0o600); err != nil {
+	if err := os.WriteFile(zeroCD, []byte(mutateDefault(t, raw, `"cooldown_minutes": 1440`, `"cooldown_minutes": 0`)), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := rewardsFile.LoadFrom(zeroCD); err != nil || HeartCooldownMinutes() != 0 {
@@ -226,18 +226,18 @@ func TestHeartSelfUnknownAndSynthetic(t *testing.T) {
 func TestHeartDayRollover(t *testing.T) {
 	targets := heartTargetIDs(98300, int(HeartBase()))
 	heartAccounts(t, append([]string{"9806"}, targets...)...)
-	day1, day2 := jstAt(22, 12, 0), jstAt(23, 7, 0)
+	day1, day2Early, day2 := jstAt(22, 12, 0), jstAt(23, 7, 0), jstAt(23, 12, 0)
 	sendHeartsToTargets(t, "9806", targets, day1)
 	if senders := HeartSenders(targets[0], day1); len(senders) != 1 || senders[0] != "9806" {
 		t.Fatalf("day 1 senders = %v, want [9806]", senders)
 	}
-	if !HaveHeart("9806", day2) {
+	if !HaveHeart("9806", day2Early) {
 		t.Fatal("haveHeart false on the new day")
 	}
 	if HaveHeart("9806", day1) {
 		t.Fatal("haveHeart true at the cap")
 	}
-	if senders := HeartSenders(targets[0], day2); len(senders) != 0 {
+	if senders := HeartSenders(targets[0], day2Early); len(senders) != 0 {
 		t.Fatalf("day 2 senders = %v, want none", senders)
 	}
 	if got := HeartsReceived(targets[0]); got != 1 {
@@ -292,8 +292,8 @@ func TestHeartLedgerLine(t *testing.T) {
 func TestHeartPerTargetCooldown(t *testing.T) {
 	heartAccounts(t, "9880", "9881", "9882")
 	cd := HeartCooldown()
-	if cd != 4*time.Hour {
-		t.Fatalf("default HeartCooldown = %v, want 4h", cd)
+	if cd != 24*time.Hour {
+		t.Fatalf("default HeartCooldown = %v, want 24h", cd)
 	}
 	t0 := time.Date(2026, time.October, 22, 5, 50, 0, 0, jst) // 10 min before 06:00 JST rollover
 
