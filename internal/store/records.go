@@ -83,14 +83,17 @@ type RoomItem struct {
 
 // MiniPetState is the account's state for one Minipet whose room item it has been visited through (economy/minipet.go):
 // friendship, the free-call cooldown, the current visit and whether it was petted in that visit. Replaced, never edited
-// in place. An adopted pet also sits in Account.Pets (owned); its friendship stays here.
+// in place. An adopted pet also sits in Account.Pets (owned); its friendship, adoption present and timestamps stay here.
 type MiniPetState struct {
-	Cd       string `json:"cd"`                 // the PUPE pet code
-	Exp      int64  `json:"exp,omitempty"`      // friendship points (maxExp: the pet's cuddles, data/pets.json)
-	NextCall int64  `json:"nextCall,omitempty"` // unix seconds the next free call is allowed (0 = at once)
-	VisitEnd int64  `json:"visitEnd,omitempty"` // unix seconds the current visit ends (0 = no visit)
-	Petted   bool   `json:"petted,omitempty"`   // petted during the current visit
-	Memo     string `json:"memo,omitempty"`     // owner's Pet Book memo
+	Cd         string `json:"cd"`                   // the PUPE pet code
+	Exp        int64  `json:"exp,omitempty"`        // friendship points (maxExp: the pet's cuddles, data/pets.json)
+	NextCall   int64  `json:"nextCall,omitempty"`   // unix seconds the next free call is allowed (0 = at once)
+	VisitEnd   int64  `json:"visitEnd,omitempty"`   // unix seconds the current visit ends (0 = no visit)
+	Petted     bool   `json:"petted,omitempty"`     // petted during the current visit
+	Memo       string `json:"memo,omitempty"`       // owner's Pet Book memo
+	Gift       string `json:"gift,omitempty"`       // clothing item code gifted on adoption
+	FirstVisit int64  `json:"firstVisit,omitempty"` // unix seconds of the first visit (or adoption)
+	AdoptedAt  int64  `json:"adoptedAt,omitempty"`  // unix seconds when the pet was adopted
 }
 
 type RoomPlaced struct {

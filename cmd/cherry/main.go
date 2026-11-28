@@ -135,6 +135,9 @@ func main() {
 	if err := economy.MigrateButlerRoster(time.Now()); err != nil {
 		logger.Printf("cherry: butler roster migration skipped: %v", err)
 	}
+	if err := economy.MigrateOwnedPetItems(); err != nil {
+		logger.Printf("cherry: pet room item migration skipped: %v", err)
+	}
 
 	certs, err := netsvc.GenerateCerts(cfg.Hostnames...)
 	if err != nil {

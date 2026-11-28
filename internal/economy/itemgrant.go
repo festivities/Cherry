@@ -112,6 +112,11 @@ func grantNewItemLocked(acc *store.Account, code string, gift bool) (bool, error
 		if err := room.EnsurePetsLocked(acc); err != nil {
 			return false, err
 		}
+		if _, paired := MiniPetItem(code); paired {
+			if err := room.EnsureRoomLocked(acc); err != nil {
+				return false, err
+			}
+		}
 	}
 	if itemOwnedLocked(acc, code) || acc.Gender == "ANIMAL" && itemcode.HumanOnly(code) {
 		return false, nil
@@ -131,6 +136,12 @@ func grantNewItemLocked(acc *store.Account, code string, gift bool) (bool, error
 		}
 	default:
 		acc.Pets = append(slices.Clone(acc.Pets), room.NewPetLocked(acc, code))
+		if item, paired := MiniPetItem(code); paired && !ownedRoomItemSet(acc)[item] {
+			grantRoomItemsLocked(acc, []string{item})
+			items := slices.Clone(acc.RoomItems)
+			items[len(items)-1].Paid = giftPaid
+			acc.RoomItems = items
+		}
 	}
 	return true, nil
 }

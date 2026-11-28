@@ -4,11 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"cherry/internal/economy"
 	"cherry/internal/room"
+	"cherry/internal/store"
+	"cherry/internal/testutil"
 )
 
 // Shape checks through the full mux for the menu rows of audit section rows-d (rows 45, 49, 58, 64).
@@ -82,7 +85,8 @@ func TestRemodelingRoomListRoute(t *testing.T) {
 	}
 }
 
-// TestPetBookListRouteShape: the race tab answers 200 with result.list as an array (rows are typed in room).
+// TestPetBookListRouteShape: the race tab answers 200 with result.list as an array (rows are typed in room),
+// and the Pet Collection route answers 200 with result as an array for an authenticated session.
 func TestPetBookListRouteShape(t *testing.T) {
 	rec := serve(t, http.MethodGet, "/v4/pet/book/race/list/UDOG")
 	if rec.Code != http.StatusOK {
@@ -96,6 +100,19 @@ func TestPetBookListRouteShape(t *testing.T) {
 	}
 	if got := jsonKind(env.Result["list"]); got != "array" {
 		t.Fatalf("list is %s, want array", got)
+	}
+
+	testutil.InstallAccounts(t, map[string]*store.Account{"pet-col-tok": {Aid: "1099"}})
+	testutil.SetLab(t, "1099", false)
+	col := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v4/pet/gift/list/UDOG", nil)
+	req.AddCookie(&http.Cookie{Name: "AV_AUTH", Value: "pet-col-tok"})
+	NewMux().ServeHTTP(col, req)
+	if col.Code != http.StatusOK {
+		t.Fatalf("gift/list status %d: %s", col.Code, col.Body)
+	}
+	if got := jsonKind(topLevelKinds(t, col.Body.Bytes())["result"]); got != "array" {
+		t.Fatalf("gift/list result is %s, want array", got)
 	}
 }
 

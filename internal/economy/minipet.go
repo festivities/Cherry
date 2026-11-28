@@ -2,6 +2,8 @@ package economy
 
 import (
 	"encoding/json"
+	"hash/fnv"
+	"log"
 	"maps"
 	"math/rand/v2"
 	"net/http"
@@ -13,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"cherry/internal/httpx"
+	"cherry/internal/itemcode"
 	"cherry/internal/room"
 	"cherry/internal/store"
 )
@@ -177,10 +180,14 @@ func minipetAccount(w http.ResponseWriter, r *http.Request) *store.Account {
 	return acc
 }
 
-// startVisit opens a visit of the configured length at now and clears the petting of the previous one.
+// startVisit opens a visit of the configured length at now, clears the petting of the previous one
+// and stamps FirstVisit on the pet's first visit.
 func startVisit(st store.MiniPetState, now time.Time) store.MiniPetState {
 	st.VisitEnd = now.Add(time.Duration(ActivePets().Minipet.VisitMinutes) * time.Minute).Unix()
 	st.Petted = false
+	if st.FirstVisit == 0 {
+		st.FirstVisit = now.Unix()
+	}
 	return st
 }
 
@@ -315,14 +322,18 @@ func miniPetRows(owner *store.Account, level string, now time.Time) []map[string
 		_, owned := ownedPet(owner, pet)
 		visit := st.VisitEnd > now.Unix()
 		maxExp := miniPetMaxExp(pet)
+		exp := st.Exp
+		if owned {
+			exp = max(exp, maxExp)
+		}
 		remain := int64(0)
 		if !owned {
 			remain = remainMillis(st.NextCall, now)
 		}
 		rows = append(rows, room.MiniPetArrangeRow(room.MiniPetArrange{
 			Aid: owner.Aid, Item: item, Level: level, Pet: pet, Name: PetDisplayName(pet), PetID: minipetID(owner, pet),
-			Exp: st.Exp, MaxExp: maxExp, CallRemain: remain, Exposed: owned || visit,
-			Touchable: visit && !st.Petted, CanCall: !owned && remain == 0, Final: st.Exp >= maxExp,
+			Exp: exp, MaxExp: maxExp, CallRemain: remain, Exposed: owned || visit,
+			Touchable: visit && !st.Petted, CanCall: !owned && remain == 0, Final: owned || exp >= maxExp,
 		}))
 	}
 	return rows
@@ -414,6 +425,11 @@ func MiniPetStroke(aid string, petID int64) (MiniPetStrokeReply, bool) {
 		present := rules.Presents[presentPick(len(rules.Presents))]
 		acc.Pets = append(slices.Clone(acc.Pets), store.PetItem{ID: petID, Cd: pet, Name: name, Memo: st.Memo})
 		acc.InventoryCodes = store.AppendUniqueItemCodes(store.AccountInventoryCodes(acc), []string{present})
+		st.Gift = present
+		st.AdoptedAt = now.Unix()
+		if st.FirstVisit == 0 {
+			st.FirstVisit = now.Unix()
+		}
 		reply.LevelUp = true
 		reply.Gift = &MiniPetGift{Item: present, ItemName: ItemName(present), Grade: "NORMAL", Pet: pet, PetName: name}
 	}
@@ -538,6 +554,9 @@ func HandlePet(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodPost && path == "book/change/memo":
 		miniPetChangeMemo(w, r)
 		return
+	case get && len(parts) == 3 && parts[0] == "gift" && parts[1] == "list":
+		miniPetCollectionList(w, r, parts[2])
+		return
 	}
 	room.HandlePet(w, r)
 }
@@ -561,7 +580,60 @@ func ownedRoomItemSet(acc *store.Account) map[string]bool {
 	return owned
 }
 
-// miniPetOwnedBookRow builds the PetBookRow for an account's own pet (MYPET tab and detail).
+// miniPetGiftOf returns the clothing item code gifted by pet on adoption: the recorded MiniPetState.Gift
+// when present, else a deterministic pick from ActivePets().Minipet.Presents for already-adopted pets
+// predating the Gift field, or "" for pets not yet adopted.
+func miniPetGiftOf(acc *store.Account, pet string) string {
+	if acc == nil {
+		return ""
+	}
+	if st := minipetState(acc, pet); st.Gift != "" {
+		return st.Gift
+	}
+	if _, owned := ownedPet(acc, pet); !owned {
+		return ""
+	}
+	presents := ActivePets().Minipet.Presents
+	if len(presents) == 0 {
+		return ""
+	}
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(acc.Aid))
+	_, _ = h.Write([]byte{':'})
+	_, _ = h.Write([]byte(pet))
+	return presents[int(h.Sum32())%len(presents)]
+}
+
+func miniPetGiftFields(acc *store.Account, pet string) (int, string) {
+	code := miniPetGiftOf(acc, pet)
+	if code == "" {
+		return 0, ""
+	}
+	id, _ := itemcode.ID(code)
+	return int(id), code
+}
+
+// miniPetFirstVisitMillis formats FirstVisit (or AdoptedAt) as Unix milliseconds for ResPetBookList
+// (which parses atoll(firstVisited)/1000 into NaPetBookDetailPopup::SetFirstVisitTime).
+func miniPetFirstVisitMillis(st store.MiniPetState) string {
+	ts := st.FirstVisit
+	if ts <= 0 {
+		ts = st.AdoptedAt
+	}
+	if ts <= 0 {
+		return ""
+	}
+	return strconv.FormatInt(ts*1000, 10)
+}
+
+func miniPetDateStr(unixSec int64) string {
+	if unixSec <= 0 {
+		return ""
+	}
+	return time.Unix(unixSec, 0).UTC().Format("2006-01-02")
+}
+
+// miniPetOwnedBookRow builds the PetBookRow for an account's own pet (MYPET tab, race tabs and detail).
 func miniPetOwnedBookRow(acc *store.Account, p store.PetItem, sp *room.PetSpecies, rules MiniPetRules) room.PetBookRow {
 	raceID := room.PetSkinID(p.Cd)
 	catgCd := ""
@@ -573,11 +645,20 @@ func miniPetOwnedBookRow(acc *store.Account, p store.PetItem, sp *room.PetSpecie
 			raceNm = sp.Name
 		}
 	}
+	if catgCd == "" {
+		catgCd = PetCategoryCode(p.Cd)
+	}
 	if raceNm == "" {
 		raceNm = "Minipet"
 	}
+	petName := p.Name
+	if petName == "" {
+		petName = raceNm
+	}
 	petID := strconv.FormatInt(p.ID, 10)
 	maxExp := miniPetMaxExp(p.Cd)
+	st := minipetState(acc, p.Cd)
+	giftID, giftCode := miniPetGiftFields(acc, p.Cd)
 	row := room.PetBookRow{
 		RaceID:                     raceID,
 		CatgCd:                     catgCd,
@@ -586,7 +667,8 @@ func miniPetOwnedBookRow(acc *store.Account, p store.PetItem, sp *room.PetSpecie
 		PetID:                      petID,
 		PetMemo:                    p.Memo,
 		AvatarID:                   acc.Aid,
-		PetName:                    p.Name,
+		FirstVisited:               miniPetFirstVisitMillis(st),
+		PetName:                    petName,
 		SkinSerial:                 petID,
 		SkinID:                     room.PetSkinID(p.Cd),
 		SkinCode:                   p.Cd,
@@ -598,19 +680,20 @@ func miniPetOwnedBookRow(acc *store.Account, p store.PetItem, sp *room.PetSpecie
 		CallPrice:                  int(rules.PaidCallGems),
 		MaxPaidCallCount:           10,
 		DefaultCallRemainTimestamp: "0",
+		Exp:                        int(max(st.Exp, maxExp)),
 		MaxExp:                     int(maxExp),
+		FinalLevelYn:               true,
+		GiftItemID:                 giftID,
+		GiftItemCode:               giftCode,
+	}
+	if row.PetMemo == "" {
+		row.PetMemo = st.Memo
 	}
 	if item, ok := MiniPetItem(p.Cd); ok {
-		st := minipetState(acc, p.Cd)
-		if row.PetMemo == "" {
-			row.PetMemo = st.Memo
-		}
 		placed := placedLevel(acc, item) != ""
 		row.ItemCode = item
 		row.ArrangedYn = placed
 		row.ExposureYn = placed || p.Room != ""
-		row.Exp = int(st.Exp)
-		row.FinalLevelYn = st.Exp >= maxExp
 	} else {
 		row.ItemCode = p.Cd
 		row.ArrangedYn = p.Room != ""
@@ -640,8 +723,19 @@ func miniPetSpeciesBookRow(acc *store.Account, sp room.PetSpecies, ownedItems ma
 			}
 			exposure := owned || visit
 			level := 0
+			exp := st.Exp
+			final := st.Exp >= sp.MaxExp
+			petName := sp.Name
+			var giftID int
+			var giftCode string
 			if owned {
 				level = 1
+				exp = max(exp, sp.MaxExp)
+				final = true
+				if ownedPetRow.Name != "" {
+					petName = ownedPetRow.Name
+				}
+				giftID, giftCode = miniPetGiftFields(acc, sp.Code)
 			}
 			memo := st.Memo
 			if owned && ownedPetRow.Memo != "" {
@@ -656,7 +750,8 @@ func miniPetSpeciesBookRow(acc *store.Account, sp room.PetSpecies, ownedItems ma
 				PetID:                      petID,
 				PetMemo:                    memo,
 				AvatarID:                   acc.Aid,
-				PetName:                    sp.Name,
+				FirstVisited:               miniPetFirstVisitMillis(st),
+				PetName:                    petName,
 				SkinSerial:                 petID,
 				SkinID:                     int(sp.ID),
 				SkinCode:                   sp.Code,
@@ -667,9 +762,11 @@ func miniPetSpeciesBookRow(acc *store.Account, sp room.PetSpecies, ownedItems ma
 				ExposureYn:                 exposure,
 				DefaultCallYn:              arranged && !exposure && remain == 0,
 				DefaultCallRemainTimestamp: strconv.FormatInt(remain, 10),
-				Exp:                        int(st.Exp),
+				Exp:                        int(exp),
 				MaxExp:                     int(sp.MaxExp),
-				FinalLevelYn:               st.Exp >= sp.MaxExp,
+				FinalLevelYn:               final,
+				GiftItemID:                 giftID,
+				GiftItemCode:               giftCode,
 				Level:                      level,
 				RepresentYn:                owned && ownedPetRow.Rep,
 				CallPrice:                  int(rules.PaidCallGems),
@@ -677,18 +774,41 @@ func miniPetSpeciesBookRow(acc *store.Account, sp room.PetSpecies, ownedItems ma
 			}
 		}
 	}
+	// NaPetBookCell::InitUI / SetPetState / NaPetBookPhotoCell::InitUI compare skinSerial == "0" to
+	// render unowned pets as greyed silhouettes labeled with raceNm instead of full-color with blank petName.
 	return room.PetBookRow{
 		RaceID:      int(sp.ID),
 		CatgCd:      sp.Catg,
 		ItemCode:    itemCode,
 		LocaleCd:    "en",
 		RaceNm:      sp.Name,
+		PetID:       "0",
+		SkinSerial:  "0",
 		CallPayCode: "GEM",
 		ExposureYn:  true,
 		MaxExp:      int(sp.MaxExp),
 		SkinID:      int(sp.ID),
 		SkinCode:    sp.Code,
 		LinkScale:   100,
+	}
+}
+
+// petBookRaceRank orders race-tab rows so the player's own pets appear at the top instead of buried
+// behind dozens of unowned species.
+func petBookRaceRank(row room.PetBookRow) int {
+	switch {
+	case row.RepresentYn:
+		return 0
+	case row.Level > 0:
+		return 1
+	case row.ArrangedYn:
+		return 2
+	case row.InteriorOwnYn:
+		return 3
+	case row.SkinSerial != "" && row.SkinSerial != "0":
+		return 4
+	default:
+		return 5
 	}
 }
 
@@ -725,13 +845,27 @@ func HandlePetBook(w http.ResponseWriter, r *http.Request) {
 		}
 		now := NowFunc()
 		ownedItems := ownedRoomItemSet(acc)
+		seen := make(map[string]bool, len(all))
 		for _, sp := range all {
 			if sp.Catg != category {
 				continue
 			}
+			seen[sp.Code] = true
 			list = append(list, miniPetSpeciesBookRow(acc, sp, ownedItems, rules, now))
 		}
+		if acc != nil {
+			for _, p := range acc.Pets {
+				if seen[p.Cd] || PetCategoryCode(p.Cd) != category {
+					continue
+				}
+				seen[p.Cd] = true
+				list = append(list, miniPetOwnedBookRow(acc, p, nil, rules))
+			}
+		}
 		store.AccountsMu.Unlock()
+		slices.SortStableFunc(list, func(a, b room.PetBookRow) int {
+			return petBookRaceRank(a) - petBookRaceRank(b)
+		})
 	}
 	writeMiniPetResult(w, map[string]any{"list": list})
 }
@@ -873,4 +1007,203 @@ func miniPetChangeMemo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeMiniPetResult(w, true)
+}
+
+// petCollectionRow matches NaDispatcherPet::ResPetCollectionInfo (0x1b65db0): result is a JSON array of
+// 15-field objects rendered by NaPetCollectionBook (3 columns per row) and NaPetCollectionGiftPopup.
+type petCollectionRow struct {
+	GatherYn         bool   `json:"gatherYn"`
+	RaceCategoryCode string `json:"raceCategoryCode"`
+	RaceID           int    `json:"raceId"`
+	Level            int    `json:"level"`
+	GiftItemID       int    `json:"giftItemId"`
+	GiftItemCode     string `json:"giftItemCode"`
+	ItemGradeCode    string `json:"itemGradeCode"`
+	ItemName         string `json:"itemName"`
+	ItemType         string `json:"itemType"`
+	Description      string `json:"description"`
+	RegisterDate     string `json:"registerDate"`
+	AvatarID         string `json:"avatarId"`
+	PetID            string `json:"petId"`
+	PetName          string `json:"petName"`
+	PetSkinItemCode  string `json:"petSkinItemCode"`
+}
+
+func validPetCategory(cat string) bool {
+	return cat == "UDOG" || cat == "UCAT" || cat == "UTOY" || cat == "URIDE"
+}
+
+func makePetCollectionRow(acc *store.Account, cat, code, fallbackName string, raceID int) petCollectionRow {
+	ownedRow, owned := ownedPet(acc, code)
+	if !owned {
+		return petCollectionRow{
+			GatherYn:         false,
+			RaceCategoryCode: cat,
+			RaceID:           raceID,
+			Level:            0,
+			PetSkinItemCode:  code,
+		}
+	}
+	petName := ownedRow.Name
+	if petName == "" {
+		petName = fallbackName
+	}
+	if petName == "" {
+		petName = "Minipet"
+	}
+	giftID, giftCode := miniPetGiftFields(acc, code)
+	_, _, grade, _ := ItemPrice(giftCode)
+	st := minipetState(acc, code)
+	return petCollectionRow{
+		GatherYn:         true,
+		RaceCategoryCode: cat,
+		RaceID:           raceID,
+		Level:            1,
+		GiftItemID:       giftID,
+		GiftItemCode:     giftCode,
+		ItemGradeCode:    grade,
+		ItemName:         ItemName(giftCode),
+		ItemType:         itemTypeOf(giftCode),
+		Description:      "Present from your pet " + petName,
+		RegisterDate:     miniPetDateStr(st.AdoptedAt),
+		AvatarID:         acc.Aid,
+		PetID:            strconv.FormatInt(ownedRow.ID, 10),
+		PetName:          petName,
+		PetSkinItemCode:  code,
+	}
+}
+
+// miniPetCollectionList serves GET /v4/pet/gift/list/<UDOG|UCAT|UTOY|URIDE> for NaPetCollectionBook.
+func miniPetCollectionList(w http.ResponseWriter, r *http.Request, category string) {
+	acc := minipetAccount(w, r)
+	if acc == nil {
+		return
+	}
+	if !validPetCategory(category) {
+		store.AccountsMu.Unlock()
+		writeMiniPetResult(w, []petCollectionRow{})
+		return
+	}
+	all := PetSpecies()
+	rows := []petCollectionRow{}
+	seen := make(map[string]bool, len(all))
+	for _, sp := range all {
+		if sp.Catg != category {
+			continue
+		}
+		seen[sp.Code] = true
+		rows = append(rows, makePetCollectionRow(acc, category, sp.Code, sp.Name, int(sp.ID)))
+	}
+	for _, p := range acc.Pets {
+		if seen[p.Cd] || PetCategoryCode(p.Cd) != category {
+			continue
+		}
+		seen[p.Cd] = true
+		rows = append(rows, makePetCollectionRow(acc, category, p.Cd, PetDisplayName(p.Cd), room.PetSkinID(p.Cd)))
+	}
+	store.AccountsMu.Unlock()
+	slices.SortStableFunc(rows, func(a, b petCollectionRow) int {
+		switch {
+		case a.GatherYn && !b.GatherYn:
+			return -1
+		case !a.GatherYn && b.GatherYn:
+			return 1
+		default:
+			return 0
+		}
+	})
+	writeMiniPetResult(w, rows)
+}
+
+// MigrateOwnedPetItems grants the paired RUPI room item (marked store.GiftPaid so it cannot be recycled
+// for Gems) to every account that already owns a paired PUPE pet without its room item (e.g. pets bought
+// before the Minipet placement loop). Idempotent: accounts that already hold their paired room items are
+// untouched. cmd/cherry calls it once at startup after operator data loads.
+func MigrateOwnedPetItems() error {
+	store.AccountsMu.Lock()
+	defer store.AccountsMu.Unlock()
+	var needRoom []*store.Account
+	var affected []*store.Account
+	seen := map[*store.Account]bool{}
+	for _, acc := range store.AllAccountsLocked() {
+		if seen[acc] || len(acc.Pets) == 0 {
+			seen[acc] = true
+			continue
+		}
+		seen[acc] = true
+		owned := ownedRoomItemSet(acc)
+		missing := false
+		for _, p := range acc.Pets {
+			if item, paired := MiniPetItem(p.Cd); paired && !owned[item] {
+				missing = true
+				break
+			}
+		}
+		if !missing {
+			continue
+		}
+		affected = append(affected, acc)
+		if len(acc.RoomItems) == 0 {
+			needRoom = append(needRoom, acc)
+		}
+	}
+	if len(affected) == 0 {
+		return nil
+	}
+	// Pass 1: seed starter room kits on affected accounts whose RoomItems are still empty before adding
+	// paired RUPI items (EnsureRoomLocked only seeds when len(acc.RoomItems) == 0).
+	for _, acc := range needRoom {
+		if err := room.EnsureRoomLocked(acc); err != nil {
+			return err
+		}
+	}
+	type change struct {
+		acc  *store.Account
+		prev store.Account
+	}
+	var changes []change
+	var grantedTotal int
+	restore := func() {
+		for _, c := range changes {
+			*c.acc = c.prev
+		}
+	}
+	for _, acc := range affected {
+		owned := ownedRoomItemSet(acc)
+		var missing []string
+		for _, p := range acc.Pets {
+			if item, paired := MiniPetItem(p.Cd); paired && !owned[item] {
+				owned[item] = true
+				missing = append(missing, item)
+			}
+		}
+		if len(missing) == 0 {
+			continue
+		}
+		changes = append(changes, change{acc, *acc})
+		items := slices.Clone(acc.RoomItems)
+		seq := max(acc.NextRoomSeq, store.FirstRoomSeq)
+		for _, it := range items {
+			seq = max(seq, it.Seq+1)
+		}
+		for _, code := range missing {
+			items = append(items, store.RoomItem{Seq: seq, Cd: code, Paid: store.GiftPaid})
+			seq++
+		}
+		acc.RoomItems, acc.NextRoomSeq = items, seq
+		grantedTotal += len(missing)
+	}
+	if len(changes) == 0 {
+		return nil
+	}
+	named := make([]*store.Account, 0, len(changes))
+	for _, c := range changes {
+		named = append(named, c.acc)
+	}
+	if err := store.SaveLocked(nil, named...); err != nil {
+		restore()
+		return err
+	}
+	log.Printf("cherry: pet room item migration: granted %d paired room items across %d accounts", grantedTotal, len(changes))
+	return nil
 }

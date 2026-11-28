@@ -304,7 +304,7 @@ func TestMiniPetBookStateAndDetail(t *testing.T) {
 		t.Fatalf("owned+placed UDOG before visit = %v", g)
 	}
 	unowned := findRow(udog, "PUPE0000I")
-	if unowned["interiorOwnYn"] != false || unowned["skinSerial"] != "" || unowned["exposureYn"] != true || unowned["callPayCode"] != "GEM" {
+	if unowned["interiorOwnYn"] != false || unowned["skinSerial"] != "0" || unowned["petId"] != "0" || unowned["exposureYn"] != true || unowned["callPayCode"] != "GEM" {
 		t.Fatalf("unowned UDOG = %v", unowned)
 	}
 
@@ -573,5 +573,343 @@ func TestMiniPetMemoAndCrossPlayerVisitDetail(t *testing.T) {
 	assertMemoOK(postMemo("mp-memo-other", "701101", "old pal"))
 	if got := miniPetResult(t, miniPetReq(t, "mp-memo-other", http.MethodGet, "book/race/detail?petId=701101", ""))["petMemo"]; got != "old pal" {
 		t.Fatalf("legacy adopted petMemo = %v, want old pal", got)
+	}
+}
+
+// TestMiniPetBookOrderingLegacyUnpairedAndCollection verifies race-tab ownership sorting, unowned
+// silhouette markers (skinSerial=="0"), legacy owned pets without MiniPets state (exp/finalLevelYn/gift),
+// unpaired owned pets in MYPET/race tabs/collection, and GET /v4/pet/gift/list/<cat>.
+func TestMiniPetBookOrderingLegacyUnpairedAndCollection(t *testing.T) {
+	// Real pairings from data/pets.json:
+	// PUPE0000G (326400016) -> RUPI00007 (122900007)
+	// PUPE0000H (326400017) -> RUPI00008 (122900008)
+	// PUPE0000I (326400018) -> RUPI0000C (122900012)
+	// PUPE0000J (326400019) -> RUPI00041 (122900145)
+	// PUPE0000L (326400021) -> RUPI00009 (122900009)
+	// PUPE0000M (326400022) -> unpaired
+	root := shopFixture(t, map[string][]string{
+		"interior/122900007": {"dp.png"},
+		"interior/122900008": {"dp.png"},
+		"interior/122900012": {"dp.png"},
+		"interior/122900145": {"dp.png"},
+		"interior/122900009": {"dp.png"},
+		"pet/326400016":      {"skeleton.xml", "dp.png", "behavior.xml"},
+		"pet/326400017":      {"skeleton.xml", "dp.png", "behavior.xml"},
+		"pet/326400018":      {"skeleton.xml", "dp.png", "behavior.xml"},
+		"pet/326400019":      {"skeleton.xml", "dp.png", "behavior.xml"},
+		"pet/326400021":      {"skeleton.xml", "dp.png", "behavior.xml"},
+		"pet/326400022":      {"skeleton.xml", "dp.png", "behavior.xml"},
+	})
+	for _, id := range []string{"326400016", "326400017", "326400018", "326400019", "326400021", "326400022"} {
+		if err := os.WriteFile(filepath.Join(root, "pet", id, "behavior.xml"), []byte(`{"sndindex":215}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	clock := miniPetClock(t, time.Date(2026, 11, 28, 12, 0, 0, 0, time.UTC))
+	prevPick := presentPick
+	presentPick = func(int) int { return 0 }
+	t.Cleanup(func() { presentPick = prevPick })
+
+	// Account owns:
+	// - PUPE0000L: adopted + Rep=true, NO MiniPets state (legacy pre-loop pet)
+	// - PUPE0000H: adopted, Rep=false, NO MiniPets state
+	// - PUPE0000M: unpaired adopted pet, Rep=false
+	// - RUPI00041 (PUPE0000J): placed on LEVEL_1, not yet adopted
+	// - RUPI0000C (PUPE0000I): owned in room inventory, not placed
+	// - PUPE0000G: completely unowned (alphabetically FIRST in PetSpecies!)
+	acc := &store.Account{
+		Aid: "7020",
+		Pets: []store.PetItem{
+			{ID: 702001, Cd: "PUPE0000H", Name: "Legacy Dog"},
+			{ID: 702002, Cd: "PUPE0000L", Name: "Star Dog", Rep: true},
+			{ID: 702003, Cd: "PUPE0000M", Name: "Classic Pup"},
+		},
+		RoomItems: []store.RoomItem{
+			{Seq: 100000, Cd: "RUPI00041"},
+			{Seq: 100001, Cd: "RUPI0000C"},
+			{Seq: 100002, Cd: "RUPI00008"},
+			{Seq: 100003, Cd: "RUPI00009"},
+		},
+		Rooms: map[string]store.RoomLayout{
+			"LEVEL_1": {Placed: []store.RoomPlaced{
+				{Seq: 100000, Cd: "RUPI00041"},
+				{Seq: 100002, Cd: "RUPI00008"},
+			}},
+		},
+	}
+	testutil.InstallAccounts(t, map[string]*store.Account{"mp-order": acc})
+	testutil.SetLab(t, "7020", false)
+
+	// 1. Race tab UDOG sorts Represent -> Adopted -> Placed -> Owned RUPI -> Unowned, and includes unpaired PUPE0000M.
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v4/pet/book/race/list/UDOG", nil)
+	req.AddCookie(&http.Cookie{Name: "AV_AUTH", Value: "mp-order"})
+	HandlePetBook(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("UDOG status %d: %s", rec.Code, rec.Body)
+	}
+	var bookEnv struct {
+		Result struct {
+			List []map[string]any `json:"list"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &bookEnv); err != nil {
+		t.Fatalf("decode book: %v", err)
+	}
+	gotOrder := make([]string, 0, len(bookEnv.Result.List))
+	byCode := map[string]map[string]any{}
+	for _, r := range bookEnv.Result.List {
+		cd := r["skinCode"].(string)
+		gotOrder = append(gotOrder, cd)
+		byCode[cd] = r
+	}
+	wantOrder := []string{"PUPE0000L", "PUPE0000H", "PUPE0000M", "PUPE0000J", "PUPE0000I", "PUPE0000G"}
+	if !slices.Equal(gotOrder, wantOrder) {
+		t.Fatalf("UDOG order = %v, want %v", gotOrder, wantOrder)
+	}
+	// Legacy owned paired pet (no MiniPets state) has max exp, finalLevelYn=true, and deterministic gift.
+	hRow := byCode["PUPE0000H"]
+	if hRow["exp"] != hRow["maxExp"] || hRow["finalLevelYn"] != true || hRow["giftItemCode"] == "" || hRow["giftItemId"] == float64(0) || hRow["petName"] != "Legacy Dog" {
+		t.Fatalf("legacy owned UDOG row = %v", hRow)
+	}
+	// Unowned PUPE0000G has silhouette sentinel skinSerial="0", petId="0".
+	gRow := byCode["PUPE0000G"]
+	if gRow["skinSerial"] != "0" || gRow["petId"] != "0" || gRow["giftItemCode"] != "" || gRow["giftItemId"] != float64(0) {
+		t.Fatalf("unowned UDOG row = %v", gRow)
+	}
+	// Legacy owned pet in arrange list also has exp==maxExp and finalLevelYn==true.
+	arrRes := miniPetResult(t, miniPetReq(t, "mp-order", http.MethodGet, "room/arrange/list/7020/LEVEL_1", ""))
+	for _, raw := range arrRes["list"].([]any) {
+		row := raw.(map[string]any)
+		if row["skinCode"] == "PUPE0000H" && (row["exp"] != row["maxExp"] || row["finalLevelYn"] != true) {
+			t.Fatalf("legacy owned arrange row = %v", row)
+		}
+	}
+
+	// 2. MYPET gives unpaired PUPE0000M its real catgCd ("UDOG"), finalLevelYn=true, and gift.
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/v4/pet/book/race/list/MYPET", nil)
+	req.AddCookie(&http.Cookie{Name: "AV_AUTH", Value: "mp-order"})
+	HandlePetBook(rec, req)
+	if err := json.Unmarshal(rec.Body.Bytes(), &bookEnv); err != nil {
+		t.Fatalf("decode MYPET: %v", err)
+	}
+	for _, r := range bookEnv.Result.List {
+		if r["skinCode"] == "PUPE0000M" {
+			if r["catgCd"] != "UDOG" || r["finalLevelYn"] != true || r["exp"] != r["maxExp"] || r["giftItemCode"] == "" {
+				t.Fatalf("unpaired MYPET row = %v", r)
+			}
+		}
+	}
+
+	// 3. GET /v4/pet/gift/list/UDOG: 15-field schema, gathered rows first, deterministic present for legacy pets.
+	decodeCollection := func(rec *httptest.ResponseRecorder) []map[string]any {
+		t.Helper()
+		if rec.Code != http.StatusOK {
+			t.Fatalf("gift/list status %d: %s", rec.Code, rec.Body)
+		}
+		var env struct {
+			Result []map[string]any `json:"result"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+			t.Fatalf("decode gift/list %s: %v", rec.Body, err)
+		}
+		return env.Result
+	}
+	col := decodeCollection(miniPetReq(t, "mp-order", http.MethodGet, "gift/list/UDOG", ""))
+	if len(col) != 6 {
+		t.Fatalf("gift/list/UDOG len = %d, want 6", len(col))
+	}
+	// First 3 rows must be gathered (PUPE0000K, PUPE0000L, PUPE00001), remaining 3 ungathered.
+	wantFields := []string{
+		"gatherYn", "raceCategoryCode", "raceId", "level", "giftItemId", "giftItemCode",
+		"itemGradeCode", "itemName", "itemType", "description", "registerDate",
+		"avatarId", "petId", "petName", "petSkinItemCode",
+	}
+	for i, row := range col {
+		if len(row) != len(wantFields) {
+			t.Fatalf("col[%d] has %d keys, want %d: %v", i, len(row), len(wantFields), row)
+		}
+		for _, k := range wantFields {
+			if _, ok := row[k]; !ok {
+				t.Fatalf("col[%d] missing key %s", i, k)
+			}
+		}
+		if i < 3 {
+			if row["gatherYn"] != true || row["level"] != float64(1) || row["giftItemCode"] == "" ||
+				row["giftItemId"] == float64(0) || row["itemType"] != "DRESS" || row["avatarId"] != "7020" ||
+				!strings.HasPrefix(row["description"].(string), "Present from your pet ") {
+				t.Fatalf("gathered col[%d] = %v", i, row)
+			}
+		} else if row["gatherYn"] != false || row["level"] != float64(0) || row["giftItemCode"] != "" {
+			t.Fatalf("ungathered col[%d] = %v", i, row)
+		}
+	}
+	// Deterministic present across calls for legacy adopted pet.
+	col2 := decodeCollection(miniPetReq(t, "mp-order", http.MethodGet, "gift/list/UDOG", ""))
+	if col[0]["giftItemCode"] != col2[0]["giftItemCode"] {
+		t.Fatalf("legacy gift not deterministic: %v vs %v", col[0]["giftItemCode"], col2[0]["giftItemCode"])
+	}
+
+	// 4. Adopting PUPE0000J records FirstVisit, AdoptedAt, and Gift -> reflected in detail and gift/list.
+	visitJ := room.MiniPetVisitID("7020", "PUPE0000J")
+	visitJStr := strconv.FormatInt(visitJ, 10)
+	firstCallMs := strconv.FormatInt(clock.Unix()*1000, 10)
+	for range 10 {
+		miniPetResult(t, miniPetReq(t, "mp-order", http.MethodGet, "room/call/"+visitJStr, ""))
+		if _, ok := MiniPetStroke("7020", visitJ); !ok {
+			t.Fatal("MiniPetStroke failed for PUPE0000J")
+		}
+		*clock = clock.Add(4 * time.Hour)
+	}
+	detailJ := miniPetResult(t, miniPetReq(t, "mp-order", http.MethodGet, "book/race/detail?petId="+visitJStr, ""))
+	wantGift := ActivePets().Minipet.Presents[0]
+	if detailJ["firstVisited"] != firstCallMs || detailJ["giftItemCode"] != wantGift || detailJ["finalLevelYn"] != true {
+		t.Fatalf("adopted PUPE0000J detail = %v (want firstVisited=%s gift=%s)", detailJ, firstCallMs, wantGift)
+	}
+	colAfter := decodeCollection(miniPetReq(t, "mp-order", http.MethodGet, "gift/list/UDOG", ""))
+	foundJ := false
+	for _, row := range colAfter {
+		if row["petSkinItemCode"] == "PUPE0000J" {
+			foundJ = true
+			if row["gatherYn"] != true || row["giftItemCode"] != wantGift || row["registerDate"] == "" {
+				t.Fatalf("adopted PUPE0000J collection row = %v", row)
+			}
+		}
+	}
+	if !foundJ {
+		t.Fatal("PUPE0000J missing from gift/list/UDOG")
+	}
+
+	// 5. Unknown category returns 200 {"result":[]}; unauthenticated returns 404.
+	if empty := decodeCollection(miniPetReq(t, "mp-order", http.MethodGet, "gift/list/BOGUS", "")); len(empty) != 0 {
+		t.Fatalf("unknown category gift/list = %v, want []", empty)
+	}
+	if rec := miniPetReq(t, "", http.MethodGet, "gift/list/UDOG", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("no-session gift/list status %d, want 404", rec.Code)
+	}
+}
+
+// TestMigrateOwnedPetItems verifies startup backfill of paired RUPI room items for legacy owned pets
+// (including empty RoomItems starter seeding, GiftPaid non-recyclability, idempotency, and rollback).
+func TestMigrateOwnedPetItems(t *testing.T) {
+	// accEmpty: owns paired PUPE0000G (RUPI00007) + unpaired PUPE00001, RoomItems initially empty.
+	accEmpty := &store.Account{
+		Aid: "7030",
+		Pets: []store.PetItem{
+			{ID: 703001, Cd: "PUPE0000G", Name: "Croc"},
+			{ID: 703002, Cd: "PUPE00001", Name: "Unpaired"},
+			{ID: 703003, Cd: "PUPE0000G", Name: "Dup"},
+		},
+	}
+	// accHas: already owns RUPI00007 (must not be duplicated or altered).
+	accHas := &store.Account{
+		Aid:       "7031",
+		Pets:      []store.PetItem{{ID: 703101, Cd: "PUPE0000G", Name: "Done"}},
+		RoomItems: []store.RoomItem{{Seq: 100005, Cd: "RUPI00007"}},
+	}
+	// accUnpaired: only owns unpaired pet (must not be touched).
+	accUnpaired := &store.Account{
+		Aid:  "7032",
+		Pets: []store.PetItem{{ID: 703201, Cd: "PUPE00001", Name: "Classic"}},
+	}
+	testutil.InstallAccounts(t, map[string]*store.Account{
+		"mig-empty":    accEmpty,
+		"mig-empty-2":  accEmpty, // alias sharing the same account
+		"mig-has":      accHas,
+		"mig-unpaired": accUnpaired,
+	})
+	testutil.SetLab(t, "7030", false)
+	testutil.SetLab(t, "7031", false)
+	testutil.SetLab(t, "7032", false)
+
+	if err := MigrateOwnedPetItems(); err != nil {
+		t.Fatalf("MigrateOwnedPetItems: %v", err)
+	}
+	// accEmpty must have starter kit (RoomItems seeded) plus exactly one RUPI00007 marked GiftPaid.
+	rupiCount := 0
+	for _, it := range accEmpty.RoomItems {
+		if it.Cd == "RUPI00007" {
+			rupiCount++
+			if it.Paid != store.GiftPaid {
+				t.Fatalf("migrated RUPI00007 Paid = %d, want GiftPaid (%d)", it.Paid, store.GiftPaid)
+			}
+			if got := soldPrice(it.Cd, it.Paid); got != 0 {
+				t.Fatalf("migrated RUPI00007 soldPrice = %d, want 0", got)
+			}
+		}
+	}
+	if rupiCount != 1 {
+		t.Fatalf("accEmpty RUPI00007 count = %d, want 1 (items=%+v)", rupiCount, accEmpty.RoomItems)
+	}
+	if len(accEmpty.RoomItems) <= 1 {
+		t.Fatalf("accEmpty starter kit was not seeded before migration: %+v", accEmpty.RoomItems)
+	}
+	if len(accHas.RoomItems) != 1 || accHas.RoomItems[0].Paid != 0 {
+		t.Fatalf("accHas modified unexpectedly: %+v", accHas.RoomItems)
+	}
+	if len(accUnpaired.RoomItems) != 0 {
+		t.Fatalf("accUnpaired modified unexpectedly: %+v", accUnpaired.RoomItems)
+	}
+
+	// Idempotent on second call.
+	prevSeq := accEmpty.NextRoomSeq
+	prevLen := len(accEmpty.RoomItems)
+	if err := MigrateOwnedPetItems(); err != nil {
+		t.Fatalf("second MigrateOwnedPetItems: %v", err)
+	}
+	if accEmpty.NextRoomSeq != prevSeq || len(accEmpty.RoomItems) != prevLen {
+		t.Fatalf("second call modified accEmpty: seq %d->%d len %d->%d", prevSeq, accEmpty.NextRoomSeq, prevLen, len(accEmpty.RoomItems))
+	}
+
+	// Rollback on save failure.
+	accFail := &store.Account{
+		Aid:       "7033",
+		Pets:      []store.PetItem{{ID: 703301, Cd: "PUPE0000I", Name: "Fail"}},
+		RoomItems: []store.RoomItem{{Seq: 100000, Cd: "RUCH0011X"}},
+	}
+	testutil.InstallAccounts(t, map[string]*store.Account{"mig-fail": accFail})
+	testutil.SetLab(t, "7033", false)
+	testutil.FailSaves(t)
+	if err := MigrateOwnedPetItems(); err == nil {
+		t.Fatal("MigrateOwnedPetItems succeeded when saves fail")
+	}
+	if len(accFail.RoomItems) != 1 || accFail.RoomItems[0].Cd != "RUCH0011X" {
+		t.Fatalf("accFail not rolled back: %+v", accFail.RoomItems)
+	}
+}
+
+// TestGrantNewPairedPetGrantsRoomItem verifies that granting a paired PUPE pet (e.g. via mailbox/season)
+// also grants its paired RUPI room item marked GiftPaid without duplicating if already owned.
+func TestGrantNewPairedPetGrantsRoomItem(t *testing.T) {
+	shopFixture(t, map[string][]string{
+		"interior/122900007": {"dp.png"},
+		"pet/326400016":      {"skeleton.xml", "dp.png"},
+	})
+	acc := &store.Account{Aid: "7040"}
+	testutil.InstallAccounts(t, map[string]*store.Account{"grant-pet": acc})
+	testutil.SetLab(t, "7040", false)
+
+	store.AccountsMu.Lock()
+	granted, err := grantNewItemLocked(acc, "PUPE0000G", false)
+	store.AccountsMu.Unlock()
+	if err != nil || !granted {
+		t.Fatalf("grantNewItemLocked(PUPE0000G) = (%v, %v), want (true, nil)", granted, err)
+	}
+	if len(acc.Pets) != 1 || acc.Pets[0].Cd != "PUPE0000G" {
+		t.Fatalf("acc.Pets = %+v", acc.Pets)
+	}
+	found := false
+	for _, it := range acc.RoomItems {
+		if it.Cd == "RUPI00007" {
+			found = true
+			if it.Paid != store.GiftPaid {
+				t.Fatalf("paired RUPI00007 Paid = %d, want GiftPaid", it.Paid)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("paired RUPI00007 not granted alongside PUPE0000G: %+v", acc.RoomItems)
 	}
 }
