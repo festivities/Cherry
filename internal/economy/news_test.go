@@ -36,7 +36,7 @@ func TestNewsDefaultConfig(t *testing.T) {
 	if cfg.Origin != opdata.OriginCherry || strings.TrimSpace(cfg.Note) == "" {
 		t.Fatalf("provenance = %+v", cfg.Provenance)
 	}
-	if !cfg.IncludeSeasonBanners || !cfg.IncludeRecommendedPosts || cfg.RecommendedMax != 3 || len(cfg.Banners) != 0 {
+	if !cfg.IncludeSeasonBanners || !cfg.IncludeRecommendedPosts || cfg.RecommendedMax != 3 || len(cfg.Banners) != 0 || cfg.BestWindowHours != 72 || cfg.BestLikePoints != 1 || cfg.BestCommentPoints != 2 {
 		t.Fatalf("unexpected default config = %+v", cfg)
 	}
 }
@@ -54,6 +54,8 @@ func TestNewsConfigValidation(t *testing.T) {
 		{"wrong origin", strings.Replace(newsFileText(true, true, 3), `"origin": "cherry"`, `"origin": "mixed"`, 1), `origin must be "cherry"`},
 		{"recommended_max negative", `{"origin": "cherry", "note": "test", "include_season_banners": true, "include_recommended_posts": true, "recommended_max": -1, "banners": []}`, "recommended_max must be 0 to 10"},
 		{"recommended_max too high", `{"origin": "cherry", "note": "test", "include_season_banners": true, "include_recommended_posts": true, "recommended_max": 11, "banners": []}`, "recommended_max must be 0 to 10"},
+		{"best_window_hours negative", `{"origin": "cherry", "note": "test", "include_season_banners": true, "include_recommended_posts": true, "recommended_max": 3, "best_window_hours": -1, "banners": []}`, "best_window_hours must be 0 to 8760"},
+		{"best_comment_points too high", `{"origin": "cherry", "note": "test", "include_season_banners": true, "include_recommended_posts": true, "recommended_max": 3, "best_comment_points": 101, "banners": []}`, "best_like_points and best_comment_points must be 0 to 100"},
 		{"id below operator block", newsFileText(true, true, 3, m(`"id": 1970000001`, `"id": 1969999999`)), "id must be inside the operator block"},
 		{"id in season reserved block", newsFileText(true, true, 3, m(`"id": 1970000001`, `"id": 1970000900`)), "id must be inside the operator block"},
 		{"duplicate id", newsFileText(true, true, 3, sampleNewsBanner, sampleNewsBanner), "id must be unique"},

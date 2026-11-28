@@ -1,8 +1,11 @@
 {
   "origin": "cherry",
-  "note": "All News settings and operator banners in this file are Cherry-made; original LINE PLAY banner content is not redistributed. When banners is empty, What's NEW surfaces organic friend diary posts, personal alerts, active season banners (if include_season_banners is true), and recent public photo diary posts (if include_recommended_posts is true).",
+  "note": "All News settings and operator banners in this file are Cherry-made; original LINE PLAY banner content is not redistributed. When banners is empty, What's NEW surfaces organic friend diary posts, personal alerts, active season banners (if include_season_banners is true), and the most active recent public photo diary posts (if include_recommended_posts is true). Today's Best and those hot posts rank public posts made within best_window_hours (0 = no window) by best_like_points per distinct liker plus best_comment_points per distinct commenter; the owner's own likes and comments do not count.",
   "include_season_banners": true,
   "include_recommended_posts": true,
   "recommended_max": 3,
+  "best_window_hours": 72,
+  "best_like_points": 1,
+  "best_comment_points": 2,
   "banners": []
 }

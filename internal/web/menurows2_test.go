@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"slices"
+	"strconv"
 	"testing"
+	"time"
 
 	"cherry/internal/store"
 )
@@ -108,20 +110,48 @@ func TestRecommendPostListEmpty(t *testing.T) {
 	}
 }
 
-// TestRecommendPostListVisibilityPagingAndShape: only public, non-blind posts; newest first; the lastSeq cursor
-// pages like the diary unfold route; every row has nine string keys; image is the diary route's imageUrl as stored.
-func TestRecommendPostListVisibilityPagingAndShape(t *testing.T) {
+// TestRecommendPostListRankingPagingAndShape: only public, non-Blind posts inside the window; ranked by
+// distinct likers (1 point) and commenters (2 points) other than the owner, newest first on a tie; orderSeq is the
+// rank and lastSeq pages by it; every row has nine string keys, linkType "goSomewhere(diaryDetail)" (the list
+// tab drops any other row) and the author's relative profile picture + background.
+func TestRecommendPostListRankingPagingAndShape(t *testing.T) {
+	installSocialTestAccounts(t, map[string]*store.Account{
+		"ra": {AccessToken: "ra", SessionKey: "sk", Aid: "9501", Name: "alice",
+			ProfileImage: store.ProfileImage{Image: "/lineplay/pr/9501_1", Bg: "profilebg/3.jpg"}},
+		"rb": {AccessToken: "rb", SessionKey: "sk", Aid: "9502", Name: "bob"},
+	})
 	store.ResetSocial()
 	t.Cleanup(store.ResetSocial)
 	const photo = "/lineplay/d/download.nhn?oid=9501_1700000000&ctime=1700000000&userid=9501&tid=460x0.r"
+	now := time.Now()
+	recent := strconv.FormatInt(now.Add(-time.Hour).UnixMilli(), 10)
+	old := strconv.FormatInt(now.Add(-100*time.Hour).UnixMilli(), 10) // outside the default 72-hour window
 	store.SocialMu.Lock()
 	store.DiaryPosts = []store.DiaryPost{
-		{DiaryNo: "2", AvatarID: "9502", Nickname: "bob", Title: "two", OpenState: "public", Images: []store.DiaryImage{}},
-		{DiaryNo: "4", AvatarID: "9501", Nickname: "alice", Title: "hidden", OpenState: "private", Images: []store.DiaryImage{{ImageURL: photo}}},
-		{DiaryNo: "5", AvatarID: "9501", Nickname: "alice", Title: "five", OpenState: "public", Images: []store.DiaryImage{{ImageURL: photo}}},
-		{DiaryNo: "3", AvatarID: "9503", Nickname: "carol", Title: "blind", OpenState: "public", Blind: true, Images: []store.DiaryImage{}},
-		{DiaryNo: "1", AvatarID: "9502", Nickname: "bob", Title: "one", OpenState: "public", Images: []store.DiaryImage{}},
+		{DiaryNo: "1", AvatarID: "9502", Nickname: "bob", Content: "one", OpenState: "public", RegDate: recent, Images: []store.DiaryImage{}},
+		{DiaryNo: "2", AvatarID: "9502", Nickname: "bob", Content: "two", OpenState: "public", RegDate: recent, Images: []store.DiaryImage{}},
+		{DiaryNo: "3", AvatarID: "9503", Nickname: "carol", Content: "blind", OpenState: "public", Blind: true, RegDate: recent, Images: []store.DiaryImage{}},
+		{DiaryNo: "4", AvatarID: "9501", Nickname: "alice", Content: "hidden", OpenState: "private", RegDate: recent, Images: []store.DiaryImage{{ImageURL: photo}}},
+		{DiaryNo: "5", AvatarID: "9501", Nickname: "alice", Content: "five", OpenState: "public", RegDate: recent, Images: []store.DiaryImage{{ImageURL: photo}}},
+		{DiaryNo: "6", AvatarID: "9502", Nickname: "bob", Content: "old", OpenState: "public", RegDate: old, Images: []store.DiaryImage{}},
 	}
+	store.DiaryLikes = []store.DiaryLike{
+		// Post 1: two distinct likers = 2 points; a repeat like and the owner's own like add nothing.
+		{LikeNo: "1", DiaryNo: "1", OwnerAvatarID: "9502", LikeAvatarID: "9601", LikeType: 1},
+		{LikeNo: "2", DiaryNo: "1", OwnerAvatarID: "9502", LikeAvatarID: "9602", LikeType: 1},
+		{LikeNo: "3", DiaryNo: "1", OwnerAvatarID: "9502", LikeAvatarID: "9602", LikeType: 2},
+		{LikeNo: "4", DiaryNo: "1", OwnerAvatarID: "9502", LikeAvatarID: "9502", LikeType: 1},
+		// The old post's activity does not bring it back inside the window.
+		{LikeNo: "5", DiaryNo: "6", OwnerAvatarID: "9502", LikeAvatarID: "9601", LikeType: 1},
+	}
+	store.DiaryComments = []store.DiaryComment{
+		// Post 5: one commenter (three comments) = 2 points, plus one liker = 3 points in all.
+		{CommentNo: "1", DiaryNo: "5", OwnerAvatarID: "9501", CommentAvatarID: "9603", Content: "a"},
+		{CommentNo: "2", DiaryNo: "5", OwnerAvatarID: "9501", CommentAvatarID: "9603", Content: "b"},
+		{CommentNo: "3", DiaryNo: "5", OwnerAvatarID: "9501", CommentAvatarID: "9603", Content: "c"},
+		{CommentNo: "4", DiaryNo: "5", OwnerAvatarID: "9501", CommentAvatarID: "9501", Content: "own"},
+	}
+	store.DiaryLikes = append(store.DiaryLikes, store.DiaryLike{LikeNo: "6", DiaryNo: "5", OwnerAvatarID: "9501", LikeAvatarID: "9604", LikeType: 1})
 	store.SocialMu.Unlock()
 
 	rec := serve(t, http.MethodGet, "/v4/rcmdpost/list?lastSeq=-1&size=12")
@@ -130,7 +160,7 @@ func TestRecommendPostListVisibilityPagingAndShape(t *testing.T) {
 	}
 	rows := todaysRows(t, rec.Body.Bytes())
 	if len(rows) != 3 {
-		t.Fatalf("%d rows, want 3 (5, 2, 1)", len(rows))
+		t.Fatalf("%d rows, want 3 (5, 1, 2)", len(rows))
 	}
 	for _, row := range rows {
 		checkKinds(t, row, map[string]string{
@@ -145,8 +175,8 @@ func TestRecommendPostListVisibilityPagingAndShape(t *testing.T) {
 		t.Fatalf("first row %s: %v", raw, err)
 	}
 	want := map[string]string{
-		"image": photo, "linkType": "", "description": "five", "icnImage": "", "imageSubPath": "",
-		"orderSeq": "5", "postAvatarId": "9501", "postAvatarName": "alice", "postId": "5",
+		"image": photo, "linkType": "goSomewhere(diaryDetail)", "description": "five", "icnImage": "lineplay/pr/9501_1",
+		"imageSubPath": "profilebg/3.jpg", "orderSeq": "1", "postAvatarId": "9501", "postAvatarName": "alice", "postId": "5",
 	}
 	for key, value := range want {
 		if first[key] != value {
@@ -154,17 +184,17 @@ func TestRecommendPostListVisibilityPagingAndShape(t *testing.T) {
 		}
 	}
 
-	if got := todaysPostIDs(t, "/v4/rcmdpost/list?lastSeq=-1&size=12"); !slices.Equal(got, []string{"5", "2", "1"}) {
-		t.Fatalf("full page %v, want [5 2 1]", got)
+	if got := todaysPostIDs(t, "/v4/rcmdpost/list?lastSeq=-1&size=12"); !slices.Equal(got, []string{"5", "1", "2"}) {
+		t.Fatalf("full page %v, want [5 1 2]", got)
 	}
 	for _, step := range []struct {
 		target string
 		want   []string
 	}{
 		{"/v4/rcmdpost/list?lastSeq=-1&size=1", []string{"5"}},
-		{"/v4/rcmdpost/list?lastSeq=5&size=1", []string{"2"}},
-		{"/v4/rcmdpost/list?lastSeq=2&size=1", []string{"1"}},
-		{"/v4/rcmdpost/list?lastSeq=1&size=1", nil},
+		{"/v4/rcmdpost/list?lastSeq=1&size=1", []string{"1"}},
+		{"/v4/rcmdpost/list?lastSeq=2&size=1", []string{"2"}},
+		{"/v4/rcmdpost/list?lastSeq=3&size=1", nil},
 	} {
 		if got := todaysPostIDs(t, step.target); !slices.Equal(got, step.want) {
 			t.Fatalf("%s: %v, want %v", step.target, got, step.want)

@@ -140,7 +140,10 @@ func diaryPreviewText(post store.DiaryPost) string {
 	return newsTruncateRunes(text, 200)
 }
 
-func collectSocialNews(viewerAid string, includeRecommended bool, recommendedMax int) (pendingFrom map[string]bool, friendPosts, recommended []store.DiaryPost) {
+// collectSocialNews gathers the viewer's pending friend requests, friends' public posts (newest first) and the
+// News "hot post" cards: the top cfg.RecommendedMax photo posts of other players by bestRankLocked, only posts
+// with some activity (a score above 0).
+func collectSocialNews(viewerAid string, cfg *economy.NewsConfig) (pendingFrom map[string]bool, friendPosts, recommended []store.DiaryPost) {
 	store.SocialMu.Lock()
 	defer store.SocialMu.Unlock()
 	friends := make(map[string]bool)
@@ -159,7 +162,7 @@ func collectSocialNews(viewerAid string, includeRecommended bool, recommendedMax
 		seq  uint64
 		post store.DiaryPost
 	}
-	var friendCandidates, recCandidates []candidate
+	var friendCandidates []candidate
 	for _, post := range store.DiaryPosts {
 		if post.Blind || post.OpenState != "public" {
 			continue
@@ -171,9 +174,6 @@ func collectSocialNews(viewerAid string, includeRecommended bool, recommendedMax
 		if friends[post.AvatarID] {
 			friendCandidates = append(friendCandidates, candidate{seq, post})
 		}
-		if includeRecommended && recommendedMax > 0 && post.AvatarID != viewerAid && len(post.Images) > 0 && post.ImageLocationType == "obs" {
-			recCandidates = append(recCandidates, candidate{seq, post})
-		}
 	}
 	sort.Slice(friendCandidates, func(i, j int) bool { return friendCandidates[i].seq > friendCandidates[j].seq })
 	if len(friendCandidates) > maxNewsStreamItems {
@@ -183,14 +183,15 @@ func collectSocialNews(viewerAid string, includeRecommended bool, recommendedMax
 	for i, c := range friendCandidates {
 		friendPosts[i] = c.post
 	}
-	if includeRecommended && recommendedMax > 0 {
-		sort.Slice(recCandidates, func(i, j int) bool { return recCandidates[i].seq > recCandidates[j].seq })
-		if len(recCandidates) > recommendedMax {
-			recCandidates = recCandidates[:recommendedMax]
-		}
-		recommended = make([]store.DiaryPost, len(recCandidates))
-		for i, c := range recCandidates {
-			recommended[i] = c.post
+	if cfg.IncludeRecommendedPosts && cfg.RecommendedMax > 0 {
+		hot := bestRankLocked(cfg, func(post store.DiaryPost) bool {
+			return !post.Blind && post.OpenState == "public" && post.AvatarID != viewerAid && len(post.Images) > 0 && post.ImageLocationType == "obs"
+		})
+		for _, b := range hot {
+			if b.score <= 0 || len(recommended) == cfg.RecommendedMax {
+				break
+			}
+			recommended = append(recommended, b.post)
 		}
 	}
 	return pendingFrom, friendPosts, recommended
@@ -310,7 +311,7 @@ func handleNewsList(w http.ResponseWriter, r *http.Request) {
 
 	now := economy.NowFunc()
 	cfg := economy.ActiveNews()
-	pendingFrom, friendPosts, recPosts := collectSocialNews(viewer.Aid, cfg.IncludeRecommendedPosts, cfg.RecommendedMax)
+	pendingFrom, friendPosts, recPosts := collectSocialNews(viewer.Aid, cfg)
 
 	mailBySeq := make(map[string]store.MailRow, len(mailSnap))
 	for _, m := range mailSnap {

@@ -192,6 +192,10 @@ func TestNewsAllAlertTypesDiaryFriendsBadgesAndPersistence(t *testing.T) {
 	recordPicture(t, store.MediaDiary, "9103", "9103", "1760000101", "9103_1760000101")
 	caraPhotoURL := "/lineplay/d/download.nhn?oid=9103_1760000101&ctime=1760000101&userid=9103"
 	caraPhotoNo := writePost("tok3", fmt.Sprintf(`{"avatarId":"9103","title":"cp","content":"Cara recommended photo","openState":"public","imageTypeKind":"photo","images":[{"imageUrl":%q}]}`, caraPhotoURL))
+	// Hot posts need activity: Bob comments on Cara's photo (Bob's own photo has none, so it is not a hot post).
+	if rec := socialTestRequestAs(t, "tok2", http.MethodPost, "/v4/diary2/comment/write/9103", fmt.Sprintf(`{"diaryNo":%s,"avatarID":"9102","content":"Great shot"}`, caraPhotoNo)); rec.Code != http.StatusOK {
+		t.Fatalf("comment on Cara's photo = %d %s", rec.Code, rec.Body.String())
+	}
 
 	// Bob comments and likes Alice's diary -> DIARY_COMMENT_SAVE and DIARY_STICKER_SAVE on Alice.
 	aliceDiaryNo := writePost("tok1", `{"avatarId":"9101","title":"a","content":"Alice diary","openState":"public"}`)

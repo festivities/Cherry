@@ -4,7 +4,10 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
+	"time"
 
+	"cherry/internal/economy"
 	"cherry/internal/httpx"
 	"cherry/internal/store"
 )
@@ -29,8 +32,17 @@ const (
 	lineEventFriendListBody = `{"result":{"campaignURL":"","friends":[]}}`
 )
 
-// todaysBestItem is one result.items row. The client reads every key with asString, so all nine are strings.
-// icnImage, imageSubPath and linkType stay empty: their client use is not traced [I].
+// todaysBestItem is one result.items row. The client reads every key with asString, so all nine are strings
+// (IDA 2026-11-28, ResTodaysBestList 0x1b41ee0 and the cells below). The screen has two tabs (ToggleViewType
+// 0x1b8be50: view type 0 = list, 1 = album grid). The list tab (AddTableViewData 0x1a9169c) keeps a row ONLY
+// when linkType is "goSomewhere(diaryDetail)"; the album tab keeps every row, which is why an empty linkType
+// showed an empty left tab and a full right one. List cell (NaTodaysBestDiaryCell): icnImage = the author's
+// profile picture, fetched as <static base> + icnImage into cache/<icnImage> (SetAvatarImg 0x1f40e10,
+// NaImageFileReqMgr type 2 -> ReqDownloadImage_Diary), so it is the relative "lineplay/pr/<oid>" form;
+// imageSubPath = the profile background "profilebg/N.jpg" (SetAvatarUI 0x1f56598, ConvertToLocalSquareBGName);
+// a non-empty image makes the tall photo cell and is loaded as an OBS path; postAvatarId + postId feed the
+// diary check on tap (CheckValidTodaysBestDiaryCell 0x1bb382c). Paging: the next request's lastSeq is
+// atoi(orderSeq) of the last row (tableViewScrolledBottom 0x1b8b4ec), so orderSeq is the 1-based rank.
 type todaysBestItem struct {
 	Image          string `json:"image"`
 	LinkType       string `json:"linkType"`
@@ -42,6 +54,8 @@ type todaysBestItem struct {
 	PostAvatarName string `json:"postAvatarName"`
 	PostID         string `json:"postId"`
 }
+
+const todaysBestLinkType = "goSomewhere(diaryDetail)"
 
 func handleRecommendPostList(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -56,37 +70,96 @@ func handleRecommendPostList(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteObj(w, map[string]any{"result": map[string]any{"items": recommendPosts(lastSeq, size)}})
 }
 
-// recommendPosts returns the newest public diary posts older than the lastSeq cursor, as the diary unfold route
-// pages them. Visibility is canViewDiaryPost for an anonymous viewer; Blind posts are left out too.
+// recommendPosts returns one page of Today's Best: public, non-Blind posts ranked by bestRankLocked, starting
+// after rank lastSeq (-1 or 0 = from the top).
 func recommendPosts(lastSeq int64, size int) []todaysBestItem {
+	cfg := economy.ActiveNews()
 	store.SocialMu.Lock()
-	defer store.SocialMu.Unlock()
-	type candidate struct {
-		seq  uint64
-		post store.DiaryPost
+	ranked := bestRankLocked(cfg, func(post store.DiaryPost) bool {
+		return !post.Blind && canViewDiaryPost(post, store.AccountSnapshot{}, false)
+	})
+	store.SocialMu.Unlock()
+	start := int(max(lastSeq, 0))
+	if start >= len(ranked) {
+		return []todaysBestItem{}
 	}
-	var found []candidate
-	for _, post := range store.DiaryPosts {
-		seq, err := strconv.ParseUint(post.DiaryNo, 10, 64)
-		if err != nil || post.Blind || !canViewDiaryPost(post, store.AccountSnapshot{}, false) || (lastSeq >= 0 && seq >= uint64(lastSeq)) {
-			continue
-		}
-		found = append(found, candidate{seq, post})
-	}
-	sort.Slice(found, func(i, j int) bool { return found[i].seq > found[j].seq })
-	if len(found) > size {
-		found = found[:size]
-	}
-	items := make([]todaysBestItem, 0, len(found))
-	for _, c := range found {
+	page := ranked[start:min(start+size, len(ranked))]
+	var actors newsActorResolver
+	items := make([]todaysBestItem, 0, len(page))
+	for i, b := range page {
 		image := ""
-		if len(c.post.Images) > 0 {
-			image = c.post.Images[0].ImageURL
+		if len(b.post.Images) > 0 {
+			image = b.post.Images[0].ImageURL
 		}
+		actor := actors.resolve(b.post.AvatarID, b.post.Nickname)
 		items = append(items, todaysBestItem{
-			Image: image, Description: c.post.Title, OrderSeq: c.post.DiaryNo,
-			PostAvatarID: c.post.AvatarID, PostAvatarName: c.post.Nickname, PostID: c.post.DiaryNo,
+			Image: image, LinkType: todaysBestLinkType, Description: diaryPreviewText(b.post),
+			IcnImage: strings.TrimPrefix(actor.img, "/"), ImageSubPath: actor.bg,
+			OrderSeq: strconv.Itoa(start + i + 1), PostAvatarID: b.post.AvatarID, PostAvatarName: actor.name,
+			PostID: b.post.DiaryNo,
 		})
 	}
 	return items
+}
+
+type bestPost struct {
+	post  store.DiaryPost
+	score int
+}
+
+// bestRankLocked ranks the diary posts keep accepts by activity, highest first, newest first on a tie: each
+// distinct player other than the owner who liked the post adds cfg.BestLikePoints, each who commented adds
+// cfg.BestCommentPoints. With cfg.BestWindowHours > 0 only posts made within that many hours count; the window is
+// on the wall clock, like a post's RegDate (social.go), not the game clock. Caller holds store.SocialMu.
+// ponytail: scans every like and comment per call (fine at a few thousand posts); keep per-post counters if it shows.
+func bestRankLocked(cfg *economy.NewsConfig, keep func(store.DiaryPost) bool) []bestPost {
+	since := int64(0)
+	if cfg.BestWindowHours > 0 {
+		since = time.Now().Add(-time.Duration(cfg.BestWindowHours) * time.Hour).UnixMilli()
+	}
+	type actorKey struct{ diaryNo, aid string }
+	seen := make(map[actorKey]bool)
+	score := make(map[string]int)
+	add := func(diaryNo, owner, actor, kind string, points int) {
+		key := actorKey{diaryNo, kind + actor}
+		if points == 0 || actor == "" || actor == owner || seen[key] {
+			return
+		}
+		seen[key] = true
+		score[diaryNo] += points
+	}
+	for _, like := range store.DiaryLikes {
+		add(like.DiaryNo, like.OwnerAvatarID, like.LikeAvatarID, "l", cfg.BestLikePoints)
+	}
+	for _, comment := range store.DiaryComments {
+		add(comment.DiaryNo, comment.OwnerAvatarID, comment.CommentAvatarID, "c", cfg.BestCommentPoints)
+	}
+	type ranked struct {
+		bestPost
+		seq uint64
+	}
+	var found []ranked
+	for _, post := range store.DiaryPosts {
+		seq, err := strconv.ParseUint(post.DiaryNo, 10, 64)
+		if err != nil || !keep(post) {
+			continue
+		}
+		if since > 0 {
+			if reg, err := strconv.ParseInt(post.RegDate, 10, 64); err != nil || reg < since {
+				continue
+			}
+		}
+		found = append(found, ranked{bestPost{post, score[post.DiaryNo]}, seq})
+	}
+	sort.Slice(found, func(i, j int) bool {
+		if found[i].score != found[j].score {
+			return found[i].score > found[j].score
+		}
+		return found[i].seq > found[j].seq
+	})
+	out := make([]bestPost, len(found))
+	for i, f := range found {
+		out[i] = f.bestPost
+	}
+	return out
 }

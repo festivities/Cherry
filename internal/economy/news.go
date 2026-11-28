@@ -43,10 +43,16 @@ var newsIconFS fs.FS = assets.DeviceFiles("UIResource/UIImage_hd")
 // NewsConfig is data/news.json: operator-editable settings and banners for What's NEW.
 type NewsConfig struct {
 	opdata.Provenance
-	IncludeSeasonBanners    bool         `json:"include_season_banners"`
-	IncludeRecommendedPosts bool         `json:"include_recommended_posts"`
-	RecommendedMax          int          `json:"recommended_max"`
-	Banners                 []NewsBanner `json:"banners"`
+	IncludeSeasonBanners    bool `json:"include_season_banners"`
+	IncludeRecommendedPosts bool `json:"include_recommended_posts"`
+	RecommendedMax          int  `json:"recommended_max"`
+	// Today's Best and the News "hot post" cards rank public posts by activity: BestLikePoints per distinct liker
+	// plus BestCommentPoints per distinct commenter (the owner's own likes and comments do not count), among posts
+	// made within the last BestWindowHours (0 = no window). Cherry-made.
+	BestWindowHours   int          `json:"best_window_hours"`
+	BestLikePoints    int          `json:"best_like_points"`
+	BestCommentPoints int          `json:"best_comment_points"`
+	Banners           []NewsBanner `json:"banners"`
 }
 
 // NewsBanner is one operator-defined banner entry in data/news.json.
@@ -102,6 +108,12 @@ func checkNewsConfig(cfg *NewsConfig) error {
 	}
 	if cfg.RecommendedMax < 0 || cfg.RecommendedMax > 10 {
 		return fmt.Errorf("recommended_max must be 0 to 10, got %d", cfg.RecommendedMax)
+	}
+	if cfg.BestWindowHours < 0 || cfg.BestWindowHours > 8760 {
+		return fmt.Errorf("best_window_hours must be 0 to 8760, got %d", cfg.BestWindowHours)
+	}
+	if cfg.BestLikePoints < 0 || cfg.BestLikePoints > 100 || cfg.BestCommentPoints < 0 || cfg.BestCommentPoints > 100 {
+		return fmt.Errorf("best_like_points and best_comment_points must be 0 to 100")
 	}
 	seen := make(map[int64]bool, len(cfg.Banners))
 	for i := range cfg.Banners {
