@@ -68,6 +68,15 @@ func broadcastLOFrame(frame []byte) (sent, failed int) {
 	return sent, failed
 }
 
+// BannerMaxRunes is the longest banner text the staff UI and Cherry's own banners use. The client draws the banner's text in
+// ONE line of TX_MSG (UIResource/PushAlarm.plist: 265 of the banner's 320 layout units, font LP_SYSTEM_B = the device's bold
+// system font, size 12) and cuts anything longer with "..." (ShowPushMessage 0x1c897b0 -> arts::CText::CheckAutoEllipsisText
+// 0x2b480f0 -> CCImage::GetEllipsisString, measured with the device's font at the screen's scale, so the fit is the same on
+// every screen size and differs only by font). Measured 2026-11-28 at size 12 against 265: mixed-case English fits 42 chars
+// in Arial Bold, 43 in Segoe UI Bold, 40 in Tahoma Bold, 36 in the wide Verdana Bold; ALL CAPS 29 to 36; CJK 22 (full-width
+// glyphs). 34 keeps mixed-case text whole on every font measured, with room for the rounding of small screens.
+const BannerMaxRunes = 34
+
 // BroadcastBanner sends a non-blocking in-game top notification banner and chime
 // (catg "postbox" -> PushNotiType=4, params.pType "PBO" is a no-op on tap, ShowPushMessage)
 // to every live :10123 session.

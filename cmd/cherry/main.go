@@ -307,10 +307,11 @@ func main() {
 	}
 }
 
-// restartNotice is the in-game banner a restart sends (Cherry-made text); restartNoticeLead is how long the players
-// online keep their connections after it, so the banner shows before the drop.
+// restartNotice is the in-game banner a restart sends (Cherry-made text, owner 2026-11-28: players wait in the game, which
+// reconnects by itself; at most lpn.BannerMaxRunes so no phone cuts it); restartNoticeLead is how long the players online
+// keep their connections after it, so the banner shows before the drop.
 const (
-	restartNotice     = "The server is restarting now. Please reconnect in a minute."
+	restartNotice     = "Server restart! Stay in the game."
 	restartNoticeLead = 5 * time.Second
 )
 

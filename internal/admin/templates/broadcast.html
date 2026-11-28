@@ -9,8 +9,8 @@
 <label><input type="radio" name="kind" value="maint"{{if eq .Broadcast.Form.Kind "maint"}} checked{{end}}> Maintenance popup (blocking) — opens the full-screen "Maintenance in progress." modal with a "Close App" button until the duration ends; accounts on the maintenance whitelist (Settings) are skipped.</label>
 </fieldset>
 <label><span class="label">Message</span>
-<textarea name="message" rows="4" maxlength="400" required>{{.Broadcast.Form.Message}}</textarea>
-<small class="help">1 to 400 characters.</small></label>
+<textarea name="message" rows="4" maxlength="{{if eq .Broadcast.Form.Kind "maint"}}{{.Broadcast.MaintMax}}{{else}}{{.Broadcast.BannerMax}}{{end}}" data-banner-max="{{.Broadcast.BannerMax}}" data-maint-max="{{.Broadcast.MaintMax}}" required>{{.Broadcast.Form.Message}}</textarea>
+<small class="help">In-game banner: 1 to {{.Broadcast.BannerMax}} characters. The game shows it on one line and cuts longer text off with "..."; ALL CAPS and Chinese, Japanese or Korean text fit fewer (about 22 CJK characters). Maintenance popup: 1 to {{.Broadcast.MaintMax}} characters.</small></label>
 <label><span class="label">Duration (minutes)</span>
 <input type="text" name="duration" value="{{.Broadcast.Form.Duration}}" inputmode="numeric" maxlength="4">
 <small class="help">1 to 1440 minutes. Applies to the Maintenance popup only.</small></label>

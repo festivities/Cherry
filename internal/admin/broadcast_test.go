@@ -1,11 +1,14 @@
 package admin
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
+
+	"cherry/internal/lpn"
 )
 
 func TestBroadcastOwnerOnly(t *testing.T) {
@@ -153,6 +156,7 @@ func TestBroadcastSendValidation(t *testing.T) {
 	csrf := c.csrf()
 
 	tooLongMsg := strings.Repeat("a", 401)
+	tooLongBanner := strings.Repeat("b", lpn.BannerMaxRunes+1)
 	tooLongReason := strings.Repeat("r", 201)
 
 	cases := []struct {
@@ -161,6 +165,8 @@ func TestBroadcastSendValidation(t *testing.T) {
 	}{
 		{"empty message", url.Values{"csrf": {csrf}, "kind": {"banner"}, "message": {"   "}, "reason": {"ok"}}},
 		{"message > 400 runes", url.Values{"csrf": {csrf}, "kind": {"banner"}, "message": {tooLongMsg}, "reason": {"ok"}}},
+		{"banner > BannerMaxRunes", url.Values{"csrf": {csrf}, "kind": {"banner"}, "message": {tooLongBanner}, "reason": {"ok"}}},
+		{"maint message > 400 runes", url.Values{"csrf": {csrf}, "kind": {"maint"}, "message": {tooLongMsg}, "duration": {"5"}, "reason": {"ok"}}},
 		{"reason > 200 runes", url.Values{"csrf": {csrf}, "kind": {"banner"}, "message": {"hi"}, "reason": {tooLongReason}}},
 		{"invalid kind", url.Values{"csrf": {csrf}, "kind": {"popup"}, "message": {"hi"}, "reason": {"ok"}}},
 		{"maint duration 0", url.Values{"csrf": {csrf}, "kind": {"maint"}, "message": {"hi"}, "duration": {"0"}, "reason": {"ok"}}},
@@ -174,5 +180,18 @@ func TestBroadcastSendValidation(t *testing.T) {
 	}
 	if called != 0 {
 		t.Fatalf("validation failure still invoked broadcast %d times", called)
+	}
+	// At the limit: a banner of exactly BannerMaxRunes and a maintenance popup longer than any banner both go out.
+	expect(t, c.post("/broadcast/send", url.Values{"csrf": {csrf}, "kind": {"banner"}, "message": {strings.Repeat("b", lpn.BannerMaxRunes)}}), http.StatusSeeOther)
+	expect(t, c.post("/broadcast/send", url.Values{"csrf": {csrf}, "kind": {"maint"}, "message": {strings.Repeat("m", 400)}, "duration": {"5"}}), http.StatusSeeOther)
+	if called != 2 {
+		t.Fatalf("sends at the limit: broadcast called %d times, want 2", called)
+	}
+	// The page carries both limits for the type switch and starts at the banner's.
+	page := c.get("/broadcast")
+	for _, want := range []string{fmt.Sprintf(`maxlength="%d"`, lpn.BannerMaxRunes), fmt.Sprintf(`data-banner-max="%d"`, lpn.BannerMaxRunes), `data-maint-max="400"`} {
+		if !strings.Contains(page.body, want) {
+			t.Fatalf("broadcast page lacks %s", want)
+		}
 	}
 }

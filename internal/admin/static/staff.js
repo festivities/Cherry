@@ -32,6 +32,18 @@
     }
   });
 
+  // Broadcast: the message limit follows the announcement type (data-banner-max / data-maint-max); the server checks it too.
+  document.addEventListener('change', function (e) {
+    var t = e.target;
+    if (!t || t.name !== 'kind' || !t.form) {
+      return;
+    }
+    var box = t.form.querySelector('textarea[data-banner-max]');
+    if (box) {
+      box.maxLength = Number(box.getAttribute(t.value === 'maint' ? 'data-maint-max' : 'data-banner-max'));
+    }
+  });
+
   if (!document.querySelector('[data-stats]') || !window.fetch) {
     return;
   }

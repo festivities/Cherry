@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"cherry/internal/auth"
+	"cherry/internal/lpn"
 	"cherry/internal/store"
 )
 
@@ -21,7 +22,7 @@ import (
 const (
 	broadcastKindBanner  = "banner"
 	broadcastKindMaint   = "maint"
-	broadcastMessageMax  = 400
+	broadcastMessageMax  = 400 // the maintenance popup; the banner is lpn.BannerMaxRunes (one line on the phone)
 	broadcastReasonMax   = 200
 	broadcastDurationMin = 1
 	broadcastDurationMax = 1440
@@ -40,6 +41,8 @@ type broadcastPage struct {
 	OnlineSessions int
 	Form           broadcastForm
 	Recent         []broadcastRow
+	BannerMax      int // lpn.BannerMaxRunes
+	MaintMax       int // broadcastMessageMax
 }
 
 func (s *Server) broadcastOwner(w http.ResponseWriter, sess session) bool {
@@ -96,6 +99,8 @@ func (s *Server) handleBroadcast(w http.ResponseWriter, r *http.Request, sess se
 		OnlineSessions: s.sessionCount(),
 		Form:           broadcastForm{Kind: broadcastKindBanner, Duration: "5"},
 		Recent:         recent,
+		BannerMax:      lpn.BannerMaxRunes,
+		MaintMax:       broadcastMessageMax,
 	}
 	s.render(w, http.StatusOK, "broadcast", v)
 }
@@ -116,6 +121,10 @@ func (s *Server) handleBroadcastSend(w http.ResponseWriter, r *http.Request, ses
 	}
 	if n := utf8.RuneCountInString(msg); n < 1 || n > broadcastMessageMax {
 		s.fail(w, http.StatusBadRequest, fmt.Sprintf("The message is 1 to %d characters.", broadcastMessageMax))
+		return
+	}
+	if n := utf8.RuneCountInString(msg); kind == broadcastKindBanner && n > lpn.BannerMaxRunes {
+		s.fail(w, http.StatusBadRequest, fmt.Sprintf("An in-game banner is at most %d characters (this one has %d): the game shows it on one line and cuts longer text off with \"...\". Shorten it, or send a maintenance popup.", lpn.BannerMaxRunes, n))
 		return
 	}
 	if utf8.RuneCountInString(reason) > broadcastReasonMax { // optional (owner, 2026-11-28)
