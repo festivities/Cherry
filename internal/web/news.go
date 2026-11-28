@@ -185,7 +185,7 @@ func collectSocialNews(viewerAid string, cfg *economy.NewsConfig) (pendingFrom m
 	}
 	if cfg.IncludeRecommendedPosts && cfg.RecommendedMax > 0 {
 		hot := bestRankLocked(cfg, func(post store.DiaryPost) bool {
-			return !post.Blind && post.OpenState == "public" && post.AvatarID != viewerAid && len(post.Images) > 0 && post.ImageLocationType == "obs"
+			return !post.Blind && post.OpenState == "public" && post.AvatarID != viewerAid && hasDiaryPhoto(post)
 		})
 		for _, b := range hot {
 			if b.score <= 0 || len(recommended) == cfg.RecommendedMax {

@@ -70,13 +70,15 @@ func handleRecommendPostList(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteObj(w, map[string]any{"result": map[string]any{"items": recommendPosts(lastSeq, size)}})
 }
 
-// recommendPosts returns one page of Today's Best: public, non-Blind posts ranked by bestRankLocked, starting
-// after rank lastSeq (-1 or 0 = from the top).
+// recommendPosts returns one page of Today's Best: public, non-Blind photo posts ranked by bestRankLocked, starting
+// after rank lastSeq (-1 or 0 = from the top). Photo posts only: the album tab (NaTodaysBestAlbumCellData::SetPostData
+// 0x1fb5518) adds no picture for an empty image, so a text or Share to Diary post was a blank tile that no tap opens
+// (NaTodaysBestDiaryAlbumCell::CButtonHandler 0x1f55630 needs a picture index), and both tabs send the same request.
 func recommendPosts(lastSeq int64, size int) []todaysBestItem {
 	cfg := economy.ActiveNews()
 	store.SocialMu.Lock()
 	ranked := bestRankLocked(cfg, func(post store.DiaryPost) bool {
-		return !post.Blind && canViewDiaryPost(post, store.AccountSnapshot{}, false)
+		return !post.Blind && canViewDiaryPost(post, store.AccountSnapshot{}, false) && hasDiaryPhoto(post)
 	})
 	store.SocialMu.Unlock()
 	start := int(max(lastSeq, 0))
@@ -100,6 +102,12 @@ func recommendPosts(lastSeq int64, size int) []todaysBestItem {
 		})
 	}
 	return items
+}
+
+// hasDiaryPhoto: the post's first image is an OBS picture, the only kind the Today's Best cells and the News hot-post cell
+// load (both force the location type "obs").
+func hasDiaryPhoto(post store.DiaryPost) bool {
+	return len(post.Images) > 0 && post.Images[0].ImageURL != "" && post.ImageLocationType == "obs"
 }
 
 type bestPost struct {

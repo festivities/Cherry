@@ -112,7 +112,7 @@ func TestRecommendPostListEmpty(t *testing.T) {
 	}
 }
 
-// TestRecommendPostListRankingPagingAndShape: only public, non-Blind posts inside the window; ranked by
+// TestRecommendPostListRankingPagingAndShape: only public, non-Blind photo posts inside the window; ranked by
 // distinct likers (1 point) and commenters (2 points) other than the owner, newest first on a tie; orderSeq is the
 // rank and lastSeq pages by it; every row has nine string keys, linkType "goSomewhere(diaryDetail)" (the list
 // tab drops any other row) and the author's relative profile picture + background.
@@ -130,12 +130,15 @@ func TestRecommendPostListRankingPagingAndShape(t *testing.T) {
 	old := strconv.FormatInt(now.Add(-100*time.Hour).UnixMilli(), 10) // outside the default 72-hour window
 	store.SocialMu.Lock()
 	store.DiaryPosts = []store.DiaryPost{
-		{DiaryNo: "1", AvatarID: "9502", Nickname: "bob", Content: "one", OpenState: "public", RegDate: recent, Images: []store.DiaryImage{}},
-		{DiaryNo: "2", AvatarID: "9502", Nickname: "bob", Content: "two", OpenState: "public", RegDate: recent, Images: []store.DiaryImage{}},
+		{DiaryNo: "1", AvatarID: "9502", Nickname: "bob", Content: "one", OpenState: "public", RegDate: recent, ImageLocationType: "obs", Images: []store.DiaryImage{{ImageURL: photo}}},
+		{DiaryNo: "2", AvatarID: "9502", Nickname: "bob", Content: "two", OpenState: "public", RegDate: recent, ImageLocationType: "obs", Images: []store.DiaryImage{{ImageURL: photo}}},
+		// A text post (and a Share to Diary post) is a blank, untappable album tile: never listed, however active.
+		{DiaryNo: "7", AvatarID: "9502", Nickname: "bob", Content: "text only", OpenState: "public", RegDate: recent, ImageLocationType: "none", Images: []store.DiaryImage{}},
+		{DiaryNo: "8", AvatarID: "9502", Nickname: "bob", Content: "achieve", OpenState: "public", RegDate: recent, ImageTypeKind: "achieve", ImageLocationType: "none", Images: []store.DiaryImage{}},
 		{DiaryNo: "3", AvatarID: "9503", Nickname: "carol", Content: "blind", OpenState: "public", Blind: true, RegDate: recent, Images: []store.DiaryImage{}},
-		{DiaryNo: "4", AvatarID: "9501", Nickname: "alice", Content: "hidden", OpenState: "private", RegDate: recent, Images: []store.DiaryImage{{ImageURL: photo}}},
-		{DiaryNo: "5", AvatarID: "9501", Nickname: "alice", Content: "five", OpenState: "public", RegDate: recent, Images: []store.DiaryImage{{ImageURL: photo}}},
-		{DiaryNo: "6", AvatarID: "9502", Nickname: "bob", Content: "old", OpenState: "public", RegDate: old, Images: []store.DiaryImage{}},
+		{DiaryNo: "4", AvatarID: "9501", Nickname: "alice", Content: "hidden", OpenState: "private", RegDate: recent, ImageLocationType: "obs", Images: []store.DiaryImage{{ImageURL: photo}}},
+		{DiaryNo: "5", AvatarID: "9501", Nickname: "alice", Content: "five", OpenState: "public", RegDate: recent, ImageLocationType: "obs", Images: []store.DiaryImage{{ImageURL: photo}}},
+		{DiaryNo: "6", AvatarID: "9502", Nickname: "bob", Content: "old", OpenState: "public", RegDate: old, ImageLocationType: "obs", Images: []store.DiaryImage{{ImageURL: photo}}},
 	}
 	store.DiaryLikes = []store.DiaryLike{
 		// Post 1: two distinct likers = 2 points; a repeat like and the owner's own like add nothing.
@@ -145,6 +148,11 @@ func TestRecommendPostListRankingPagingAndShape(t *testing.T) {
 		{LikeNo: "4", DiaryNo: "1", OwnerAvatarID: "9502", LikeAvatarID: "9502", LikeType: 1},
 		// The old post's activity does not bring it back inside the window.
 		{LikeNo: "5", DiaryNo: "6", OwnerAvatarID: "9502", LikeAvatarID: "9601", LikeType: 1},
+		// Nor does any amount of activity list the text post 7.
+		{LikeNo: "8", DiaryNo: "7", OwnerAvatarID: "9502", LikeAvatarID: "9601", LikeType: 1},
+		{LikeNo: "9", DiaryNo: "7", OwnerAvatarID: "9502", LikeAvatarID: "9602", LikeType: 1},
+		{LikeNo: "10", DiaryNo: "7", OwnerAvatarID: "9502", LikeAvatarID: "9603", LikeType: 1},
+		{LikeNo: "11", DiaryNo: "7", OwnerAvatarID: "9502", LikeAvatarID: "9604", LikeType: 1},
 	}
 	store.DiaryComments = []store.DiaryComment{
 		// Post 5: one commenter (three comments) = 2 points, plus one liker = 3 points in all.
@@ -217,7 +225,7 @@ func TestRecommendPostListRankingPagingAndShape(t *testing.T) {
 	for _, b := range ranked {
 		scores[b.post.DiaryNo] = b.score
 	}
-	if want := map[string]int{"5": 3, "1": 2, "2": 0}; !maps.Equal(scores, want) {
+	if want := map[string]int{"5": 3, "7": 4, "1": 2, "2": 0, "8": 0}; !maps.Equal(scores, want) {
 		t.Fatalf("scores %v, want %v", scores, want)
 	}
 }
